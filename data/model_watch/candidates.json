@@ -1,0 +1,3494 @@
+{
+  "schema_version": 1,
+  "maintained_at": "2026-10-15",
+  "description": "Research watchlist seeded from the 2026-10-15 model-upgrade punchlist. Unknown means not yet verified; the source punchlist's provisional license classifications are not distribution clearance.",
+  "candidates": [
+    {
+      "id": "groundingpi",
+      "name": "GroundingPI",
+      "capability": "visual.ground",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No native or compatible path verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "quarantine",
+        "research": "unverified",
+        "evidence": "Punchlist provisional classification; exact artifact terms unresolved."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=GroundingPI&searchtype=all",
+        "https://github.com/search?q=GroundingPI&type=repositories"
+      ],
+      "capability_mapping": "Existing visual grounding capability; compare with current visual acquisition and box grounding.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant grounding candidate; source code, checkpoint and license require verification."
+      },
+      "reconsider_when": [
+        "Runnable code or weights appear",
+        "License changes"
+      ],
+      "aliases": [
+        "GroundingPI-4B"
+      ]
+    },
+    {
+      "id": "molmo2",
+      "name": "Molmo2",
+      "capability": "visual.describe; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Runtime and memory not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "quarantine",
+        "research": "unverified",
+        "evidence": "Punchlist flags additional clearance; assess code, model and data terms separately."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=Molmo2",
+        "https://github.com/search?q=Molmo2&type=repositories"
+      ],
+      "capability_mapping": "Video and spatial understanding; map to semantic analysis and temporal retrieval.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Promising spatial/video scope; rights are unresolved."
+      },
+      "reconsider_when": [
+        "Exact model and dataset license clarified",
+        "Runnable checkpoint released"
+      ]
+    },
+    {
+      "id": "molmopoint_vid",
+      "name": "MolmoPoint-Vid",
+      "capability": "video.locate_event; visual.ground",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "quarantine",
+        "research": "unverified",
+        "evidence": "Punchlist flags additional clearance."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=MolmoPoint",
+        "https://github.com/search?q=MolmoPoint-Vid&type=repositories"
+      ],
+      "capability_mapping": "Point-based video grounding; map to visual grounding and event localization.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant task, but weights and terms are not cleared."
+      },
+      "reconsider_when": [
+        "Runnable checkpoint and permissive terms verified"
+      ]
+    },
+    {
+      "id": "padcaptioner",
+      "name": "PadCaptioner",
+      "capability": "video.caption_events",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "quarantine",
+        "research": "unverified",
+        "evidence": "Punchlist says checkpoint rights unresolved."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=PadCaptioner",
+        "https://github.com/search?q=PadCaptioner&type=repositories"
+      ],
+      "capability_mapping": "Dense temporal captions; compare with existing semantic observations and event candidates.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Could address dense temporal coverage, but checkpoint rights are unknown."
+      },
+      "reconsider_when": [
+        "Checkpoint rights are documented"
+      ]
+    },
+    {
+      "id": "caprl_video",
+      "name": "CapRL-Video",
+      "capability": "visual.describe; video.caption_events",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "prohibited",
+        "research": "verify terms",
+        "evidence": "Punchlist provisional license table; exact artifacts still require review."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=CapRL-Video&searchtype=all",
+        "https://huggingface.co/models?search=CapRL-Video"
+      ],
+      "capability_mapping": "Information-rich video descriptions; compare against semantic analysis and captioning.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Research candidate only unless terms change."
+      },
+      "reconsider_when": [
+        "Commercial license becomes available",
+        "Runnable weights appear"
+      ]
+    },
+    {
+      "id": "timelens2",
+      "name": "TimeLens 2",
+      "capability": "video.locate_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "academic-use restriction",
+        "research": "verify terms",
+        "evidence": "Punchlist provisional classification; exact license not audited here."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=TimeLens%202&searchtype=all",
+        "https://github.com/search?q=TimeLens+2&type=repositories"
+      ],
+      "capability_mapping": "Temporal event localization; compare with existing action-candidate precision.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant research candidate; no verified runnable release recorded."
+      },
+      "reconsider_when": [
+        "Code/weights become available",
+        "Commercial rights change"
+      ],
+      "aliases": [
+        "TimeLens2-2B",
+        "TimeLens2-4B",
+        "TimeLens2-8B"
+      ]
+    },
+    {
+      "id": "timeple",
+      "name": "TimePLE",
+      "capability": "video.locate_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "No artifact-level license evidence collected."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=TimePLE&searchtype=all",
+        "https://github.com/search?q=TimePLE&type=repositories"
+      ],
+      "capability_mapping": "Temporal interval prediction; compare with event localization.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Potentially relevant compact temporal prediction candidate."
+      },
+      "reconsider_when": [
+        "Runnable implementation and license are verified"
+      ],
+      "aliases": [
+        "TimePLE-8B"
+      ]
+    },
+    {
+      "id": "pocket_stvg",
+      "name": "Pocket-STVG",
+      "capability": "video.locate_event; visual.ground",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "Artifact license not verified."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=Pocket-STVG&searchtype=all",
+        "https://github.com/search?q=Pocket-STVG&type=repositories"
+      ],
+      "capability_mapping": "Lightweight spatiotemporal grounding; maps to visual grounding and event localization.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Small specialized model may be useful if code and checkpoint are released."
+      },
+      "reconsider_when": [
+        "Executable model and checkpoint appear"
+      ]
+    },
+    {
+      "id": "cosed",
+      "name": "COSED",
+      "capability": "audio.ground_event; audio.detect_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "Artifact-level rights unverified."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=COSED&searchtype=all",
+        "https://github.com/search?q=COSED+audio&type=repositories"
+      ],
+      "capability_mapping": "Open-vocabulary timed audio events; maps to sound-event detection and grounding.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Task-relevant audio candidate; await runnable artifacts."
+      },
+      "reconsider_when": [
+        "Code and checkpoint become available"
+      ]
+    },
+    {
+      "id": "flexsed",
+      "name": "FlexSED",
+      "capability": "audio.detect_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "Punchlist says artifact-level rights unverified."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=FlexSED&searchtype=all",
+        "https://github.com/search?q=FlexSED&type=repositories"
+      ],
+      "capability_mapping": "Timed sound queries; compare with existing sound event signals.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Checkpoint and rights need qualification."
+      },
+      "reconsider_when": [
+        "Checkpoint rights and inference code are verified"
+      ]
+    },
+    {
+      "id": "tara",
+      "name": "TARA",
+      "capability": "video.retrieve; audio.ground_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "quarantine",
+        "research": "unverified",
+        "evidence": "Punchlist flags upstream rights unresolved."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=TARA%20temporal%20retrieval&searchtype=all",
+        "https://github.com/search?q=TARA+temporal+retrieval&type=repositories"
+      ],
+      "capability_mapping": "Temporal, negation-aware retrieval; map to unified audiovisual search.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Useful retrieval scope; rights unresolved."
+      },
+      "reconsider_when": [
+        "Upstream rights resolved"
+      ]
+    },
+    {
+      "id": "cosmos_embed1",
+      "name": "Cosmos Embed1",
+      "capability": "video.retrieve; visual.embed",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Runtime and memory not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "Exact checkpoint terms not recorded."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=Cosmos%20Embed1",
+        "https://github.com/search?q=Cosmos+Embed1&type=repositories"
+      ],
+      "capability_mapping": "Video embeddings; compare with CLIP, PE and WeMM retrieval baselines.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Potential expensive retrieval stage alternative; qualify artifact and license."
+      },
+      "reconsider_when": [
+        "Small checkpoint and Apple runtime are verified"
+      ]
+    },
+    {
+      "id": "v_jepa_2_1",
+      "name": "V-JEPA 2.1",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Small checkpoint/runtime not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "Review exact release and checkpoint terms."
+      },
+      "sources": [
+        "https://ai.meta.com/research/",
+        "https://huggingface.co/models?search=V-JEPA%202.1"
+      ],
+      "capability_mapping": "Reusable video representations; compare with current visual retrieval features.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "High strategic relevance; wait for suitable small checkpoint and runtime."
+      },
+      "reconsider_when": [
+        "Small checkpoint is available",
+        "Inference fits 24 GB hardware"
+      ],
+      "aliases": [
+        "V-JEPA 2.1 ViT-B",
+        "V-JEPA 2.1 ViT-L"
+      ]
+    },
+    {
+      "id": "dinov3",
+      "name": "DINOv3",
+      "capability": "visual.embed; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/facebookresearch/dinov3"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "PyTorch/MPS path requires local qualification; no native MLX implementation recorded."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "DINOv3 License governs code and weights; redistribution is under its terms and requires providing the license. Verify intended packaging/distribution with license lane.",
+        "research": "subject to DINOv3 License",
+        "evidence": "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md"
+      },
+      "sources": [
+        "https://github.com/facebookresearch/dinov3",
+        "https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md",
+        "https://huggingface.co/facebook/dinov3-vitl16-pretrain-lvd1689m"
+      ],
+      "capability_mapping": "Spatial visual features; test only for correspondence or action-candidate utility.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant narrow feature use; avoid generic benchmark without Ren task value."
+      },
+      "reconsider_when": [
+        "Exact weight license is verified",
+        "A Ren task is identified"
+      ]
+    },
+    {
+      "id": "videoitg",
+      "name": "VideoITG",
+      "capability": "video.retrieve; video.locate_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "noncommercial research",
+        "research": "verify terms",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=VideoITG&searchtype=all",
+        "https://github.com/search?q=VideoITG&type=repositories"
+      ],
+      "capability_mapping": "Query-conditioned frame selection; potentially reduces expensive visual passes.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant compute-saving technique; pretrained terms restrict commercial use per punchlist."
+      },
+      "reconsider_when": [
+        "Commercially usable implementation or terms change"
+      ]
+    },
+    {
+      "id": "tempo",
+      "name": "Tempo",
+      "capability": "video.retrieve; visual.describe",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "research restriction",
+        "research": "verify terms",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=Tempo%20video%20token&searchtype=all",
+        "https://github.com/search?q=Tempo+video+token&type=repositories"
+      ],
+      "capability_mapping": "Adaptive video-token allocation; investigate as a compute reduction method.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Useful potential for expensive VLM inference; checkpoint terms are restricted."
+      },
+      "reconsider_when": [
+        "Commercial implementation available",
+        "Checkpoint terms change"
+      ]
+    },
+    {
+      "id": "c3asd",
+      "name": "C³ASD",
+      "capability": "audio.active_speaker",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "unverified",
+        "research": "unverified",
+        "evidence": "No exact artifact review recorded."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=C%C2%B3ASD&searchtype=all",
+        "https://github.com/search?q=C3ASD&type=repositories"
+      ],
+      "capability_mapping": "Active-speaker detection; coordinate with multicamera identity capability.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant capability gap, but pretrained release and terms must be checked."
+      },
+      "reconsider_when": [
+        "Pretrained checkpoint is published"
+      ]
+    },
+    {
+      "id": "insightface_2_1",
+      "name": "InsightFace 2.1",
+      "capability": "visual.track; visual.identify_person",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/deepinsight/insightface"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/deepinsight/insightface"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Runtime requires separate qualification; do not use public research packs commercially."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "public pretrained packs noncommercial research",
+        "research": "verify pack terms",
+        "evidence": "Punchlist provisional classification; code and weights have distinct terms."
+      },
+      "sources": [
+        "https://github.com/deepinsight/insightface"
+      ],
+      "capability_mapping": "Person and face re-identification; compare only in authorized research with identity safeguards.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant identity feature, but public weights are research-only."
+      },
+      "reconsider_when": [
+        "Commercially licensed weights are offered"
+      ]
+    },
+    {
+      "id": "sam_audio",
+      "name": "SAM Audio",
+      "capability": "audio.separate",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Runtime and memory not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "custom license; verify intended use",
+        "research": "verify",
+        "evidence": "Punchlist provisional commercial-permitting classification, not final clearance."
+      },
+      "sources": [
+        "https://ai.meta.com/research/",
+        "https://huggingface.co/models?search=SAM%20Audio"
+      ],
+      "capability_mapping": "Prompt-driven source separation; compare with Demucs only for targeted requests.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Potentially replaces expensive or inflexible separation stages; license and runtime require review."
+      },
+      "reconsider_when": [
+        "Checkpoint availability and license are verified"
+      ]
+    },
+    {
+      "id": "sam31_mlx",
+      "name": "SAM 3.1 MLX",
+      "capability": "visual.detect; visual.segment; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX conversion claimed by candidate name in punchlist; exact implementation and parity unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "custom license; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional license classification."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=SAM%203.1%20MLX",
+        "https://github.com/search?q=SAM+3.1+MLX&type=repositories"
+      ],
+      "capability_mapping": "Could replace detector + segmentation/tracking chain; compare with SAM 2.1 and EdgeTAM.",
+      "priority": "P0",
+      "decision": {
+        "status": "watch",
+        "reason": "High-value potentially consolidating stage; implementation and checkpoint provenance need confirmation."
+      },
+      "reconsider_when": [
+        "Runnable MLX implementation and compatible checkpoint verified",
+        "Terms reviewed"
+      ],
+      "aliases": [
+        "SAM 3.1"
+      ]
+    },
+    {
+      "id": "sam21_mlx",
+      "name": "SAM 2.1 MLX",
+      "capability": "visual.segment; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX conversion claimed by candidate name in punchlist; verify exact code and checkpoint."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "allowed subject to exact terms",
+        "evidence": "Punchlist provisional license table."
+      },
+      "sources": [
+        "https://github.com/search?q=SAM+2.1+MLX&type=repositories",
+        "https://huggingface.co/models?search=SAM%202.1%20MLX"
+      ],
+      "capability_mapping": "Potential tracking speed replacement for existing SAM 2.1 PyTorch path.",
+      "priority": "P0",
+      "decision": {
+        "status": "watch",
+        "reason": "Explicit high-priority benchmark candidate; exact conversion and weights not verified."
+      },
+      "reconsider_when": [
+        "Repository and checkpoint revision confirmed"
+      ]
+    },
+    {
+      "id": "edgetam",
+      "name": "EdgeTAM",
+      "capability": "visual.segment; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/facebookresearch/EdgeTAM"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/facebookresearch/EdgeTAM"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "PyTorch path possible; Core ML execution is a proposed benchmark, not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "allowed subject to exact terms",
+        "evidence": "Punchlist provisional license table."
+      },
+      "sources": [
+        "https://github.com/facebookresearch/EdgeTAM"
+      ],
+      "capability_mapping": "Efficient video propagation; compare tracking speed and quality with SAM 2.1.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Immediate benchmark candidate in punchlist; local qualification not yet recorded."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "sam3_cpp",
+      "name": "sam3.cpp",
+      "capability": "visual.segment; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "C++/Metal backend is a research lead, not verified for feature parity."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify",
+        "research": "verify",
+        "evidence": "Exact repository and artifact terms not recorded."
+      },
+      "sources": [
+        "https://github.com/search?q=sam3.cpp&type=repositories"
+      ],
+      "capability_mapping": "Portable native segmentation/tracking; qualify API coverage against Ren's demanded functions.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Native runtime is relevant only if it preserves required tracking behavior."
+      },
+      "reconsider_when": [
+        "Feature parity and checkpoint support documented"
+      ]
+    },
+    {
+      "id": "mlx_cv",
+      "name": "MLX-CV",
+      "capability": "visual.detect; visual.segment; visual.depth",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "not-applicable",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX ecosystem project; specific implementations require verification."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify repository and per-model terms",
+        "research": "verify",
+        "evidence": "Runtime license does not establish checkpoint license."
+      },
+      "sources": [
+        "https://github.com/search?q=MLX-CV&type=repositories"
+      ],
+      "capability_mapping": "Possible runtime consolidation across detection, segmentation, depth and grounding.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Evaluate specific useful implementations, not framework breadth alone."
+      },
+      "reconsider_when": [
+        "A maintained implementation covers a Ren capability"
+      ]
+    },
+    {
+      "id": "mlx_video",
+      "name": "MLX-video",
+      "capability": "video.decode; visual.embed",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "not-applicable",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Candidate native video decode/preprocessing project; verify project identity."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify",
+        "research": "verify",
+        "evidence": "Repository identity and license not confirmed."
+      },
+      "sources": [
+        "https://github.com/search?q=MLX-video&type=repositories"
+      ],
+      "capability_mapping": "Decode/preprocessing optimization; compare against existing decode pipeline costs.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Potentially replaces expensive preprocessing; needs a concrete repository."
+      },
+      "reconsider_when": [
+        "Repository and benchmark methodology identified"
+      ]
+    },
+    {
+      "id": "fluidaudio",
+      "name": "FluidAudio",
+      "capability": "audio.transcribe; audio.diarize; audio.vad",
+      "release_date": "2025-03-01",
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/FluidInference/FluidAudio"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/FluidInference"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Swift/Core ML and ANE implementations; selected model weights have separate terms."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Apache 2.0 software; verify each model weight",
+        "research": "verify per model",
+        "evidence": "https://github.com/FluidInference/FluidAudio"
+      },
+      "sources": [
+        "https://github.com/FluidInference/FluidAudio",
+        "https://github.com/FluidInference/FluidAudio/blob/main/Documentation/Diarization/GettingStarted.md"
+      ],
+      "capability_mapping": "ANE speech and diarization; compare selected backend with current diarization and transcription.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Runnable Apple-native software and model artifacts documented; perform local comparison before adoption."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "rf_detr",
+      "name": "RF-DETR (Nano/Small/Medium/Large)",
+      "capability": "visual.detect",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/roboflow/rf-detr"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Core ML implementation is separately tracked; do not infer compatibility from Python support."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 variants per punchlist; XL/2XL have separate platform terms",
+        "research": "verify variant",
+        "evidence": "Punchlist provisional license table."
+      },
+      "sources": [
+        "https://github.com/roboflow/rf-detr"
+      ],
+      "capability_mapping": "Efficient object detection; compare quality and time with OWLv2 and existing detector path.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Immediate detector benchmark candidate; pin variant and weight terms."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "rf_detr_coreml",
+      "name": "RF-DETR Core ML",
+      "capability": "visual.detect",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Core ML implementation named in punchlist; repository identity and ANE performance unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify implementation and checkpoint separately",
+        "research": "verify",
+        "evidence": "No artifact-level license record."
+      },
+      "sources": [
+        "https://github.com/search?q=RF-DETR+CoreML&type=repositories"
+      ],
+      "capability_mapping": "Native detector candidate to replace high-cost open-vocabulary detection where appropriate.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Verify whether implementation is runnable and task-compatible."
+      },
+      "reconsider_when": [
+        "Implementation and weights are published"
+      ]
+    },
+    {
+      "id": "yolo26_mlx",
+      "name": "YOLO26 MLX",
+      "capability": "visual.detect",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX conversion candidate; implementation and parity unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "AGPL/enterprise terms per punchlist; architecture-dependent",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification; consult vep-mu-license artifact record."
+      },
+      "sources": [
+        "https://github.com/search?q=YOLO26+MLX&type=repositories",
+        "https://huggingface.co/models?search=YOLO26%20MLX"
+      ],
+      "capability_mapping": "Detection performance reference; compare with OWLv2 only where vocabulary needs overlap.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Copyleft terms and architecture fit require review."
+      },
+      "reconsider_when": [
+        "License path is approved",
+        "Apple implementation is verified"
+      ]
+    },
+    {
+      "id": "wemm_embedding",
+      "name": "WeMM-Embedding",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/Tencent/WeMM-Embedding"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=WeMM-Embedding"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "No native MLX path verified; compatibility depends on model size and runtime."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "Published benchmark comparisons include Qwen3-VL-Embedding; metrics are publisher-reported and not Ren measurements.",
+            "scope": "Tencent repository benchmark table",
+            "source": "https://github.com/Tencent/WeMM-Embedding"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache-2.0 code/model per publisher claim; verify exact checkpoint",
+        "research": "verify exact checkpoint",
+        "evidence": "https://github.com/Tencent/WeMM-Embedding"
+      },
+      "sources": [
+        "https://github.com/Tencent/WeMM-Embedding",
+        "https://huggingface.co/models?search=WeMM-Embedding"
+      ],
+      "capability_mapping": "Image/video/text retrieval; evaluate against CLIP and existing embedding baselines.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Immediate benchmark candidate with publisher code and weights; measured Ren quality and cost still required."
+      },
+      "reconsider_when": [],
+      "aliases": [
+        "WeMM-Embedding 2B",
+        "WeMM-Embedding 4B"
+      ]
+    },
+    {
+      "id": "pe_core",
+      "name": "Meta PE Core (S/B/L)",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/facebookresearch"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Generic PyTorch compatibility only; native conversion unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional license table."
+      },
+      "sources": [
+        "https://github.com/facebookresearch",
+        "https://huggingface.co/models?search=Perception%20Encoder"
+      ],
+      "capability_mapping": "Lightweight and larger visual retrieval encoders; compare against CLIP and WeMM.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "High-priority retrieval comparison; exact artifacts and model sizes to pin."
+      },
+      "reconsider_when": [],
+      "aliases": [
+        "Meta PE-Core-S",
+        "Meta PE-Core-B",
+        "Meta PE-Core-L"
+      ]
+    },
+    {
+      "id": "pe_av",
+      "name": "Meta PE-AV",
+      "capability": "video.retrieve; audio.ground_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/facebookresearch"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Runtime not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact artifact",
+        "research": "verify",
+        "evidence": "Punchlist provisional license table."
+      },
+      "sources": [
+        "https://github.com/facebookresearch",
+        "https://huggingface.co/models?search=PE-AV"
+      ],
+      "capability_mapping": "Audiovisual retrieval; could unify modalities in retrieval stage.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant cross-modal capability; exact model/checkpoint remains to verify."
+      },
+      "reconsider_when": [
+        "Runnable checkpoint is published"
+      ]
+    },
+    {
+      "id": "paddleocr_vl_1_6",
+      "name": "PaddleOCR-VL-1.6",
+      "capability": "visual.ocr",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/PaddlePaddle/PaddleOCR"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=PaddleOCR-VL-1.6"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "MLX conversion separately tracked; upstream runtime compatibility requires qualification."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/PaddlePaddle/PaddleOCR",
+        "https://huggingface.co/models?search=PaddleOCR-VL-1.6"
+      ],
+      "capability_mapping": "Visual text and layout intelligence; compare with current OCR extraction.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Explicit OCR benchmark candidate; checkpoint revision and Apple path need pinning."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "paddleocr_vl_mlx",
+      "name": "PaddleOCR-VL-1.6 MLX",
+      "capability": "visual.ocr",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX conversion named in punchlist; exact project unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per upstream provisional classification; verify converted checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/search?q=PaddleOCR-VL+MLX&type=repositories",
+        "https://huggingface.co/models?search=PaddleOCR-VL%20MLX"
+      ],
+      "capability_mapping": "Apple-native OCR candidate; compare with upstream and current OCR path.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Verify implementation and conversion fidelity before evaluation."
+      },
+      "reconsider_when": [
+        "Conversion repository is found and maintained"
+      ]
+    },
+    {
+      "id": "da3",
+      "name": "Depth Anything 3 (Small/Base/Metric-Large)",
+      "capability": "visual.depth; visual.camera_geometry",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/ByteDance-Seed/Depth-Anything-3"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=Depth%20Anything%203"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Apple Silicon compatibility and peak memory not measured."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Small/Base/Metric-Large Apache 2.0 per punchlist; Large/Giant/Nested CC BY-NC 4.0",
+        "research": "variant-specific",
+        "evidence": "Punchlist provisional classifications; pin variant."
+      },
+      "sources": [
+        "https://github.com/ByteDance-Seed/Depth-Anything-3",
+        "https://huggingface.co/models?search=Depth%20Anything%203"
+      ],
+      "capability_mapping": "Depth and camera geometry; evaluate on geometry task, on demand only.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Potential useful geometry capability; keep variant terms explicit."
+      },
+      "reconsider_when": [],
+      "aliases": [
+        "Depth Anything 3 Small",
+        "Depth Anything 3 Base",
+        "Depth Anything 3 Metric-Large"
+      ]
+    },
+    {
+      "id": "desert_ant_uhm",
+      "name": "Desert Ant Uhm",
+      "capability": "audio.detect_disfluency",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://desertant.com/docs/uhm/"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/desert-ant-labs/uhm"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Publisher documents on-device platforms; verify Ren integration and exact runtime."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Desert Ant commercial terms and thresholds; verify current agreement",
+        "research": "verify",
+        "evidence": "https://desertant.com/models/"
+      },
+      "sources": [
+        "https://desertant.com/docs/uhm/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Filler-word detection; map to speech analysis and alignment without calling it editorial quality.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Publisher docs and weights surfaced; exact usage threshold and measured utility need evaluation."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "desert_ant_ear",
+      "name": "Desert Ant Ear",
+      "capability": "audio.identify_language",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://desertant.com/docs/ear/"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/desert-ant-labs"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Publisher documents native on-device platforms."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Desert Ant commercial terms and thresholds; verify current agreement",
+        "research": "verify",
+        "evidence": "https://desertant.com/models/"
+      },
+      "sources": [
+        "https://desertant.com/docs/ear/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Language identification; assess only if Ren needs language routing on target material.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Narrow utility; establish corpus need before benchmark."
+      },
+      "reconsider_when": [
+        "Multilingual workload requires language routing"
+      ]
+    },
+    {
+      "id": "desert_ant_align",
+      "name": "Desert Ant Align",
+      "capability": "audio.align",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://desertant.com/docs/align/"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/desert-ant-labs/align"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Publisher documents on-device platforms; validate timestamp quality and license."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Desert Ant commercial terms and thresholds; verify current agreement",
+        "research": "verify",
+        "evidence": "https://desertant.com/models/"
+      },
+      "sources": [
+        "https://desertant.com/docs/align/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Speech alignment; compare with current alignment path on podcast speech.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Code and model are publisher-listed; quality and current terms need review."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "desert_ant_clear",
+      "name": "Desert Ant Clear",
+      "capability": "audio.enhance",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://desertant.com/docs/clear/"
+      },
+      "weights": {
+        "status": "available",
+        "revision": "v0.3.0",
+        "url": "https://desertant.com/docs/clear/"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Publisher documents native Apple platform support."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "345x real-time factor",
+            "scope": "publisher-reported MacBook Pro M5 result on 60-second clip, best of three",
+            "source": "https://desertant.com/models/clear/"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Free up to publisher-stated monthly active device threshold; confirm terms",
+        "research": "verify",
+        "evidence": "https://desertant.com/models/clear/"
+      },
+      "sources": [
+        "https://desertant.com/docs/clear/",
+        "https://desertant.com/models/clear/",
+        "https://github.com/Desert-Ant-Labs/desert-ant-core"
+      ],
+      "capability_mapping": "On-device enhancement; compare with current enhancement only for identified audio defects.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Runnable native path, weights and a reported result are documented; validate on bounded podcast samples."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "desert_ant_clips",
+      "name": "Desert Ant Clips",
+      "capability": "video.locate_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://desertant.com/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Availability/runtime not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify current terms",
+        "research": "verify",
+        "evidence": "No model-specific license record captured."
+      },
+      "sources": [
+        "https://desertant.com/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Highlight and clip candidates; map to existing edit-point/clip selection capabilities.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Track availability and model details before evaluation."
+      },
+      "reconsider_when": [
+        "Model page and runnable artifact are published"
+      ]
+    },
+    {
+      "id": "desert_ant_eye",
+      "name": "Desert Ant Eye",
+      "capability": "visual.technical_quality",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://desertant.com/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Availability/runtime not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify",
+        "research": "verify",
+        "evidence": "No model-specific license record captured."
+      },
+      "sources": [
+        "https://desertant.com/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Visual quality or aesthetics; only pursue objective technical measures Ren needs.",
+      "priority": "P3",
+      "decision": {
+        "status": "watch",
+        "reason": "Avoid conflating technical checks with editorial quality; await task-specific feature definition."
+      },
+      "reconsider_when": [
+        "Objective technical capability and model artifact are documented"
+      ]
+    },
+    {
+      "id": "desert_ant_who",
+      "name": "Desert Ant Who",
+      "capability": "audio.active_speaker; visual.identify_person",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://desertant.com/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Availability/runtime not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify",
+        "research": "verify",
+        "evidence": "No model-specific license record captured."
+      },
+      "sources": [
+        "https://desertant.com/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Multimodal speaker identity; coordinate with active speaker and identity lanes.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Relevant only if a concrete release and privacy-compatible use are verified."
+      },
+      "reconsider_when": [
+        "Model availability and terms are public"
+      ]
+    },
+    {
+      "id": "desert_ant_face",
+      "name": "Desert Ant Face",
+      "capability": "visual.identify_person",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://desertant.com/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Availability/runtime not confirmed."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify",
+        "research": "verify",
+        "evidence": "No model-specific license record captured."
+      },
+      "sources": [
+        "https://desertant.com/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Face matching; coordinate with identity lane and verify legal/operational scope first.",
+      "priority": "P3",
+      "decision": {
+        "status": "watch",
+        "reason": "Availability and lawful workload use remain unverified."
+      },
+      "reconsider_when": [
+        "Public artifact and reviewed terms are available"
+      ]
+    },
+    {
+      "id": "qwen35_4b",
+      "name": "Qwen3.5-4B",
+      "capability": "visual.describe; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/QwenLM"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": "https://huggingface.co/Qwen"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Quantized MLX path to be verified; 4B requires quantized precision per hardware policy."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist, verify exact release",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/QwenLM",
+        "https://huggingface.co/Qwen"
+      ],
+      "capability_mapping": "Compact general VLM candidate; only evaluate against specific semantic-analysis tasks.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Potential smaller model to reduce expensive general VLM inference; exact release needs confirmation."
+      },
+      "reconsider_when": [
+        "Exact model card and quantized checkpoint are verified"
+      ]
+    },
+    {
+      "id": "smolvlm2",
+      "name": "SmolVLM2",
+      "capability": "visual.describe; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/huggingface/smollm"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=SmolVLM2"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Quantized MLX execution not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact model card",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/huggingface/smollm",
+        "https://huggingface.co/models?search=SmolVLM2"
+      ],
+      "capability_mapping": "Small VLM candidate; evaluate for selective semantic tasks to lower Gemma calls.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Compact candidate with publisher project and model listings; runtime, task fit and license need pinning."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "gemma4",
+      "name": "Gemma 4",
+      "capability": "visual.describe",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/google-gemini/gemma"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/google"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing Gemma 4 12B baseline is present in the punchlist; the exact runtime/checkpoint should be recorded in baseline lane."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "Current general VLM baseline; existing measured behavior is to be inventoried by baseline lane.",
+            "scope": "Punchlist baseline description, no metric included here",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact revision",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/google-gemini/gemma",
+        "https://huggingface.co/google"
+      ],
+      "capability_mapping": "Incumbent semantic VLM; preserve as comparison baseline.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Incumbent reference, not a challenger. Keep tracked for baseline comparison."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "clip",
+      "name": "CLIP ViT-L/14",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": "2021-02-26",
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/openai/CLIP"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/openai/CLIP"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing Ren baseline; MLX conversion not required for baseline."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "Existing visual retrieval baseline in Ren; punchlist reports ~0.15 macro recall on held-out visual retrieval and says this is from existing evaluations.",
+            "scope": "Ren evaluations summarized in punchlist",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "MIT per punchlist; verify exact artifact",
+        "research": "allowed subject to terms",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/openai/CLIP"
+      ],
+      "capability_mapping": "Existing visual retrieval baseline; primary comparison for PE Core and WeMM.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Keep as incumbent baseline; no replacement without measured held-out improvement and cost comparison."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "embeddinggemma2",
+      "name": "EmbeddingGemma 2",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/google/embeddinggemma"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/google"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Experimental Ren baseline; compatibility does not imply worthwhile resource profile."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "About 85 minutes for indexing in one benchmark; punchlist says benefit was insufficient for cost.",
+            "scope": "Existing Ren benchmark summarized in punchlist",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/google/embeddinggemma",
+        "https://huggingface.co/google"
+      ],
+      "capability_mapping": "Existing experimental retrieval baseline; compare with MiniLM and new multimodal encoders.",
+      "priority": "P1",
+      "decision": {
+        "status": "rejected",
+        "reason": "Prior Ren benchmark found roughly 85-minute indexing with insufficient benefit; retain as comparison evidence."
+      },
+      "reconsider_when": [
+        "Faster runtime or materially better checkpoint available",
+        "Task changes to favor its capabilities"
+      ]
+    },
+    {
+      "id": "minilm",
+      "name": "MiniLM hybrid indexing",
+      "capability": "visual.embed; video.retrieve",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://www.sbert.net/"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=MiniLM"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing efficient baseline; precise checkpoint should be recorded by baseline lane."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "About 5.2 seconds in its comparison benchmark; punchlist describes this as the efficient baseline.",
+            "scope": "Existing Ren benchmark summarized in punchlist",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://www.sbert.net/",
+        "https://huggingface.co/models?search=MiniLM"
+      ],
+      "capability_mapping": "Existing efficient text retrieval baseline; preserve as speed comparator.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Incumbent efficiency reference; not a challenger."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "sam21",
+      "name": "SAM 2.1 Hiera Small",
+      "capability": "visual.segment; visual.track",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/facebookresearch/sam2"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/facebookresearch/sam2"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing PyTorch path; MPS runtime and resource use measured by SAM lane."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "6,558.7 seconds for 807 seconds of footage (approximately 8.1x real time).",
+            "scope": "Existing 001 footage run; summarized in punchlist",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "Apache 2.0 per punchlist; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/facebookresearch/sam2"
+      ],
+      "capability_mapping": "Current tracking baseline; compare MLX and EdgeTAM alternatives on calibration and held-out material.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Incumbent baseline for high-return tracking comparisons."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "pyannote_community1",
+      "name": "pyannote Community-1",
+      "capability": "audio.diarize",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/pyannote/pyannote-audio"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/pyannote/speaker-diarization-community-1"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "PyTorch path; Apple performance not measured here."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "CC BY 4.0 weights with attribution/terms per punchlist; verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/pyannote/pyannote-audio",
+        "https://huggingface.co/pyannote/speaker-diarization-community-1"
+      ],
+      "capability_mapping": "Diarization baseline/alternative; compare with FluidAudio Sortformer for podcast speech.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Checkpoint and code are listed; license conditions and local quality need verification."
+      },
+      "reconsider_when": [],
+      "aliases": [
+        "pyannote Precision-3"
+      ]
+    },
+    {
+      "id": "voz",
+      "name": "Voz",
+      "capability": "audio.transcribe; audio.identify_speaker",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://desertant.com/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": "https://huggingface.co/desert-ant-labs"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Desert Ant on-device offering; specific capability and supported languages require verification."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Desert Ant terms and thresholds; verify",
+        "research": "verify",
+        "evidence": "Punchlist flags conditional license."
+      },
+      "sources": [
+        "https://desertant.com/",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Candidate voice/speech feature; confirm exact capability before mapping to production stage.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Track release and commercial threshold; don't infer function from name."
+      },
+      "reconsider_when": [
+        "Current model page and license are captured"
+      ]
+    },
+    {
+      "id": "parakeet_tdt_v3",
+      "name": "Parakeet TDT 0.6B v3",
+      "capability": "audio.transcribe",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/NVIDIA/NeMo"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/models?search=Parakeet-TDT-0.6B-v3"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "FluidAudio/Core ML conversion path should be evaluated separately."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "CC BY 4.0 per punchlist; verify exact weights and attribution",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/NVIDIA/NeMo",
+        "https://huggingface.co/models?search=Parakeet-TDT-0.6B-v3"
+      ],
+      "capability_mapping": "ASR alternative; compare on podcast transcription and alignment quality.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Useful ASR alternative; exact checkpoint and converted runtime need pinning."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "demucs_mlx",
+      "name": "Demucs / demucs-mlx",
+      "capability": "audio.separate",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/facebookresearch/demucs"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/facebookresearch/demucs"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "MLX variant named in punchlist; verify its repository, checkpoint, and parity."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "MIT per punchlist; verify exact variant and checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/facebookresearch/demucs",
+        "https://github.com/search?q=demucs-mlx&type=repositories"
+      ],
+      "capability_mapping": "Targeted audio separation; benchmark against current processing only on relevant mixes.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Candidate to reduce audio separation cost; MLX implementation must be identified precisely."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "deepfilternet",
+      "name": "DeepFilterNet",
+      "capability": "audio.enhance",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/Rikorose/DeepFilterNet"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/Rikorose/DeepFilterNet"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Current baseline per punchlist; no native conversion recorded."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "MIT/Apache 2.0 per punchlist; verify exact component",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/Rikorose/DeepFilterNet"
+      ],
+      "capability_mapping": "Existing enhancement baseline for targeted audio cleanup.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Maintain as incumbent comparison."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "beat_this",
+      "name": "Beat This!",
+      "capability": "audio.detect_beat",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/CPJKU/beat_this"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/CPJKU/beat_this"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing beat-analysis baseline; native path not recorded."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "permissive",
+        "commercial": "MIT per punchlist; verify exact weights",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/CPJKU/beat_this"
+      ],
+      "capability_mapping": "Existing beat detection capability; preserve as baseline, no candidate change implied.",
+      "priority": "P3",
+      "decision": {
+        "status": "candidate",
+        "reason": "Existing capability baseline."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "panns",
+      "name": "PANNs",
+      "capability": "audio.detect_event",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/qiuqiangkong/audioset_tagging_cnn"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/qiuqiangkong/audioset_tagging_cnn"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing audio event reference; Apple runtime not measured."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "MIT code / CC BY 4.0 weights per punchlist; verify exact artifact",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://github.com/qiuqiangkong/audioset_tagging_cnn"
+      ],
+      "capability_mapping": "Existing audio event reference for comparison with timed/open-vocabulary sound models.",
+      "priority": "P2",
+      "decision": {
+        "status": "candidate",
+        "reason": "Maintain baseline evidence; distinguish code license from weight license."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "audio_flamingo_next",
+      "name": "Audio Flamingo Next",
+      "capability": "audio.ground_event; audio.describe",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "noncommercial per punchlist",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=Audio%20Flamingo%20Next&searchtype=all",
+        "https://huggingface.co/models?search=Audio%20Flamingo%20Next"
+      ],
+      "capability_mapping": "Audio language understanding; compare with sound event and speech capabilities only in permitted research.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Research-only and no exact artifact recorded."
+      },
+      "reconsider_when": [
+        "Commercial terms become available"
+      ]
+    },
+    {
+      "id": "perceptionlm",
+      "name": "PerceptionLM",
+      "capability": "visual.describe; visual.embed",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Not verified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "noncommercial research per punchlist",
+        "research": "verify",
+        "evidence": "Punchlist provisional classification."
+      },
+      "sources": [
+        "https://arxiv.org/search/?query=PerceptionLM&searchtype=all",
+        "https://huggingface.co/models?search=PerceptionLM"
+      ],
+      "capability_mapping": "Visual reasoning research candidate; avoid evaluation without a concrete missing task.",
+      "priority": "P3",
+      "decision": {
+        "status": "watch",
+        "reason": "Task relevance needs demonstration and terms are research-only."
+      },
+      "reconsider_when": [
+        "A specific capability gap is identified",
+        "Terms change"
+      ]
+    },
+    {
+      "id": "locateanything3b",
+      "name": "LocateAnything-3B",
+      "capability": "visual.ground",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": null
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "Large model; memory and runtime unverified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "research-only",
+        "commercial": "research-only per punchlist context",
+        "research": "verify",
+        "evidence": "Exact artifact license not recorded."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=LocateAnything-3B",
+        "https://github.com/search?q=LocateAnything-3B&type=repositories"
+      ],
+      "capability_mapping": "Research grounding reference; compare with smaller options only if task gap remains.",
+      "priority": "P3",
+      "decision": {
+        "status": "watch",
+        "reason": "Large research reference, not an assumed production candidate."
+      },
+      "reconsider_when": [
+        "Smaller commercially eligible implementation appears"
+      ]
+    },
+    {
+      "id": "florence2",
+      "name": "Florence-2",
+      "capability": "visual.describe; visual.detect; visual.ocr",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/microsoft/Florence"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/microsoft/Florence-2-base"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Punchlist notes runtime incompatibility to resolve; do not treat generic compatibility as qualified."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify exact model terms",
+        "research": "verify",
+        "evidence": "Punchlist candidate note; exact artifact terms not audited."
+      },
+      "sources": [
+        "https://github.com/microsoft/Florence",
+        "https://huggingface.co/microsoft/Florence-2-base"
+      ],
+      "capability_mapping": "Existing candidate spanning captioning, detection and OCR; runtime incompatibility is a blocker to evaluation.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Do not retest until known runtime incompatibility is resolved."
+      },
+      "reconsider_when": [
+        "Supported runtime is available"
+      ]
+    },
+    {
+      "id": "grounding_dino",
+      "name": "Grounding DINO",
+      "capability": "visual.ground; visual.detect",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/IDEA-Research/GroundingDINO"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/IDEA-Research/GroundingDINO"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing alternative; local performance and terms should be taken from existing Ren records."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify exact checkpoint and code terms",
+        "research": "verify",
+        "evidence": "Punchlist identifies existing alternative; no artifact license record in this seed."
+      },
+      "sources": [
+        "https://github.com/IDEA-Research/GroundingDINO"
+      ],
+      "capability_mapping": "Current alternative for grounding and detection; compare with OWLv2 and new candidates.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Existing implementation/reference; track so comparisons have continuity."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "owlv2",
+      "name": "OWLv2",
+      "capability": "visual.detect; visual.ground",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/google-research/scenic"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/google/owlv2-base-patch16-ensemble"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing Ren detector; use current measured path as baseline."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [
+          {
+            "value": "132/148 boxes recalled at IoU >= 0.5; 145.55 seconds for 40 frames.",
+            "scope": "Existing Ren detection measurements summarized in punchlist",
+            "source": "punchlist 2026-10-15"
+          }
+        ],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify exact checkpoint",
+        "research": "verify",
+        "evidence": "Punchlist provides baseline measurements, not license qualification."
+      },
+      "sources": [
+        "https://github.com/google-research/scenic",
+        "https://huggingface.co/google/owlv2-base-patch16-ensemble"
+      ],
+      "capability_mapping": "Incumbent open-vocabulary detection baseline; compare against RF-DETR and SAM text detection.",
+      "priority": "P0",
+      "decision": {
+        "status": "candidate",
+        "reason": "Existing high-cost stage baseline for replacement evaluation."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "easyocr",
+      "name": "EasyOCR",
+      "capability": "visual.ocr",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/JaidedAI/EasyOCR"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://github.com/JaidedAI/EasyOCR"
+      },
+      "apple_silicon": {
+        "status": "compatible",
+        "notes": "Existing OCR capability; individual detection and recognition checkpoint licenses need verification."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "verify model weights individually",
+        "research": "verify",
+        "evidence": "Punchlist LIC-031 requires exact weight review."
+      },
+      "sources": [
+        "https://github.com/JaidedAI/EasyOCR"
+      ],
+      "capability_mapping": "Existing OCR baseline; compare new visual layout model on actual on-screen text tasks.",
+      "priority": "P1",
+      "decision": {
+        "status": "candidate",
+        "reason": "Existing candidate/baseline; checkpoint-level rights are unresolved."
+      },
+      "reconsider_when": []
+    },
+    {
+      "id": "desert_ant_vlm",
+      "name": "Desert Ant model family updates",
+      "capability": "audio.align; audio.enhance; audio.detect_disfluency",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/Desert-Ant-Labs/desert-ant-core"
+      },
+      "weights": {
+        "status": "available",
+        "revision": null,
+        "url": "https://huggingface.co/desert-ant-labs"
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Publisher provides on-device model family; per-model runtime differs."
+      },
+      "performance": {
+        "status": "reported",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Check product-specific usage limits and current license",
+        "research": "verify",
+        "evidence": "Publisher model pages; family record exists to track release/license changes."
+      },
+      "sources": [
+        "https://github.com/Desert-Ant-Labs/desert-ant-core",
+        "https://huggingface.co/desert-ant-labs"
+      ],
+      "capability_mapping": "Watch source for model releases and license/runtime changes; individual products have separate candidate records.",
+      "priority": "P1",
+      "decision": {
+        "status": "watch",
+        "reason": "Change-monitor record to support reconsideration when releases, runtimes or terms change."
+      },
+      "reconsider_when": [
+        "A monitored model's revision, runtime, or terms change"
+      ]
+    },
+    {
+      "id": "qwen3_vl_embedding",
+      "name": "Qwen3-VL-Embedding",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://huggingface.co/models?search=Qwen3-VL-Embedding"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://huggingface.co/models?search=Qwen3-VL-Embedding"
+      ],
+      "capability": "visual.embed; video.retrieve",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "depth_anything_v2_small",
+      "name": "Depth Anything V2 Small",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/DepthAnything/Depth-Anything-V2"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/DepthAnything/Depth-Anything-V2"
+      ],
+      "capability": "visual.depth; visual.camera_geometry",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "ecapa_baseline",
+      "name": "ECAPA-based speaker pipeline",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/speechbrain/speechbrain"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/speechbrain/speechbrain"
+      ],
+      "capability": "audio.diarize; audio.identify_speaker",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "apple_vision_ocr",
+      "name": "Apple Vision OCR",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://developer.apple.com/documentation/vision"
+      },
+      "weights": {
+        "status": "not-applicable",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Apple platform API; applicability depends on the required task and available OS."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://developer.apple.com/documentation/vision"
+      ],
+      "capability": "visual.ocr",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "apple_vision_detection",
+      "name": "Apple Vision detection",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://developer.apple.com/documentation/vision"
+      },
+      "weights": {
+        "status": "not-applicable",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "native",
+        "notes": "Apple platform API; applicability depends on the required task and available OS."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://developer.apple.com/documentation/vision"
+      ],
+      "capability": "visual.detect",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "locateanything_mlx_cv",
+      "name": "MLX-CV LocateAnything",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/search?q=MLX-CV+LocateAnything&type=repositories"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/search?q=MLX-CV+LocateAnything&type=repositories"
+      ],
+      "capability": "visual.ground",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "fun_cine_forge",
+      "name": "FunCineForge audio-to-face grounding",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "unverified",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/search?q=FunCineForge&type=repositories"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/search?q=FunCineForge&type=repositories"
+      ],
+      "capability": "audio.active_speaker",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Track the approach as prior art; no specific model/checkpoint candidate established."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "sam3",
+      "name": "SAM 3",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://ai.meta.com/research/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://ai.meta.com/research/"
+      ],
+      "capability": "visual.detect; visual.segment; visual.track",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "sam31",
+      "name": "SAM 3.1",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://ai.meta.com/research/"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "unresolved",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://ai.meta.com/research/"
+      ],
+      "capability": "visual.detect; visual.segment; visual.track",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "rf_detr_xl",
+      "name": "RF-DETR XL/2XL",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/roboflow/rf-detr"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/roboflow/rf-detr"
+      ],
+      "capability": "visual.detect",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "da3_restricted",
+      "name": "Depth Anything 3 Large/Giant/Nested",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "available",
+        "url": "https://github.com/ByteDance-Seed/Depth-Anything-3"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/ByteDance-Seed/Depth-Anything-3"
+      ],
+      "capability": "visual.depth; visual.camera_geometry",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    },
+    {
+      "id": "yolo26",
+      "name": "YOLO26",
+      "release_date": null,
+      "last_updated": "2026-10-15",
+      "relevance": "relevant",
+      "code": {
+        "status": "unverified",
+        "url": "https://github.com/search?q=YOLO26&type=repositories"
+      },
+      "weights": {
+        "status": "unverified",
+        "revision": null,
+        "url": null
+      },
+      "apple_silicon": {
+        "status": "unknown",
+        "notes": "No execution path qualified in this watch record."
+      },
+      "performance": {
+        "status": "unmeasured",
+        "reported": [],
+        "measured": []
+      },
+      "license": {
+        "status": "conditional",
+        "commercial": "Review exact implementation and artifact terms",
+        "research": "unverified",
+        "evidence": "Punchlist named this candidate or variant; exact terms not audited in this seed."
+      },
+      "sources": [
+        "https://github.com/search?q=YOLO26&type=repositories"
+      ],
+      "capability": "visual.detect",
+      "capability_mapping": "Compare only against the named Ren capability and incumbent when the exact implementation is runnable.",
+      "priority": "P2",
+      "decision": {
+        "status": "watch",
+        "reason": "Named in the punchlist; artifact-specific availability, runtime and terms require verification."
+      },
+      "reconsider_when": [
+        "Runnable implementation, checkpoint, and exact license are verified"
+      ]
+    }
+  ]
+}
