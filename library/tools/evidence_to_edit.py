@@ -17,6 +17,7 @@ report in that shape and refuses to fill fields it did not measure.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from itertools import pairwise
@@ -165,6 +166,14 @@ def _ledger_row(decision: str, rationale: str, evidence_ids: list[str],
             "evidence_ids": evidence_ids, "evidence_source": evidence_source}
 
 
+def _evidence_revision(model: dict[str, Any]) -> str:
+    """Identify the exact model snapshot used when no store revision exists."""
+    if model.get("revision") is not None:
+        return str(model["revision"])
+    encoded = json.dumps(model, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def consult_model(model: dict[str, Any]) -> dict[str, Any]:
     """Record the Project Model consultation itself as evidence.
 
@@ -227,7 +236,9 @@ def _scope_for(model: dict[str, Any],
 def consult_moment(model: dict[str, Any], moment: dict[str, Any],
                    task_types: list[str], *,
                    acquisition_budget_seconds: float = 0.0,
-                   duration_seconds: float) -> tuple[list[dict[str, Any]],
+                   duration_seconds: float,
+                   evidence_revision: str | None = None
+                   ) -> tuple[list[dict[str, Any]],
                                                     dict[str, Any]]:
     """Query the evidence behind one expected moment and plan acquisition.
 
@@ -238,6 +249,7 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
     explicitly instead of pretending the evidence was acquired.
     """
     rows: list[dict[str, Any]] = []
+    evidence_revision = evidence_revision or _evidence_revision(model)
     present_intervals: list[dict[str, Any]] = []
     statuses: dict[str, str] = {}
     observations = {str(obs.get("id")): obs
@@ -252,20 +264,28 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
         scope = _scope_for(model, moment)
         plan = evidence_query.compile_plan(list(predicates), scope=scope)
         answer = evidence_query.evidence_for(model, plan)
+        query_result_id = "evidence-query:" + hashlib.sha256(
+            json.dumps({"revision": evidence_revision, "plan": plan,
+                        "answer": answer}, sort_keys=True,
+                       separators=(",", ":")).encode("utf-8")
+        ).hexdigest()[:24]
         statuses[plan_name] = answer["status"]
         results = answer.get("results", [])
-        evidence_ids = [evidence_id for row in results
-                        for evidence_id in row.get("evidence_ids", [])]
-        if not evidence_ids:
-            evidence_ids = [f"evidence_query:{plan_name}",
-                            f"project_model:{model.get('id', 'unidentified')}"]
+        evidence_ids = sorted({evidence_id for row in results
+                               for evidence_id in row.get("evidence_ids", [])})
+        # Empty queries still have an addressable result record. Keep that
+        # query reference in the decision ledger; it is never promoted to an
+        # EditOperation observation link.
+        ledger_evidence_ids = evidence_ids or [query_result_id]
         detail = "; ".join(answer.get("reasons", [])) or \
             f"{len(results)} joined interval(s)"
         rows.append(_ledger_row(
             f"query {plan_name} over {moment['source_id']} "
             f"{scope['start_s']}-{scope['end_s']}s",
             f"{answer['status']}: {detail}",
-            evidence_ids, "evidence_query"))
+            ledger_evidence_ids, "evidence_query") | {
+                "query_result_id": query_result_id,
+                "evidence_revision": evidence_revision})
         for row in results:
             interval = row.get("interval", {})
             measurements = []
@@ -289,6 +309,8 @@ def consult_moment(model: dict[str, Any], moment: dict[str, Any],
                 "start_seconds": interval.get("start_s", scope["start_s"]),
                 "end_seconds": interval.get("end_s", scope["end_s"]),
                 "evidence_ids": row.get("evidence_ids", []),
+                "query_result_id": query_result_id,
+                "evidence_revision": evidence_revision,
                 "measurements": measurements,
                 "coverage": row.get("coverage", []),
                 "freshness": row.get("freshness", []),
@@ -1250,6 +1272,11 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
             start = dialogue_exchange["start_seconds"]
             end = dialogue_exchange["end_seconds"]
             exchange_measurements = dialogue_exchange["evidence"]
+            exchange_ids = {row["evidence_id"]
+                            for row in exchange_measurements}
+            evidence_intervals = [
+                item for item in answer.get("present_intervals", [])
+                if exchange_ids.intersection(item.get("evidence_ids", []))]
             selected = [{"evidence_ids": [row["evidence_id"]
                                            for row in exchange_measurements],
                          "measurements": exchange_measurements,
@@ -1258,7 +1285,8 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                                            for item in answer.get(
                                                "present_intervals", [])
                                            if item["plan"] ==
-                                           "speech_attributed"), None)}]
+                                           "speech_attributed"), None),
+                         "query_result_ids": []}]
             camera_selection = _speaker_camera_mapping(
                 answer, dialogue_exchange["speakers"])
             if camera_selection["status"] == "mapped":
@@ -1274,6 +1302,11 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                     if row["evidence_id"] in camera_evidence_ids]
                 selected[0]["evidence_ids"].extend(camera_evidence_ids)
                 selected[0]["measurements"].extend(camera_measurements)
+                evidence_intervals.extend(
+                    item for item in answer.get("present_intervals", [])
+                    if item["plan"] == "speaker_camera"
+                    and set(camera_evidence_ids).intersection(
+                        item.get("evidence_ids", [])))
             framing = measure_camera_framing(answer, start, end)
             selected[0]["evidence_ids"].extend(framing.get(
                 "evidence_ids", []))
@@ -1282,6 +1315,12 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
             switch_plan = plan_camera_switches(
                 dialogue_exchange, answer, camera_selection, framing,
                 preferences, start, end)
+            selected[0]["query_result_ids"] = sorted({
+                item["query_result_id"] for item in evidence_intervals
+                if item.get("query_result_id")})
+            selected[0]["evidence_revision"] = next(
+                (item["evidence_revision"] for item in evidence_intervals
+                 if item.get("evidence_revision")), None)
         else:
             camera_selection = None
             framing = {"cameras": {}, "evidence_ids": []}
@@ -1297,6 +1336,11 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
             continue
         evidence_ids = sorted({evidence_id for item in selected
                                for evidence_id in item["evidence_ids"]})
+        query_result_ids = sorted({query_id for item in selected
+                                   for query_id in item.get(
+                                       "query_result_ids",
+                                       [item.get("query_result_id")])
+                                   if query_id})
         measurements = [measurement for item in selected
                         for measurement in item["measurements"]]
         clocks = {item["clock_id"] for item in selected if item["clock_id"]}
@@ -1315,6 +1359,9 @@ def ground_cuts(brief: dict[str, Any], task_types: list[str],
                      "reason": {"creative_rationale": cut_range.get("reason", ""),
                                 "factual_evidence": measurements,
                                 "evidence_ids": evidence_ids,
+                                "query_result_ids": query_result_ids,
+                                "evidence_revision": selected[0].get(
+                                    "evidence_revision"),
                                 "evidence_plans": sorted({item["plan"]
                                                            for item in selected}),
                                 "dialogue_exchange": ({
@@ -1410,7 +1457,9 @@ def state_for_cuts(task_id: str, task_types: list[str],
 
 def write_reviewable_output(output_root: Path, task_id: str, run_name: str,
                             graph: dict[str, Any], cuts: list[dict[str, Any]],
-                            ledger: list[dict[str, Any]]) -> dict[str, str]:
+                            ledger: list[dict[str, Any]],
+                            edit_operations: list[dict[str, Any]] | None = None
+                            ) -> dict[str, str]:
     """Write the reviewable edit artefacts under the output root.
 
     The edit graph, the evidence ledger, and a cut-list timeline in OTIO
@@ -1435,6 +1484,8 @@ def write_reviewable_output(output_root: Path, task_id: str, run_name: str,
     artefacts = {"edit-graph.json": graph,
                  "evidence-ledger.json": ledger,
                  "edit.otio.json": timeline}
+    if edit_operations is not None:
+        artefacts["edit-operations.json"] = edit_operations
     for filename, payload in artefacts.items():
         (run_dir / filename).write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
@@ -1524,6 +1575,7 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
         raise ValueError("; ".join(brief_errors + window_errors))
     ledger = [consult_model(model)]
     answers_by_moment: dict[str, dict[str, Any]] = {}
+    evidence_revision = _evidence_revision(model)
     brief_body = dict(task.get("brief") or {})
     if source_ids is not None:
         wanted = set(source_ids)
@@ -1539,7 +1591,8 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
         rows, answer = consult_moment(
             model, moment, task_types,
             acquisition_budget_seconds=acquisition_budget_seconds,
-            duration_seconds=source_durations[moment["source_id"]])
+            duration_seconds=source_durations[moment["source_id"]],
+            evidence_revision=evidence_revision)
         ledger.extend(rows)
         answers_by_moment[moment["id"]] = answer
     edit_rows, edit_points = consult_edit_points(model)
@@ -1561,8 +1614,23 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
     state, ungraphable = state_for_cuts(
         task_id, task_types, cuts, word_rows)
     graph = edit_graph.build_graph(state)
+    edit_operations = []
+    from library.tools.project_model_editorial import edit_graph_node_to_operation
+    for node in graph.get("nodes", []):
+        clip_id = (node.get("payload") or {}).get("clip_id")
+        cut = next((row for row in cuts
+                    if clip_id == f"eval04:{task_id}:{row['moment_id']}"), None)
+        if cut is None:
+            continue
+        reason = cut["reason"]
+        node = dict(node, evidence_ids=reason["evidence_ids"],
+                    query_result_id=(reason["query_result_ids"][0]
+                                     if reason["query_result_ids"] else ""),
+                    evidence_revision=reason["evidence_revision"],
+                    creative_rationale=reason["creative_rationale"])
+        edit_operations.append(edit_graph_node_to_operation(node))
     artefacts = write_reviewable_output(output_root, task_id, run_name,
-                                        graph, cuts, ledger)
+                                        graph, cuts, ledger, edit_operations)
     rendered = (render_output is not None
                 and _contained_file(output_root, render_output))
     if render_output is not None and not rendered:
@@ -1581,6 +1649,7 @@ def run_task(task: dict[str, Any], model: dict[str, Any], *,
                    "ungraphable": ungraphable,
                    "scoped_sources": source_ids,
                    "graph_node_count": graph.get("node_count", 0),
+                   "edit_operations": edit_operations,
                    "external_scorers": external_scorer_status(
                        Path(__file__).resolve().parents[2])}
     return ({"id": task_id, "brief": task.get("brief"),

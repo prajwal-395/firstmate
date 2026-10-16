@@ -715,6 +715,9 @@ pub struct EditOperation {
     pub after: Option<Value>,
     pub intent_id: Option<IntentId>,
     pub evidence_ids: Vec<ObservationId>,
+    pub query_result_id: Option<String>,
+    pub evidence_revision: Option<String>,
+    pub creative_rationale: Option<String>,
     pub author: String,
     pub parent_revision: Option<String>,
 }

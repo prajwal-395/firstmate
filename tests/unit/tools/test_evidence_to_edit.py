@@ -138,6 +138,15 @@ def test_evidenced_model_grounds_cuts_inside_brief_ranges(tmp_path):
         .read_text(encoding="utf-8"))
     assert graph["node_count"] == diagnostics["graph_node_count"]
     assert any(node["node_type"] == "spine_block" for node in graph["nodes"])
+    edit_operations = diagnostics["edit_operations"]
+    assert edit_operations
+    assert all(operation["evidence_ids"]
+               and operation["query_result_id"]
+               and operation["evidence_revision"]
+               and operation["creative_rationale"]
+               for operation in edit_operations)
+    assert (tmp_path / "dialogue-multicam-cut" / "run-a"
+            / "edit-operations.json").is_file()
     cut_reason = diagnostics["cuts"][0]["reason"]
     assert cut_reason["creative_rationale"] == "Keep the complete beat."
     assert cut_reason["dialogue_exchange"] == {

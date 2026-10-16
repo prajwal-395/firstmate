@@ -270,6 +270,25 @@ def test_temporal_retrieval_returns_exact_overlapping_hierarchy_and_evidence():
     assert action["source_evidence"][0]["id"] == evidence_id
 
 
+def test_evidence_backed_edits_require_resolvable_observation_links():
+    model = _model()
+    operation = {
+        "id": "edit:grounded", "operation": "edit_graph.aroll_assignment",
+        "target_ids": ["aroll:1"], "before": None, "after": {},
+        "intent_id": None, "evidence_ids": [], "author": "test",
+        "query_result_id": "query:1", "evidence_revision": "revision:1",
+        "creative_rationale": "choose a clear angle",
+    }
+    model["edits"].append(operation)
+    with pytest.raises(ValueError, match="needs evidence_ids"):
+        validate_project_model(model)
+    operation["evidence_ids"] = [model["observations"][0]["id"]]
+    validate_project_model(model)
+    operation["evidence_ids"] = ["missing-observation"]
+    with pytest.raises(ValueError, match="unknown observation"):
+        validate_project_model(model)
+
+
 def test_query_outcomes_refuse_silent_absence():
     """Acceptance: confidently_absent needs fresh complete versioned
     coverage, and not_yet_analysed names its missing lanes - an empty

@@ -4359,6 +4359,9 @@ pub fn expand_retime_ramp(
             after: Some(serde_json::json!({"at_frame": at_frame})),
             intent_id: edit.intent_id.clone(),
             evidence_ids: edit.evidence_ids.clone(),
+            query_result_id: edit.query_result_id.clone(),
+            evidence_revision: edit.evidence_revision.clone(),
+            creative_rationale: edit.creative_rationale.clone(),
             author: edit.author.clone(),
             parent_revision: None,
         });
@@ -4381,6 +4384,9 @@ pub fn expand_retime_ramp(
                     after: Some(serde_json::json!({})),
                     intent_id: edit.intent_id.clone(),
                     evidence_ids: edit.evidence_ids.clone(),
+                    query_result_id: edit.query_result_id.clone(),
+                    evidence_revision: edit.evidence_revision.clone(),
+                    creative_rationale: edit.creative_rationale.clone(),
                     author: edit.author.clone(),
                     parent_revision: None,
                 });
@@ -4402,6 +4408,9 @@ pub fn expand_retime_ramp(
             }),
             intent_id: edit.intent_id.clone(),
             evidence_ids: edit.evidence_ids.clone(),
+            query_result_id: edit.query_result_id.clone(),
+            evidence_revision: edit.evidence_revision.clone(),
+            creative_rationale: edit.creative_rationale.clone(),
             author: edit.author.clone(),
             parent_revision: None,
         });
@@ -4929,6 +4938,9 @@ fn patch_inner_to_edit(
         after: Some(serde_json::Value::Object(after)),
         intent_id: outer.intent_id.clone(),
         evidence_ids: vec![],
+        query_result_id: None,
+        evidence_revision: None,
+        creative_rationale: None,
         author: outer.author.clone(),
         parent_revision: None,
     })
@@ -5962,6 +5974,9 @@ mod tests {
                 after: Some(serde_json::json!({"end": 12})),
                 intent_id: None,
                 evidence_ids: vec![],
+                query_result_id: None,
+                evidence_revision: None,
+                creative_rationale: None,
                 author: "unit".into(),
                 parent_revision: None,
             };
@@ -5982,6 +5997,9 @@ mod tests {
             after: Some(after),
             intent_id: None,
             evidence_ids: vec![],
+            query_result_id: None,
+            evidence_revision: None,
+            creative_rationale: None,
             author: "unit".into(),
             parent_revision: None,
         }
@@ -6405,6 +6423,9 @@ mod tests {
             after: Some(after),
             intent_id: None,
             evidence_ids: vec![],
+            query_result_id: None,
+            evidence_revision: None,
+            creative_rationale: None,
             author: "unit".into(),
             parent_revision: None,
         }
@@ -6710,6 +6731,9 @@ mod tests {
             })),
             intent_id: None,
             evidence_ids: vec![],
+            query_result_id: None,
+            evidence_revision: None,
+            creative_rationale: None,
             author: "unit".into(),
             parent_revision: None,
         };

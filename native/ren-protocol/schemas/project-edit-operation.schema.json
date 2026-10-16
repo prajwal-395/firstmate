@@ -8,11 +8,23 @@
       "type": "string"
     },
     "before": true,
+    "creative_rationale": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "evidence_ids": {
       "type": "array",
       "items": {
         "type": "string"
       }
+    },
+    "evidence_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
     },
     "id": {
       "type": "string"
@@ -27,6 +39,12 @@
       "type": "string"
     },
     "parent_revision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "query_result_id": {
       "type": [
         "string",
         "null"

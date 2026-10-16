@@ -59,6 +59,20 @@ def test_edit_graph_node_migrates_with_stable_id_and_lineage():
     assert first["intent_id"] is None
 
 
+def test_edit_graph_operation_preserves_measured_decision_evidence():
+    node = _aroll_node() | {
+        "evidence_ids": ["obs-1"], "query_result_id": "query-1",
+        "evidence_revision": "sha256:abc",
+        "creative_rationale": "hold the host angle",
+    }
+    operation = editorial.edit_graph_node_to_operation(node)
+    assert operation["evidence_ids"] == ["obs-1"]
+    assert operation["query_result_id"] == "query-1"
+    assert operation["evidence_revision"] == "sha256:abc"
+    assert operation["creative_rationale"] == "hold the host angle"
+    assert "creative_rationale" not in operation["after"]
+
+
 def test_project_graph_wrapper_converges_on_the_same_id():
     wrapper = {
         "node_id": "edit:aroll:3",
@@ -352,6 +366,19 @@ def test_ledger_words_row_migrates_without_ticks():
     assert operation["author"] == "captain"
     assert operation["after"]["anchor"] == {"kind": "words", "phrase": "hello world"}
     assert "interval" not in operation["after"]
+
+
+def test_ledger_bridge_preserves_explicit_decision_evidence():
+    row = _words_row() | {
+        "evidence_ids": ["obs-1"], "query_result_id": "query-1",
+        "evidence_revision": "revision-1",
+        "creative_rationale": "match the host angle",
+    }
+    operation = editorial.ledger_row_to_operation(row)
+    assert operation["evidence_ids"] == ["obs-1"]
+    assert operation["query_result_id"] == "query-1"
+    assert operation["evidence_revision"] == "revision-1"
+    assert operation["creative_rationale"] == "match the host angle"
 
 
 def test_ledger_frame_anchor_is_refused_not_promoted():

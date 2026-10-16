@@ -49,6 +49,20 @@ def validate_project_model(model: dict[str, Any]) -> None:
     if any(value is not None and not 0 <= value <= 1 for value in confidence_values):
         raise ValueError("confidence must be between 0 and 1")
     observation_ids = {item["id"] for item in model["observations"]}
+    for operation in model.get("edits", []):
+        evidence_backed = any(operation.get(field) is not None for field in (
+            "query_result_id", "evidence_revision", "creative_rationale"))
+        if evidence_backed and not operation.get("evidence_ids"):
+            raise ValueError(
+                f"evidence-backed edit {operation['id']!r} needs evidence_ids")
+        if not set(operation.get("evidence_ids", [])) <= observation_ids:
+            raise ValueError(
+                f"edit {operation['id']!r} references unknown observation")
+        if evidence_backed and (not operation.get("query_result_id")
+                                or operation.get("evidence_revision") is None):
+            raise ValueError(
+                f"evidence-backed edit {operation['id']!r} needs query result "
+                "and evidence revision")
     entity_ids = {item["id"] for item in model["entities"]}
     track_ids = {item["id"] for item in model.get("tracks", [])}
     clock_ids = {clock["id"] for clock in model["clocks"]}

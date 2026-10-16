@@ -450,7 +450,8 @@ def edit_graph_node_to_operation(
     The operation id namespaces the stable node id, so the project-graph
     wrapper path (``edit:<node_id>``) converges on the same id. Legacy
     evidence refs travel inside ``after`` lineage; typed ``evidence_ids``
-    stay empty until Unit 3 measures the observation link.
+    are copied only from measured observations explicitly attached by the
+    evidence-to-edit caller.
     """
     if not isinstance(node, Mapping):
         raise EditorialMigrationError("an edit-graph node must be an object")
@@ -463,6 +464,10 @@ def edit_graph_node_to_operation(
             f"edit-graph node {node_id!r} needs a node_type"
         )
     payload = node.get("payload")
+    evidence_ids = list(node.get("evidence_ids") or [])
+    query_result_id = node.get("query_result_id")
+    evidence_revision = node.get("evidence_revision")
+    creative_rationale = node.get("creative_rationale")
     return {
         "id": f"edit_graph:{node_id}",
         "operation": f"edit_graph.{node_type}",
@@ -479,7 +484,12 @@ def edit_graph_node_to_operation(
             "depends_on": list(node.get("depends_on") or []),
         },
         "intent_id": None,
-        "evidence_ids": [],
+        "evidence_ids": evidence_ids,
+        **({"query_result_id": query_result_id} if query_result_id else {}),
+        **({"evidence_revision": evidence_revision}
+           if evidence_revision is not None else {}),
+        **({"creative_rationale": creative_rationale}
+           if creative_rationale is not None else {}),
         "author": author,
         "parent_revision": None,
     }
@@ -512,6 +522,10 @@ def project_graph_edit_node_to_operation(
         "payload": payload.get("edit_payload") or {},
         "intent_refs": payload.get("intent_refs") or [],
         "evidence_refs": payload.get("evidence_refs") or [],
+        "evidence_ids": payload.get("evidence_ids") or [],
+        "query_result_id": payload.get("query_result_id"),
+        "evidence_revision": payload.get("evidence_revision"),
+        "creative_rationale": payload.get("creative_rationale"),
         "constraints": payload.get("constraints") or {},
         "depends_on": payload.get("depends_on") or [],
     }
@@ -583,7 +597,13 @@ def ledger_row_to_operation(row: Mapping[str, Any]) -> dict[str, Any]:
             "source_note_id": row.get("source_note_id"),
         },
         "intent_id": None,
-        "evidence_ids": [],
+        "evidence_ids": list(row.get("evidence_ids") or []),
+        **({"query_result_id": row["query_result_id"]}
+           if row.get("query_result_id") else {}),
+        **({"evidence_revision": row["evidence_revision"]}
+           if row.get("evidence_revision") is not None else {}),
+        **({"creative_rationale": row["creative_rationale"]}
+           if row.get("creative_rationale") is not None else {}),
         "author": stated_by if isinstance(stated_by, str) else "requester",
         "parent_revision": None,
     }

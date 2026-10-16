@@ -98,6 +98,9 @@ fn filmcraft_edit(id: &str, operation: &str, after: serde_json::Value) -> EditOp
         after: Some(after),
         intent_id: None,
         evidence_ids: vec![],
+        query_result_id: None,
+        evidence_revision: None,
+        creative_rationale: None,
         author: "adapter-qualification".into(),
         parent_revision: None,
     }
@@ -469,6 +472,9 @@ fn ren_edit_for(
         after: Some(after),
         intent_id: None,
         evidence_ids: vec![],
+        query_result_id: None,
+        evidence_revision: None,
+        creative_rationale: None,
         author: "ren-equivalence".into(),
         parent_revision: None,
     }
