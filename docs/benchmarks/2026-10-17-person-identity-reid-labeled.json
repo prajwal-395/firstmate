@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "study": "AUD-043..051 person identity / ReID, Round 6 exact crop evaluation",
+  "measured_at_utc": "2026-10-17",
+  "label_protocol": {
+    "crop_count": 20,
+    "pair_count": 190,
+    "same_person_pairs": 48,
+    "different_person_pairs": 105,
+    "unknown_involved_pairs": 37,
+    "labeller_a": "OpenAI/Codex agent, runtime not exposed",
+    "labeller_b": "OpenCode Muse Spark agent, model family/version not stated",
+    "agreement": "190/190 semantic pair-label agreement after separator and unknown-vocabulary normalization; 0 substantive disagreements",
+    "labels": "blind agent labels, not human gold",
+    "crop_presence_annotation_note": "A marked cal-apple1807-00 as hand/arm only with crop_contains_person=false; B marked it as a partial-person box while leaving identity unknown. This is not an identity-pair disagreement and is not adjudicated; all pairs involving it remain unknown-involved."
+  },
+  "method": {
+    "candidate_input": "the exact 20 B-manifest JPEG crops; no source video recrop or model output from other timestamps was substituted",
+    "unknown_policy": "exclude all unknown-involved pairs from identity quality metrics; do not infer identity",
+    "threshold_policy": "per feature, select threshold on within-calibration known pairs by minimizing FAR+FRR, ties minimize FAR then prefer higher threshold; freeze before held-out evaluation",
+    "heldout_policy": "evaluate held-out-containing known pairs once: within-held-out plus calibration-heldout pairs",
+    "feature_selection": "one primary person detection per crop: highest detector score, then largest box area; buffalo_l one face by highest detector score then area",
+    "models_ran_sequentially": true,
+    "runtime": "InsightFace 2.1 scratch environment, CPUExecutionProvider, unquantized publisher ONNX weights",
+    "hardware": "local Apple Silicon CPU; no remote service"
+  },
+  "model_downloads": [
+    {
+      "model": "InsightFace PersonAnalysis cheetah_s",
+      "publisher_revision": "InsightFace 2.1 PersonAnalysis update announced 2026-10-03; publisher manifest_version 2",
+      "retrieved_for_this_benchmark_utc": "2026-10-17",
+      "unpacked_bytes": 29264445,
+      "transfer_bytes": "not exposed by PersonAnalysis auto-download",
+      "path": "/Users/prajwal/.cache/vep-mu-reid/ifroot/models/cheetah_s",
+      "status_after_benchmark": "deleted",
+      "publisher_license": {
+        "id": "cheetah_s-public-v1",
+        "grant": "non-commercial",
+        "valid_from": "2026-09-28T12:35:15Z"
+      },
+      "publisher_published_sha256": {
+        "pp_det_small_320.onnx": "c72153172d4057ac8df4720413fb5d06402172d0e96fb918bb2c3b768a2060bb",
+        "reid_0265.onnx": "c15084e7fa47e5ade8af236372e0c81d7d6a11d10d4f4db2d98b72ec6cefef0f",
+        "det_500m.onnx": "5e4447f50245bbd7966bd6c0fa52938c61474a04ec7def48753668a9d8b4ea3a",
+        "w600k_mbf.onnx": "9cc6e4a75f0e2bf0b1aed94578f144d15175f357bdc05e815e5c4a02b319eb4f"
+      }
+    },
+    {
+      "model": "InsightFace buffalo_l incumbent",
+      "publisher_revision": "Existing personal cache; retrieval date/revision unavailable and no publisher hash recorded in this lane",
+      "downloaded_for_this_benchmark": false,
+      "path": "/Users/prajwal/.insightface/models/buffalo_l",
+      "weights_touched": "read only",
+      "license_class": "non-commercial/research only; not eligible for Commercial"
+    }
+  ],
+  "peak_memory": {
+    "cheetah_s": {
+      "observed_peak_rss_bytes": 303677440,
+      "observed_peak_rss_gib": 0.282822,
+      "declared_gib": 1.0
+    },
+    "buffalo_l": {
+      "observed_peak_rss_bytes": 1072693248,
+      "observed_peak_rss_gib": 0.999023,
+      "declared_gib": 1.5,
+      "cap_event": "A first attempt with 1.0 GiB declaration exceeded at 1,079,050,240 bytes and exited before crop inference; rerun at 1.5 GiB completed at 1,072,693,248 bytes."
+    }
+  },
+  "candidates": [
+    {
+      "id": "insightface.buffalo_l",
+      "precision": "unquantized publisher ONNX weights",
+      "decision": "retain baseline for personal/research comparison; reject for Commercial distribution",
+      "quality": {
+        "feature": "buffalo_l ArcFace face embedding",
+        "available_crops": 18,
+        "total_crops": 20,
+        "calibration": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.271332,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "heldout_once_including_cross_split": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.271332,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "vendor_threshold": 0.25,
+        "calibration_at_vendor_threshold": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.25,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "heldout_at_vendor_threshold": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.25,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "label_pair_coverage": {
+          "known_pair_count": 153,
+          "calibration_known_pair_count": 45,
+          "heldout_known_pair_count": 108
+        }
+      },
+      "latency": {
+        "cold_initialization_seconds": 1.357896,
+        "warm_median_seconds_per_crop_prior_one_crop_probe": 0.131132,
+        "exact_crop_decode_20_seconds": 0.022899,
+        "exact_crop_inference_20_seconds": 5.679893,
+        "exact_crop_inference_average_seconds_per_crop": 0.283995,
+        "exact_crop_serialization_median_seconds": 0.0010372910037403926,
+        "exact_crop_serialized_bytes": 101466,
+        "end_to_end_20_crop_seconds": 7.061725,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU, no metered service."
+      },
+      "feature_coverage": {
+        "crops_with_face": 18,
+        "crops_total": 20,
+        "observed_detection_counts": {
+          "0": 2,
+          "1": 18
+        }
+      }
+    },
+    {
+      "id": "insightface.cheetah_s.face",
+      "precision": "unquantized publisher ONNX weights",
+      "decision": "research-only; no adoption/default change",
+      "quality": {
+        "feature": "cheetah_s face embedding",
+        "available_crops": 18,
+        "total_crops": 20,
+        "calibration": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.239327,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "heldout_once_including_cross_split": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.239327,
+          "false_accepts": 0,
+          "false_rejects": 0,
+          "FAR": 0.0,
+          "FRR": 0.0,
+          "accuracy": 1.0,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "vendor_threshold": 0.45,
+        "calibration_at_vendor_threshold": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.45,
+          "false_accepts": 0,
+          "false_rejects": 1,
+          "FAR": 0.0,
+          "FRR": 0.076923,
+          "accuracy": 0.977778,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "heldout_at_vendor_threshold": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.45,
+          "false_accepts": 0,
+          "false_rejects": 2,
+          "FAR": 0.0,
+          "FRR": 0.057143,
+          "accuracy": 0.981481,
+          "ROC_AUC": 1.0,
+          "false_match_pairs": []
+        },
+        "label_pair_coverage": {
+          "known_pair_count": 153,
+          "calibration_known_pair_count": 45,
+          "heldout_known_pair_count": 108
+        }
+      },
+      "latency": {
+        "cold_initialization_seconds": 1.62149,
+        "warm_median_seconds_per_crop_prior_one_crop_probe": 0.127731,
+        "exact_crop_decode_20_seconds": 0.020149,
+        "exact_crop_inference_20_seconds": 1.436828,
+        "exact_crop_inference_average_seconds_per_crop": 0.071841,
+        "exact_crop_serialization_median_seconds": 0.0015912910021143034,
+        "exact_crop_serialized_bytes": 154261,
+        "end_to_end_20_crop_seconds": 3.080058,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU, no metered service."
+      },
+      "feature_coverage": {
+        "crops_with_face": 18,
+        "crops_total": 20
+      }
+    },
+    {
+      "id": "insightface.cheetah_s.person_reid",
+      "precision": "unquantized publisher ONNX weights",
+      "decision": "research-only; body score cannot merge identity alone",
+      "quality": {
+        "feature": "cheetah_s body ReID embedding",
+        "available_crops": 20,
+        "total_crops": 20,
+        "calibration": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.609646,
+          "false_accepts": 0,
+          "false_rejects": 1,
+          "FAR": 0.0,
+          "FRR": 0.076923,
+          "accuracy": 0.977778,
+          "ROC_AUC": 0.959135,
+          "false_match_pairs": []
+        },
+        "heldout_once_including_cross_split": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.609646,
+          "false_accepts": 0,
+          "false_rejects": 4,
+          "FAR": 0.0,
+          "FRR": 0.114286,
+          "accuracy": 0.962963,
+          "ROC_AUC": 0.950294,
+          "false_match_pairs": []
+        },
+        "vendor_threshold": 0.85,
+        "calibration_at_vendor_threshold": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.85,
+          "false_accepts": 0,
+          "false_rejects": 10,
+          "FAR": 0.0,
+          "FRR": 0.769231,
+          "accuracy": 0.777778,
+          "ROC_AUC": 0.959135,
+          "false_match_pairs": []
+        },
+        "heldout_at_vendor_threshold": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.85,
+          "false_accepts": 0,
+          "false_rejects": 23,
+          "FAR": 0.0,
+          "FRR": 0.657143,
+          "accuracy": 0.787037,
+          "ROC_AUC": 0.950294,
+          "false_match_pairs": []
+        },
+        "label_pair_coverage": {
+          "known_pair_count": 153,
+          "calibration_known_pair_count": 45,
+          "heldout_known_pair_count": 108
+        }
+      },
+      "latency": {
+        "cold_initialization_seconds": 1.62149,
+        "warm_median_seconds_per_crop_prior_one_crop_probe": 0.127731,
+        "exact_crop_decode_20_seconds": 0.020149,
+        "exact_crop_inference_20_seconds": 1.436828,
+        "exact_crop_inference_average_seconds_per_crop": 0.071841,
+        "exact_crop_serialization_median_seconds": 0.0015912910021143034,
+        "exact_crop_serialized_bytes": 154261,
+        "end_to_end_20_crop_seconds": 3.080058,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU, no metered service."
+      },
+      "feature_coverage": {
+        "crops_with_body_reid": 20,
+        "crops_total": 20,
+        "face_absent_crops_with_body_reid": 2
+      }
+    },
+    {
+      "id": "ren.hsv_body_appearance",
+      "precision": "not applicable, no learned weights",
+      "decision": "research-only; no identity claim and commercial dependency review pending",
+      "quality": {
+        "feature": "HSV body descriptor (full supplied crop)",
+        "available_crops": 20,
+        "total_crops": 20,
+        "calibration": {
+          "pairs_scored": 45,
+          "same_pairs": 13,
+          "different_pairs": 32,
+          "threshold": 0.661122,
+          "false_accepts": 0,
+          "false_rejects": 1,
+          "FAR": 0.0,
+          "FRR": 0.076923,
+          "accuracy": 0.977778,
+          "ROC_AUC": 0.956731,
+          "false_match_pairs": []
+        },
+        "heldout_once_including_cross_split": {
+          "pairs_scored": 108,
+          "same_pairs": 35,
+          "different_pairs": 73,
+          "threshold": 0.661122,
+          "false_accepts": 0,
+          "false_rejects": 4,
+          "FAR": 0.0,
+          "FRR": 0.114286,
+          "accuracy": 0.962963,
+          "ROC_AUC": 0.958904,
+          "false_match_pairs": []
+        },
+        "vendor_threshold": null,
+        "calibration_at_vendor_threshold": null,
+        "heldout_at_vendor_threshold": null,
+        "label_pair_coverage": {
+          "known_pair_count": 153,
+          "calibration_known_pair_count": 45,
+          "heldout_known_pair_count": 108
+        }
+      },
+      "latency": {
+        "cold_import_seconds": 0.110934,
+        "decode_20_crops_seconds": 0.033874,
+        "warm_descriptor_100_calls_seconds": 0.150787,
+        "warm_average_seconds_per_crop": 0.001508,
+        "serialize_seconds": 0.000184,
+        "peak_rss_bytes": 84606976,
+        "peak_rss_gib": 0.078796,
+        "end_to_end_first_pass_20_crops_seconds": 0.175149,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU, no metered service."
+      },
+      "feature_coverage": {
+        "descriptor_crops": 20,
+        "crops_total": 20
+      }
+    }
+  ],
+  "limits": [
+    "Only three known identities across 20 selected crops; this is a small selected-sample measurement, not a generalization claim.",
+    "The 37 unknown-involved pairs are not treated as negative pairs. Both unknown crops have no defensible identity label.",
+    "The held-out sample covers cross-session and cross-file comparisons, not a confirmed independent-camera deployment test.",
+    "No known face-absent identity pair exists; body identity quality when faces are absent therefore remains unmeasured.",
+    "Zero false accepts in this sample is not evidence of zero real-world false-match risk.",
+    "No commercially eligible standalone identity alternative is established; the HSV descriptor is non-decisive evidence only.",
+    "The complete raw vectors and per-crop model outputs remain outside the repository in personal scratch.",
+    "A and B differ on whether the hand-only calibration crop counts as a person box; this crop remains unknown and is not used to claim detection recall."
+  ],
+  "runner_path_outside_repository": "/Users/prajwal/.cache/vep-mu-reid/score_exact_crops.py",
+  "pair_metric_script_path_outside_repository": "/Users/prajwal/.cache/vep-mu-reid/score_round6_pairs.py"
+}

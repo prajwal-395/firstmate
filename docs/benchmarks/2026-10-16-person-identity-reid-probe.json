@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "study": "AUD-043..051 person identity and ReID technical probe",
+  "status": "preliminary_probe_only",
+  "scope": {
+    "source_scope": "One person crop derived from permitted GEO podcast calibration footage; no Apple 001 or held-out footage was used.",
+    "input": {
+      "asset": "GEO podcast calibration crop (asset key retained in private scratch only)",
+      "width_px": 370,
+      "height_px": 393,
+      "file_bytes": 41982,
+      "identity_labels_used": false
+    },
+    "method": "One model process at a time. Five repeated inferences on the same image. Candidate and incumbent used InsightFace 2.1, CPUExecutionProvider, unquantized publisher ONNX weights.",
+    "memory_sampler": "macOS ps RSS sampled every 0.2 seconds; the wrapper terminated the exact child PID if it exceeded its declared RAM cap.",
+    "quality_limit": "No identity-quality conclusion: blind independent agent labels and the disagreement adjudication are pending. This single crop is not representative of lighting, angle, occlusion, cross-camera, false-match, face-absent or contradictory-evidence cases."
+  },
+  "candidates": [
+    {
+      "id": "insightface-buffalo-l-incumbent",
+      "decision": "retain baseline",
+      "license_class": "research-only pretrained weights; no commercial distribution approval",
+      "precision": "unquantized publisher ONNX weights",
+      "identity": {
+        "package": "buffalo_l",
+        "runtime": "insightface 2.1 scratch interpreter for matched runtime comparison",
+        "weights_path": "/Users/prajwal/.insightface/models/buffalo_l",
+        "publisher_revision": "Existing shared cache; exact retrieval date/revision not recorded in this lane. Local weights were not hashed.",
+        "downloaded_by_this_probe": false
+      },
+      "quality_metrics": {
+        "status": "pending blind agent labels",
+        "false_accept_rate": null,
+        "false_reject_rate": null,
+        "missed_detection_count": null,
+        "false_body_match_rate": null
+      },
+      "latency_seconds": {
+        "cold_initialization": 0.426833,
+        "warm_inference_each": [0.131132, 0.092952, 0.109778, 0.144399, 0.157393],
+        "warm_median": 0.131132
+      },
+      "peak_memory": {
+        "declared_gb": 1.5,
+        "sampled_peak_rss_kib": 762864,
+        "sampled_peak_gib": 0.728
+      },
+      "timing_split_seconds": {
+        "decode": 0.003744,
+        "infer_mean_per_call": 0.127131,
+        "infer_five_calls_total": 0.635654,
+        "serialize_last_call": 0.000322
+      },
+      "end_to_end_cost": {
+        "local_cold_plus_five_calls_seconds": 1.066553,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU inference; no metered remote service."
+      }
+    },
+    {
+      "id": "insightface-2-1-cheetah-s",
+      "decision": "research-only",
+      "license_class": "non-commercial research only; not eligible for Commercial",
+      "license_record": {
+        "license_id": "cheetah_s-public-v1",
+        "license_version": 1,
+        "valid_from": "2026-09-28T12:35:15Z",
+        "grant": "non-commercial",
+        "source": "publisher-supplied MODEL.LICENSE"
+      },
+      "precision": "unquantized publisher ONNX weights",
+      "identity": {
+        "package": "cheetah_s",
+        "runtime": "insightface 2.1",
+        "publisher_revision": "InsightFace 2.1 PersonAnalysis update, publisher changelog dated 2026-10-03; package manifest_version 2.",
+        "publisher_weight_sha256": {
+          "pp_det_small_320.onnx": "c72153172d4057ac8df4720413fb5d06402172d0e96fb918bb2c3b768a2060bb",
+          "reid_0265.onnx": "c15084e7fa47e5ade8af236372e0c81d7d6a11d10d4f4db2d98b72ec6cefef0f",
+          "det_500m.onnx": "5e4447f50245bbd7966bd6c0fa52938c61474a04ec7def48753668a9d8b4ea3",
+          "w600k_mbf.onnx": "9cc6e4a75f0e2bf0b1aed94578f144d15175f357bdc05e815e5c4a02b319eb4f"
+        },
+        "preexisting_download_record": {
+          "path": "/Users/prajwal/.cache/vep-mu-reid/ifroot/models/cheetah_s",
+          "unpacked_package_bytes": 29264445,
+          "transfer_bytes": null,
+          "retrieval_date": "not recorded in prior task state",
+          "used_for_probe": true,
+          "deleted_after_probe": true
+        }
+      },
+      "quality_metrics": {
+        "status": "pending blind agent labels",
+        "false_accept_rate": null,
+        "false_reject_rate": null,
+        "missed_detection_count": null,
+        "false_body_match_rate": null
+      },
+      "latency_seconds": {
+        "cold_initialization": 1.451041,
+        "warm_inference_each": [0.154218, 0.192904, 0.111761, 0.0869, 0.127731],
+        "warm_median": 0.127731
+      },
+      "peak_memory": {
+        "declared_gb": 3.0,
+        "sampled_peak_rss_kib": 295424,
+        "sampled_peak_gib": 0.282
+      },
+      "timing_split_seconds": {
+        "decode": 0.005293,
+        "infer_mean_per_call": 0.134703,
+        "infer_five_calls_total": 0.673514,
+        "serialize_last_call": 0.000212
+      },
+      "end_to_end_cost": {
+        "local_cold_plus_five_calls_seconds": 2.13006,
+        "monetary_cost": null,
+        "monetary_cost_note": "Local CPU inference; no metered remote service."
+      }
+    },
+    {
+      "id": "hsv-body-appearance-descriptor",
+      "decision": "research-only until calibrated; emits no identity claim",
+      "license_class": "model-free project code; commercial dependency-closure review remains with vep-mu-license",
+      "precision": "not applicable",
+      "quality_metrics": {
+        "status": "pending blind agent labels",
+        "false_accept_rate": null,
+        "false_reject_rate": null,
+        "missed_detection_count": null,
+        "false_body_match_rate": null
+      },
+      "latency_seconds": null,
+      "peak_memory": null,
+      "timing_split_seconds": null,
+      "end_to_end_cost": null
+    }
+  ],
+  "sources": [
+    {
+      "title": "InsightFace repository release and license notes",
+      "url": "https://github.com/deepinsight/insightface",
+      "supports": "InsightFace 2.1 PersonAnalysis changelog and non-commercial pretrained-model license terms."
+    },
+    {
+      "title": "InsightFace PersonAnalysis documentation",
+      "url": "https://github.com/deepinsight/insightface/blob/master/python-package/docs/person_analysis.md",
+      "supports": "PersonAnalysis API and model package installation behavior."
+    }
+  ]
+}
