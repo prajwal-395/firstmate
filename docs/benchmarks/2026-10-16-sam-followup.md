@@ -92,6 +92,41 @@ is unadopted. This says nothing about SAM3 itself - only about this
 mlx-vlm video/box path on this fixture. Machine-readable numbers are in
 `2026-10-16-sam-followup-track-model.json` (`sam3-8bit-video` version).
 
+## Scheduler enforcement + contention (PERF-015, 2026-10-16)
+
+Honest reservations from measured tree footprints (ru_maxrss understates:
+single-seed showed ~1 GB RSS vs 3.94 GB tree footprint):
+
+- Blob-path (10 auto objects) 960-wide declared 3 GB: stopped at 3.94 GB.
+- Blob-path 480-wide declared 5 GB: stopped at 6.92 GB.
+- Both kills by the new reservation enforcement - the mechanism works.
+- Blob-path 480-wide declared 8 GB (the ceiling): admitted after ~35 min
+  in queue, then stopped at exactly 8.00 GB tree footprint mid-run, no
+  output. The legacy 10-auto-object blob path does not fit the 8 GB
+  ceiling even at 480-wide. Multi-object tracking must go the seeded
+  route (face/detector seeds, N targets); the track model already
+  supports it. Seeded cost scales near-linearly from the measured
+  single-seed footprints (1.0-3.9 GB tree).
+- Two-seed 960-wide and 480-wide do not reliably fit either: identical
+  two-seed runs measured 5.34 / 8.12 GB (960) and 6.11 / 7.11 / 8.13 /
+  9.14 / 10.15 GB (480) tree footprint - and the 480 ladder climbs ~1 GB
+  per attempt, which reads as machine-state ratchet (swap pressure
+  accumulating run to run) rather than a stable per-run number. The
+  final attempt at 9.9 GB (ceiling 10 GB) was stopped at 10.15 GB with
+  no output. Verdict: two-seed PyTorch SAM 2.1 is NOT MEASURED - no
+  complete run under the ceiling. PyTorch SAM 2.1 multi-object (>=2
+  targets) is memory-blocked under the ceiling on this loaded machine;
+  single-seed fits. The structurally interesting multi-object route is
+  a small alternative (EdgeTAM-class, 15-27 MB weights), not more
+  PyTorch SAM 2.1.
+- Blob-path cost/fragmentation unmeasured (stopped at the ceiling, see
+  above); its quality half never applied - the blob path names no
+  detector class.
+
+Agent labels for the multi-object quality half (PERF-012 quality,
+OBJ-017/019/020) requested in the lane data dir (`label-request.md`);
+cost-side work does not wait on them.
+
 ## Unmeasured work (carried forward)
 
 PERF-008/009/010/011/012/013/014/015/016 measurements, OBJ-017
