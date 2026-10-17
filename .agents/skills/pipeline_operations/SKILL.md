@@ -34,6 +34,7 @@ run at a declared scope. It owns no logic of its own.
 | `music.resolve` | `music_selection` | project | Resolve the model's music choice against the measured candidates |
 | `duration_zone.build` | `mesh_spine` | project | Resolve the project's target duration into the band the model is shown |
 | `spine.mesh` | `mesh_spine` | project | Mesh the model's spine against the speech and the music into the timed spine |
+| `picture.plan` | `plan_picture` | project | Build the global picture plan selecting shots against the whole edit |
 | `aroll.assign` | `assign_aroll` | project | Map speech blocks and hook to their A-roll source files |
 | `aroll.splice` | `assign_aroll` | region | Re-assign a region's A-roll from the spine and put it back into the stored assignments |
 | `broll.resolve` | `select_broll` | project | Resolve B-roll selections to placed cutaways with source ranges |
@@ -71,6 +72,7 @@ run at a declared scope. It owns no logic of its own.
 | `cohesion.review` | `creative_cohesion` | project | Review the planned transitions and sound against the declared direction |
 | `objects.segment` | `object_segmentation` | project | Segment the subjects of the clips a grade or behind-subject plan names |
 | `manifest.compile` | `compile_manifest` | project | Compile every plan the run recorded into the assembly manifest |
+| `edit_graph.build` | `build_edit_graph` | project | Derive the editorial/edit graph from the run's recorded decisions |
 | `render.build` | `render` | project | Build the final timeline in DaVinci Resolve and export the finished video |
 | `validation.resolve` | `validate` | project | Combine the deterministic checks and the model's reading into one verdict |
 
