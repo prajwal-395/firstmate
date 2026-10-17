@@ -1,0 +1,1553 @@
+{
+  "format": "ren_spatial_grounding_predictions/1",
+  "manifest": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "split": "calibration",
+  "model": "gemma-4-12b-it-4bit",
+  "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+  "precision": "mlx-4bit",
+  "resource": {
+    "wall_s": 305.4974562080024,
+    "cold_infer_s": 43.32289337500697,
+    "warm_infer_s_mean": 9.371031836870396,
+    "peak_rss_mb": 1177.65625,
+    "peak_rss_mb_before": 22.90625
+  },
+  "predictions": [
+    {
+      "query_id": "q01",
+      "frame_id": "LC4931_t30",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [128, 334, 725, 719], \"point_1000\": [427, 427]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          128,
+          334,
+          725,
+          719
+        ],
+        "point_1000": [
+          427,
+          427
+        ]
+      },
+      "timings_s": {
+        "infer_s": 43.32289337500697,
+        "serialize_s": 0.0003295420028734952,
+        "decode_s": 6.934602666995488
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          98.304,
+          144.288,
+          556.8,
+          310.608
+        ],
+        "prepared_point": [
+          327.936,
+          184.464
+        ],
+        "source_box": [
+          491.52,
+          721.44,
+          2783.9999999999995,
+          1553.04
+        ],
+        "source_point": [
+          1639.6799999999998,
+          922.3199999999999
+        ],
+        "normalized_source_box": [
+          0.128,
+          0.334,
+          0.7249999999999999,
+          0.719
+        ]
+      }
+    },
+    {
+      "query_id": "q02",
+      "frame_id": "LC4931_t80",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [154, 341, 741, 704], \"point_1000\": [452, 450]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          154,
+          341,
+          741,
+          704
+        ],
+        "point_1000": [
+          452,
+          450
+        ]
+      },
+      "timings_s": {
+        "infer_s": 9.867483416004688,
+        "serialize_s": 0.0001837919990066439,
+        "decode_s": 3.1906025409989525
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          118.272,
+          147.312,
+          569.088,
+          304.128
+        ],
+        "prepared_point": [
+          347.136,
+          194.4
+        ],
+        "source_box": [
+          591.36,
+          736.5600000000001,
+          2845.4399999999996,
+          1520.6399999999999
+        ],
+        "source_point": [
+          1735.68,
+          972.0
+        ],
+        "normalized_source_box": [
+          0.154,
+          0.341,
+          0.7409999999999999,
+          0.704
+        ]
+      }
+    },
+    {
+      "query_id": "q03",
+      "frame_id": "LC4931_t130",
+      "phrase": "the laptop at the edge of the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": false, \"box_1000\": null, \"point_1000\": null}",
+      "parsed": {
+        "visible": false
+      },
+      "timings_s": {
+        "infer_s": 4.860234207997564,
+        "serialize_s": 0.0001293340028496459,
+        "decode_s": 3.196696333005093
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": false
+      }
+    },
+    {
+      "query_id": "q04",
+      "frame_id": "LC4931_t180",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [158, 339, 774, 700], \"point_1000\": [469, 466]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          158,
+          339,
+          774,
+          700
+        ],
+        "point_1000": [
+          469,
+          466
+        ]
+      },
+      "timings_s": {
+        "infer_s": 6.759768957999768,
+        "serialize_s": 0.00010683400614652783,
+        "decode_s": 1.2714060000143945
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          121.344,
+          146.448,
+          594.432,
+          302.4
+        ],
+        "prepared_point": [
+          360.192,
+          201.312
+        ],
+        "source_box": [
+          606.7199999999999,
+          732.24,
+          2972.16,
+          1511.9999999999998
+        ],
+        "source_point": [
+          1800.96,
+          1006.5600000000001
+        ],
+        "normalized_source_box": [
+          0.15799999999999997,
+          0.339,
+          0.7739999999999999,
+          0.6999999999999998
+        ]
+      }
+    },
+    {
+      "query_id": "q05",
+      "frame_id": "LC4931_t230",
+      "phrase": "the woman's hands on the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [625, 558, 775, 604], \"point_1000\": [690, 695]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          625,
+          558,
+          775,
+          604
+        ],
+        "point_1000": [
+          690,
+          695
+        ]
+      },
+      "timings_s": {
+        "infer_s": 5.952544416999444,
+        "serialize_s": 0.00017295799625571817,
+        "decode_s": 1.4728523749945452
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          480.0,
+          241.056,
+          595.2,
+          260.928
+        ],
+        "prepared_point": [
+          529.92,
+          300.24
+        ],
+        "source_box": [
+          2400.0,
+          1205.28,
+          2976.0,
+          1304.6399999999999
+        ],
+        "source_point": [
+          2649.5999999999995,
+          1501.2
+        ],
+        "normalized_source_box": [
+          0.625,
+          0.5579999999999999,
+          0.775,
+          0.604
+        ]
+      }
+    },
+    {
+      "query_id": "q06",
+      "frame_id": "LC4931_t270",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [171, 384, 675, 672], \"point_1000\": [418, 421]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          171,
+          384,
+          675,
+          672
+        ],
+        "point_1000": [
+          418,
+          421
+        ]
+      },
+      "timings_s": {
+        "infer_s": 6.209997375000967,
+        "serialize_s": 0.0005322920042090118,
+        "decode_s": 0.9991162920050556
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          131.328,
+          165.888,
+          518.4,
+          290.304
+        ],
+        "prepared_point": [
+          321.024,
+          181.872
+        ],
+        "source_box": [
+          656.64,
+          829.4399999999999,
+          2591.9999999999995,
+          1451.5199999999998
+        ],
+        "source_point": [
+          1605.12,
+          909.36
+        ],
+        "normalized_source_box": [
+          0.17099999999999999,
+          0.38399999999999995,
+          0.6749999999999999,
+          0.6719999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q07",
+      "frame_id": "LCATL0012_t30",
+      "phrase": "the man with the laptop",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [201, 361, 758, 641], \"point_1000\": [470, 450]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          201,
+          361,
+          758,
+          641
+        ],
+        "point_1000": [
+          470,
+          450
+        ]
+      },
+      "timings_s": {
+        "infer_s": 11.191790500000934,
+        "serialize_s": 0.00042795800254680216,
+        "decode_s": 3.0780027500004508
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          154.368,
+          155.952,
+          582.144,
+          276.912
+        ],
+        "prepared_point": [
+          360.96,
+          194.4
+        ],
+        "source_box": [
+          771.8399999999999,
+          779.76,
+          2910.72,
+          1384.5599999999997
+        ],
+        "source_point": [
+          1804.7999999999997,
+          972.0
+        ],
+        "normalized_source_box": [
+          0.20099999999999998,
+          0.361,
+          0.7579999999999999,
+          0.6409999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q08",
+      "frame_id": "LCATL0012_t80",
+      "phrase": "the laptop in front of the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [531, 194, 811, 471], \"point_1000\": [671, 671]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          531,
+          194,
+          811,
+          471
+        ],
+        "point_1000": [
+          671,
+          671
+        ]
+      },
+      "timings_s": {
+        "infer_s": 9.281385082998895,
+        "serialize_s": 0.00025779199495445937,
+        "decode_s": 2.9091517079941696
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          407.808,
+          83.808,
+          622.848,
+          203.472
+        ],
+        "prepared_point": [
+          515.328,
+          289.872
+        ],
+        "source_box": [
+          2039.04,
+          419.04,
+          3114.24,
+          1017.36
+        ],
+        "source_point": [
+          2576.64,
+          1449.36
+        ],
+        "normalized_source_box": [
+          0.531,
+          0.194,
+          0.8109999999999999,
+          0.47100000000000003
+        ]
+      }
+    },
+    {
+      "query_id": "q09",
+      "frame_id": "LCATL0012_t130",
+      "phrase": "the woman's hands at the right edge of the frame",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [854, 854, 1000, 1000], \"point_1000\": [945, 940]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          854,
+          854,
+          1000,
+          1000
+        ],
+        "point_1000": [
+          945,
+          940
+        ]
+      },
+      "timings_s": {
+        "infer_s": 9.883618750012829,
+        "serialize_s": 0.00013983299140818417,
+        "decode_s": 1.8100847500027157
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          655.872,
+          368.928,
+          768.0,
+          432.0
+        ],
+        "prepared_point": [
+          725.76,
+          406.08
+        ],
+        "source_box": [
+          3279.3599999999997,
+          1844.6399999999999,
+          3840.0,
+          2160.0
+        ],
+        "source_point": [
+          3628.7999999999997,
+          2030.3999999999999
+        ],
+        "normalized_source_box": [
+          0.8539999999999999,
+          0.854,
+          1.0,
+          1.0
+        ]
+      }
+    },
+    {
+      "query_id": "q10",
+      "frame_id": "LCATL0012_t180",
+      "phrase": "the man with the laptop",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [189, 381, 758, 654], \"point_1000\": [468, 441]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          189,
+          381,
+          758,
+          654
+        ],
+        "point_1000": [
+          468,
+          441
+        ]
+      },
+      "timings_s": {
+        "infer_s": 7.479395749993273,
+        "serialize_s": 0.0009693329920992255,
+        "decode_s": 1.10738625000522
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          145.152,
+          164.592,
+          582.144,
+          282.528
+        ],
+        "prepared_point": [
+          359.424,
+          190.512
+        ],
+        "source_box": [
+          725.7599999999999,
+          822.96,
+          2910.72,
+          1412.64
+        ],
+        "source_point": [
+          1797.12,
+          952.56
+        ],
+        "normalized_source_box": [
+          0.18899999999999997,
+          0.381,
+          0.7579999999999999,
+          0.654
+        ]
+      }
+    },
+    {
+      "query_id": "q11",
+      "frame_id": "LCATL0012_t230",
+      "phrase": "the person on the left",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [188, 376, 764, 658], \"point_1000\": [471, 471]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          188,
+          376,
+          764,
+          658
+        ],
+        "point_1000": [
+          471,
+          471
+        ]
+      },
+      "timings_s": {
+        "infer_s": 7.400780083000427,
+        "serialize_s": 0.0010099579958477989,
+        "decode_s": 1.2271214999927906
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          144.384,
+          162.432,
+          586.752,
+          284.256
+        ],
+        "prepared_point": [
+          361.728,
+          203.472
+        ],
+        "source_box": [
+          721.9199999999998,
+          812.1599999999999,
+          2933.7599999999998,
+          1421.2799999999997
+        ],
+        "source_point": [
+          1808.6399999999999,
+          1017.36
+        ],
+        "normalized_source_box": [
+          0.18799999999999997,
+          0.37599999999999995,
+          0.7639999999999999,
+          0.6579999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q12",
+      "frame_id": "LCATL0012_t270",
+      "phrase": "the laptop beside the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [533, 211, 811, 485], \"point_1000\": [672, 672]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          533,
+          211,
+          811,
+          485
+        ],
+        "point_1000": [
+          672,
+          672
+        ]
+      },
+      "timings_s": {
+        "infer_s": 7.098800207997556,
+        "serialize_s": 0.00012079199950676411,
+        "decode_s": 3.0371191250014817
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          409.344,
+          91.152,
+          622.848,
+          209.52
+        ],
+        "prepared_point": [
+          516.096,
+          290.304
+        ],
+        "source_box": [
+          2046.7199999999998,
+          455.76,
+          3114.24,
+          1047.6
+        ],
+        "source_point": [
+          2580.48,
+          1451.5199999999998
+        ],
+        "normalized_source_box": [
+          0.5329999999999999,
+          0.211,
+          0.8109999999999999,
+          0.48499999999999993
+        ]
+      }
+    },
+    {
+      "query_id": "q13",
+      "frame_id": "IMG_1806_t1.8",
+      "phrase": "the dark blue BMW in the parking lot",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [177, 278, 584, 674], \"point_1000\": [380, 431]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          177,
+          278,
+          584,
+          674
+        ],
+        "point_1000": [
+          380,
+          431
+        ]
+      },
+      "timings_s": {
+        "infer_s": 6.620882457995322,
+        "serialize_s": 0.00016141599917318672,
+        "decode_s": 0.8202334590023383
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          76.464,
+          213.504,
+          252.288,
+          517.632
+        ],
+        "prepared_point": [
+          164.16,
+          331.008
+        ],
+        "source_box": [
+          191.16,
+          533.76,
+          630.72,
+          1294.0799999999997
+        ],
+        "source_point": [
+          410.4,
+          827.5199999999999
+        ],
+        "normalized_source_box": [
+          0.177,
+          0.27799999999999997,
+          0.5840000000000001,
+          0.6739999999999998
+        ]
+      }
+    },
+    {
+      "query_id": "q14",
+      "frame_id": "IMG_1807_t12",
+      "phrase": "the cup in the cup holder",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [106, 105, 735, 741], \"point_1000\": [420, 423]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          106,
+          105,
+          735,
+          741
+        ],
+        "point_1000": [
+          420,
+          423
+        ]
+      },
+      "timings_s": {
+        "infer_s": 6.352710624996689,
+        "serialize_s": 0.0023830830032238737,
+        "decode_s": 0.6872887920035282
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          45.792,
+          80.64,
+          317.52,
+          569.088
+        ],
+        "prepared_point": [
+          181.44,
+          324.864
+        ],
+        "source_box": [
+          114.48,
+          201.6,
+          793.8,
+          1422.7199999999998
+        ],
+        "source_point": [
+          453.59999999999997,
+          812.1599999999999
+        ],
+        "normalized_source_box": [
+          0.106,
+          0.105,
+          0.735,
+          0.7409999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q15",
+      "frame_id": "IMG_1807_t5",
+      "phrase": "the hand on the car door handle",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [715, 164, 895, 425], \"point_1000\": [805, 294]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          715,
+          164,
+          895,
+          425
+        ],
+        "point_1000": [
+          805,
+          294
+        ]
+      },
+      "timings_s": {
+        "infer_s": 5.929149333998794,
+        "serialize_s": 0.00016579200746491551,
+        "decode_s": 0.44943737499124836
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          308.88,
+          125.952,
+          386.64,
+          326.4
+        ],
+        "prepared_point": [
+          347.76,
+          225.792
+        ],
+        "source_box": [
+          772.1999999999999,
+          314.88,
+          966.5999999999999,
+          815.9999999999999
+        ],
+        "source_point": [
+          869.4,
+          564.48
+        ],
+        "normalized_source_box": [
+          0.715,
+          0.164,
+          0.8949999999999999,
+          0.42499999999999993
+        ]
+      }
+    },
+    {
+      "query_id": "q16",
+      "frame_id": "IMG_1808_t8",
+      "phrase": "the man in the car",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [148, 0, 1000, 674], \"point_1000\": [450, 550]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          148,
+          0,
+          1000,
+          674
+        ],
+        "point_1000": [
+          450,
+          550
+        ]
+      },
+      "timings_s": {
+        "infer_s": 12.145973999999114,
+        "serialize_s": 0.0007507919945055619,
+        "decode_s": 0.3952089160011383
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          113.664,
+          0.0,
+          768.0,
+          291.168
+        ],
+        "prepared_point": [
+          345.6,
+          237.6
+        ],
+        "source_box": [
+          284.15999999999997,
+          0.0,
+          1920.0,
+          727.92
+        ],
+        "source_point": [
+          864.0,
+          594.0
+        ],
+        "normalized_source_box": [
+          0.148,
+          0.0,
+          1.0,
+          0.6739999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q17",
+      "frame_id": "IMG_1808_t18",
+      "phrase": "the man in the back seat",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": false, \"box_1000\": null, \"point_1000\": null}",
+      "parsed": {
+        "visible": false
+      },
+      "timings_s": {
+        "infer_s": 8.382721667003352,
+        "serialize_s": 0.0034358339908067137,
+        "decode_s": 1.3736928750004154
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": false
+      }
+    },
+    {
+      "query_id": "q18",
+      "frame_id": "IMG_1809_t8",
+      "phrase": "the navigation screen on the dashboard",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [538, 573, 683, 1000], \"point_1000\": [610, 786]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          538,
+          573,
+          683,
+          1000
+        ],
+        "point_1000": [
+          610,
+          786
+        ]
+      },
+      "timings_s": {
+        "infer_s": 16.969515958000557,
+        "serialize_s": 0.0031159170030150563,
+        "decode_s": 2.931823874998372
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          232.416,
+          440.064,
+          295.056,
+          768.0
+        ],
+        "prepared_point": [
+          263.52,
+          603.648
+        ],
+        "source_box": [
+          581.04,
+          1100.16,
+          737.6399999999999,
+          1920.0
+        ],
+        "source_point": [
+          658.8,
+          1509.12
+        ],
+        "normalized_source_box": [
+          0.5379999999999999,
+          0.5730000000000001,
+          0.6829999999999998,
+          1.0
+        ]
+      }
+    },
+    {
+      "query_id": "q19",
+      "frame_id": "IMG_1809_t18",
+      "phrase": "the navigation screen on the dashboard",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [445, 564, 593, 1000], \"point_1000\": [523, 782]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          445,
+          564,
+          593,
+          1000
+        ],
+        "point_1000": [
+          523,
+          782
+        ]
+      },
+      "timings_s": {
+        "infer_s": 10.691719875001581,
+        "serialize_s": 0.0007276249962160364,
+        "decode_s": 1.1153289170033531
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          192.24,
+          433.152,
+          256.176,
+          768.0
+        ],
+        "prepared_point": [
+          225.936,
+          600.576
+        ],
+        "source_box": [
+          480.6,
+          1082.8799999999999,
+          640.4399999999999,
+          1920.0
+        ],
+        "source_point": [
+          564.84,
+          1501.44
+        ],
+        "normalized_source_box": [
+          0.445,
+          0.564,
+          0.593,
+          1.0
+        ]
+      }
+    },
+    {
+      "query_id": "q20",
+      "frame_id": "IMG_1810_t4",
+      "phrase": "the green street sign above the traffic light",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [196, 306, 255, 573], \"point_1000\": [225, 439]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          196,
+          306,
+          255,
+          573
+        ],
+        "point_1000": [
+          225,
+          439
+        ]
+      },
+      "timings_s": {
+        "infer_s": 11.134424582996871,
+        "serialize_s": 0.0029254580003907904,
+        "decode_s": 0.8991659169987543
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          84.672,
+          235.008,
+          110.16,
+          440.064
+        ],
+        "prepared_point": [
+          97.2,
+          337.152
+        ],
+        "source_box": [
+          211.67999999999998,
+          587.52,
+          275.4,
+          1100.16
+        ],
+        "source_point": [
+          243.0,
+          842.8799999999999
+        ],
+        "normalized_source_box": [
+          0.19599999999999998,
+          0.306,
+          0.255,
+          0.5730000000000001
+        ]
+      }
+    },
+    {
+      "query_id": "q21",
+      "frame_id": "IMG_1811_t11",
+      "phrase": "the car ahead on the road",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [414, 488, 448, 555], \"point_1000\": [431, 521]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          414,
+          488,
+          448,
+          555
+        ],
+        "point_1000": [
+          431,
+          521
+        ]
+      },
+      "timings_s": {
+        "infer_s": 11.312242708008853,
+        "serialize_s": 0.00395020900759846,
+        "decode_s": 2.0844273749971762
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          178.848,
+          374.784,
+          193.536,
+          426.24
+        ],
+        "prepared_point": [
+          186.192,
+          400.128
+        ],
+        "source_box": [
+          447.12,
+          936.9599999999999,
+          483.84,
+          1065.6
+        ],
+        "source_point": [
+          465.48,
+          1000.3199999999999
+        ],
+        "normalized_source_box": [
+          0.414,
+          0.48799999999999993,
+          0.44799999999999995,
+          0.5549999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q22",
+      "frame_id": "IMG_1814_t12",
+      "phrase": "the person walking in the plaza",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [695, 748, 808, 799], \"point_1000\": [751, 773]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          695,
+          748,
+          808,
+          799
+        ],
+        "point_1000": [
+          751,
+          773
+        ]
+      },
+      "timings_s": {
+        "infer_s": 13.584648250005557,
+        "serialize_s": 0.0007578340009786189,
+        "decode_s": 2.2337367919972166
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          533.76,
+          323.136,
+          620.544,
+          345.168
+        ],
+        "prepared_point": [
+          576.768,
+          333.936
+        ],
+        "source_box": [
+          1334.3999999999999,
+          807.84,
+          1551.36,
+          862.92
+        ],
+        "source_point": [
+          1441.92,
+          834.8399999999999
+        ],
+        "normalized_source_box": [
+          0.695,
+          0.748,
+          0.8079999999999999,
+          0.7989999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q23",
+      "frame_id": "IMG_1814_t30",
+      "phrase": "the man in the cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [148, 100, 1000, 998], \"point_1000\": [430, 412]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          148,
+          100,
+          1000,
+          998
+        ],
+        "point_1000": [
+          430,
+          412
+        ]
+      },
+      "timings_s": {
+        "infer_s": 12.783653292004601,
+        "serialize_s": 0.0015526670031249523,
+        "decode_s": 0.9713931659935042
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          113.664,
+          43.2,
+          768.0,
+          431.136
+        ],
+        "prepared_point": [
+          330.24,
+          177.984
+        ],
+        "source_box": [
+          284.15999999999997,
+          108.0,
+          1920.0,
+          1077.84
+        ],
+        "source_point": [
+          825.6,
+          444.96
+        ],
+        "normalized_source_box": [
+          0.148,
+          0.1,
+          1.0,
+          0.9979999999999999
+        ]
+      }
+    },
+    {
+      "query_id": "q24",
+      "frame_id": "IMG_1816_t90",
+      "phrase": "the man in the cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [148, 458, 1000, 1000], \"point_1000\": [550, 550]}",
+      "parsed": {
+        "visible": true,
+        "box_1000": [
+          148,
+          458,
+          1000,
+          1000
+        ],
+        "point_1000": [
+          550,
+          550
+        ]
+      },
+      "timings_s": {
+        "infer_s": 13.64029075000144,
+        "serialize_s": 0.00027929099451284856,
+        "decode_s": 2.408951707999222
+      },
+      "model": "gemma-4-12b-it-4bit",
+      "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "geometry": {
+        "visible": true,
+        "prepared_box": [
+          113.664,
+          197.856,
+          768.0,
+          432.0
+        ],
+        "prepared_point": [
+          422.4,
+          237.6
+        ],
+        "source_box": [
+          284.15999999999997,
+          494.64,
+          1920.0,
+          1080.0
+        ],
+        "source_point": [
+          1055.9999999999998,
+          594.0
+        ],
+        "normalized_source_box": [
+          0.148,
+          0.45799999999999996,
+          1.0,
+          1.0
+        ]
+      }
+    }
+  ]
+}

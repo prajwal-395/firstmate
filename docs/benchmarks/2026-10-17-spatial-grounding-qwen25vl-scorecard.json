@@ -1,0 +1,47 @@
+{
+  "format": "ren_model_scorecard/1",
+  "capability": "spatial_grounding",
+  "candidate": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+  "published_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+  "precision": "mlx-4bit",
+  "device": "mlx",
+  "license_class": "Qwen Research License (review required)",
+  "license_evidence": "Model card metadata links to the base Qwen2.5-VL-3B-Instruct license: https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct/blob/main/LICENSE",
+  "dataset": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-qwen25vl-calibration.json",
+  "split": "calibration",
+  "quality_metrics": {
+    "point_in_box_accuracy": null,
+    "box_recall_iou_0_5": null,
+    "box_recall_iou_0_75": null,
+    "instance_accuracy_given_localization": null,
+    "small_object_accuracy": null,
+    "spatial_relationship_accuracy": null,
+    "abstention_rate": null,
+    "malformed_output_rate": 1.0,
+    "visible_predictions": null,
+    "queries": 24,
+    "note": "All 24 generated answers failed the frozen strict JSON parser: most have an extra closing brace, with duplicate keys or trailing markup in some answers. No accuracy metrics or held-out values are reported."
+  },
+  "latency_s": {
+    "cold": 59.875966874998994,
+    "warm_mean": 1.9204403188702164,
+    "end_to_end_wall": 142.09950470901094
+  },
+  "peak_memory_mb": 3220.390625,
+  "peak_physical_memory_gb": 5.829,
+  "peak_memory_basis": "Ren scheduler process-tree phys_footprint; 7.5 GB declared reservation",
+  "scheduler_samples": 66,
+  "timing_split_s": {
+    "decode_mean": 0.3499964445824541,
+    "infer_mean": 4.335253925375582,
+    "serialize_mean": 1.8003376681008376e-05
+  },
+  "end_to_end_cost": {
+    "queries": 24,
+    "source_frames": 24,
+    "wall_seconds": 142.09950470901094
+  },
+  "decision": "research-only",
+  "decision_basis": "The 4-bit MLX run fit within budget but failed the frozen output contract on all 24 queries, and the candidate license needs review. Keep outside shipping manifests."
+}

@@ -1,0 +1,124 @@
+{
+  "format": "ren_model_scorecard/1",
+  "capability": "spatial_grounding",
+  "candidate": "gemma-4-12b-it-4bit",
+  "published_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+  "precision": "mlx-4bit",
+  "license_class": "Apache-2.0 (Gemma 4; license lane classification)",
+  "license_evidence": "docs/benchmarks/2026-10-15-spatial-grounding.md; publisher revision recorded in frozen predictions",
+  "dataset": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "predictions": "docs/benchmarks/2026-10-16-spatial-grounding-gemma-calibration.json",
+  "split": "calibration",
+  "quality_metrics": {
+    "point_in_box_accuracy": 0.5454545454545454,
+    "box_recall_iou_0_5": 0.045454545454545456,
+    "box_recall_iou_0_75": 0.045454545454545456,
+    "instance_accuracy_given_localization": null,
+    "small_object_accuracy": 0.0,
+    "spatial_relationship_accuracy": null,
+    "abstention_rate": 0.08333333333333333,
+    "malformed_output_rate": 0.0,
+    "note": "Calibration-wide abstention and malformed rates use all 24 frozen queries. Quality uses all 23 resolved agent-labelled queries: visibility denominator 23; point and box metrics denominator 22 visible references. Item_14 remains jointly ambiguous and excluded; deliberately ambiguous item_11 remains included and its exclusion sensitivity is separately recorded. Small-object recall is based on one adjudicated <=1%-area reference (item_21). Instance identity and relation accuracy are unscored because outputs contain no instance ID or relation class. Held-out predictions for Florence and Gemma are frozen. The preliminary held-out comparison is in held_out_run and uses only shared labels; nine label disputes are withheld pending third-family adjudication.",
+    "visible_predictions": 22,
+    "queries": 24,
+    "agreement_scored_queries": 14,
+    "agreement_scored_visible_predictions": 14,
+    "agreement_scored_abstentions": 0,
+    "agreement_scored_point_hits": 10,
+    "agreement_scored_box_hits_iou_0_5": 1,
+    "agreement_scored_box_hits_iou_0_75": 1,
+    "label_agreement": "docs/benchmarks/2026-10-17-spatial-grounding-label-agreement.json",
+    "visibility_accuracy_resolved": 0.9565217391304348,
+    "resolved_queries": 23,
+    "visible_reference_queries": 22,
+    "abstentions_on_visible_references": 1,
+    "small_object_queries": 1,
+    "deliberately_ambiguous_item_11_included": true,
+    "sensitivity_excluding_item_11": {
+      "visible_references": 21,
+      "point_hits": 11,
+      "point_in_box_accuracy": 0.5238095238095238,
+      "box_hits_iou_0_5": 1,
+      "box_recall_iou_0_5": 0.047619047619047616,
+      "box_hits_iou_0_75": 1,
+      "box_recall_iou_0_75": 0.047619047619047616
+    },
+    "visibility_correct_resolved": 22,
+    "held_out_manifest": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json"
+  },
+  "latency_s": {
+    "cold": 43.32289337500697,
+    "warm_mean": 9.371031836870396,
+    "end_to_end_wall": 305.4974562080024
+  },
+  "peak_memory_mb": 1177.65625,
+  "timing_split_s": {
+    "decode_mean": 1.941867977416526,
+    "infer_mean": 10.785,
+    "serialize_mean": 0.0010244306661964704
+  },
+  "end_to_end_cost": {
+    "queries": 24,
+    "source_frames": 24,
+    "wall_seconds": 305.4974562080024
+  },
+  "decision": "retain baseline",
+  "decision_basis": "Incumbent remains the retained textual-coordinate baseline. Frozen held-out predictions are partially scored on consensus labels; nine label disputes await third-family adjudication.",
+  "held_out_run": {
+    "manifest": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json",
+    "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-gemma-heldout.json",
+    "predictions_sha256": "cb60a6688cd59beb958fd032fd549ec0b7035e147df7702c054299d5fc2cad4c",
+    "split": "held_out",
+    "queries": 12,
+    "parsed_predictions": 12,
+    "abstentions": 0,
+    "malformed_outputs": 0,
+    "quality_status": "final held-out score uses all 12 visibility labels and all 12 resolved reference boxes after third-family adjudication",
+    "latency_s": {
+      "end_to_end_wall": 86.22687208399293,
+      "cold_infer": 12.110154207999585,
+      "warm_mean": 4.976824712184183
+    },
+    "timing_split_s": {
+      "decode_mean": 0.3533272152526479,
+      "infer_mean": 5.5712688368354675,
+      "serialize_mean": 0.00010187849935997899
+    },
+    "memory": {
+      "peak_rss_mb": 1717.375,
+      "peak_process_tree_physical_gb": 8.235,
+      "declared_scheduler_reservation_gb": 10.0,
+      "scheduler_queue_wait_s": 0.021,
+      "scheduler_execution_s": 87.256,
+      "scheduler_samples": 40
+    },
+    "model_cache": {
+      "model": "mlx-community/gemma-4-12b-it-4bit",
+      "published_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+      "precision": "mlx-4bit",
+      "cache_path_used": "/Users/prajwal/.cache/huggingface/hub/models--mlx-community--gemma-4-12b-it-4bit/snapshots/73bcf09092aa277861d5a191b989b666f7f32e8f/model-00001-of-00002.safetensors",
+      "weight_size_bytes": 6741039511,
+      "cache_action": "reused retained incumbent cache; retained as the baseline"
+    },
+    "label_agreement": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-label-agreement.json",
+    "quality_metrics": {
+      "visibility_correct": 11,
+      "visibility_queries": 12,
+      "visibility_accuracy": 0.9166666666666666,
+      "localization_queries": 12,
+      "point_hits": 4,
+      "point_in_box_accuracy": 0.3333333333333333,
+      "box_hits_iou_0_5": 1,
+      "box_recall_iou_0_5": 0.08333333333333333,
+      "box_hits_iou_0_75": 1,
+      "box_recall_iou_0_75": 0.08333333333333333,
+      "small_object_queries": 2,
+      "small_object_accuracy": 0.0,
+      "small_object_item_ids": [
+        "h03",
+        "h10"
+      ]
+    },
+    "tie_break_labels": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-tiebreak.jsonl"
+  }
+}

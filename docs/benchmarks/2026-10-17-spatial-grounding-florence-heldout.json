@@ -1,0 +1,870 @@
+{
+  "format": "ren_spatial_grounding_predictions/1",
+  "manifest": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json",
+  "split": "held_out",
+  "model": "microsoft/Florence-2-large",
+  "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+  "precision": "full-fp32",
+  "device": "mps",
+  "resource": {
+    "wall_s": 182.67717429199547,
+    "cold_infer_s": 29.71864204200392,
+    "warm_infer_s_mean": 6.101460844725477,
+    "peak_rss_mb": 1125.515625,
+    "peak_rss_mb_before": 22.734375
+  },
+  "predictions": [
+    {
+      "query_id": "h01",
+      "frame_id": "LC4930_t45",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [327.50000556310016, 141.7777803209093, 711.5000089009603, 717.7778173376013], \"point_1000\": [519.5000072320303, 429.7777988292553], \"all_boxes_1000\": [[327.50000556310016, 141.7777803209093, 711.5000089009603, 717.7778173376013]], \"florence_labels\": [\"the woman seated at the table\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          519.5000072320303,
+          429.7777988292553
+        ],
+        "box_1000": [
+          327.50000556310016,
+          141.7777803209093,
+          711.5000089009603,
+          717.7778173376013
+        ],
+        "all_boxes_1000": [
+          [
+            327.50000556310016,
+            141.7777803209093,
+            711.5000089009603,
+            717.7778173376013
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          398.9760055541992,
+          185.66400909423828
+        ],
+        "source_point": [
+          1994.880027770996,
+          928.3200454711914
+        ],
+        "prepared_box": [
+          251.52000427246094,
+          61.24800109863282,
+          546.4320068359375,
+          310.08001708984375
+        ],
+        "source_box": [
+          1257.6000213623047,
+          306.24000549316406,
+          2732.1600341796875,
+          1550.4000854492188
+        ],
+        "normalized_source_box": [
+          0.32750000556310016,
+          0.1417777803209093,
+          0.7115000089009603,
+          0.7177778173376013
+        ],
+        "all_source_boxes": [
+          [
+            1257.6000213623047,
+            306.24000549316406,
+            2732.1600341796875,
+            1550.4000854492188
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 29.71864204200392,
+        "serialize_s": 0.00017766699602361768,
+        "decode_s": 1.078088291993481
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h02",
+      "frame_id": "LCATL0011_t45",
+      "phrase": "the man seated behind the laptop",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": false}",
+      "parsed": {
+        "visible": false
+      },
+      "geometry": {
+        "visible": false
+      },
+      "timings_s": {
+        "infer_s": 24.07853049998812,
+        "serialize_s": 5.462499393615872e-05,
+        "decode_s": 1.0067947909992654
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h03",
+      "frame_id": "LC4930_t120",
+      "phrase": "the woman's hands clasped on the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": false}",
+      "parsed": {
+        "visible": false
+      },
+      "geometry": {
+        "visible": false
+      },
+      "timings_s": {
+        "infer_s": 9.983184249998885,
+        "serialize_s": 0.0005048750026617199,
+        "decode_s": 2.4638146669894923
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h04",
+      "frame_id": "LCATL0011_t120",
+      "phrase": "the laptop in front of the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [349.50002034505206, 518.6666559290003, 587.5000158945719, 792.4444410536024], \"point_1000\": [468.500018119812, 655.5555484913014], \"all_boxes_1000\": [[349.50002034505206, 518.6666559290003, 587.5000158945719, 792.4444410536024]], \"florence_labels\": [\"the laptop in front of the man\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          468.500018119812,
+          655.5555484913014
+        ],
+        "box_1000": [
+          349.50002034505206,
+          518.6666559290003,
+          587.5000158945719,
+          792.4444410536024
+        ],
+        "all_boxes_1000": [
+          [
+            349.50002034505206,
+            518.6666559290003,
+            587.5000158945719,
+            792.4444410536024
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          359.8080139160156,
+          283.1999969482422
+        ],
+        "source_point": [
+          1799.0400695800781,
+          1415.999984741211
+        ],
+        "prepared_box": [
+          268.416015625,
+          224.06399536132812,
+          451.20001220703125,
+          342.33599853515625
+        ],
+        "source_box": [
+          1342.080078125,
+          1120.3199768066406,
+          2256.0000610351562,
+          1711.6799926757812
+        ],
+        "normalized_source_box": [
+          0.34950002034505206,
+          0.5186666559290003,
+          0.5875000158945719,
+          0.7924444410536025
+        ],
+        "all_source_boxes": [
+          [
+            1342.080078125,
+            1120.3199768066406,
+            2256.0000610351562,
+            1711.6799926757812
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 2.727295457996661,
+        "serialize_s": 0.00013300000864546746,
+        "decode_s": 0.999806042003911
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h05",
+      "frame_id": "LC4930_t190",
+      "phrase": "the blue laptop in the left foreground",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [31.49999926487605, 607.5555306893808, 147.49999841054282, 1000.0], \"point_1000\": [89.49999883770943, 803.7777653446904], \"all_boxes_1000\": [[31.49999926487605, 607.5555306893808, 147.49999841054282, 1000.0]], \"florence_labels\": [\"the left foreground\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          89.49999883770943,
+          803.7777653446904
+        ],
+        "box_1000": [
+          31.49999926487605,
+          607.5555306893808,
+          147.49999841054282,
+          1000.0
+        ],
+        "all_boxes_1000": [
+          [
+            31.49999926487605,
+            607.5555306893808,
+            147.49999841054282,
+            1000.0
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          68.73599910736084,
+          347.23199462890625
+        ],
+        "source_point": [
+          343.6799955368042,
+          1736.1599731445312
+        ],
+        "prepared_box": [
+          24.191999435424805,
+          262.4639892578125,
+          113.27999877929688,
+          432.0
+        ],
+        "source_box": [
+          120.95999717712402,
+          1312.3199462890625,
+          566.3999938964844,
+          2160.0
+        ],
+        "normalized_source_box": [
+          0.031499999264876045,
+          0.6075555306893808,
+          0.14749999841054282,
+          1.0
+        ],
+        "all_source_boxes": [
+          [
+            120.95999717712402,
+            1312.3199462890625,
+            566.3999938964844,
+            2160.0
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 1.9511021670041373,
+        "serialize_s": 9.50419926084578e-05,
+        "decode_s": 2.1292110419890378
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h06",
+      "frame_id": "LCATL0011_t190",
+      "phrase": "the man's hands resting on the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": false}",
+      "parsed": {
+        "visible": false
+      },
+      "geometry": {
+        "visible": false
+      },
+      "timings_s": {
+        "infer_s": 12.119406583005912,
+        "serialize_s": 6.895800470374525e-05,
+        "decode_s": 3.004015333004645
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h07",
+      "frame_id": "IMG_1812_t30",
+      "phrase": "the man wearing a cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [528.5000006357828, 0.0, 997.5000222524008, 1000.0], \"point_1000\": [763.0000114440918, 500.0], \"all_boxes_1000\": [[528.5000006357828, 0.0, 997.5000222524008, 1000.0]], \"florence_labels\": [\"the man wearing a cap\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          763.0000114440918,
+          500.0
+        ],
+        "box_1000": [
+          528.5000006357828,
+          0.0,
+          997.5000222524008,
+          1000.0
+        ],
+        "all_boxes_1000": [
+          [
+            528.5000006357828,
+            0.0,
+            997.5000222524008,
+            1000.0
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          585.9840087890625,
+          216.0
+        ],
+        "source_point": [
+          1464.9600219726562,
+          540.0
+        ],
+        "prepared_box": [
+          405.88800048828125,
+          0.0,
+          766.0800170898438,
+          432.0
+        ],
+        "source_box": [
+          1014.7200012207031,
+          0.0,
+          1915.2000427246094,
+          1080.0
+        ],
+        "normalized_source_box": [
+          0.5285000006357828,
+          0.0,
+          0.9975000222524008,
+          1.0
+        ],
+        "all_source_boxes": [
+          [
+            1014.7200012207031,
+            0.0,
+            1915.2000427246094,
+            1080.0
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 1.9632488329953048,
+        "serialize_s": 0.00013216699881013483,
+        "decode_s": 0.4353058749984484
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h08",
+      "frame_id": "IMG_1812_t90",
+      "phrase": "the man's cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [0.500000004346172, 49.333325138798465, 868.4999942779541, 1000.0], \"point_1000\": [434.4999971411501, 524.6666625693993], \"all_boxes_1000\": [[0.500000004346172, 49.333325138798465, 868.4999942779541, 1000.0]], \"florence_labels\": [\"the man's cap\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          434.4999971411501,
+          524.6666625693993
+        ],
+        "box_1000": [
+          0.500000004346172,
+          49.333325138798465,
+          868.4999942779541,
+          1000.0
+        ],
+        "all_boxes_1000": [
+          [
+            0.500000004346172,
+            49.333325138798465,
+            868.4999942779541,
+            1000.0
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          333.6959978044033,
+          226.65599822998047
+        ],
+        "source_point": [
+          834.2399945110083,
+          566.6399955749512
+        ],
+        "prepared_box": [
+          0.3840000033378601,
+          21.311996459960938,
+          667.0079956054688,
+          432.0
+        ],
+        "source_box": [
+          0.9600000083446503,
+          53.279991149902344,
+          1667.5199890136719,
+          1080.0
+        ],
+        "normalized_source_box": [
+          0.000500000004346172,
+          0.04933332513879846,
+          0.8684999942779541,
+          1.0
+        ],
+        "all_source_boxes": [
+          [
+            0.9600000083446503,
+            53.279991149902344,
+            1667.5199890136719,
+            1080.0
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 2.234134875005111,
+        "serialize_s": 0.0001664589944994077,
+        "decode_s": 0.5549670000036713
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h09",
+      "frame_id": "IMG_1813_t4",
+      "phrase": "the wooden pallets outside the storefront",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [0.0, 29.500000178813934, 1000.0, 995.5000082651774], \"point_1000\": [500.0, 512.5000042219956], \"all_boxes_1000\": [[0.0, 29.500000178813934, 1000.0, 995.5000082651774]], \"florence_labels\": [\"therestaurant outside the storefront\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          500.0,
+          512.5000042219956
+        ],
+        "box_1000": [
+          0.0,
+          29.500000178813934,
+          1000.0,
+          995.5000082651774
+        ],
+        "all_boxes_1000": [
+          [
+            0.0,
+            29.500000178813934,
+            1000.0,
+            995.5000082651774
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          216.0,
+          393.6000032424926
+        ],
+        "source_point": [
+          540.0,
+          984.0000081062315
+        ],
+        "prepared_box": [
+          0.0,
+          22.6560001373291,
+          432.0,
+          764.5440063476562
+        ],
+        "source_box": [
+          0.0,
+          56.640000343322754,
+          1080.0,
+          1911.3600158691406
+        ],
+        "normalized_source_box": [
+          0.0,
+          0.029500000178813934,
+          1.0,
+          0.9955000082651774
+        ],
+        "all_source_boxes": [
+          [
+            0.0,
+            56.640000343322754,
+            1080.0,
+            1911.3600158691406
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 3.3246738750021905,
+        "serialize_s": 0.0002004169946303591,
+        "decode_s": 1.5503438750019995
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h10",
+      "frame_id": "IMG_1817_t15",
+      "phrase": "the raised finger in the lower left of the frame",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [116.50000015894572, 822.6667333532263, 208.50000778834024, 1000.0], \"point_1000\": [162.50000397364298, 911.3333666766132], \"all_boxes_1000\": [[116.50000015894572, 822.6667333532263, 208.50000778834024, 1000.0]], \"florence_labels\": [\"the finger in the lower left of the frame\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          162.50000397364298,
+          911.3333666766132
+        ],
+        "box_1000": [
+          116.50000015894572,
+          822.6667333532263,
+          208.50000778834024,
+          1000.0
+        ],
+        "all_boxes_1000": [
+          [
+            116.50000015894572,
+            822.6667333532263,
+            208.50000778834024,
+            1000.0
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          124.80000305175781,
+          393.6960144042969
+        ],
+        "source_point": [
+          312.00000762939453,
+          984.2400360107422
+        ],
+        "prepared_box": [
+          89.47200012207031,
+          355.39202880859375,
+          160.1280059814453,
+          432.0
+        ],
+        "source_box": [
+          223.68000030517578,
+          888.4800720214844,
+          400.3200149536133,
+          1080.0
+        ],
+        "normalized_source_box": [
+          0.11650000015894572,
+          0.8226667333532263,
+          0.20850000778834024,
+          1.0
+        ],
+        "all_source_boxes": [
+          [
+            223.68000030517578,
+            888.4800720214844,
+            400.3200149536133,
+            1080.0
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 3.6506670419912552,
+        "serialize_s": 0.00012437500117812306,
+        "decode_s": 1.9434080000064569
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h11",
+      "frame_id": "IMG_1818_t40",
+      "phrase": "the car with headlights behind the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [598.5000133514404, 667.9999740035446, 704.5000394185384, 827.9999627007378], \"point_1000\": [651.5000263849895, 747.9999683521412], \"all_boxes_1000\": [[598.5000133514404, 667.9999740035446, 704.5000394185384, 827.9999627007378]], \"florence_labels\": [\"the car with headlights behind the man\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          651.5000263849895,
+          747.9999683521412
+        ],
+        "box_1000": [
+          598.5000133514404,
+          667.9999740035446,
+          704.5000394185384,
+          827.9999627007378
+        ],
+        "all_boxes_1000": [
+          [
+            598.5000133514404,
+            667.9999740035446,
+            704.5000394185384,
+            827.9999627007378
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          500.35202026367193,
+          323.135986328125
+        ],
+        "source_point": [
+          1250.8800506591797,
+          807.8399658203125
+        ],
+        "prepared_box": [
+          459.64801025390625,
+          288.57598876953125,
+          541.0560302734375,
+          357.69598388671875
+        ],
+        "source_box": [
+          1149.1200256347656,
+          721.4399719238281,
+          1352.6400756835938,
+          894.2399597167969
+        ],
+        "normalized_source_box": [
+          0.5985000133514404,
+          0.6679999740035446,
+          0.7045000394185384,
+          0.8279999627007378
+        ],
+        "all_source_boxes": [
+          [
+            1149.1200256347656,
+            721.4399719238281,
+            1352.6400756835938,
+            894.2399597167969
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 2.7967082090035547,
+        "serialize_s": 0.00015212500875350088,
+        "decode_s": 2.6175536250084406
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    },
+    {
+      "query_id": "h12",
+      "frame_id": "IMG_1820_t25",
+      "phrase": "the man wearing a cap and looking down",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [34.500000377496086, 0.0, 619.5000012715658, 360.44445744267216], \"point_1000\": [327.00000082453096, 180.22222872133608], \"all_boxes_1000\": [[34.500000377496086, 0.0, 619.5000012715658, 360.44445744267216]], \"florence_labels\": [\"the man wearing a cap and looking down\"]}",
+      "parsed": {
+        "visible": true,
+        "point_1000": [
+          327.00000082453096,
+          180.22222872133608
+        ],
+        "box_1000": [
+          34.500000377496086,
+          0.0,
+          619.5000012715658,
+          360.44445744267216
+        ],
+        "all_boxes_1000": [
+          [
+            34.500000377496086,
+            0.0,
+            619.5000012715658,
+            360.44445744267216
+          ]
+        ]
+      },
+      "geometry": {
+        "visible": true,
+        "prepared_point": [
+          251.13600063323977,
+          77.85600280761719
+        ],
+        "source_point": [
+          627.8400015830994,
+          194.64000701904297
+        ],
+        "prepared_box": [
+          26.496000289916992,
+          0.0,
+          475.7760009765625,
+          155.71200561523438
+        ],
+        "source_box": [
+          66.24000072479248,
+          0.0,
+          1189.4400024414062,
+          389.28001403808594
+        ],
+        "normalized_source_box": [
+          0.034500000377496086,
+          0.0,
+          0.6195000012715658,
+          0.3604444574426722
+        ],
+        "all_source_boxes": [
+          [
+            66.24000072479248,
+            0.0,
+            1189.4400024414062,
+            389.28001403808594
+          ]
+        ]
+      },
+      "timings_s": {
+        "infer_s": 2.287117499989108,
+        "serialize_s": 9.183399379253387e-05,
+        "decode_s": 1.2255275000061374
+      },
+      "model": "microsoft/Florence-2-large",
+      "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "device": "mps"
+    }
+  ]
+}

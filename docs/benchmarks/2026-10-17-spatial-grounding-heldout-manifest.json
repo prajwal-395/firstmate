@@ -1,0 +1,276 @@
+{
+  "format": "ren_spatial_grounding_calibration/1",
+  "lane": "vep-mu-ground",
+  "corpus_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+  "split": "held_out",
+  "media_root_hint": "$HOME/Documents",
+  "selection_basis": "Twelve source frames selected from the corpus held_out split before any candidate inference: six podcast frames across both camera originals (three matching timestamps per camera) and six Apple 001 frames across the two held-out capture scenes. Exact prompts and original-resolution frame SHA-256 values were frozen after direct visual inspection of the source stills; no candidate outputs or labels informed selection. The manifest was frozen on 2026-10-17 for the single held-out pass.",
+  "settings_frozen": {
+    "coordinate_prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+    "florence_model": "microsoft/Florence-2-large",
+    "florence_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+    "florence_precision": "full-fp32",
+    "gemma_model": "gemma-4-12b-it-4bit",
+    "gemma_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+    "gemma_precision": "mlx-4bit",
+    "max_side": 768
+  },
+  "label_status": "sealed with corpus custodian; predictions to be submitted before labels are released",
+  "label_protocol": "Two independent blind agent labelers from different model families, then a third agent tie-break on disagreements. No labeler receives candidate outputs. Held-out labels are not present in this worktree.",
+  "frames": [
+    {
+      "frame_id": "LC4930_t45",
+      "source_id": "LC4930",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+      "t_seconds": 45.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "72be3090a52ce89d22793deec4695de4ef1f2ff7eb5c5b29a932f4d9c33f02a7",
+      "source_sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "LCATL0011_t45",
+      "source_id": "LCATL0011",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+      "t_seconds": 45.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "720aaac9b2b88741aba51957378b2cdbd29460a1d7924989cd1cf98c2711f17e",
+      "source_sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "LC4930_t120",
+      "source_id": "LC4930",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+      "t_seconds": 120.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "e504de2e7923cc90c1b433dac305ad986317eb3e661b7fcf0ae325cd6676209b",
+      "source_sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "LCATL0011_t120",
+      "source_id": "LCATL0011",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+      "t_seconds": 120.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "33a63f499850f11bb3e84903961acbc07c1c202932e22cecfe4d5302f399d69c",
+      "source_sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "LC4930_t190",
+      "source_id": "LC4930",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+      "t_seconds": 190.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "f33cfc1e4822ac66a05fc111e78a5991417ad9e4a3bf9df6dc5babcdc1252172",
+      "source_sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "LCATL0011_t190",
+      "source_id": "LCATL0011",
+      "media": "work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+      "t_seconds": 190.0,
+      "width": 3840,
+      "height": 2160,
+      "frame_sha256": "61068362b5df5dba4577304108f1001bdeb4c53fe2dfd4cc4af7e830866e9562",
+      "source_sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+      "leakage_group_id": "71933672a43263224aaaddb5dab071d4c78c60610c502077323ed86a2b0c552c"
+    },
+    {
+      "frame_id": "IMG_1812_t30",
+      "source_id": "IMG_1812",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+      "t_seconds": 30.0,
+      "width": 1920,
+      "height": 1080,
+      "frame_sha256": "14ef2c60dbd4f0cdcfde8a3e881ce95d58749f6fe267b8d7f30aced0ac261ace",
+      "source_sha256": "66b0fcfef2f854b6d4c5048f81e291fdbc24e851c5efa8f2617415a0278c7a2a",
+      "leakage_group_id": "db63ea9b52100d949583ff2a7471bf7de65c3016b2406447dc9d18d43f403a06"
+    },
+    {
+      "frame_id": "IMG_1812_t90",
+      "source_id": "IMG_1812",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1812.MOV",
+      "t_seconds": 90.0,
+      "width": 1920,
+      "height": 1080,
+      "frame_sha256": "5951eb09c6085a6c0b445cc8e8432c1e924e7be95056b50ad7fbe64b80501f15",
+      "source_sha256": "66b0fcfef2f854b6d4c5048f81e291fdbc24e851c5efa8f2617415a0278c7a2a",
+      "leakage_group_id": "db63ea9b52100d949583ff2a7471bf7de65c3016b2406447dc9d18d43f403a06"
+    },
+    {
+      "frame_id": "IMG_1813_t4",
+      "source_id": "IMG_1813",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1813.MOV",
+      "t_seconds": 4.0,
+      "width": 1080,
+      "height": 1920,
+      "frame_sha256": "6b676bb1428bd6789edca7f33f65a007adec363594469213387e5d68d466e956",
+      "source_sha256": "025b61901db5e35fb0b7bd852bfe76fcd404cc4bb9208c9e2e66ee2acf90454d",
+      "leakage_group_id": "db63ea9b52100d949583ff2a7471bf7de65c3016b2406447dc9d18d43f403a06"
+    },
+    {
+      "frame_id": "IMG_1817_t15",
+      "source_id": "IMG_1817",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1817.MOV",
+      "t_seconds": 15.0,
+      "width": 1920,
+      "height": 1080,
+      "frame_sha256": "b3cf786ceb86a34e0cbbf5597b2ba90f43eb54e3f46700e2abc513251aa06834",
+      "source_sha256": "5822f2325a7410efb4faace9655e52304a986a295a689207da11553cb053a5c7",
+      "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630"
+    },
+    {
+      "frame_id": "IMG_1818_t40",
+      "source_id": "IMG_1818",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+      "t_seconds": 40.0,
+      "width": 1920,
+      "height": 1080,
+      "frame_sha256": "e7aaff06225f327fe8f02fef09e176683fb40d36e6d8db1d21473e7918414f19",
+      "source_sha256": "848f587ca79321d348279912ae462624170eba221284b438c707fe51b98d5cf2",
+      "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630"
+    },
+    {
+      "frame_id": "IMG_1820_t25",
+      "source_id": "IMG_1820",
+      "media": "content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+      "t_seconds": 25.0,
+      "width": 1920,
+      "height": 1080,
+      "frame_sha256": "69666fd47510c4e9eabc052ba9464a1f7b9ccfda0955a1f51de985e7f83bfba6",
+      "source_sha256": "84a38f61d47cd1f80e5cfd30d4896775fabcf93ff443adde11ed978b412997be",
+      "leakage_group_id": "273bfde35955de457b45f3c2bbd25f0087b769b9e2f7ef32a795a04add41d630"
+    }
+  ],
+  "queries": [
+    {
+      "item_id": "heldout_01",
+      "query_id": "h01",
+      "frame_id": "LC4930_t45",
+      "phrase": "the woman seated at the table",
+      "repeat_group": null,
+      "tags": [
+        "referring"
+      ]
+    },
+    {
+      "item_id": "heldout_02",
+      "query_id": "h02",
+      "frame_id": "LCATL0011_t45",
+      "phrase": "the man seated behind the laptop",
+      "repeat_group": null,
+      "tags": [
+        "referring"
+      ]
+    },
+    {
+      "item_id": "heldout_03",
+      "query_id": "h03",
+      "frame_id": "LC4930_t120",
+      "phrase": "the woman's hands clasped on the table",
+      "repeat_group": null,
+      "tags": [
+        "relation"
+      ]
+    },
+    {
+      "item_id": "heldout_04",
+      "query_id": "h04",
+      "frame_id": "LCATL0011_t120",
+      "phrase": "the laptop in front of the man",
+      "repeat_group": null,
+      "tags": [
+        "relation"
+      ]
+    },
+    {
+      "item_id": "heldout_05",
+      "query_id": "h05",
+      "frame_id": "LC4930_t190",
+      "phrase": "the blue laptop in the left foreground",
+      "repeat_group": null,
+      "tags": [
+        "small"
+      ]
+    },
+    {
+      "item_id": "heldout_06",
+      "query_id": "h06",
+      "frame_id": "LCATL0011_t190",
+      "phrase": "the man's hands resting on the table",
+      "repeat_group": null,
+      "tags": [
+        "relation"
+      ]
+    },
+    {
+      "item_id": "heldout_07",
+      "query_id": "h07",
+      "frame_id": "IMG_1812_t30",
+      "phrase": "the man wearing a cap",
+      "repeat_group": null,
+      "tags": [
+        "referring"
+      ]
+    },
+    {
+      "item_id": "heldout_08",
+      "query_id": "h08",
+      "frame_id": "IMG_1812_t90",
+      "phrase": "the man's cap",
+      "repeat_group": null,
+      "tags": [
+        "small"
+      ]
+    },
+    {
+      "item_id": "heldout_09",
+      "query_id": "h09",
+      "frame_id": "IMG_1813_t4",
+      "phrase": "the wooden pallets outside the storefront",
+      "repeat_group": null,
+      "tags": [
+        "small"
+      ]
+    },
+    {
+      "item_id": "heldout_10",
+      "query_id": "h10",
+      "frame_id": "IMG_1817_t15",
+      "phrase": "the raised finger in the lower left of the frame",
+      "repeat_group": null,
+      "tags": [
+        "small"
+      ]
+    },
+    {
+      "item_id": "heldout_11",
+      "query_id": "h11",
+      "frame_id": "IMG_1818_t40",
+      "phrase": "the car with headlights behind the man",
+      "repeat_group": null,
+      "tags": [
+        "relation"
+      ]
+    },
+    {
+      "item_id": "heldout_12",
+      "query_id": "h12",
+      "frame_id": "IMG_1820_t25",
+      "phrase": "the man wearing a cap and looking down",
+      "repeat_group": null,
+      "tags": [
+        "referring"
+      ]
+    }
+  ]
+}

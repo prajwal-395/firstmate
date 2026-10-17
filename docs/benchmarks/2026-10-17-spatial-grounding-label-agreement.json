@@ -1,0 +1,2218 @@
+{
+  "format": "ren_spatial_grounding_label_agreement/1",
+  "split": "calibration",
+  "label_set_revision": "round8-first-pass-A-Codex-and-B-Claude-Sonnet-5.5-plus-tiebreak-r4-Muse-Spark",
+  "dataset": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "label_sources": [
+    "firstmate/data/vep-labels-r1-a/round8/vep-mu-ground/first-pass-a.jsonl",
+    "firstmate/data/vep-labels-r1-b/round8/vep-mu-ground/labeller-b.jsonl"
+  ],
+  "labeler_families": [
+    "OpenAI/Codex",
+    "Anthropic Claude (Claude Sonnet 5.5)"
+  ],
+  "held_out_accessed": false,
+  "n_queries": 24,
+  "visibility_exact_agreement": 20,
+  "visibility_exact_agreement_rate": 0.8333333333333334,
+  "relation_exact_agreement": 20,
+  "relation_exact_agreement_rate": 0.8333333333333334,
+  "jointly_visible": 18,
+  "jointly_visible_box_iou_mean": 0.7632598341526721,
+  "jointly_visible_box_iou_median": 0.9199448735681628,
+  "jointly_visible_box_iou_at_least_0_5": 14,
+  "jointly_visible_box_iou_at_least_0_75": 13,
+  "jointly_visible_point_cross_hit_both_directions": 16,
+  "jointly_visible_point_mean_normalized_euclidean_distance": 0.09093687718109111,
+  "jointly_ambiguous_agreement": [
+    "item_14"
+  ],
+  "jointly_not_visible_agreement": [],
+  "tie_break_requested": [
+    "item_03",
+    "item_05",
+    "item_11",
+    "item_15",
+    "item_17",
+    "item_18",
+    "item_20",
+    "item_21",
+    "item_22"
+  ],
+  "scorable_agreed_visible_queries": [
+    "item_01",
+    "item_02",
+    "item_04",
+    "item_06",
+    "item_07",
+    "item_08",
+    "item_09",
+    "item_10",
+    "item_12",
+    "item_13",
+    "item_16",
+    "item_19",
+    "item_23",
+    "item_24"
+  ],
+  "scoring_rule": "Primary calibration score uses all 23 resolved queries for predicted visibility accuracy and the 22 resolved visible items for point-in-box, box IoU, and small-object metrics. Item_14 remains ambiguous by both primary labelers and is excluded. Item_11 is deliberately ambiguous and remains explicitly flagged; report its per-query result and a sensitivity score excluding it. First-pass agreeing boxes use coordinate-wise mean references; third-agent adjudications replace both first-pass labels on the nine disputed queries. No held-out material is included.",
+  "florence": {
+    "resolved_queries": 23,
+    "visibility_correct": 17,
+    "visibility_accuracy": 0.7391304347826086,
+    "abstentions_on_visible_references": 5,
+    "visible_query_metrics": {
+      "visible_references": 22,
+      "point_hits": 12,
+      "point_in_box_accuracy": 0.5454545454545454,
+      "box_hits_iou_0_5": 10,
+      "box_recall_iou_0_5": 0.45454545454545453,
+      "box_hits_iou_0_75": 8,
+      "box_recall_iou_0_75": 0.36363636363636365
+    },
+    "excluding_deliberately_ambiguous_item_11": {
+      "visible_references": 21,
+      "point_hits": 12,
+      "point_in_box_accuracy": 0.5714285714285714,
+      "box_hits_iou_0_5": 10,
+      "box_recall_iou_0_5": 0.47619047619047616,
+      "box_hits_iou_0_75": 8,
+      "box_recall_iou_0_75": 0.38095238095238093
+    },
+    "small_object_subset": {
+      "queries": 1,
+      "box_hits_iou_0_5": 0,
+      "box_recall_iou_0_5": 0.0,
+      "item_ids": [
+        "item_21"
+      ]
+    },
+    "per_query": [
+      {
+        "item_id": "item_01",
+        "query_id": "q01",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9602932478917695,
+        "reference_box_xyxy_normalized": [
+          0.33545,
+          0.125,
+          0.7143999999999999,
+          0.7296
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.3325000007947286,
+          0.12222222928647641,
+          0.7214999993642172,
+          0.735555578161169
+        ],
+        "prediction_point_normalized": [
+          0.5270000000794729,
+          0.42888890372382277
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_02",
+        "query_id": "q02",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9822337524116425,
+        "reference_box_xyxy_normalized": [
+          0.3407,
+          0.14290000000000003,
+          0.7073499999999999,
+          0.72765
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.3384999831517537,
+          0.1382222352204499,
+          0.706499973932902,
+          0.7266666977493851
+        ],
+        "prediction_point_normalized": [
+          0.5224999785423279,
+          0.4324444664849174
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_03",
+        "query_id": "q03",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.03861748200338263,
+        "reference_box_xyxy_normalized": [
+          0.177,
+          0.72,
+          0.225,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.0025000000993410745,
+          0.6502222131799769,
+          0.9975000222524008,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.5000000111758709,
+          0.8251111065899884
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_04",
+        "query_id": "q04",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9538937924397356,
+        "reference_box_xyxy_normalized": [
+          0.33915,
+          0.1475,
+          0.6996,
+          0.7311
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.33550000190734863,
+          0.14533332542136865,
+          0.7025000254313151,
+          0.746222248783818
+        ],
+        "prediction_point_normalized": [
+          0.5190000136693318,
+          0.4457777871025933
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_05",
+        "query_id": "q05",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.05928105938245569,
+        "reference_box_xyxy_normalized": [
+          0.41,
+          0.57,
+          0.62,
+          0.755
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.000500000004346172,
+          0.652000003390842,
+          0.999500036239624,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.5000000181219851,
+          0.826000001695421
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_06",
+        "query_id": "q06",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9786010651445227,
+        "reference_box_xyxy_normalized": [
+          0.3903,
+          0.15694999999999998,
+          0.669,
+          0.67085
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.38750000794728595,
+          0.1577777862548828,
+          0.668500026067098,
+          0.6751111348470052
+        ],
+        "prediction_point_normalized": [
+          0.528000017007192,
+          0.41644446055094403
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_07",
+        "query_id": "q07",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.36045,
+          0.1993,
+          0.6428,
+          0.75
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_08",
+        "query_id": "q08",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.8661145536454476,
+        "reference_box_xyxy_normalized": [
+          0.20365,
+          0.54095,
+          0.48035,
+          0.8063
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.19350000222524008,
+          0.5257778167724609,
+          0.47450002034505206,
+          0.8155555725097656
+        ],
+        "prediction_point_normalized": [
+          0.33400001128514606,
+          0.6706666946411133
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_09",
+        "query_id": "q09",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.6442,
+          0.8282,
+          1.0,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_10",
+        "query_id": "q10",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.37024999999999997,
+          0.18280000000000002,
+          0.65235,
+          0.75
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_11",
+        "query_id": "q11",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": true,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.33,
+          0.21,
+          0.661,
+          0.744
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.7605000336964926,
+          0.8848889668782552,
+          0.9975000222524008,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.8790000279744467,
+          0.9424444834391277
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_12",
+        "query_id": "q12",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.12971052639415148,
+        "reference_box_xyxy_normalized": [
+          0.21265,
+          0.54095,
+          0.48815,
+          0.8063
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.365500013033549,
+          0.18088888238977502,
+          0.6535000006357828,
+          0.767555590029116
+        ],
+        "prediction_point_normalized": [
+          0.5095000068346659,
+          0.47422223620944554
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_13",
+        "query_id": "q13",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.2919,
+          0.20255,
+          0.67295,
+          0.403
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_15",
+        "query_id": "q15",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.23035654614250334,
+        "reference_box_xyxy_normalized": [
+          0.056,
+          0.69,
+          0.32,
+          0.9
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.15955557646574797,
+          0.6644999980926514,
+          0.4759999734384042,
+          0.8075000445048014
+        ],
+        "prediction_point_normalized": [
+          0.3177777749520761,
+          0.7360000212987264
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_16",
+        "query_id": "q16",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9693551788466681,
+        "reference_box_xyxy_normalized": [
+          0.0,
+          0.13305,
+          0.6729,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.0025000000993410745,
+          0.1471111156322338,
+          0.6805000305175781,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.3415000153084596,
+          0.5735555578161169
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_17",
+        "query_id": "q17",
+        "reference_visibility": "not_visible",
+        "visible_prediction": true,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false
+      },
+      {
+        "item_id": "item_18",
+        "query_id": "q18",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.8083775102528569,
+        "reference_box_xyxy_normalized": [
+          0.652,
+          0.55,
+          1.0,
+          0.68
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.6911111054597078,
+          0.5375000238418579,
+          1.0,
+          0.6785000165303549
+        ],
+        "prediction_point_normalized": [
+          0.8455555527298538,
+          0.6080000201861063
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_19",
+        "query_id": "q19",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.62555,
+          0.43684999999999996,
+          1.0,
+          0.5871999999999999
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_20",
+        "query_id": "q20",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.6971796661229144,
+        "reference_box_xyxy_normalized": [
+          0.3,
+          0.1875,
+          0.58,
+          0.255
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.2928889239275897,
+          0.18449999888737997,
+          0.5524444580078125,
+          0.27150001128514606
+        ],
+        "prediction_point_normalized": [
+          0.4226666909677011,
+          0.22800000508626303
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_21",
+        "query_id": "q21",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.003334975050484933,
+        "reference_box_xyxy_normalized": [
+          0.469,
+          0.392,
+          0.533,
+          0.443
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.0,
+          0.41249998410542804,
+          1.0,
+          0.9965000152587891
+        ],
+        "prediction_point_normalized": [
+          0.5,
+          0.7044999996821085
+        ],
+        "small_object": true
+      },
+      {
+        "item_id": "item_22",
+        "query_id": "q22",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.5340953292443467,
+        "reference_box_xyxy_normalized": [
+          0.731,
+          0.592,
+          0.785,
+          0.816
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.7465000152587891,
+          0.5773333090322988,
+          0.7994999885559082,
+          0.8155555725097656
+        ],
+        "prediction_point_normalized": [
+          0.7730000019073486,
+          0.6964444407710323
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_23",
+        "query_id": "q23",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.1768559278674557,
+        "reference_box_xyxy_normalized": [
+          0.0849,
+          0.13445000000000001,
+          0.9044,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.468500018119812,
+          0.1346666547987196,
+          0.7045000394185384,
+          0.6662222544352213
+        ],
+        "prediction_point_normalized": [
+          0.5865000287691752,
+          0.4004444546169705
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_24",
+        "query_id": "q24",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.9724657825861367,
+        "reference_box_xyxy_normalized": [
+          0.44545,
+          0.13585,
+          1.0,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.45650001366933185,
+          0.1346666547987196,
+          0.9965000152587891,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.7265000144640604,
+          0.5673333273993598
+        ],
+        "small_object": false
+      }
+    ]
+  },
+  "incumbent_gemma": {
+    "resolved_queries": 23,
+    "visibility_correct": 22,
+    "visibility_accuracy": 0.9565217391304348,
+    "abstentions_on_visible_references": 1,
+    "visible_query_metrics": {
+      "visible_references": 22,
+      "point_hits": 12,
+      "point_in_box_accuracy": 0.5454545454545454,
+      "box_hits_iou_0_5": 1,
+      "box_recall_iou_0_5": 0.045454545454545456,
+      "box_hits_iou_0_75": 1,
+      "box_recall_iou_0_75": 0.045454545454545456
+    },
+    "excluding_deliberately_ambiguous_item_11": {
+      "visible_references": 21,
+      "point_hits": 11,
+      "point_in_box_accuracy": 0.5238095238095238,
+      "box_hits_iou_0_5": 1,
+      "box_recall_iou_0_5": 0.047619047619047616,
+      "box_hits_iou_0_75": 1,
+      "box_recall_iou_0_75": 0.047619047619047616
+    },
+    "small_object_subset": {
+      "queries": 1,
+      "box_hits_iou_0_5": 0,
+      "box_recall_iou_0_5": 0.0,
+      "item_ids": [
+        "item_21"
+      ]
+    },
+    "per_query": [
+      {
+        "item_id": "item_01",
+        "query_id": "q01",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.46602766949798696,
+        "reference_box_xyxy_normalized": [
+          0.33545,
+          0.125,
+          0.7143999999999999,
+          0.7296
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.128,
+          0.334,
+          0.7249999999999999,
+          0.719
+        ],
+        "prediction_point_normalized": [
+          0.42699999999999994,
+          0.427
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_02",
+        "query_id": "q02",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.45210748435375003,
+        "reference_box_xyxy_normalized": [
+          0.3407,
+          0.14290000000000003,
+          0.7073499999999999,
+          0.72765
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.154,
+          0.341,
+          0.7409999999999999,
+          0.704
+        ],
+        "prediction_point_normalized": [
+          0.452,
+          0.45
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_03",
+        "query_id": "q03",
+        "reference_visibility": "visible",
+        "visible_prediction": false,
+        "visibility_correct": false,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": null,
+        "reference_box_xyxy_normalized": [
+          0.177,
+          0.72,
+          0.225,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": null,
+        "prediction_point_normalized": null,
+        "small_object": false
+      },
+      {
+        "item_id": "item_04",
+        "query_id": "q04",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.4299974121992516,
+        "reference_box_xyxy_normalized": [
+          0.33915,
+          0.1475,
+          0.6996,
+          0.7311
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.15799999999999997,
+          0.339,
+          0.7739999999999999,
+          0.6999999999999998
+        ],
+        "prediction_point_normalized": [
+          0.46900000000000003,
+          0.466
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_05",
+        "query_id": "q05",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.41,
+          0.57,
+          0.62,
+          0.755
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.625,
+          0.5579999999999999,
+          0.775,
+          0.604
+        ],
+        "prediction_point_normalized": [
+          0.6899999999999998,
+          0.6950000000000001
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_06",
+        "query_id": "q06",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.3835569482797495,
+        "reference_box_xyxy_normalized": [
+          0.3903,
+          0.15694999999999998,
+          0.669,
+          0.67085
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.17099999999999999,
+          0.38399999999999995,
+          0.6749999999999999,
+          0.6719999999999999
+        ],
+        "prediction_point_normalized": [
+          0.418,
+          0.421
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_07",
+        "query_id": "q07",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.34019222121298465,
+        "reference_box_xyxy_normalized": [
+          0.36045,
+          0.1993,
+          0.6428,
+          0.75
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.20099999999999998,
+          0.361,
+          0.7579999999999999,
+          0.6409999999999999
+        ],
+        "prediction_point_normalized": [
+          0.4699999999999999,
+          0.45
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_08",
+        "query_id": "q08",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.20365,
+          0.54095,
+          0.48035,
+          0.8063
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.531,
+          0.194,
+          0.8109999999999999,
+          0.47100000000000003
+        ],
+        "prediction_point_normalized": [
+          0.6709999999999999,
+          0.6709999999999999
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_09",
+        "query_id": "q09",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.34871980112043216,
+        "reference_box_xyxy_normalized": [
+          0.6442,
+          0.8282,
+          1.0,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.8539999999999999,
+          0.854,
+          1.0,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.945,
+          0.94
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_10",
+        "query_id": "q10",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.3231361348901498,
+        "reference_box_xyxy_normalized": [
+          0.37024999999999997,
+          0.18280000000000002,
+          0.65235,
+          0.75
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.18899999999999997,
+          0.381,
+          0.7579999999999999,
+          0.654
+        ],
+        "prediction_point_normalized": [
+          0.46799999999999997,
+          0.44099999999999995
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_11",
+        "query_id": "q11",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": true,
+        "point_in_reference_box": true,
+        "box_iou": 0.37967979694440374,
+        "reference_box_xyxy_normalized": [
+          0.33,
+          0.21,
+          0.661,
+          0.744
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.18799999999999997,
+          0.37599999999999995,
+          0.7639999999999999,
+          0.6579999999999999
+        ],
+        "prediction_point_normalized": [
+          0.471,
+          0.47100000000000003
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_12",
+        "query_id": "q12",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.21265,
+          0.54095,
+          0.48815,
+          0.8063
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.5329999999999999,
+          0.211,
+          0.8109999999999999,
+          0.48499999999999993
+        ],
+        "prediction_point_normalized": [
+          0.672,
+          0.6719999999999999
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_13",
+        "query_id": "q13",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.1816172074078085,
+        "reference_box_xyxy_normalized": [
+          0.2919,
+          0.20255,
+          0.67295,
+          0.403
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.177,
+          0.27799999999999997,
+          0.5840000000000001,
+          0.6739999999999998
+        ],
+        "prediction_point_normalized": [
+          0.38,
+          0.43099999999999994
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_15",
+        "query_id": "q15",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.056,
+          0.69,
+          0.32,
+          0.9
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.715,
+          0.164,
+          0.8949999999999999,
+          0.42499999999999993
+        ],
+        "prediction_point_normalized": [
+          0.8049999999999999,
+          0.294
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_16",
+        "query_id": "q16",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.3250006924779723,
+        "reference_box_xyxy_normalized": [
+          0.0,
+          0.13305,
+          0.6729,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.148,
+          0.0,
+          1.0,
+          0.6739999999999999
+        ],
+        "prediction_point_normalized": [
+          0.45,
+          0.55
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_17",
+        "query_id": "q17",
+        "reference_visibility": "not_visible",
+        "visible_prediction": false,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false
+      },
+      {
+        "item_id": "item_18",
+        "query_id": "q18",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.031943989676226234,
+        "reference_box_xyxy_normalized": [
+          0.652,
+          0.55,
+          1.0,
+          0.68
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.5379999999999999,
+          0.5730000000000001,
+          0.6829999999999998,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.61,
+          0.7859999999999999
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_19",
+        "query_id": "q19",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.62555,
+          0.43684999999999996,
+          1.0,
+          0.5871999999999999
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.445,
+          0.564,
+          0.593,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.523,
+          0.782
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_20",
+        "query_id": "q20",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.3,
+          0.1875,
+          0.58,
+          0.255
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.19599999999999998,
+          0.306,
+          0.255,
+          0.5730000000000001
+        ],
+        "prediction_point_normalized": [
+          0.225,
+          0.43899999999999995
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_21",
+        "query_id": "q21",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": false,
+        "box_iou": 0.0,
+        "reference_box_xyxy_normalized": [
+          0.469,
+          0.392,
+          0.533,
+          0.443
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.414,
+          0.48799999999999993,
+          0.44799999999999995,
+          0.5549999999999999
+        ],
+        "prediction_point_normalized": [
+          0.431,
+          0.521
+        ],
+        "small_object": true
+      },
+      {
+        "item_id": "item_22",
+        "query_id": "q22",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.18232373386295922,
+        "reference_box_xyxy_normalized": [
+          0.731,
+          0.592,
+          0.785,
+          0.816
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.695,
+          0.748,
+          0.8079999999999999,
+          0.7989999999999999
+        ],
+        "prediction_point_normalized": [
+          0.751,
+          0.7729999999999999
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_23",
+        "query_id": "q23",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.7953839885817892,
+        "reference_box_xyxy_normalized": [
+          0.0849,
+          0.13445000000000001,
+          0.9044,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.148,
+          0.1,
+          1.0,
+          0.9979999999999999
+        ],
+        "prediction_point_normalized": [
+          0.43,
+          0.412
+        ],
+        "small_object": false
+      },
+      {
+        "item_id": "item_24",
+        "query_id": "q24",
+        "reference_visibility": "visible",
+        "visible_prediction": true,
+        "visibility_correct": true,
+        "deliberately_ambiguous": false,
+        "point_in_reference_box": true,
+        "box_iou": 0.4693175347543478,
+        "reference_box_xyxy_normalized": [
+          0.44545,
+          0.13585,
+          1.0,
+          1.0
+        ],
+        "prediction_box_xyxy_normalized": [
+          0.148,
+          0.45799999999999996,
+          1.0,
+          1.0
+        ],
+        "prediction_point_normalized": [
+          0.5499999999999999,
+          0.55
+        ],
+        "small_object": false
+      }
+    ]
+  },
+  "not_scored_reason": {
+    "instance_accuracy_given_localization": "Neither model emits a labeler instance_id and labels do not enumerate competing frame instances; identity cannot be measured independently of box overlap.",
+    "small_object_accuracy": "No scorable agreed visible query has consensus box area <= 0.01 of the source frame.",
+    "spatial_relationship_accuracy": "The adapters emit point/box geometry, not a predicted relation class."
+  },
+  "items": [
+    {
+      "item_id": "item_01",
+      "query_id": "q01",
+      "frame_id": "LC4931_t30",
+      "query": "the woman seated at the table",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9734670399440187
+    },
+    {
+      "item_id": "item_02",
+      "query_id": "q02",
+      "frame_id": "LC4931_t80",
+      "query": "the woman seated at the table",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9319790540540543
+    },
+    {
+      "item_id": "item_03",
+      "query_id": "q03",
+      "frame_id": "LC4931_t130",
+      "query": "the laptop at the edge of the table",
+      "visibility_agreement": false,
+      "relation_agreement": false,
+      "label_a_visibility": "not_visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_04",
+      "query_id": "q04",
+      "frame_id": "LC4931_t180",
+      "query": "the woman seated at the table",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9552057570117851
+    },
+    {
+      "item_id": "item_05",
+      "query_id": "q05",
+      "frame_id": "LC4931_t230",
+      "query": "the woman's hands on the table",
+      "visibility_agreement": false,
+      "relation_agreement": false,
+      "label_a_visibility": "ambiguous",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_06",
+      "query_id": "q06",
+      "frame_id": "LC4931_t270",
+      "query": "the woman seated at the table",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9488212244897958
+    },
+    {
+      "item_id": "item_07",
+      "query_id": "q07",
+      "frame_id": "LCATL0012_t30",
+      "query": "the man with the laptop",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9789579562582986
+    },
+    {
+      "item_id": "item_08",
+      "query_id": "q08",
+      "frame_id": "LCATL0012_t80",
+      "query": "the laptop in front of the man",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "in_front_of",
+      "label_b_relation": "in_front_of",
+      "both_visible_box_iou": 0.8733594806061633
+    },
+    {
+      "item_id": "item_09",
+      "query_id": "q09",
+      "frame_id": "LCATL0012_t130",
+      "query": "the woman's hands at the right edge of the frame",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9568762150656621
+    },
+    {
+      "item_id": "item_10",
+      "query_id": "q10",
+      "frame_id": "LCATL0012_t180",
+      "query": "the man with the laptop",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9079106930822712
+    },
+    {
+      "item_id": "item_11",
+      "query_id": "q11",
+      "frame_id": "LCATL0012_t230",
+      "query": "the person on the left",
+      "visibility_agreement": false,
+      "relation_agreement": false,
+      "label_a_visibility": "ambiguous",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "left_of",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_12",
+      "query_id": "q12",
+      "frame_id": "LCATL0012_t270",
+      "query": "the laptop beside the man",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "beside",
+      "label_b_relation": "beside",
+      "both_visible_box_iou": 0.973888852587029
+    },
+    {
+      "item_id": "item_13",
+      "query_id": "q13",
+      "frame_id": "IMG_1806_t1.8",
+      "query": "the dark blue BMW in the parking lot",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.5309775497456893
+    },
+    {
+      "item_id": "item_14",
+      "query_id": "q14",
+      "frame_id": "IMG_1807_t12",
+      "query": "the cup in the cup holder",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "ambiguous",
+      "label_b_visibility": "ambiguous",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "not_decidable",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_15",
+      "query_id": "q15",
+      "frame_id": "IMG_1807_t5",
+      "query": "the hand on the car door handle",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.4508913270637409
+    },
+    {
+      "item_id": "item_16",
+      "query_id": "q16",
+      "frame_id": "IMG_1808_t8",
+      "query": "the man in the car",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9845255049143355
+    },
+    {
+      "item_id": "item_17",
+      "query_id": "q17",
+      "frame_id": "IMG_1808_t18",
+      "query": "the man in the back seat",
+      "visibility_agreement": true,
+      "relation_agreement": false,
+      "label_a_visibility": "not_visible",
+      "label_b_visibility": "not_visible",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_18",
+      "query_id": "q18",
+      "frame_id": "IMG_1809_t8",
+      "query": "the navigation screen on the dashboard",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.43155191319905367
+    },
+    {
+      "item_id": "item_19",
+      "query_id": "q19",
+      "frame_id": "IMG_1809_t18",
+      "query": "the navigation screen on the dashboard",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.8213896001101415
+    },
+    {
+      "item_id": "item_20",
+      "query_id": "q20",
+      "frame_id": "IMG_1810_t4",
+      "query": "the green street sign above the traffic light",
+      "visibility_agreement": false,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "ambiguous",
+      "label_a_relation": "not_decidable",
+      "label_b_relation": "not_decidable",
+      "both_visible_box_iou": null
+    },
+    {
+      "item_id": "item_21",
+      "query_id": "q21",
+      "frame_id": "IMG_1811_t11",
+      "query": "the car ahead on the road",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.24913951408527238
+    },
+    {
+      "item_id": "item_22",
+      "query_id": "q22",
+      "frame_id": "IMG_1814_t12",
+      "query": "the person walking in the plaza",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.0
+    },
+    {
+      "item_id": "item_23",
+      "query_id": "q23",
+      "frame_id": "IMG_1814_t30",
+      "query": "the man in the cap",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.8366650965961208
+    },
+    {
+      "item_id": "item_24",
+      "query_id": "q24",
+      "frame_id": "IMG_1816_t90",
+      "query": "the man in the cap",
+      "visibility_agreement": true,
+      "relation_agreement": true,
+      "label_a_visibility": "visible",
+      "label_b_visibility": "visible",
+      "label_a_relation": "not_applicable",
+      "label_b_relation": "not_applicable",
+      "both_visible_box_iou": 0.9330702359346641
+    }
+  ],
+  "adjudication_source": "firstmate/data/vep-tiebreak-r4/report.md (Muse Spark family)",
+  "resolved_queries_excluding_shared_ambiguous": [
+    "item_01",
+    "item_02",
+    "item_03",
+    "item_04",
+    "item_05",
+    "item_06",
+    "item_07",
+    "item_08",
+    "item_09",
+    "item_10",
+    "item_11",
+    "item_12",
+    "item_13",
+    "item_15",
+    "item_16",
+    "item_17",
+    "item_18",
+    "item_19",
+    "item_20",
+    "item_21",
+    "item_22",
+    "item_23",
+    "item_24"
+  ],
+  "unresolved_or_ambiguous_excluded": [
+    "item_14"
+  ],
+  "tie_break_results": {
+    "item_03": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.177,
+        0.72,
+        0.225,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.2,
+        0.86
+      ],
+      "confidence": "low",
+      "area_fraction": 0.0134,
+      "deliberately_ambiguous": false
+    },
+    "item_05": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.41,
+        0.57,
+        0.62,
+        0.755
+      ],
+      "point_xy_normalized": [
+        0.515,
+        0.66
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0389,
+      "deliberately_ambiguous": false
+    },
+    "item_11": {
+      "visibility": "visible",
+      "relation": "left_of",
+      "box_xyxy_normalized": [
+        0.33,
+        0.21,
+        0.661,
+        0.744
+      ],
+      "point_xy_normalized": [
+        0.495,
+        0.477
+      ],
+      "confidence": "medium",
+      "area_fraction": 0.1768,
+      "deliberately_ambiguous": true
+    },
+    "item_15": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.056,
+        0.69,
+        0.32,
+        0.9
+      ],
+      "point_xy_normalized": [
+        0.18,
+        0.79
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0554,
+      "deliberately_ambiguous": false
+    },
+    "item_17": {
+      "visibility": "not_visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": null,
+      "point_xy_normalized": null,
+      "confidence": "high",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_18": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.652,
+        0.55,
+        1.0,
+        0.68
+      ],
+      "point_xy_normalized": [
+        0.826,
+        0.615
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0452,
+      "deliberately_ambiguous": false
+    },
+    "item_20": {
+      "visibility": "visible",
+      "relation": "not_decidable",
+      "box_xyxy_normalized": [
+        0.3,
+        0.1875,
+        0.58,
+        0.255
+      ],
+      "point_xy_normalized": [
+        0.44,
+        0.22
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0189,
+      "deliberately_ambiguous": false
+    },
+    "item_21": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.469,
+        0.392,
+        0.533,
+        0.443
+      ],
+      "point_xy_normalized": [
+        0.501,
+        0.417
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0033,
+      "deliberately_ambiguous": false
+    },
+    "item_22": {
+      "visibility": "visible",
+      "relation": "not_applicable",
+      "box_xyxy_normalized": [
+        0.731,
+        0.592,
+        0.785,
+        0.816
+      ],
+      "point_xy_normalized": [
+        0.758,
+        0.704
+      ],
+      "confidence": "high",
+      "area_fraction": 0.0121,
+      "deliberately_ambiguous": false
+    }
+  },
+  "final_references": {
+    "item_01": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.33545,
+        0.125,
+        0.7143999999999999,
+        0.7296
+      ],
+      "point_xy_normalized": [
+        0.5139,
+        0.35335
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_02": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.3407,
+        0.14290000000000003,
+        0.7073499999999999,
+        0.72765
+      ],
+      "point_xy_normalized": [
+        0.5139,
+        0.37915
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_03": {
+      "visibility": "visible",
+      "instance_id": "laptop-1",
+      "box_xyxy_normalized": [
+        0.177,
+        0.72,
+        0.225,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.2,
+        0.86
+      ],
+      "relation": "not_applicable",
+      "confidence": "low",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Only the thin bright edge of a device lid is visible at the bottom-left table edge (see zoom crop). Read as the laptop's edge; identity is thin evidence, hence low confidence. Box drawn from my own frame grab, not copied from either first-pass label.",
+      "area_fraction": 0.0134,
+      "deliberately_ambiguous": false
+    },
+    "item_04": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.33915,
+        0.1475,
+        0.6996,
+        0.7311
+      ],
+      "point_xy_normalized": [
+        0.5139,
+        0.39805
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_05": {
+      "visibility": "visible",
+      "instance_id": "hands-1",
+      "box_xyxy_normalized": [
+        0.41,
+        0.57,
+        0.62,
+        0.755
+      ],
+      "point_xy_normalized": [
+        0.515,
+        0.66
+      ],
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Both hands are unambiguously on the table, palms down. Box spans both hands; point sits between them. High confidence.",
+      "area_fraction": 0.0389,
+      "deliberately_ambiguous": false
+    },
+    "item_06": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.3903,
+        0.15694999999999998,
+        0.669,
+        0.67085
+      ],
+      "point_xy_normalized": [
+        0.51,
+        0.39915
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_07": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.36045,
+        0.1993,
+        0.6428,
+        0.75
+      ],
+      "point_xy_normalized": [
+        0.505,
+        0.4478
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_08": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.20365,
+        0.54095,
+        0.48035,
+        0.8063
+      ],
+      "point_xy_normalized": [
+        0.32235,
+        0.67335
+      ],
+      "relation": "in_front_of",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_09": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.6442,
+        0.8282,
+        1.0,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.8106,
+        0.9303
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_10": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.37024999999999997,
+        0.18280000000000002,
+        0.65235,
+        0.75
+      ],
+      "point_xy_normalized": [
+        0.5089,
+        0.4478
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_11": {
+      "visibility": "visible",
+      "instance_id": "man-1",
+      "box_xyxy_normalized": [
+        0.33,
+        0.21,
+        0.661,
+        0.744
+      ],
+      "point_xy_normalized": [
+        0.495,
+        0.477
+      ],
+      "relation": "left_of",
+      "confidence": "medium",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Deliberately-ambiguous query. Only one fully visible person: the man seated center with the laptop. The dark shape at the far-left edge is furniture/lighting, not a person; the woman is present only as a hand at bottom-right. The man is the left of the two participants, so he is the referred instance with relation left_of. Medium confidence because the query's intended reading is inferential.",
+      "area_fraction": 0.1768,
+      "deliberately_ambiguous": true
+    },
+    "item_12": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.21265,
+        0.54095,
+        0.48815,
+        0.8063
+      ],
+      "point_xy_normalized": [
+        0.33405,
+        0.6803
+      ],
+      "relation": "beside",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_13": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.2919,
+        0.20255,
+        0.67295,
+        0.403
+      ],
+      "point_xy_normalized": [
+        0.48460000000000003,
+        0.2939
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_15": {
+      "visibility": "visible",
+      "instance_id": "hand-1",
+      "box_xyxy_normalized": [
+        0.056,
+        0.69,
+        0.32,
+        0.9
+      ],
+      "point_xy_normalized": [
+        0.18,
+        0.79
+      ],
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Right hand with bracelet and ring gripping the exterior door handle; unambiguous. Box covers the hand (fingers over handle); point on the hand. High confidence.",
+      "area_fraction": 0.0554,
+      "deliberately_ambiguous": false
+    },
+    "item_16": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.0,
+        0.13305,
+        0.6729,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.39875,
+        0.54165
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_17": {
+      "visibility": "not_visible",
+      "instance_id": "unknown",
+      "box_xyxy_normalized": null,
+      "point_xy_normalized": null,
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "The rear bench is fully visible and empty; the only man in frame sits in the front passenger seat. The referred instance (a man in the back seat) does not exist in this frame. Null geometry.",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_18": {
+      "visibility": "visible",
+      "instance_id": "nav-screen-1",
+      "box_xyxy_normalized": [
+        0.652,
+        0.55,
+        1.0,
+        0.68
+      ],
+      "point_xy_normalized": [
+        0.826,
+        0.615
+      ],
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Map display on the dashboard right side, clearly legible as a navigation screen. Box drawn tight to the display glass from a zoom crop. High confidence.",
+      "area_fraction": 0.0452,
+      "deliberately_ambiguous": false
+    },
+    "item_19": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.62555,
+        0.43684999999999996,
+        1.0,
+        0.5871999999999999
+      ],
+      "point_xy_normalized": [
+        0.8197,
+        0.51085
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_20": {
+      "visibility": "visible",
+      "instance_id": "sign-1",
+      "box_xyxy_normalized": [
+        0.3,
+        0.1875,
+        0.58,
+        0.255
+      ],
+      "point_xy_normalized": [
+        0.44,
+        0.22
+      ],
+      "relation": "not_decidable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Green Chattahoochee Ave sign, legible in zoom crop, mounted above a traffic light. The query's relation (above) has no expression in the allowed relation vocabulary, so relation is not_decidable with this note; the sign itself is unambiguously visible.",
+      "area_fraction": 0.0189,
+      "deliberately_ambiguous": false
+    },
+    "item_21": {
+      "visibility": "visible",
+      "instance_id": "car-1",
+      "box_xyxy_normalized": [
+        0.469,
+        0.392,
+        0.533,
+        0.443
+      ],
+      "point_xy_normalized": [
+        0.501,
+        0.417
+      ],
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Dark SUV ahead in the same lane, brake lights lit; the only car ahead on the road. Tight box from a zoom crop. High confidence.",
+      "area_fraction": 0.0033,
+      "deliberately_ambiguous": false
+    },
+    "item_22": {
+      "visibility": "visible",
+      "instance_id": "person-1",
+      "box_xyxy_normalized": [
+        0.731,
+        0.592,
+        0.785,
+        0.816
+      ],
+      "point_xy_normalized": [
+        0.758,
+        0.704
+      ],
+      "relation": "not_applicable",
+      "confidence": "high",
+      "source": "third-agent tie-break (Muse Spark)",
+      "adjudication_notes": "Man in light jacket and cap walking on the right-side path by the stairs; full body visible. Tight box from a zoom crop. High confidence.",
+      "area_fraction": 0.0121,
+      "deliberately_ambiguous": false
+    },
+    "item_23": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.0849,
+        0.13445000000000001,
+        0.9044,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.571,
+        0.42915000000000003
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    },
+    "item_24": {
+      "visibility": "visible",
+      "instance_id": null,
+      "box_xyxy_normalized": [
+        0.44545,
+        0.13585,
+        1.0,
+        1.0
+      ],
+      "point_xy_normalized": [
+        0.6575,
+        0.45415
+      ],
+      "relation": "not_applicable",
+      "confidence": "consensus",
+      "source": "coordinate-wise mean of two independent blind agent labels",
+      "area_fraction": null,
+      "deliberately_ambiguous": false
+    }
+  }
+}

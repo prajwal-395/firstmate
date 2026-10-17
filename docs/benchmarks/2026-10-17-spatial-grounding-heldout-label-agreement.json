@@ -1,0 +1,870 @@
+{
+  "format": "ren_spatial_grounding_label_agreement/1",
+  "split": "held_out",
+  "label_set_revision": "round9-first-pass-A-Muse-Spark-B-Claude-Sonnet-5.5-C-GPT-4.1-tiebreak",
+  "dataset": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json",
+  "label_sources": [
+    {
+      "path": "firstmate/data/vep-labels-r1-a/round9/vep-mu-ground-heldout/first-pass-a.jsonl",
+      "sha256": "fbdd55b4914f813a060e689f93cd27991410c81cf48d5d480d81fad918b2f316",
+      "labeler_family": "Muse Spark via OpenCode"
+    },
+    {
+      "path": "firstmate/data/vep-labels-r1-b/round9/vep-mu-ground-heldout/labeller-b.jsonl",
+      "sha256": "eb465bb7fc0d495ad62858c18585b26de7163d19d778df9e4f6fede90b17947f",
+      "labeler_family": "Anthropic Claude Sonnet 5.5"
+    }
+  ],
+  "held_out_accessed": true,
+  "n_queries": 12,
+  "visibility_exact_agreement": 12,
+  "visibility_exact_agreement_rate": 1.0,
+  "relation_exact_agreement": 7,
+  "relation_exact_agreement_rate": 0.5833333333333334,
+  "jointly_visible": 12,
+  "jointly_visible_box_iou_mean": 0.6183379071074688,
+  "jointly_visible_box_iou_median": 0.6598284020330532,
+  "jointly_visible_box_iou_at_least_0_5": 7,
+  "jointly_visible_box_iou_at_least_0_75": 2,
+  "jointly_visible_point_cross_hit_both_directions": 11,
+  "small_objects_in_agreed_geometry_queries": 0,
+  "agreed_geometry_queries_scorable_before_tiebreak": [
+    "h01",
+    "h02",
+    "h07",
+    "h08"
+  ],
+  "per_query_agreement": {
+    "h01": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.6720519653564289,
+      "labeler_a_point_xy_normalized": [
+        0.52,
+        0.35
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.52,
+        0.417
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": true,
+      "labeler_a_box_xyxy_normalized": [
+        0.295,
+        0.17,
+        0.815,
+        0.73
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.332,
+        0.146,
+        0.707,
+        0.708
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.3135,
+        0.158,
+        0.7609999999999999,
+        0.719
+      ],
+      "disagreement_reasons": []
+    },
+    "h02": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": false,
+      "labeler_a_relation": "behind",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.8434190548038083,
+      "labeler_a_point_xy_normalized": [
+        0.49,
+        0.35
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.5,
+        0.417
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": true,
+      "labeler_a_box_xyxy_normalized": [
+        0.322,
+        0.198,
+        0.668,
+        0.775
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.348,
+        0.167,
+        0.664,
+        0.757
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.33499999999999996,
+        0.1825,
+        0.666,
+        0.766
+      ],
+      "disagreement_reasons": [
+        "relation_disagreement"
+      ]
+    },
+    "h03": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": false,
+      "labeler_a_relation": "not_decidable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.4752401611403782,
+      "labeler_a_point_xy_normalized": [
+        0.48,
+        0.68
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.512,
+        0.664
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.425,
+        0.625,
+        0.54,
+        0.74
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.469,
+        0.604,
+        0.551,
+        0.733
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.44699999999999995,
+        0.6145,
+        0.5455000000000001,
+        0.7364999999999999
+      ],
+      "disagreement_reasons": [
+        "relation_disagreement",
+        "box_iou_below_0.5"
+      ]
+    },
+    "h04": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": false,
+      "labeler_a_relation": "in_front_of",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.4818771962473592,
+      "labeler_a_point_xy_normalized": [
+        0.438,
+        0.725
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.469,
+        0.653
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.305,
+        0.584,
+        0.572,
+        0.868
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.353,
+        0.525,
+        0.582,
+        0.785
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.32899999999999996,
+        0.5545,
+        0.577,
+        0.8265
+      ],
+      "disagreement_reasons": [
+        "relation_disagreement",
+        "box_iou_below_0.5"
+      ]
+    },
+    "h05": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": false,
+      "box_iou": 0.7280369515011548,
+      "labeler_a_point_xy_normalized": [
+        0.05,
+        0.84
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.086,
+        0.833
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.0,
+        0.645,
+        0.142,
+        1.0
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.031,
+        0.615,
+        0.143,
+        1.0
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.0155,
+        0.63,
+        0.1425,
+        1.0
+      ],
+      "disagreement_reasons": [
+        "labeler_a_frame_hash_mismatch"
+      ]
+    },
+    "h06": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": false,
+      "labeler_a_relation": "not_decidable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.7072010151210741,
+      "labeler_a_point_xy_normalized": [
+        0.275,
+        0.74
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.5,
+        0.77
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.243,
+        0.686,
+        0.618,
+        0.8
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.266,
+        0.674,
+        0.676,
+        0.806
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.2545,
+        0.68,
+        0.647,
+        0.803
+      ],
+      "disagreement_reasons": [
+        "relation_disagreement",
+        "explicit_labeler_ambiguity_note"
+      ]
+    },
+    "h07": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.9126213592233009,
+      "labeler_a_point_xy_normalized": [
+        0.8,
+        0.4
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.78,
+        0.417
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": true,
+      "labeler_a_box_xyxy_normalized": [
+        0.485,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.53,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.5075000000000001,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "disagreement_reasons": []
+    },
+    "h08": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.7254183391916271,
+      "labeler_a_point_xy_normalized": [
+        0.48,
+        0.22
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.547,
+        0.139
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": true,
+      "labeler_a_box_xyxy_normalized": [
+        0.304,
+        0.08,
+        0.663,
+        0.408
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.348,
+        0.053,
+        0.703,
+        0.403
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.32599999999999996,
+        0.0665,
+        0.683,
+        0.40549999999999997
+      ],
+      "disagreement_reasons": []
+    },
+    "h09": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.48769171284959395,
+      "labeler_a_point_xy_normalized": [
+        0.51,
+        0.48
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.611,
+        0.5
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.335,
+        0.375,
+        0.688,
+        0.59
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.424,
+        0.363,
+        0.813,
+        0.613
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.3795,
+        0.369,
+        0.7505,
+        0.6014999999999999
+      ],
+      "disagreement_reasons": [
+        "box_iou_below_0.5"
+      ]
+    },
+    "h10": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.4023994001499624,
+      "labeler_a_point_xy_normalized": [
+        0.126,
+        0.955
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.145,
+        0.944
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.099,
+        0.908,
+        0.156,
+        1.0
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.121,
+        0.878,
+        0.17,
+        1.0
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.11,
+        0.893,
+        0.163,
+        1.0
+      ],
+      "disagreement_reasons": [
+        "box_iou_below_0.5"
+      ]
+    },
+    "h11": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": false,
+      "labeler_a_relation": "behind",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": true,
+      "box_iou": 0.33649289099526114,
+      "labeler_a_point_xy_normalized": [
+        0.598,
+        0.756
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.652,
+        0.757
+      ],
+      "point_cross_hit_both_directions": false,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.543,
+        0.684,
+        0.655,
+        0.828
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.602,
+        0.678,
+        0.695,
+        0.826
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.5725,
+        0.681,
+        0.675,
+        0.827
+      ],
+      "disagreement_reasons": [
+        "relation_disagreement",
+        "box_iou_below_0.5",
+        "labeler_point_not_inside_other_box"
+      ]
+    },
+    "h12": {
+      "visibility_agrees": true,
+      "labeler_a_visibility": "visible",
+      "labeler_b_visibility": "visible",
+      "relation_agrees": true,
+      "labeler_a_relation": "not_applicable",
+      "labeler_b_relation": "not_applicable",
+      "labeler_a_manifest_frame_hash_matches": false,
+      "box_iou": 0.6476048387096774,
+      "labeler_a_point_xy_normalized": [
+        0.375,
+        0.5
+      ],
+      "labeler_b_point_xy_normalized": [
+        0.406,
+        0.486
+      ],
+      "point_cross_hit_both_directions": true,
+      "geometry_scorable_without_tie_break": false,
+      "labeler_a_box_xyxy_normalized": [
+        0.0,
+        0.0,
+        0.868,
+        1.0
+      ],
+      "labeler_b_box_xyxy_normalized": [
+        0.039,
+        0.0,
+        0.652,
+        0.917
+      ],
+      "consensus_box_xyxy_normalized": [
+        0.0195,
+        0.0,
+        0.76,
+        0.9585
+      ],
+      "disagreement_reasons": [
+        "labeler_a_frame_hash_mismatch"
+      ]
+    }
+  },
+  "tie_break_requested": [],
+  "scoring_rule": "Visibility is scored on all 12 queries because both blind agent families agree they are visible. Localization is scored only for shared visible object labels with box IoU >= 0.5 between labelers and reciprocal cross-point inclusion; explicit ambiguities and frame-hash mismatches are excluded. Relation agreement is measured separately and does not gate localization when both labelers mark the same queried object. The reference box is the coordinate-wise mean. Disputed queries are withheld from localization scoring until third-family adjudication. The Gemma and Florence adapters do not emit predicted relations or instance identity, so those metrics remain unscored.",
+  "label_quality_note": "Muse A verified the frozen full-resolution PNG hashes. Claude B reviewed resized JPEG stills and recorded their resized-JPEG hashes instead of verifying the manifest PNG hashes; normalized coordinates were returned in source-frame units. The third labeler should inspect full-resolution frozen stills and resolve the listed disagreements. Claude B also described all relation fields as not_applicable despite several prompts naming relations.",
+  "florence": {
+    "model": "microsoft/Florence-2-large",
+    "model_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+    "precision": "full-fp32",
+    "visibility_correct": 9,
+    "visibility_queries": 12,
+    "visibility_accuracy": 0.75,
+    "localization_queries": 4,
+    "point_hits": 2,
+    "point_in_box_accuracy": 0.5,
+    "box_hits_iou_0_5": 2,
+    "box_recall_iou_0_5": 0.5,
+    "box_hits_iou_0_75": 2,
+    "box_recall_iou_0_75": 0.5,
+    "per_query_agreed_geometry": [
+      {
+        "query_id": "h01",
+        "reference_box_xyxy_normalized": [
+          0.3135,
+          0.158,
+          0.7609999999999999,
+          0.719
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": true,
+        "box_iou": 0.8354995734041724
+      },
+      {
+        "query_id": "h02",
+        "reference_box_xyxy_normalized": [
+          0.33499999999999996,
+          0.1825,
+          0.666,
+          0.766
+        ],
+        "visible_prediction": false,
+        "point_in_consensus_box": false,
+        "box_iou": 0.0
+      },
+      {
+        "query_id": "h07",
+        "reference_box_xyxy_normalized": [
+          0.5075000000000001,
+          0.0,
+          1.0,
+          1.0
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": true,
+        "box_iou": 0.9522843078510009
+      },
+      {
+        "query_id": "h08",
+        "reference_box_xyxy_normalized": [
+          0.32599999999999996,
+          0.0665,
+          0.683,
+          0.40549999999999997
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": false,
+        "box_iou": 0.14666278303594632
+      }
+    ],
+    "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-florence-heldout.json",
+    "predictions_sha256": "4b5b697112dd93c37464baa851d8653be5fa75c0d9b9f0a39b49b24c2b7ab5fc",
+    "quality_status": "final held-out score uses all 12 visibility labels and all 12 resolved reference boxes after third-family adjudication",
+    "quality_metrics": {
+      "visibility_correct": 9,
+      "visibility_queries": 12,
+      "visibility_accuracy": 0.75,
+      "localization_queries": 12,
+      "point_hits": 7,
+      "point_in_box_accuracy": 0.5833333333333334,
+      "box_hits_iou_0_5": 5,
+      "box_recall_iou_0_5": 0.4166666666666667,
+      "box_hits_iou_0_75": 5,
+      "box_recall_iou_0_75": 0.4166666666666667,
+      "small_object_queries": 2,
+      "small_object_accuracy": 0.0,
+      "small_object_item_ids": [
+        "h03",
+        "h10"
+      ],
+      "per_query": [
+        {
+          "query_id": "h01",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.8354995734041724
+        },
+        {
+          "query_id": "h07",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.9522843078510009
+        },
+        {
+          "query_id": "h08",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.14666278303594632
+        },
+        {
+          "query_id": "h02",
+          "visibility_correct": false,
+          "point_in_reference_box": false,
+          "box_iou": null
+        },
+        {
+          "query_id": "h03",
+          "visibility_correct": false,
+          "point_in_reference_box": false,
+          "box_iou": null
+        },
+        {
+          "query_id": "h04",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.8852791044424743
+        },
+        {
+          "query_id": "h05",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.8236614526860706
+        },
+        {
+          "query_id": "h06",
+          "visibility_correct": false,
+          "point_in_reference_box": false,
+          "box_iou": null
+        },
+        {
+          "query_id": "h09",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.0899596265761426
+        },
+        {
+          "query_id": "h10",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.27647892479701497
+        },
+        {
+          "query_id": "h11",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.9050619716209486
+        },
+        {
+          "query_id": "h12",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.29124310487047744
+        }
+      ]
+    }
+  },
+  "gemma": {
+    "model": "gemma-4-12b-it-4bit",
+    "model_revision": "73bcf09092aa277861d5a191b989b666f7f32e8f",
+    "precision": "mlx-4bit",
+    "visibility_correct": 11,
+    "visibility_queries": 12,
+    "visibility_accuracy": 0.9166666666666666,
+    "localization_queries": 4,
+    "point_hits": 2,
+    "point_in_box_accuracy": 0.5,
+    "box_hits_iou_0_5": 0,
+    "box_recall_iou_0_5": 0.0,
+    "box_hits_iou_0_75": 0,
+    "box_recall_iou_0_75": 0.0,
+    "per_query_agreed_geometry": [
+      {
+        "query_id": "h01",
+        "reference_box_xyxy_normalized": [
+          0.3135,
+          0.158,
+          0.7609999999999999,
+          0.719
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": true,
+        "box_iou": 0.48451473355448216
+      },
+      {
+        "query_id": "h02",
+        "reference_box_xyxy_normalized": [
+          0.33499999999999996,
+          0.1825,
+          0.666,
+          0.766
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": true,
+        "box_iou": 0.379128067289624
+      },
+      {
+        "query_id": "h07",
+        "reference_box_xyxy_normalized": [
+          0.5075000000000001,
+          0.0,
+          1.0,
+          1.0
+        ],
+        "visible_prediction": false,
+        "point_in_consensus_box": false,
+        "box_iou": 0.0
+      },
+      {
+        "query_id": "h08",
+        "reference_box_xyxy_normalized": [
+          0.32599999999999996,
+          0.0665,
+          0.683,
+          0.40549999999999997
+        ],
+        "visible_prediction": true,
+        "point_in_consensus_box": false,
+        "box_iou": 0.008613997143975555
+      }
+    ],
+    "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-gemma-heldout.json",
+    "predictions_sha256": "cb60a6688cd59beb958fd032fd549ec0b7035e147df7702c054299d5fc2cad4c",
+    "quality_status": "final held-out score uses all 12 visibility labels and all 12 resolved reference boxes after third-family adjudication",
+    "quality_metrics": {
+      "visibility_correct": 11,
+      "visibility_queries": 12,
+      "visibility_accuracy": 0.9166666666666666,
+      "localization_queries": 12,
+      "point_hits": 4,
+      "point_in_box_accuracy": 0.3333333333333333,
+      "box_hits_iou_0_5": 1,
+      "box_recall_iou_0_5": 0.08333333333333333,
+      "box_hits_iou_0_75": 1,
+      "box_recall_iou_0_75": 0.08333333333333333,
+      "small_object_queries": 2,
+      "small_object_accuracy": 0.0,
+      "small_object_item_ids": [
+        "h03",
+        "h10"
+      ],
+      "per_query": [
+        {
+          "query_id": "h01",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.48451473355448216
+        },
+        {
+          "query_id": "h07",
+          "visibility_correct": false,
+          "point_in_reference_box": false,
+          "box_iou": null
+        },
+        {
+          "query_id": "h08",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.008613997143975555
+        },
+        {
+          "query_id": "h02",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.38893723048667334
+        },
+        {
+          "query_id": "h03",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.0
+        },
+        {
+          "query_id": "h04",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.02614994942902341
+        },
+        {
+          "query_id": "h05",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.0
+        },
+        {
+          "query_id": "h06",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.0
+        },
+        {
+          "query_id": "h09",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.2664341388760365
+        },
+        {
+          "query_id": "h10",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.0
+        },
+        {
+          "query_id": "h11",
+          "visibility_correct": true,
+          "point_in_reference_box": false,
+          "box_iou": 0.012436955524988611
+        },
+        {
+          "query_id": "h12",
+          "visibility_correct": true,
+          "point_in_reference_box": true,
+          "box_iou": 0.8408826945412311
+        }
+      ]
+    }
+  },
+  "tie_break": {
+    "label_source": "firstmate/data/vep-tiebreak-r5/report.md (JSONL copied into durable artifact)",
+    "label_file": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-tiebreak.jsonl",
+    "sha256": "6f73be18bafc75b14dc3a57882d6a67972f317f16efdab806aaf686f4217bd69",
+    "labeler_family": "OpenAI GPT-4.1, independent third family",
+    "queries": 9,
+    "frame_hashes_verified": 9,
+    "disputed_queries_resolved": 9,
+    "reference_policy": "Third-family adjudicated boxes are final for all nine disputed queries; mean of the two first-pass boxes is reference for h01, h07, and h08. h02 uses its tie-break box because its relation label was disputed. All 12 visibility labels are visible."
+  },
+  "adjudicated_reference_queries": 12,
+  "unresolved_queries": [],
+  "final_reference_policy": "Third-family adjudicated boxes are final for all nine disputed queries; mean of the two first-pass boxes is reference for h01, h07, and h08. h02 uses its tie-break box because its relation label was disputed. All 12 visibility labels are visible.",
+  "final_small_object_queries": [
+    "h03",
+    "h10"
+  ]
+}

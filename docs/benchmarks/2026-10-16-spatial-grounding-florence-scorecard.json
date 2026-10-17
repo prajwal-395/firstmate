@@ -1,0 +1,128 @@
+{
+  "format": "ren_model_scorecard/1",
+  "capability": "spatial_grounding",
+  "candidate": "microsoft/Florence-2-large",
+  "published_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+  "precision": "full-fp32",
+  "device": "mps",
+  "license_class": "MIT",
+  "license_evidence": "https://huggingface.co/microsoft/Florence-2-large/blob/21a599d414c4d928c9032694c424fb94458e3594/LICENSE; publisher model card describes phrase grounding",
+  "dataset": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-florence-calibration.json",
+  "split": "calibration",
+  "quality_metrics": {
+    "point_in_box_accuracy": 0.5454545454545454,
+    "box_recall_iou_0_5": 0.45454545454545453,
+    "box_recall_iou_0_75": 0.36363636363636365,
+    "instance_accuracy_given_localization": null,
+    "small_object_accuracy": 0.0,
+    "spatial_relationship_accuracy": null,
+    "abstention_rate": 0.20833333333333334,
+    "malformed_output_rate": 0.0,
+    "visible_predictions": 19,
+    "queries": 24,
+    "note": "Calibration quality uses all 23 resolved agent-labelled queries: visibility denominator 23; point and box metrics denominator 22 visible references. Item_14 remains jointly ambiguous and excluded; deliberately ambiguous item_11 remains included and its exclusion sensitivity is separately recorded. Small-object recall is based on one adjudicated <=1%-area reference (item_21). Instance identity and relation accuracy are unscored because outputs contain no instance ID or relation class. The frozen 12-query held-out Florence predictions are in held_out_run; held-out labels are now released and partially scored on shared labels; nine disagreements await third-family adjudication.",
+    "agreement_scored_queries": 14,
+    "agreement_scored_visible_predictions": 9,
+    "agreement_scored_abstentions": 5,
+    "agreement_scored_point_hits": 8,
+    "agreement_scored_box_hits_iou_0_5": 7,
+    "agreement_scored_box_hits_iou_0_75": 7,
+    "label_agreement": "docs/benchmarks/2026-10-17-spatial-grounding-label-agreement.json",
+    "visibility_accuracy_resolved": 0.7391304347826086,
+    "resolved_queries": 23,
+    "visible_reference_queries": 22,
+    "abstentions_on_visible_references": 5,
+    "small_object_queries": 1,
+    "deliberately_ambiguous_item_11_included": true,
+    "sensitivity_excluding_item_11": {
+      "visible_references": 21,
+      "point_hits": 12,
+      "point_in_box_accuracy": 0.5714285714285714,
+      "box_hits_iou_0_5": 10,
+      "box_recall_iou_0_5": 0.47619047619047616,
+      "box_hits_iou_0_75": 8,
+      "box_recall_iou_0_75": 0.38095238095238093
+    },
+    "visibility_correct_resolved": 17,
+    "held_out_manifest": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json"
+  },
+  "latency_s": {
+    "cold": 6.192024708012468,
+    "warm_mean": 2.030753543432777,
+    "end_to_end_wall": 89.50543483400543
+  },
+  "peak_memory_mb": 2636.3125,
+  "peak_physical_memory_gb": 6.472,
+  "peak_memory_basis": "Ren scheduler process-tree phys_footprint; 7.5 GB declared reservation",
+  "scheduler_samples": 43,
+  "timing_split_s": {
+    "decode_mean": 0.36038169429108774,
+    "infer_mean": 2.2041398419569305,
+    "serialize_mean": 3.831416506727692e-05
+  },
+  "end_to_end_cost": {
+    "queries": 24,
+    "source_frames": 24,
+    "wall_seconds": 89.50543483400543
+  },
+  "decision": "research-only",
+  "decision_basis": "Calibration quality is agent-labelled; frozen held-out predictions are now partially scored on consensus labels. Florence remains research-only pending adjudication of nine label disputes and complete task-specific qualification.",
+  "held_out_run": {
+    "manifest": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-manifest.json",
+    "predictions": "docs/benchmarks/2026-10-17-spatial-grounding-florence-heldout.json",
+    "predictions_sha256": "4b5b697112dd93c37464baa851d8653be5fa75c0d9b9f0a39b49b24c2b7ab5fc",
+    "split": "held_out",
+    "queries": 12,
+    "parsed_predictions": 12,
+    "abstentions": 0,
+    "malformed_outputs": 0,
+    "quality_status": "final held-out score uses all 12 visibility labels and all 12 resolved reference boxes after third-family adjudication",
+    "latency_s": {
+      "end_to_end_wall": 182.67717429199547,
+      "cold_infer": 29.71864204200392,
+      "warm_mean": 6.101460844725477
+    },
+    "timing_split_s": {
+      "decode_mean": 1.5840696701670822,
+      "infer_mean": 8.069559277832013,
+      "serialize_mean": 0.00015846199918693552
+    },
+    "memory": {
+      "peak_rss_mb": 1125.515625,
+      "peak_process_tree_physical_gb": 5.992,
+      "declared_scheduler_reservation_gb": 7.5,
+      "scheduler_queue_wait_s": 32.883,
+      "scheduler_execution_s": 187.484,
+      "scheduler_samples": 75
+    },
+    "model_cache": {
+      "model": "microsoft/Florence-2-large",
+      "published_revision": "21a599d414c4d928c9032694c424fb94458e3594",
+      "precision": "full-fp32",
+      "cache_path_used": "/Users/prajwal/.cache/huggingface/hub/models--microsoft--Florence-2-large/snapshots/21a599d414c4d928c9032694c424fb94458e3594/model.safetensors",
+      "weight_size_bytes": 1553563458,
+      "cache_action": "reused existing publisher-revision cache; deleted model revision and unshared weight blob after the pass"
+    },
+    "label_agreement": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-label-agreement.json",
+    "quality_metrics": {
+      "visibility_correct": 9,
+      "visibility_queries": 12,
+      "visibility_accuracy": 0.75,
+      "localization_queries": 12,
+      "point_hits": 7,
+      "point_in_box_accuracy": 0.5833333333333334,
+      "box_hits_iou_0_5": 5,
+      "box_recall_iou_0_5": 0.4166666666666667,
+      "box_hits_iou_0_75": 5,
+      "box_recall_iou_0_75": 0.4166666666666667,
+      "small_object_queries": 2,
+      "small_object_accuracy": 0.0,
+      "small_object_item_ids": [
+        "h03",
+        "h10"
+      ]
+    },
+    "tie_break_labels": "docs/benchmarks/2026-10-17-spatial-grounding-heldout-tiebreak.jsonl"
+  }
+}

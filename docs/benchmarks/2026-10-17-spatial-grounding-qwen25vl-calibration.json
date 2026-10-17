@@ -1,0 +1,714 @@
+{
+  "format": "ren_spatial_grounding_predictions/1",
+  "manifest": "docs/benchmarks/2026-10-16-spatial-grounding-calibration.json",
+  "split": "calibration",
+  "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+  "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+  "precision": "mlx-4bit",
+  "device": "mlx",
+  "resource": {
+    "wall_s": 142.09950470901094,
+    "cold_infer_s": 59.875966874998994,
+    "warm_infer_s_mean": 1.9204403188702164,
+    "peak_rss_mb": 3220.390625,
+    "peak_rss_mb_before": 24.84375
+  },
+  "predictions": [
+    {
+      "query_id": "q01",
+      "frame_id": "LC4931_t30",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [252, 53, 545, 310], \"point_1000\": [392, 181]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 59.875966874998994,
+        "serialize_s": 3.2665993785485625e-05,
+        "decode_s": 0.44421825000608806
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q02",
+      "frame_id": "LC4931_t80",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [257, 60, 535, 302], \"point_1000\": [338, 181]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.9638609579997137,
+        "serialize_s": 2.1541985915973783e-05,
+        "decode_s": 0.48570891699637286
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q03",
+      "frame_id": "LC4931_t130",
+      "phrase": "the laptop at the edge of the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [142, 290, 178, 419], \"point_1000\": [151, 399]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8975811670097755,
+        "serialize_s": 1.9750004867091775e-05,
+        "decode_s": 0.463224082996021
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q04",
+      "frame_id": "LC4931_t180",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [255, 62, 530, 308], \"point_1000\": [338, 211]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8364300839893986,
+        "serialize_s": 1.8499995348975062e-05,
+        "decode_s": 0.4785250840068329
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q05",
+      "frame_id": "LC4931_t230",
+      "phrase": "the woman's hands on the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [318, 258, 458, 318], \"point_1000\": [338, 288], \"point_1000\": [438, 288]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 2.1748878749931464,
+        "serialize_s": 1.3958007912151515e-05,
+        "decode_s": 0.4637859579961514
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q06",
+      "frame_id": "LC4931_t270",
+      "phrase": "the woman seated at the table",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [296, 67, 503, 282], \"point_1000\": [351, 181]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8759903330064844,
+        "serialize_s": 1.7167010810226202e-05,
+        "decode_s": 0.4797313339950051
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q07",
+      "frame_id": "LCATL0012_t30",
+      "phrase": "the man with the laptop",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [268, 82, 486, 316], \"point_1000\": [378, 151]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.9475102919968776,
+        "serialize_s": 2.487500023562461e-05,
+        "decode_s": 0.47025991599366535
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q08",
+      "frame_id": "LCATL0012_t80",
+      "phrase": "the laptop in front of the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [148, 226, 362, 342], \"point_1000\": [228, 298]}.",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8686217080103233,
+        "serialize_s": 1.795799471437931e-05,
+        "decode_s": 0.5041754999983823
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q09",
+      "frame_id": "LCATL0012_t130",
+      "phrase": "the woman's hands at the right edge of the frame",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [483, 343, 755, 447], \"point_1000\": [551, 399]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.831426625009044,
+        "serialize_s": 1.8417005776427686e-05,
+        "decode_s": 0.4448304170073243
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q10",
+      "frame_id": "LCATL0012_t180",
+      "phrase": "the man with the laptop",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [288, 76, 495, 316], \"point_1000\": [378, 131]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8294918750034412,
+        "serialize_s": 1.4125005691312253e-05,
+        "decode_s": 0.42686270899139345
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q11",
+      "frame_id": "LCATL0012_t230",
+      "phrase": "the person on the left",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [280, 77, 500, 315], \"point_1000\": [371, 138]}`",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8426862500054995,
+        "serialize_s": 1.529201108496636e-05,
+        "decode_s": 0.44456366600934416
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q12",
+      "frame_id": "LCATL0012_t270",
+      "phrase": "the laptop beside the man",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.2,
+        "scale_y": 0.2,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 3840,
+        "source_height": 2160
+      },
+      "raw_answer": "{\"visible\": true/false, \"box_1000\": [162, 225, 371, 341], \"point_1000\": [232, 298]}.",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.9732141249987762,
+        "serialize_s": 1.566599530633539e-05,
+        "decode_s": 0.4788127919891849
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q13",
+      "frame_id": "IMG_1806_t1.8",
+      "phrase": "the dark blue BMW in the parking lot",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "```json\n[\n\t{\"visible\": true, \"box_1000\": [113, 132, 280, 287], \"point_1000\": [181, 228]}}\n```",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.9661617499950808,
+        "serialize_s": 1.3957993360236287e-05,
+        "decode_s": 0.23583783399953973
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q14",
+      "frame_id": "IMG_1807_t12",
+      "phrase": "the cup in the cup holder",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [3, 252, 161, 388], \"point_1000\": [101, 338]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.812743665999733,
+        "serialize_s": 1.4457997167482972e-05,
+        "decode_s": 0.2710762079950655
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q15",
+      "frame_id": "IMG_1807_t5",
+      "phrase": "the hand on the car door handle",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [38, 546, 145, 680], \"point_1000\": [108, 571]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8141680000117049,
+        "serialize_s": 2.0040999515913427e-05,
+        "decode_s": 0.23287266699480824
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q16",
+      "frame_id": "IMG_1808_t8",
+      "phrase": "the man in the car",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [0, 57, 515, 419], \"point_1000\": [292, 211]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.7947368329914752,
+        "serialize_s": 1.5708996215835214e-05,
+        "decode_s": 0.2232037919893628
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q17",
+      "frame_id": "IMG_1808_t18",
+      "phrase": "the man in the back seat",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [0, 98, 361, 419], \"point_1000\": [181, 218]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.7844868750107707,
+        "serialize_s": 1.675001112744212e-05,
+        "decode_s": 0.2384388329955982
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q18",
+      "frame_id": "IMG_1809_t8",
+      "phrase": "the navigation screen on the dashboard",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [288, 408], \"point_1000\": [381, 451]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.6985515839915024,
+        "serialize_s": 1.4749995898455381e-05,
+        "decode_s": 0.22628354201151524
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q19",
+      "frame_id": "IMG_1809_t18",
+      "phrase": "the navigation screen on the dashboard",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [378, 338], \"point_1000\": [401, 378]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.765284374996554,
+        "serialize_s": 1.8417005776427686e-05,
+        "decode_s": 0.2563741670019226
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q20",
+      "frame_id": "IMG_1810_t4",
+      "phrase": "the green street sign above the traffic light",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "```json\n{\n  \"visible\": true,\n  \"box_1000\": [128, 146, 228, 201],\n  \"point_1000\": [151, 181]\n}\n```",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 2.165544667004724,
+        "serialize_s": 2.0958003005944192e-05,
+        "decode_s": 0.2442010829981882
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q21",
+      "frame_id": "IMG_1811_t11",
+      "phrase": "the car ahead on the road",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 432,
+        "height": 768,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1080,
+        "source_height": 1920
+      },
+      "raw_answer": "```json\n{\n  \"visible\": true,\n  \"box_1000\": [205, 311, 233, 337],\n  \"point_1000\": [208, 311]\n}\n```",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 2.134888708998915,
+        "serialize_s": 1.620801049284637e-05,
+        "decode_s": 0.2319936670101015
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q22",
+      "frame_id": "IMG_1814_t12",
+      "phrase": "the person walking in the plaza",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [567, 246, 601, 339], \"point_1000\": [578, 265], \"bbox_1000\": [571, 258, 601, 339]}}",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 2.5201098340039607,
+        "serialize_s": 1.966601121239364e-05,
+        "decode_s": 0.24128683400340378
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q23",
+      "frame_id": "IMG_1814_t30",
+      "phrase": "the man in the cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [68, 58, 736, 419], \"point_1000\": [432, 138]}`",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8424707079975633,
+        "serialize_s": 1.6292004147544503e-05,
+        "decode_s": 0.20808908400067594
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    },
+    {
+      "query_id": "q24",
+      "frame_id": "IMG_1816_t90",
+      "phrase": "the man in the cap",
+      "prompt_sha256": "8ffbe517bccec212da707053d819371561c27e1cb05b466b50d323e07f9e2ccf",
+      "prepared": {
+        "width": 768,
+        "height": 432,
+        "scale_x": 0.4,
+        "scale_y": 0.4,
+        "offset_x": 0.0,
+        "offset_y": 0.0,
+        "source_width": 1920,
+        "source_height": 1080
+      },
+      "raw_answer": "{\"visible\": true, \"box_1000\": [347, 59, 755, 415], \"point_1000\": [478, 211]}`",
+      "malformed": {
+        "reason": "no JSON object in model answer"
+      },
+      "timings_s": {
+        "infer_s": 1.8292790409905137,
+        "serialize_s": 1.4958000974729657e-05,
+        "decode_s": 0.20555833299295045
+      },
+      "model": "mlx-community/Qwen2.5-VL-3B-Instruct-4bit",
+      "model_revision": "46d4cf06a06ffc1a766c214174f9cbed2f45bcab",
+      "precision": "mlx-4bit",
+      "device": "mlx"
+    }
+  ]
+}

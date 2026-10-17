@@ -129,3 +129,5 @@ mlx_vlm>=0.7.2; sys_platform == 'darwin'
 # its text/video SentenceTransformer modules.
 transformers>=5.19
 sentence-transformers>=6.1
+# Florence-2's published modeling implementation imports timm.
+timm>=1.0

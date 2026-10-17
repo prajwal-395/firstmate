@@ -294,6 +294,16 @@ fetched     : pip-install (transitive via analysis/identity groups)
 commercial  : ok
 hash-verified: n/a (pip transport)
 
+component-id : python.timm
+edition      : public
+component   : timm
+pin         : >=1.0 (requirements/analysis.txt; Florence-2 remote model)
+source      : https://github.com/huggingface/pytorch-image-models
+license     : Apache-2.0
+fetched     : pip-install
+commercial  : ok
+hash-verified: n/a (pip transport)
+
 B. NODE PACKAGES (remotion-subtitles/package.json, pinned 4.0.486;
    full transitive tree in package-lock.json)
 --------------------------------------------------------------
