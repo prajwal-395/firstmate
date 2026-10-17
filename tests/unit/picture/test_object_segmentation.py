@@ -168,7 +168,14 @@ def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
 def test_seeded_session_does_not_load_automatic_mask_generator(monkeypatch):
     from library.tools.analysis import object_segmentation as segmentation
 
-    predictor = object()
+    class Predictor:
+        half_calls = 0
+
+        def half(self):
+            self.half_calls += 1
+            return self
+
+    predictor = Predictor()
     module = ModuleType("sam2.build_sam")
     module.build_sam2_video_predictor_hf = (
         lambda model_id, device: predictor)
@@ -185,6 +192,7 @@ def test_seeded_session_does_not_load_automatic_mask_generator(monkeypatch):
 
     assert segmentation.ObjectSegmenter._load_sam2(
         include_generator=False) == (predictor, None)
+    assert predictor.half_calls == 1
 
 
 def test_model_lifecycle_requires_explicit_residency_for_direct_load():
@@ -488,3 +496,22 @@ def test_scheduled_sam_session_spans_clips_and_yields_for_ram_waiters(
     assert (segmenter.begins, segmenter.ends) == (
         expected_sessions, expected_sessions)
     assert not segmenter.run_active
+
+
+def test_segmentation_precision_survives_save_and_load(tmp_path):
+    from library.tools.analysis.object_segmentation import SegmentationResult
+
+    result = SegmentationResult(
+        "clip.mp4", 1, (640, 360), 2.0, [], precision="fp16")
+    result.save(str(tmp_path))
+
+    assert SegmentationResult.load(str(tmp_path), "clip").precision == "fp16"
+
+
+def test_declined_segmentation_has_no_effective_precision():
+    from library.tools.analysis.object_segmentation import SegmentationResult
+
+    result = SegmentationResult(
+        "clip.mp4", 0, (0, 0), 2.0, [], seed_note="declined", precision=None)
+
+    assert result.precision is None

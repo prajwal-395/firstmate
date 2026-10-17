@@ -70,7 +70,8 @@
         "optional_download": {"type": "boolean"},
         "output_reuse": {"$ref": "#/$defs/output_reuse"},
         "runtime_env": {"$ref": "#/$defs/runtime_env"},
-        "user_license": {"$ref": "#/$defs/user_license"}
+        "user_license": {"$ref": "#/$defs/user_license"},
+        "precision": {"type": ["string", "null"]}
       }
     },
     "runtime_env": {

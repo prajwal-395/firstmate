@@ -15,7 +15,9 @@ https://dl.fbaipublicfiles.com/vjepa2/vjepa2_1_vitb_dist_vitG_384.pt
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 MODEL_ID = "vjepa2.1-vitb-384"
 PATCH_SIZE = 16
@@ -23,10 +25,26 @@ FRAME_SIZE = 384
 EMBED_DIM = 768
 TEMPORAL_SLICES = 8
 SPATIAL_GRID = 24
+INFERENCE_PRECISION = "bf16"
+"""Inference runs in bf16 on MPS, and that is a measured decision.
+
+bf16 preserved motion action-ranking AP (.62824), P@5 (.60) and P@10 (.70)
+on the 32 frozen calibration windows while running 2.43x faster than fp32
+(.617s vs 1.500s per window) with 25.6% lower sampled physical footprint
+(4.639 GiB vs 6.238 GiB). fp16 fell to AP .57855 and was rejected. On CPU
+the precision is fp32 (autocast is MPS-only)."""
 
 
 class ModelUnavailable(Exception):
     """The V-JEPA encoder cannot be built here (missing repo, weights, ML stack)."""
+
+
+@dataclass(frozen=True)
+class VideoTokenResult:
+    """Float32 tokens plus the precision used to produce them."""
+
+    tokens: Any
+    precision: str
 
 
 def _require_torch():
@@ -106,14 +124,28 @@ def preprocess_frames(frames):
 
 
 def extract_tokens(encoder, clip):
-    """Forward one (1, 3, T, 384, 384) clip; returns (8, 576, 768) tokens."""
+    """Forward one clip and report effective precision with float32 tokens."""
     torch = _require_torch()
     device = next(encoder.parameters()).device
+    use_bf16 = device.type == "mps" and INFERENCE_PRECISION == "bf16"
+    if use_bf16:
+        encoder.to(dtype=torch.bfloat16)
+        clip = clip.to(device=device, dtype=torch.bfloat16)
+    else:
+        clip = clip.to(device=device, dtype=torch.float32)
     with torch.no_grad():
-        tokens = encoder(clip.to(device)).float().cpu().numpy()[0]
-    if str(device) == "mps":
+        if use_bf16:
+            with torch.autocast(device_type="mps", dtype=torch.bfloat16):
+                tokens = encoder(clip).float().cpu().numpy()[0]
+        else:
+            tokens = encoder(clip).float().cpu().numpy()[0]
+    if device.type == "mps":
         torch.mps.synchronize()
-    return tokens.reshape(TEMPORAL_SLICES, SPATIAL_GRID * SPATIAL_GRID, EMBED_DIM)
+    return VideoTokenResult(
+        tokens=tokens.reshape(
+            TEMPORAL_SLICES, SPATIAL_GRID * SPATIAL_GRID, EMBED_DIM),
+        precision="bf16" if use_bf16 else "fp32",
+    )
 
 
 def motion_energy(tokens) -> tuple[float, float]:

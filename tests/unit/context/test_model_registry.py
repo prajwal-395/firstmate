@@ -55,6 +55,18 @@ def test_registry_matches_json_schema_and_projected_manifests():
                for item in commercial["implementations"])
 
 
+def test_measured_inference_precision_is_recorded_for_sam2_and_vjepa():
+    registry = model_registry.load_registry()
+    precisions = {row["id"]: row["precision"]
+                  for row in registry["implementations"]
+                  if row["id"] in {"sam2.1_hiera_small", "vjepa2.1_vitb_384"}}
+
+    assert precisions == {
+        "sam2.1_hiera_small": "fp16",
+        "vjepa2.1_vitb_384": "bf16",
+    }
+
+
 def test_research_only_implementations_are_not_client_eligible():
     registry = model_registry.load_registry()
     for implementation in registry["implementations"]:

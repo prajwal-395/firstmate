@@ -65,6 +65,24 @@ the track holds - per-object IoU 0.88 to 0.98 over 001's clip_008 - and MPS is
 each gives up on an object, which is past the point the track is usable. Resolved
 against availability by `_resolve_device`."""
 
+PROPAGATION_PRECISION = "fp16"
+"""Propagation runs in fp16 on MPS, and that is a measured decision.
+
+fp16 weights plus MPS autocast tracked 46/56 frames on the W02 single-target
+clip, matching the fp32 reference coverage, with mean mask area 0.03885 vs
+0.0385 (+0.00035), 1.77x faster (39.17s vs 69.2s), and sampled peak physical
+footprint 7.066 GiB vs 10.143 GB for fp32 - under the 10 GB ceiling. A
+two-target seeded pass also completed all 56 person samples and 52/56 cap
+samples at 6.931 GB. The lane IoU scorecard is in
+`docs/benchmarks/2026-10-17-sam-fp16-vjepa-bf16.md`; its box IoUs remain below
+the frozen threshold on much of the disagreeing agent-label geometry. On CPU
+the precision is fp32 (autocast is MPS-only)."""
+
+
+def _device_type(device: Any) -> str:
+    """Normalize a torch device or device string, including ``mps:0``."""
+    return getattr(device, "type", str(device).split(":", 1)[0])
+
 MAX_TRACKED_OBJECTS = 10
 """How many of the first frame's automatic masks are propagated.
 
@@ -347,6 +365,11 @@ class SegmentationResult:
     investigating; a result with no objects because no face was present is
     the honest decline issue #268 asks for. The note tells them apart.
     """
+    precision: Optional[str] = None
+    """The inference precision actually used, recorded on every result.
+
+    "fp16" on MPS (half weights + autocast), "fp32" on CPU. A result that
+    does not name its precision is unmeasured history, not a default."""
 
     def save(self, output_dir: str):
         out_path = Path(output_dir) / f"{Path(self.video_path).stem}_segmentation.json"
@@ -358,6 +381,7 @@ class SegmentationResult:
             "resolution": self.resolution,
             "sample_fps": self.sample_fps,
             "seed_note": self.seed_note,
+            "precision": self.precision,
             "objects": []
         }
         
@@ -390,6 +414,9 @@ class SegmentationResult:
             # Files written before seed_note existed carry no key; that is
             # "unseeded history", not a decline, so it reads as None.
             seed_note=data.get("seed_note"),
+            # Files written before precision existed carry no key; that is
+            # "unmeasured history", not a default precision.
+            precision=data.get("precision"),
         )
 
 
@@ -519,8 +546,11 @@ class ObjectSegmenter:
         except ImportError as exc:
             raise ImportError("sam2 is not installed.") from exc
         print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
+        device = _resolve_device(PROPAGATION_DEVICE)
         predictor = build_sam2_video_predictor_hf(
-            SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))
+            SAM2_MODEL_ID, device=device)
+        if str(device) == "mps" and PROPAGATION_PRECISION == "fp16":
+            predictor = predictor.half()
         generator = None
         if include_generator:
             generator = SAM2AutomaticMaskGenerator(
@@ -581,6 +611,9 @@ class ObjectSegmenter:
                 sample_fps=sample_fps,
                 objects=[],
                 seed_note=f"declined: {reason}",
+                # No inference ran, so there is no effective precision to
+                # attribute to this result.
+                precision=None,
             )
 
         if face_box is not None:
@@ -625,9 +658,20 @@ class ObjectSegmenter:
             else:
                 model_scope = managed_model(SAM2_MODEL_ID, self._load_sam2)
             with model_scope as (predictor, generator):
+                import torch
+
+                def inference_autocast():
+                    if (_device_type(predictor.device) == "mps"
+                            and PROPAGATION_PRECISION == "fp16"):
+                        return torch.autocast(
+                            device_type="mps", dtype=torch.float16)
+                    return contextlib.nullcontext()
+
                 # The frame the seeds are read from. Both paths prompt frame
                 # 0; only what the prompt IS differs.
-                inference_state = predictor.init_state(video_path=str(tmpdir_path))
+                with inference_autocast():
+                    inference_state = predictor.init_state(
+                        video_path=str(tmpdir_path))
 
                 seed_note: Optional[str]
                 objects_dict = {}
@@ -649,12 +693,14 @@ class ObjectSegmenter:
                             f"of a {width}x{height} frame after clamping.")
                     pixel_box = np.array([x1, y1, x2, y2], dtype=np.float32)
 
-                    _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
-                        inference_state=inference_state,
-                        frame_idx=0,
-                        obj_id=1,
-                        box=pixel_box,
-                    )
+                    with inference_autocast():
+                        _, out_obj_ids, out_mask_logits = (
+                            predictor.add_new_points_or_box(
+                                inference_state=inference_state,
+                                frame_idx=0,
+                                obj_id=1,
+                                box=pixel_box,
+                            ))
 
                     objects_dict[1] = TrackedObject(
                         object_id="obj_1",
@@ -692,12 +738,14 @@ class ObjectSegmenter:
                         seg_mask = mask_data["segmentation"] # boolean numpy array
 
                         # Add mask to predictor
-                        _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
-                            inference_state=inference_state,
-                            frame_idx=0,
-                            obj_id=i+1,
-                            mask=seg_mask
-                        )
+                        with inference_autocast():
+                            _, out_obj_ids, out_mask_logits = (
+                                predictor.add_new_mask(
+                                    inference_state=inference_state,
+                                    frame_idx=0,
+                                    obj_id=i+1,
+                                    mask=seg_mask
+                                ))
 
                         objects_dict[i+1] = TrackedObject(
                             object_id=obj_id,
@@ -734,14 +782,14 @@ class ObjectSegmenter:
                                 f"frame after clamping.")
                         pixel_box = np.array([x1, y1, x2, y2],
                                              dtype=np.float32)
-                        _, out_obj_ids, out_mask_logits = (
-                            predictor.add_new_points_or_box(
-                                inference_state=inference_state,
-                                frame_idx=0,
-                                obj_id=next_obj_id,
-                                box=pixel_box,
-                            )
-                        )
+                        with inference_autocast():
+                            _, out_obj_ids, out_mask_logits = (
+                                predictor.add_new_points_or_box(
+                                    inference_state=inference_state,
+                                    frame_idx=0,
+                                    obj_id=next_obj_id,
+                                    box=pixel_box,
+                                ))
                         objects_dict[next_obj_id] = TrackedObject(
                             object_id=f"obj_{next_obj_id}",
                             label=seed.label,
@@ -769,31 +817,32 @@ class ObjectSegmenter:
                 # CPU on exit, and inference_state holds MPS tensors, so
                 # propagating after the block is a device mismatch.
                 mask_areas: Dict[int, List[int]] = {i: [] for i in objects_dict}
-                for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
-                    for i, obj_id in enumerate(out_obj_ids):
-                        logits = out_mask_logits[i].cpu().numpy().squeeze()
-                        # Apply threshold (typically > 0 for logits)
-                        binary_mask = (logits > 0.0).astype(np.uint8)
-                    
-                        mask_area = int(binary_mask.sum())
-                        if mask_area == 0:
-                            continue
-                        
-                        # Calculate bbox (x, y, w, h). Width and height count
-                        # PIXELS, so a one-pixel-wide mask is 1 and not 0.
-                        y_indices, x_indices = np.where(binary_mask > 0)
-                        x_min, x_max = x_indices.min(), x_indices.max()
-                        y_min, y_max = y_indices.min(), y_indices.max()
-                        bbox = (int(x_min), int(y_min),
-                                int(x_max - x_min) + 1, int(y_max - y_min) + 1)
-                    
-                        rle = encode_rle(binary_mask)
-                    
-                        tr_obj = objects_dict[obj_id]
-                        tr_obj.frames.append(out_frame_idx)
-                        tr_obj.masks_rle[out_frame_idx] = rle
-                        tr_obj.bboxes[out_frame_idx] = bbox
-                        mask_areas[obj_id].append(mask_area)
+                with inference_autocast():
+                    for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                        for i, obj_id in enumerate(out_obj_ids):
+                            logits = out_mask_logits[i].cpu().numpy().squeeze()
+                            # Apply threshold (typically > 0 for logits)
+                            binary_mask = (logits > 0.0).astype(np.uint8)
+
+                            mask_area = int(binary_mask.sum())
+                            if mask_area == 0:
+                                continue
+
+                            # Calculate bbox (x, y, w, h). Width and height count
+                            # PIXELS, so a one-pixel-wide mask is 1 and not 0.
+                            y_indices, x_indices = np.where(binary_mask > 0)
+                            x_min, x_max = x_indices.min(), x_indices.max()
+                            y_min, y_max = y_indices.min(), y_indices.max()
+                            bbox = (int(x_min), int(y_min),
+                                    int(x_max - x_min) + 1, int(y_max - y_min) + 1)
+
+                            rle = encode_rle(binary_mask)
+
+                            tr_obj = objects_dict[obj_id]
+                            tr_obj.frames.append(out_frame_idx)
+                            tr_obj.masks_rle[out_frame_idx] = rle
+                            tr_obj.bboxes[out_frame_idx] = bbox
+                            mask_areas[obj_id].append(mask_area)
             
                 # avg_area_ratio is the share of the frame the MASK covers,
                 # not the share its bounding box covers. A person with an arm
@@ -816,6 +865,11 @@ class ObjectSegmenter:
                     sample_fps=sample_fps,
                     objects=final_objects,
                     seed_note=seed_note,
+                    precision=(
+                        "fp16" if _device_type(predictor.device) == "mps"
+                        and PROPAGATION_PRECISION == "fp16"
+                        else "fp32"
+                    ),
                 )
 
 def get_segmenter() -> ObjectSegmenter:

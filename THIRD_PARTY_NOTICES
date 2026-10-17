@@ -492,6 +492,18 @@ fetched     : downloaded-at-first-use (HF snapshots)
 commercial  : ok
 hash-verified: no
 
+component-id : model.vjepa2
+edition      : public
+component   : Meta V-JEPA 2.1 ViT-B/384 video encoder
+pin         : publisher revision in library/model_registry/registry.json
+              and library/tools/video_features/vjepa.py
+source      : https://github.com/facebookresearch/vjepa2
+              https://dl.fbaipublicfiles.com/vjepa2/vjepa2_1_vitb_dist_vitG_384.pt
+license     : MIT
+fetched     : external-prerequisite
+commercial  : ok-with-attribution
+hash-verified: no
+
 component-id : model.audio_flamingo_next
 edition      : personal-only
 component   : Audio Flamingo Next captioner

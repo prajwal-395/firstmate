@@ -28,6 +28,14 @@ def test_cache_key_stable_and_scoped(tmp_path) -> None:
     assert cache.cache_key(**shifted) != first
 
 
+def test_vjepa_result_carries_effective_precision() -> None:
+    result = vjepa_adapter.VideoTokenResult(
+        tokens=np.zeros(1, dtype=np.float32), precision="bf16")
+
+    assert result.precision == "bf16"
+    assert result.tokens.dtype == np.float32
+
+
 def test_cache_store_load_round_trip(tmp_path) -> None:
     key = cache.cache_key(source_path="/v/a.MOV", byte_size=3, mtime_ns=1,
                           start=1.0, end=5.0, model_id="pe-core-s16-384",

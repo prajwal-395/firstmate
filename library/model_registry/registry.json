@@ -1561,6 +1561,7 @@
       "capabilities": [
         "visual.segment"
       ],
+      "precision": "fp16",
       "checkpoint": {
         "version": "ee5bba1d82bb8749febdf90f45e84b687142ba03",
         "weights_hash": null,
@@ -1660,6 +1661,69 @@
         ],
         "reuse_scope": "any_edition",
         "license_evidence_ref": "license_evidence.primary_evidence:sam21",
+        "review_required": false,
+        "review_note": null
+      }
+    },
+    {
+      "id": "vjepa2.1_vitb_384",
+      "component_id": "model.vjepa2",
+      "label": "V-JEPA 2.1 ViT-B/384 ema_encoder",
+      "capabilities": [
+        "visual.embed"
+      ],
+      "precision": "bf16",
+      "checkpoint": {
+        "version": "204698b45b3712590f06245fbfba32d3be539812",
+        "weights_hash": null,
+        "provider": "Meta FAIR",
+        "conversion": null,
+        "runtime": "PyTorch"
+      },
+      "license_evidence": {
+        "upstream_url": "https://github.com/facebookresearch/vjepa2",
+        "exact_version": "204698b45b3712590f06245fbfba32d3be539812",
+        "retrieved_at": "2026-10-17",
+        "license": "MIT",
+        "obligations": [
+          "Include the upstream MIT LICENSE and copyright notice."
+        ],
+        "approval_status": "approved",
+        "evidence_source": "https://github.com/facebookresearch/vjepa2"
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "unknown",
+      "qualification_metrics": {
+        "quality": null,
+        "latency_cold_seconds": null,
+        "latency_warm_seconds": null,
+        "peak_memory_gb": null
+      },
+      "resources": {
+        "runtime_seconds": null,
+        "memory_gb": null,
+        "resident_memory_gb": null
+      },
+      "hardware": {
+        "accelerators": [
+          "cpu",
+          "gpu"
+        ]
+      },
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "implementations.vjepa2.1_vitb_384.license_evidence",
         "review_required": false,
         "review_note": null
       }
