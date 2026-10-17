@@ -128,6 +128,40 @@ def analyze_afnext(audio_path, model, processor):
         import traceback; traceback.print_exc()
         return ""
 
+
+def description_provenance(provider):
+    """Return the origin and limits of a generated SFX description."""
+    if provider == "model.audio_flamingo_next":
+        return {
+            "provider": "nvidia/audio-flamingo-next-captioner-hf",
+            "component": provider,
+            "revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+            "license": "NVIDIA OneWay Noncommercial",
+            "purpose": "noncommercial research only",
+            "kind": "model-generated free-text caption",
+            "review_status": "unreviewed",
+            "uncertainty": (
+                "uncalibrated description; does not establish event identity, "
+                "source identity, or event timing"),
+        }
+    if provider == "model.laion_clap":
+        return {
+            "provider": "laion/clap-htsat-unfused",
+            "component": provider,
+            "revision": "not recorded",
+            "kind": "model-ranked candidate tags",
+            "review_status": "unreviewed",
+            "uncertainty": (
+                "candidate tags are not calibrated probabilities and do not "
+                "establish event identity or timing"),
+        }
+    return {
+        "provider": str(provider or "unknown"),
+        "kind": "model-generated description",
+        "review_status": "unreviewed",
+        "uncertainty": "origin and confidence are not established",
+    }
+
 def load_afnext_model():
     from ren.edition import EditionError, require_component, select_component
 
@@ -419,7 +453,9 @@ def main():
             "path": file_path,
             "folder_category": folder_category,
             "technical": tech_features,
-            "description": description
+            "description": description,
+            "description_provenance": (
+                description_provenance(provider) if description else None),
         }
         
         with open(out_path, "w") as f:

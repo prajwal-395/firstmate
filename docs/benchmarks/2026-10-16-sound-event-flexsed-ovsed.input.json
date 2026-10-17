@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "conditions": [
+        "quiet_room"
+      ],
+      "duration_seconds": 6.0,
+      "hard_negatives": [
+        {
+          "end": 4.5,
+          "label": "Laughter",
+          "negative_id": "slam_quiet-n1",
+          "reason": "room tone must not read as laughter",
+          "start": 3.5
+        }
+      ],
+      "proposal_generation_seconds": 35.28832817700004,
+      "proposals": [
+        {
+          "confidence": 0.654,
+          "end": 2.2,
+          "label": "Music",
+          "model_id": "flexsed.ovsed",
+          "proposal_id": "slam_quiet-fx0",
+          "proposal_method": "flexsed-ovsed@thr0.5_med7_mindur0.2_merge0.25",
+          "start": 1.96
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 2.6,
+          "event_id": "slam_quiet-e1",
+          "label": "Door slam",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "slam_quiet:2.0-2.6",
+            "review_status": "synthetic"
+          },
+          "rarity": "common",
+          "start": 2.0
+        }
+      ],
+      "source_id": "slam_quiet"
+    },
+    {
+      "conditions": [
+        "overlapping_music_environmental"
+      ],
+      "duration_seconds": 8.0,
+      "hard_negatives": [
+        {
+          "end": 4.8,
+          "label": "Gunshot",
+          "negative_id": "glass_music_overlap-n1",
+          "reason": "glass transients must not read as gunfire",
+          "start": 4.0
+        }
+      ],
+      "proposal_generation_seconds": 35.28832817700004,
+      "proposals": [
+        {
+          "confidence": 0.98,
+          "end": 8.0,
+          "label": "Music",
+          "model_id": "flexsed.ovsed",
+          "proposal_id": "glass_music_overlap-fx0",
+          "proposal_method": "flexsed-ovsed@thr0.5_med7_mindur0.2_merge0.25",
+          "start": 0.0
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 8.0,
+          "event_id": "glass_music_overlap-e1",
+          "label": "Music",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "glass_music_overlap:0.0-8.0",
+            "review_status": "synthetic"
+          },
+          "rarity": "common",
+          "start": 0.0
+        },
+        {
+          "end": 4.8,
+          "event_id": "glass_music_overlap-e2",
+          "label": "Glass break",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "glass_music_overlap:4.0-4.8",
+            "review_status": "synthetic"
+          },
+          "rarity": "rare",
+          "start": 4.0
+        }
+      ],
+      "source_id": "glass_music_overlap"
+    },
+    {
+      "conditions": [
+        "overlapping_speech_proxy_environmental"
+      ],
+      "duration_seconds": 8.0,
+      "hard_negatives": [
+        {
+          "end": 2.0,
+          "label": "Cough",
+          "negative_id": "bark_speech_overlap-n1",
+          "reason": "voiced proxy must not read as cough",
+          "start": 1.0
+        }
+      ],
+      "proposal_generation_seconds": 35.28832817700004,
+      "proposals": [
+        {
+          "confidence": 0.652,
+          "end": 1.2,
+          "label": "Music",
+          "model_id": "flexsed.ovsed",
+          "proposal_id": "bark_speech_overlap-fx0",
+          "proposal_method": "flexsed-ovsed@thr0.5_med7_mindur0.2_merge0.25",
+          "start": 0.0
+        },
+        {
+          "confidence": 0.503,
+          "end": 1.8,
+          "label": "Music",
+          "model_id": "flexsed.ovsed",
+          "proposal_id": "bark_speech_overlap-fx1",
+          "proposal_method": "flexsed-ovsed@thr0.5_med7_mindur0.2_merge0.25",
+          "start": 1.6
+        },
+        {
+          "confidence": 0.713,
+          "end": 8.0,
+          "label": "Music",
+          "model_id": "flexsed.ovsed",
+          "proposal_id": "bark_speech_overlap-fx2",
+          "proposal_method": "flexsed-ovsed@thr0.5_med7_mindur0.2_merge0.25",
+          "start": 2.4
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 3.35,
+          "event_id": "bark_speech_overlap-e1",
+          "label": "Dog bark",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "bark_speech_overlap:3.0-3.35",
+            "review_status": "synthetic"
+          },
+          "rarity": "common",
+          "start": 3.0
+        },
+        {
+          "end": 5.85,
+          "event_id": "bark_speech_overlap-e2",
+          "label": "Dog bark",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "bark_speech_overlap:5.5-5.85",
+            "review_status": "synthetic"
+          },
+          "rarity": "common",
+          "start": 5.5
+        }
+      ],
+      "source_id": "bark_speech_overlap"
+    },
+    {
+      "conditions": [
+        "quiet_room"
+      ],
+      "duration_seconds": 8.0,
+      "hard_negatives": [
+        {
+          "end": 2.2,
+          "label": "Music",
+          "negative_id": "boing_nonstandard-n1",
+          "reason": "pitched sweep must not read as music",
+          "start": 1.5
+        }
+      ],
+      "proposal_generation_seconds": 35.28832817700004,
+      "proposals": [],
+      "reference_events": [
+        {
+          "end": 2.2,
+          "event_id": "boing_nonstandard-e1",
+          "label": "Boing",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "boing_nonstandard:1.5-2.2",
+            "review_status": "synthetic"
+          },
+          "rarity": "nonstandard",
+          "start": 1.5
+        },
+        {
+          "end": 5.6,
+          "event_id": "boing_nonstandard-e2",
+          "label": "Door slam",
+          "provenance": {
+            "annotator_id": "synthetic:deterministic-generator-v1",
+            "evidence_ref": "boing_nonstandard:5.0-5.6",
+            "review_status": "synthetic"
+          },
+          "rarity": "common",
+          "start": 5.0
+        }
+      ],
+      "source_id": "boing_nonstandard"
+    }
+  ],
+  "split": "calibration"
+}

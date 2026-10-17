@@ -1,0 +1,177 @@
+{
+  "reference_policy": {
+    "hard_negatives": "all 10 Gemini hard negatives retained; acoustic checks did not contradict absence, not semantic confirmation",
+    "label_limit": "weak agent reference, not gold or human ground truth; exact string labels, no class aliasing.",
+    "source": "two-pass sound-v2 label check",
+    "supported_positive_events_only": true,
+    "timing_tolerance": "use consensus measured extent if available; for three included steady low-frequency ambience labels, both independent passes found persistent LF floor but no source onset/offset; retain original 0-15 s excerpt extent and report boundaries as censored, not measured.",
+    "unscored_flagged_or_unresolved_events": "retained as unscored_labels for transparency"
+  },
+  "schema_version": 1,
+  "sources": [
+    {
+      "conditions": [
+        "walking_vlog"
+      ],
+      "duration_seconds": 15.0,
+      "hard_negatives": [
+        {
+          "end": 15.0,
+          "label": "Vehicle",
+          "negative_id": "negative-1818-001",
+          "reason": "Enclosed indoor commercial atrium setting with zero motor vehicle or road traffic noise.",
+          "start": 0.0
+        },
+        {
+          "end": 15.0,
+          "label": "Background music",
+          "negative_id": "negative-1818-002",
+          "reason": "Commercial public lobby where background or retail music could be playing, but no music is audible.",
+          "start": 0.0
+        }
+      ],
+      "proposal_generation_seconds": null,
+      "proposals": [
+        {
+          "confidence": 0.325,
+          "end": 8.954,
+          "label": "Vehicle",
+          "model_id": "panns.cnn14_decision_max",
+          "proposal_id": "heldout-apple-1818-p0",
+          "proposal_method": "panns-cnn14-decisionlevelmax@thr0.25",
+          "start": 7.675
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 15.0,
+          "event_id": "event-1818-002",
+          "label": "Air conditioning",
+          "provenance": {
+            "annotator_id": "agent:gemini-3.8-flash-high-2026-10-17 + agent:claude-sonnet-5-5 (acoustic weak agreement)",
+            "evidence_ref": "Gemini label and both-pass weak low-frequency ambience support; source identity remains unverified; excerpt edges censored.",
+            "review_status": "reviewed"
+          },
+          "rarity": "common",
+          "start": 0.0
+        }
+      ],
+      "source_id": "heldout-apple-1818",
+      "unscored_labels": [
+        {
+          "end": 14.8,
+          "event_id": "event-1818-001",
+          "label": "Footsteps",
+          "reason": "Independent measurement did not support the event label; retained unscored.",
+          "start": 0.2,
+          "verdict": "flag"
+        }
+      ]
+    },
+    {
+      "conditions": [
+        "walking_vlog"
+      ],
+      "duration_seconds": 15.0,
+      "hard_negatives": [
+        {
+          "end": 15.0,
+          "label": "Car horn",
+          "negative_id": "negative-1820-001",
+          "reason": "Roadway traffic present in immediate environment, but no horn honks or alarms occur.",
+          "start": 0.0
+        },
+        {
+          "end": 15.0,
+          "label": "Laughter",
+          "negative_id": "negative-1820-002",
+          "reason": "Vlogger monologue is reflective and goal-oriented; no chuckle or laughter occurs.",
+          "start": 0.0
+        }
+      ],
+      "proposal_generation_seconds": null,
+      "proposals": [
+        {
+          "confidence": 0.311,
+          "end": 1.599,
+          "label": "Vehicle",
+          "model_id": "panns.cnn14_decision_max",
+          "proposal_id": "heldout-apple-1820-p0",
+          "proposal_method": "panns-cnn14-decisionlevelmax@thr0.25",
+          "start": 0.959
+        },
+        {
+          "confidence": 0.422,
+          "end": 6.716,
+          "label": "Music",
+          "model_id": "panns.cnn14_decision_max",
+          "proposal_id": "heldout-apple-1820-p1",
+          "proposal_method": "panns-cnn14-decisionlevelmax@thr0.25",
+          "start": 6.076
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 15.0,
+          "event_id": "event-1820-001",
+          "label": "Traffic noise, roadway noise",
+          "provenance": {
+            "annotator_id": "agent:gemini-3.8-flash-high-2026-10-17 + agent:claude-sonnet-5-5 (acoustic weak agreement)",
+            "evidence_ref": "Gemini label and both-pass weak low-frequency ambience support; source identity remains unverified; excerpt edges censored.",
+            "review_status": "reviewed"
+          },
+          "rarity": "common",
+          "start": 0.0
+        }
+      ],
+      "source_id": "heldout-apple-1820",
+      "unscored_labels": [
+        {
+          "end": 14.8,
+          "event_id": "event-1820-002",
+          "label": "Footsteps",
+          "reason": "Independent measurement did not support the event label; retained unscored.",
+          "start": 0.2,
+          "verdict": "flag"
+        }
+      ]
+    },
+    {
+      "conditions": [
+        "podcast_dialogue"
+      ],
+      "duration_seconds": 15.0,
+      "hard_negatives": [
+        {
+          "end": 15.0,
+          "label": "Cough",
+          "negative_id": "negative-4930-001",
+          "reason": "Conversational dialogue with laughing interruption, but no cough or throat clearing occurs.",
+          "start": 0.0
+        },
+        {
+          "end": 15.0,
+          "label": "Music",
+          "negative_id": "negative-4930-002",
+          "reason": "Studio podcast environment where bumper/theme cues might be added, but audio is dry dialogue.",
+          "start": 0.0
+        }
+      ],
+      "proposal_generation_seconds": null,
+      "proposals": [],
+      "reference_events": [],
+      "source_id": "heldout-podcast-LC4930",
+      "unscored_labels": [
+        {
+          "end": 9.2,
+          "event_id": "event-4930-001",
+          "label": "Laughter",
+          "reason": "Four voiced bursts at a steady f0 (176-204 Hz) are separated by dips of 17-20 dB: 7.35-7.65, 7.75-7.90, 8.05-8.15, 8.35-8.65 s (50 ms envelope, ~0.3 s spacing), which fits a laugh or a rapid 'ha-ha' but equally fits breath-grouped speech by the same speaker, whose f0 is ~200 Hz just before (6.7-7.15 s). After 8.65 s the clip is near silent (-44 to -51 dB, a pause) until a 0.1 s blip at 9.15-9.25 s, then silence to 10.1 s. The labelled span 7.8-9.2 therefore starts 0.45 s after the first burst and runs 0.55 s past the last sustained energy; 38% of its frames are below -43 dB. Onset has no acoustic change at 7.8 s (percentile 0.05); the nearest big change is the 8.65 s fall (-13.6 dB).",
+          "start": 7.8,
+          "verdict": "flag"
+        }
+      ]
+    }
+  ],
+  "split": "held_out"
+}

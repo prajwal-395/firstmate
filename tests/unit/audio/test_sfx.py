@@ -534,10 +534,44 @@ def test_the_catalogue_merges_all_three_index_files(tmp_path):
     assert entry["evokes"] == ["finality", "precision"]
     assert entry["works_when"] == "Use this to punctuate a decision."
     assert entry["avoid_when"] == "Avoid using this over speech."
+    assert entry["description_provenance"]["review_status"] == "not_recorded"
+    assert "origin and confidence are unavailable" in \
+        entry["description_provenance"]["uncertainty"]
     # and the measurements the index carries
     assert entry["duration_seconds"] == 0.4
     assert entry["envelope"] == "punchy"
     assert entry["transient_offset_sec"] == 0.05
+
+
+def test_caption_provenance_reaches_the_sfx_catalogue_document(tmp_path):
+    lib = _library(tmp_path)
+    semantic_path = lib / "library_semantic.json"
+    semantic = json.loads(semantic_path.read_text(encoding="utf-8"))
+    semantic[0]["description"] = ""
+    semantic_path.write_text(json.dumps(semantic), encoding="utf-8")
+
+    provenance = {
+        "provider": "nvidia/audio-flamingo-next-captioner-hf",
+        "revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+        "review_status": "unreviewed",
+        "uncertainty": "does not establish event timing",
+    }
+    profiles = lib / "profiles"
+    profiles.mkdir(exist_ok=True)
+    (profiles / "present.wav.json").write_text(json.dumps({
+        "file": "present.wav",
+        "description": "A generated audio description.",
+        "description_provenance": provenance,
+    }), encoding="utf-8")
+
+    catalog = load_sfx_catalog(str(lib))
+    entry = next(row for row in catalog if row["sfx_id"] == "present.wav")
+    assert entry["description"] == "A generated audio description."
+    assert entry["description_provenance"] == provenance
+    document = catalog_document(catalog)
+    assert "- description provenance and uncertainty:" in document
+    assert "62aa63a66927f04f8308620f8e4b65696d3ea0a6" in document
+    assert "does not establish event timing" in document
 
 
 def test_only_an_on_disk_sound_is_offered_and_an_id_resolves_exactly(

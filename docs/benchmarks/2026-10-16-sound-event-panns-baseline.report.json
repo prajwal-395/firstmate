@@ -1,0 +1,94 @@
+{
+  "evidence": [
+    {
+      "id": "sound-event-fixture-proposals",
+      "path": "2026-10-16-sound-event-panns-baseline.input.json",
+      "sha256": "13bb717aed4d2448829114330c438104f91439f672c45513a0b62e761b4df5a7"
+    }
+  ],
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "cold_start_seconds": {
+      "dimension": "latency",
+      "unit": "seconds, fresh interpreter, load plus one inference",
+      "value": 29.882470167001884
+    },
+    "decode_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 1.820918551999057
+    },
+    "event_precision_at_iou_0_5": {
+      "dimension": "quality",
+      "unit": "precision at temporal IoU >= 0.5",
+      "value": 0.0
+    },
+    "event_recall_at_iou_0_5": {
+      "dimension": "quality",
+      "unit": "recall at temporal IoU >= 0.5",
+      "value": 0.0
+    },
+    "hard_negative_rejection_rate": {
+      "dimension": "quality",
+      "unit": "fraction of hard negatives with no same-label overlap",
+      "value": 1.0
+    },
+    "infer_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 9.623505292000118
+    },
+    "measured_run_cost_wall_seconds": {
+      "dimension": "cost",
+      "unit": "seconds cold plus warm",
+      "value": 81.06130125100026
+    },
+    "peak_rss_gb": {
+      "dimension": "memory",
+      "unit": "GB process peak RSS",
+      "value": 0.783597568
+    },
+    "postprocess_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 0.0054563122503168415
+    },
+    "rare_recall_at_0_5": {
+      "dimension": "quality",
+      "unit": "mean recall over rare/nonstandard classes",
+      "value": 0.0
+    },
+    "serialize_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 0.001022958499561355
+    },
+    "throughput_audio_per_wall": {
+      "dimension": "latency",
+      "unit": "fixture audio seconds per wall second",
+      "value": 0.5862267290399515
+    },
+    "warm_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds per 6-8 s fixture clip",
+      "value": 12.793684812500032
+    }
+  },
+  "modality": "sound_event_detection",
+  "revision": "535b920a8c848ae6f22a763bfb28b32de1c385dd",
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "panns-cnn14-fp32-cpu",
+    "models": {
+      "checkpoint": "Cnn14_DecisionLevelMax_mAP=0.385.pth",
+      "detection": "panns.cnn14_decision_max",
+      "device": "cpu",
+      "license": "CC-BY-4.0",
+      "precision": "fp32"
+    },
+    "role": "baseline"
+  }
+}

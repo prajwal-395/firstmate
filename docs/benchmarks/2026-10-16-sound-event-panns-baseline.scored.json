@@ -1,0 +1,433 @@
+{
+  "by_condition": {
+    "overlapping_music_environmental": {
+      "false_negatives": 2,
+      "false_positives": 0,
+      "precision": null,
+      "recall": 0.0,
+      "sources": 1,
+      "true_positives": 0
+    },
+    "overlapping_speech_proxy_environmental": {
+      "false_negatives": 2,
+      "false_positives": 3,
+      "precision": 0.0,
+      "recall": 0.0,
+      "sources": 1,
+      "true_positives": 0
+    },
+    "quiet_room": {
+      "false_negatives": 3,
+      "false_positives": 0,
+      "precision": null,
+      "recall": 0.0,
+      "sources": 2,
+      "true_positives": 0
+    }
+  },
+  "n_sources": 4,
+  "overall_at_0_5": {
+    "f1": null,
+    "false_negatives": 7,
+    "false_positives": 3,
+    "precision": 0.0,
+    "recall": 0.0,
+    "true_positives": 0
+  },
+  "overall_boundary_errors": {
+    "offset_absolute": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "offset_signed": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "onset_absolute": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "onset_signed": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    }
+  },
+  "proposal_generation_seconds": {
+    "mean": 12.793684812500032,
+    "median": 12.793684812500032,
+    "n": 4,
+    "p95": 12.793684812500032
+  },
+  "schema": "ren_sound_event_benchmark/1",
+  "sources": [
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "quiet_room"
+      ],
+      "hard_negatives": {
+        "n": 1,
+        "rejected": 1,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 0,
+      "n_rare_references": 0,
+      "n_references": 1,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {
+        "Door slam": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "common"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        }
+      },
+      "proposal_generation_seconds": 12.793684812500032,
+      "rare_recall_at_0_5": null,
+      "source_id": "slam_quiet"
+    },
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "overlapping_music_environmental"
+      ],
+      "hard_negatives": {
+        "n": 1,
+        "rejected": 1,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 0,
+      "n_rare_references": 1,
+      "n_references": 2,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {
+        "Glass break": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "rare"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        },
+        "Music": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "common"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        }
+      },
+      "proposal_generation_seconds": 12.793684812500032,
+      "rare_recall_at_0_5": 0.0,
+      "source_id": "glass_music_overlap"
+    },
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 3,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 3,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 3,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "overlapping_speech_proxy_environmental"
+      ],
+      "hard_negatives": {
+        "n": 1,
+        "rejected": 1,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 3,
+      "n_rare_references": 0,
+      "n_references": 2,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {
+        "Chirp tone": {
+          "precision_at_0_5": 0.0,
+          "proposals": 1,
+          "rarity": [],
+          "recall_at_0_5": null,
+          "references": 0
+        },
+        "Dog bark": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "common"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 2
+        },
+        "Sine wave": {
+          "precision_at_0_5": 0.0,
+          "proposals": 2,
+          "rarity": [],
+          "recall_at_0_5": null,
+          "references": 0
+        }
+      },
+      "proposal_generation_seconds": 12.793684812500032,
+      "rare_recall_at_0_5": null,
+      "source_id": "bark_speech_overlap"
+    },
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 2,
+          "false_positives": 0,
+          "precision": null,
+          "recall": 0.0,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "quiet_room"
+      ],
+      "hard_negatives": {
+        "n": 1,
+        "rejected": 1,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 0,
+      "n_rare_references": 1,
+      "n_references": 2,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {
+        "Boing": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "nonstandard"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        },
+        "Door slam": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "common"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        }
+      },
+      "proposal_generation_seconds": 12.793684812500032,
+      "rare_recall_at_0_5": 0.0,
+      "source_id": "boing_nonstandard"
+    }
+  ],
+  "split": "calibration"
+}

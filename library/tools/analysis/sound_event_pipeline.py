@@ -122,15 +122,22 @@ def default_checkpoint() -> str:
 
 
 def measure_sound_events(audio_path: str,
-                         checkpoint_path: str | None = None) -> dict:
+                          checkpoint_path: str | None = None,
+                          _timings: dict | None = None) -> dict:
     """Timed non-speech events in `audio_path`, in SOURCE seconds.
 
     Returns `{"events": [...], "method": METHOD, "model": {...}}` where
     each event is `{"label", "start", "end", "confidence"}`. Raises
     `SoundEventsUnavailable` where nothing can be measured - the caller
     owns the unmeasured record, this function writes none.
+
+    `_timings` is an optional caller-owned dict the measurement fills
+    with `decode_seconds`, `infer_seconds` and `postprocess_seconds`
+    (the EVAL decode/infer/serialize split). It changes nothing about
+    the measurement itself.
     """
     import numpy as np
+    import time as _time
 
     try:
         import soundfile as sf
@@ -156,6 +163,7 @@ def measure_sound_events(audio_path: str,
             f"PANNs checkpoint is not on this machine ({checkpoint}); "
             f"run scripts/install_panns.sh")
 
+    _decode_start = _time.perf_counter() if _timings is not None else 0.0
     audio, sample_rate = sf.read(audio_path, dtype="float32")
     if getattr(audio, "ndim", 1) > 1:
         audio = audio.mean(axis=1)
@@ -167,6 +175,7 @@ def measure_sound_events(audio_path: str,
         audio = librosa.resample(audio, orig_sr=sample_rate,
                                  target_sr=TARGET_SAMPLE_RATE,
                                  res_type="soxr_hq").astype(np.float32)
+    decode_done = _time.perf_counter() if _timings is not None else 0.0
 
     detector = SoundEventDetection(checkpoint_path=checkpoint,
                                    device="cpu")
@@ -176,6 +185,7 @@ def measure_sound_events(audio_path: str,
         for start in range(0, len(audio), window):
             chunk = audio[start:start + window]
             frames.append(detector.inference(chunk[None, :])[0])
+    infer_done = _time.perf_counter() if _timings is not None else 0.0
     framewise = np.concatenate(frames, axis=0)
     frame_rate = framewise.shape[0] / (len(audio) / TARGET_SAMPLE_RATE)
 
@@ -197,6 +207,10 @@ def measure_sound_events(audio_path: str,
                 "confidence": round(peak, 3),
             })
     events.sort(key=lambda e: (e["start"], e["end"]))
+    if _timings is not None:
+        _timings["decode_seconds"] = decode_done - _decode_start
+        _timings["infer_seconds"] = infer_done - decode_done
+        _timings["postprocess_seconds"] = _time.perf_counter() - infer_done
     return {
         "events": events,
         "method": METHOD,

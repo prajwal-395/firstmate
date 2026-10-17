@@ -104,6 +104,7 @@ CATALOG_COLUMNS = (
     "duration_s",
     "envelope",
     "description",
+    "description_provenance",
     "source_object",
     "evokes",
     "emotional_temperature",
@@ -216,6 +217,27 @@ def _first_text(*values) -> str:
     return ""
 
 
+def _description_and_provenance(*sources) -> tuple[str, dict]:
+    """Keep a description paired with its origin, or state the gap."""
+    for source in sources:
+        if isinstance(source, dict):
+            description = source.get("description")
+            if isinstance(description, str) and description.strip():
+                provenance = source.get("description_provenance")
+                if not isinstance(provenance, dict) or not provenance:
+                    provenance = {
+                        "review_status": "not_recorded",
+                        "uncertainty": (
+                            "description origin and confidence are "
+                            "unavailable"),
+                    }
+                return description.strip(), provenance
+    return "", {
+        "review_status": "not_recorded",
+        "uncertainty": "description origin and confidence are unavailable",
+    }
+
+
 def load_sfx_catalog(library_path: str = "") -> list:
     """One row per PLAYABLE sound, merged from all three index files.
 
@@ -240,6 +262,8 @@ def load_sfx_catalog(library_path: str = "") -> list:
 
         sem = semantic.get(name, {})
         prof = profiles.get(name, {})
+        description, description_provenance = _description_and_provenance(
+            sem, entry, prof)
         technical = entry.get("technical") or prof.get("technical") or {}
         basic = technical.get("basic") or {}
         energy = technical.get("energy_profile") or {}
@@ -260,9 +284,8 @@ def load_sfx_catalog(library_path: str = "") -> list:
             "duration_seconds": duration,
             "envelope": energy.get("envelope_shape") or "",
             "transient_offset_sec": transient,
-            "description": _first_text(sem.get("description"),
-                                       entry.get("description"),
-                                       prof.get("description")),
+            "description": description,
+            "description_provenance": description_provenance,
             "source_object": _first_text(sem.get("source_object")),
             "evokes": list(sem.get("evokes") or []),
             "emotional_temperature": _first_text(
@@ -315,6 +338,12 @@ def catalog_rows(catalog: list) -> list:
             "duration_s": duration_s,
             "envelope": entry.get("envelope") or "unmeasured",
             "description": entry.get("description") or "",
+            "description_provenance": json.dumps(
+                entry.get("description_provenance") or {
+                    "review_status": "not_recorded",
+                    "uncertainty": (
+                        "description origin and confidence are unavailable"),
+                }, sort_keys=True, separators=(",", ":")),
             "source_object": entry.get("source_object") or "",
             "evokes": ", ".join(entry.get("evokes") or []),
             "emotional_temperature": entry.get("emotional_temperature") or "",
@@ -339,6 +368,7 @@ _IDENTITY_COLUMNS = ("category", "duration_s", "envelope",
 names without the body being read."""
 _BODY_LABELS = (
     ("description", "description"),
+    ("description_provenance", "description provenance and uncertainty"),
     ("source_object", "source object"),
     ("evokes", "evokes"),
     ("works_when", "works when"),

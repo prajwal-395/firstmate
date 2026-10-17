@@ -1,0 +1,86 @@
+{
+  "audio_to_video_top1": 0.75,
+  "audio_video_cosine": [
+    [
+      0.06018431484699249,
+      0.0007341233431361616,
+      0.004022588022053242,
+      0.009138960391283035
+    ],
+    [
+      0.02996622771024704,
+      0.06718824058771133,
+      0.047632522881031036,
+      0.054583340883255005
+    ],
+    [
+      -0.0014517473755404353,
+      0.03422044217586517,
+      0.05117320641875267,
+      0.05710330232977867
+    ],
+    [
+      0.01754865236580372,
+      0.04641467705368996,
+      0.04537354037165642,
+      0.04756241664290428
+    ]
+  ],
+  "clips": [
+    "apple-1814-0s",
+    "apple-1816-90s",
+    "apple-1818-0s",
+    "apple-1820-0s"
+  ],
+  "resources": {
+    "cold_start_seconds": 34.775751666998985,
+    "device": "cpu",
+    "embed_seconds_per_clip": 1879.4625831457497,
+    "license": "Apache-2.0",
+    "load_seconds": 87.43462708299921,
+    "mapped_weights_gb": 3.388082648,
+    "peak_rss_gb": 4.444536832,
+    "precision": "fp32",
+    "total_wall_seconds": 2851.114335833001
+  },
+  "same_source_margin_mean": 0.014716974459588528,
+  "text_query_rankings": [
+    {
+      "query": "outdoor ambient sound with passing traffic",
+      "ranked_clips": [
+        "apple-1814-0s",
+        "apple-1816-90s",
+        "apple-1820-0s",
+        "apple-1818-0s"
+      ]
+    },
+    {
+      "query": "a person speaking to camera",
+      "ranked_clips": [
+        "apple-1816-90s",
+        "apple-1818-0s",
+        "apple-1820-0s",
+        "apple-1814-0s"
+      ]
+    },
+    {
+      "query": "music playing in the background",
+      "ranked_clips": [
+        "apple-1818-0s",
+        "apple-1820-0s",
+        "apple-1816-90s",
+        "apple-1814-0s"
+      ]
+    },
+    {
+      "query": "birds chirping in trees",
+      "ranked_clips": [
+        "apple-1818-0s",
+        "apple-1820-0s",
+        "apple-1816-90s",
+        "apple-1814-0s"
+      ]
+    }
+  ],
+  "video_to_audio_top1": 0.75
+}

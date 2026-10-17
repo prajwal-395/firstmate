@@ -1,0 +1,305 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/45/video-editing-pilot/docs/benchmarks/2026-10-16-sound-event-flexsed-ovsed.report.json",
+      "sha256": "693a386d90546ef8f1b0aaa5655651362290c96efeee41d209a589d1e80f022f"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/45/video-editing-pilot/docs/benchmarks/2026-10-16-sound-event-panns-baseline.report.json",
+      "sha256": "4d1a26f12e0ebb7005a4d518ddb39e2fde94f59edf58efd44345ea1ddc6aac84"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/45/video-editing-pilot/docs/benchmarks/2026-10-16-audio-flamingo-next.report.json",
+      "sha256": "6c47d3ed5265ac64a4415bb022f82694ab0570a427eeca4f299c96c95117e1a0"
+    }
+  ],
+  "versions": {
+    "flexsed-ovsed-fp32-cpu": {
+      "modalities": {
+        "sound_event_detection": {
+          "calibration": {
+            "evidence_checksums": {
+              "sound-event-fixture-proposals": "66c9b0d644301cf6976eb948bd13b1ce2803ac619e8bd3b5e6d2029a6cefe510"
+            },
+            "metrics": {
+              "cold_start_seconds": {
+                "dimension": "latency",
+                "unit": "seconds, fresh interpreter, load plus one inference",
+                "value": 99.57619195799998
+              },
+              "event_f1_at_iou_0_5": {
+                "dimension": "quality",
+                "unit": "F1 at temporal IoU >= 0.5",
+                "value": 0.16666666666666666
+              },
+              "event_precision_at_iou_0_5": {
+                "dimension": "quality",
+                "unit": "precision at temporal IoU >= 0.5",
+                "value": 0.2
+              },
+              "event_recall_at_iou_0_5": {
+                "dimension": "quality",
+                "unit": "recall at temporal IoU >= 0.5",
+                "value": 0.14285714285714285
+              },
+              "hard_negative_rejection_rate": {
+                "dimension": "quality",
+                "unit": "fraction of hard negatives with no same-label overlap",
+                "value": 1.0
+              },
+              "infer_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 10.38417295850013
+              },
+              "measured_run_cost_wall_seconds": {
+                "dimension": "cost",
+                "unit": "seconds cold plus warm",
+                "value": 240.73041270799877
+              },
+              "offset_mean_abs_error_s": {
+                "dimension": "quality",
+                "unit": "seconds",
+                "value": 0.0
+              },
+              "offset_p95_abs_error_s": {
+                "dimension": "quality",
+                "unit": "seconds",
+                "value": 0.0
+              },
+              "onset_mean_abs_error_s": {
+                "dimension": "quality",
+                "unit": "seconds",
+                "value": 0.0
+              },
+              "onset_p95_abs_error_s": {
+                "dimension": "quality",
+                "unit": "seconds",
+                "value": 0.0
+              },
+              "peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB process peak RSS",
+                "value": 1.116782592
+              },
+              "rare_recall_at_0_5": {
+                "dimension": "quality",
+                "unit": "mean recall over rare/nonstandard classes",
+                "value": 0.0
+              },
+              "serialize_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.0002270104996568989
+              },
+              "throughput_audio_per_wall": {
+                "dimension": "latency",
+                "unit": "fixture audio seconds per wall second",
+                "value": 0.21253486315308906
+              },
+              "warm_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds per 6-8 s fixture clip",
+                "value": 35.28832817700004
+              }
+            },
+            "revision": "535b920a8c848ae6f22a763bfb28b32de1c385dd",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "checkpoint": "flexsed_as.pt",
+        "detection": "flexsed.ovsed",
+        "device": "cpu",
+        "license": "UNVERIFIED (quarantine)",
+        "precision": "fp32"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "sound_event_detection": []
+      }
+    },
+    "panns-cnn14-fp32-cpu": {
+      "modalities": {
+        "sound_event_detection": {
+          "calibration": {
+            "evidence_checksums": {
+              "sound-event-fixture-proposals": "13bb717aed4d2448829114330c438104f91439f672c45513a0b62e761b4df5a7"
+            },
+            "metrics": {
+              "cold_start_seconds": {
+                "dimension": "latency",
+                "unit": "seconds, fresh interpreter, load plus one inference",
+                "value": 29.882470167001884
+              },
+              "decode_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 1.820918551999057
+              },
+              "event_precision_at_iou_0_5": {
+                "dimension": "quality",
+                "unit": "precision at temporal IoU >= 0.5",
+                "value": 0.0
+              },
+              "event_recall_at_iou_0_5": {
+                "dimension": "quality",
+                "unit": "recall at temporal IoU >= 0.5",
+                "value": 0.0
+              },
+              "hard_negative_rejection_rate": {
+                "dimension": "quality",
+                "unit": "fraction of hard negatives with no same-label overlap",
+                "value": 1.0
+              },
+              "infer_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 9.623505292000118
+              },
+              "measured_run_cost_wall_seconds": {
+                "dimension": "cost",
+                "unit": "seconds cold plus warm",
+                "value": 81.06130125100026
+              },
+              "peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB process peak RSS",
+                "value": 0.783597568
+              },
+              "postprocess_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.0054563122503168415
+              },
+              "rare_recall_at_0_5": {
+                "dimension": "quality",
+                "unit": "mean recall over rare/nonstandard classes",
+                "value": 0.0
+              },
+              "serialize_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": 0.001022958499561355
+              },
+              "throughput_audio_per_wall": {
+                "dimension": "latency",
+                "unit": "fixture audio seconds per wall second",
+                "value": 0.5862267290399515
+              },
+              "warm_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds per 6-8 s fixture clip",
+                "value": 12.793684812500032
+              }
+            },
+            "revision": "535b920a8c848ae6f22a763bfb28b32de1c385dd",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "checkpoint": "Cnn14_DecisionLevelMax_mAP=0.385.pth",
+        "detection": "panns.cnn14_decision_max",
+        "device": "cpu",
+        "license": "CC-BY-4.0",
+        "precision": "fp32"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "sound_event_detection": []
+      }
+    },
+    "audio-flamingo-next-captioner-int4-mps": {
+      "modalities": {
+        "audio_captioning": {
+          "calibration": {
+            "metrics": {
+              "caption_quality": {
+                "dimension": "quality",
+                "unit": "agent-adjudicated caption quality",
+                "value": null
+              },
+              "cold_start_seconds": {
+                "dimension": "latency",
+                "unit": "fresh interpreter, load plus first inference",
+                "value": null
+              },
+              "warm_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds per clip",
+                "value": null
+              },
+              "decode_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": null
+              },
+              "infer_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": null
+              },
+              "serialize_seconds_per_clip": {
+                "dimension": "latency",
+                "unit": "seconds",
+                "value": null
+              },
+              "peak_rss_gb": {
+                "dimension": "memory",
+                "unit": "GB process peak RSS",
+                "value": null
+              },
+              "measured_run_cost_wall_seconds": {
+                "dimension": "cost",
+                "unit": "seconds",
+                "value": null
+              },
+              "current_mps_allocated_gb_after_load": {
+                "dimension": "memory",
+                "unit": "GB current allocation, not a peak or total footprint",
+                "value": 5.6
+              },
+              "generation_attempt_seconds": {
+                "dimension": "latency",
+                "unit": "seconds before manual interruption; not a completed latency",
+                "value": 897
+              }
+            },
+            "selection_basis": ["calibration"]
+          }
+        }
+      },
+      "models": {
+        "checkpoint": "nvidia/audio-flamingo-next-captioner-hf",
+        "revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+        "precision": "Quanto int4 weights, fp16 load, MPS",
+        "license": "NVIDIA OneWay Noncommercial"
+      },
+      "role": "candidate",
+      "decision": "research-only; no default or timing-source change",
+      "unmeasured": {
+        "audio_captioning": [
+          "quality: generation returned no caption",
+          "cold and warm latency: inference did not complete",
+          "decode, inference, and serialization split: inference did not complete",
+          "peak process RSS and end-to-end cost: not recorded"
+        ]
+      }
+    }
+  }
+}

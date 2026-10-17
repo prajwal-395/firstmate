@@ -1,0 +1,226 @@
+{
+  "by_condition": {
+    "podcast_dialogue": {
+      "false_negatives": 0,
+      "false_positives": 0,
+      "precision": null,
+      "recall": null,
+      "sources": 1,
+      "true_positives": 0
+    },
+    "walking_vlog": {
+      "false_negatives": 1,
+      "false_positives": 2,
+      "precision": 0.0,
+      "recall": 0.0,
+      "sources": 1,
+      "true_positives": 0
+    }
+  },
+  "n_sources": 2,
+  "overall_at_0_5": {
+    "f1": null,
+    "false_negatives": 1,
+    "false_positives": 2,
+    "precision": 0.0,
+    "recall": 0.0,
+    "true_positives": 0
+  },
+  "overall_boundary_errors": {
+    "offset_absolute": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "offset_signed": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "onset_absolute": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    },
+    "onset_signed": {
+      "mean": null,
+      "median": null,
+      "n": 0,
+      "p95": null
+    }
+  },
+  "proposal_generation_seconds": {
+    "mean": null,
+    "median": null,
+    "n": 0,
+    "p95": null
+  },
+  "schema": "ren_sound_event_benchmark/1",
+  "sources": [
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 1,
+          "false_positives": 2,
+          "precision": 0.0,
+          "recall": 0.0,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "walking_vlog"
+      ],
+      "hard_negatives": {
+        "n": 2,
+        "rejected": 2,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 2,
+      "n_rare_references": 0,
+      "n_references": 1,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {
+        "Traffic noise, roadway noise": {
+          "precision_at_0_5": null,
+          "proposals": 0,
+          "rarity": [
+            "common"
+          ],
+          "recall_at_0_5": 0.0,
+          "references": 1
+        },
+        "Vehicle": {
+          "precision_at_0_5": 0.0,
+          "proposals": 2,
+          "rarity": [],
+          "recall_at_0_5": null,
+          "references": 0
+        }
+      },
+      "proposal_generation_seconds": null,
+      "rare_recall_at_0_5": null,
+      "source_id": "calib-apple-1816"
+    },
+    {
+      "by_iou": {
+        "0.3": {
+          "f1": null,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "precision": null,
+          "recall": null,
+          "true_positives": 0
+        },
+        "0.5": {
+          "f1": null,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "precision": null,
+          "recall": null,
+          "true_positives": 0
+        },
+        "0.7": {
+          "f1": null,
+          "false_negatives": 0,
+          "false_positives": 0,
+          "precision": null,
+          "recall": null,
+          "true_positives": 0
+        }
+      },
+      "conditions": [
+        "podcast_dialogue"
+      ],
+      "hard_negatives": {
+        "n": 2,
+        "rejected": 2,
+        "rejection_rate": 1.0
+      },
+      "n_matched_pairs": 0,
+      "n_proposals": 0,
+      "n_rare_references": 0,
+      "n_references": 0,
+      "offset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "onset_error_seconds": {
+        "absolute": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        },
+        "signed": {
+          "mean": null,
+          "median": null,
+          "n": 0,
+          "p95": null
+        }
+      },
+      "per_label": {},
+      "proposal_generation_seconds": null,
+      "rare_recall_at_0_5": null,
+      "source_id": "calib-podcast-LCATL0011"
+    }
+  ],
+  "split": "calibration"
+}

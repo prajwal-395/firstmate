@@ -1,0 +1,81 @@
+{
+  "format": "ren_evaluation_report/1",
+  "modality": "audio_captioning",
+  "split": "calibration",
+  "selection_basis": ["calibration"],
+  "revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+  "version": {
+    "id": "audio-flamingo-next-captioner-int4-mps",
+    "role": "candidate",
+    "models": {
+      "checkpoint": "nvidia/audio-flamingo-next-captioner-hf",
+      "revision": "62aa63a66927f04f8308620f8e4b65696d3ea0a6",
+      "downloaded_weight_bytes": 16534531504,
+      "precision": "Quanto int4 weights, fp16 load, MPS",
+      "license": "NVIDIA OneWay Noncommercial",
+      "purpose": "authorized noncommercial research only"
+    }
+  },
+  "measurements": {
+    "status": "model loaded; caption generation did not complete before manual interruption",
+    "attempt_timeout_seconds": 897,
+    "metrics": {
+      "caption_quality": {
+        "dimension": "quality",
+        "unit": "agent-adjudicated caption quality",
+        "value": null
+      },
+      "cold_start_seconds": {
+        "dimension": "latency",
+        "unit": "fresh interpreter, load plus first inference",
+        "value": null
+      },
+      "warm_seconds_per_clip": {
+        "dimension": "latency",
+        "unit": "seconds per clip",
+        "value": null
+      },
+      "decode_seconds_per_clip": {
+        "dimension": "latency",
+        "unit": "seconds",
+        "value": null
+      },
+      "infer_seconds_per_clip": {
+        "dimension": "latency",
+        "unit": "seconds",
+        "value": null
+      },
+      "serialize_seconds_per_clip": {
+        "dimension": "latency",
+        "unit": "seconds",
+        "value": null
+      },
+      "measured_run_cost_wall_seconds": {
+        "dimension": "cost",
+        "unit": "seconds",
+        "value": null
+      },
+      "peak_rss_gb": {
+        "dimension": "memory",
+        "unit": "GB process peak RSS",
+        "value": null
+      },
+      "current_mps_allocated_gb_after_load": {
+        "dimension": "memory",
+        "unit": "GB current MPS allocation, not a peak or total footprint",
+        "value": 5.6
+      }
+    },
+    "unmeasured": [
+      "caption quality: no completed caption was returned",
+      "cold and warm latency: generation did not complete",
+      "decode, inference, and serialization split: generation did not complete",
+      "peak process RSS and end-to-end wall cost: not recorded"
+    ]
+  },
+  "decision": "research-only; no default or timing-source change",
+  "limitations": [
+    "Caption text is descriptive and cannot replace measured sound-event timing.",
+    "The model weights were removed from the local cache after this attempt."
+  ]
+}

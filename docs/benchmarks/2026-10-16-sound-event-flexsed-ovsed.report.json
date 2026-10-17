@@ -1,0 +1,109 @@
+{
+  "evidence": [
+    {
+      "id": "sound-event-fixture-proposals",
+      "path": "2026-10-16-sound-event-flexsed-ovsed.input.json",
+      "sha256": "66c9b0d644301cf6976eb948bd13b1ce2803ac619e8bd3b5e6d2029a6cefe510"
+    }
+  ],
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "cold_start_seconds": {
+      "dimension": "latency",
+      "unit": "seconds, fresh interpreter, load plus one inference",
+      "value": 99.57619195799998
+    },
+    "event_f1_at_iou_0_5": {
+      "dimension": "quality",
+      "unit": "F1 at temporal IoU >= 0.5",
+      "value": 0.16666666666666666
+    },
+    "event_precision_at_iou_0_5": {
+      "dimension": "quality",
+      "unit": "precision at temporal IoU >= 0.5",
+      "value": 0.2
+    },
+    "event_recall_at_iou_0_5": {
+      "dimension": "quality",
+      "unit": "recall at temporal IoU >= 0.5",
+      "value": 0.14285714285714285
+    },
+    "hard_negative_rejection_rate": {
+      "dimension": "quality",
+      "unit": "fraction of hard negatives with no same-label overlap",
+      "value": 1.0
+    },
+    "infer_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 10.38417295850013
+    },
+    "measured_run_cost_wall_seconds": {
+      "dimension": "cost",
+      "unit": "seconds cold plus warm",
+      "value": 240.73041270799877
+    },
+    "offset_mean_abs_error_s": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 0.0
+    },
+    "offset_p95_abs_error_s": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 0.0
+    },
+    "onset_mean_abs_error_s": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 0.0
+    },
+    "onset_p95_abs_error_s": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 0.0
+    },
+    "peak_rss_gb": {
+      "dimension": "memory",
+      "unit": "GB process peak RSS",
+      "value": 1.116782592
+    },
+    "rare_recall_at_0_5": {
+      "dimension": "quality",
+      "unit": "mean recall over rare/nonstandard classes",
+      "value": 0.0
+    },
+    "serialize_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 0.0002270104996568989
+    },
+    "throughput_audio_per_wall": {
+      "dimension": "latency",
+      "unit": "fixture audio seconds per wall second",
+      "value": 0.21253486315308906
+    },
+    "warm_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds per 6-8 s fixture clip",
+      "value": 35.28832817700004
+    }
+  },
+  "modality": "sound_event_detection",
+  "revision": "535b920a8c848ae6f22a763bfb28b32de1c385dd",
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "flexsed-ovsed-fp32-cpu",
+    "models": {
+      "checkpoint": "flexsed_as.pt",
+      "detection": "flexsed.ovsed",
+      "device": "cpu",
+      "license": "UNVERIFIED (quarantine)",
+      "precision": "fp32"
+    },
+    "role": "candidate"
+  }
+}

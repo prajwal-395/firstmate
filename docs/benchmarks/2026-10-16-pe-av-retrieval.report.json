@@ -1,0 +1,68 @@
+{
+  "evidence": [
+    {
+      "id": "pe-av-retrieval-result",
+      "path": "2026-10-16-pe-av-retrieval.result.json",
+      "sha256": "e0dc75d4ef17007c76903edded7912dbc50f3fb74abbe44bb647826fefc4daf9"
+    }
+  ],
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "av_match_accuracy_audio_to_video": {
+      "dimension": "quality",
+      "unit": "fraction of 4 clips whose audio retrieves its own video",
+      "value": 0.75
+    },
+    "av_match_accuracy_video_to_audio": {
+      "dimension": "quality",
+      "unit": "fraction of 4 clips whose video retrieves its own audio",
+      "value": 0.75
+    },
+    "cold_start_seconds": {
+      "dimension": "latency",
+      "unit": "seconds, fresh interpreter, load only",
+      "value": 34.775751666998985
+    },
+    "embed_seconds_per_clip": {
+      "dimension": "latency",
+      "unit": "seconds per 30 s clip (16 frames + audio)",
+      "value": 1879.4625831457497
+    },
+    "mapped_weights_gb": {
+      "dimension": "memory",
+      "unit": "GB weights mapped, not all resident",
+      "value": 3.388082648
+    },
+    "measured_run_cost_wall_seconds": {
+      "dimension": "cost",
+      "unit": "seconds cold plus warm",
+      "value": 2885.8900875
+    },
+    "peak_rss_gb": {
+      "dimension": "memory",
+      "unit": "GB process peak RSS (weights are mmap)",
+      "value": 4.444536832
+    },
+    "same_source_margin_mean": {
+      "dimension": "quality",
+      "unit": "mean same-source cosine minus best cross-source cosine",
+      "value": 0.014716974459588528
+    }
+  },
+  "modality": "audiovisual_retrieval",
+  "revision": "535b920a8c848ae6f22a763bfb28b32de1c385dd",
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "pe-av-small-16f-fp32-cpu",
+    "models": {
+      "device": "cpu",
+      "license": "Apache-2.0",
+      "precision": "fp32",
+      "retrieval": "facebook/pe-av-small-16-frame"
+    },
+    "role": "candidate"
+  }
+}

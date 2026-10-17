@@ -222,6 +222,46 @@ def test_missing_checkpoint_is_unmeasured_never_a_guess(tmp_path):
             or "is not installed" in str(exc.value))
 
 
+def test_unmeasured_clip_records_no_timings(tmp_path):
+    # The EVAL decode/infer/serialize split must not appear on a
+    # refusal: timings describe a measurement that happened.
+    from library.tools.analysis import sound_event_benchmark as seb
+
+    timings = {}
+    with pytest.raises(sep.SoundEventsUnavailable):
+        sep.measure_sound_events(__file__,
+                                 checkpoint_path=str(tmp_path / "nope.pth"),
+                                 _timings=timings)
+    assert timings == {}
+    assert set(seb.REPORT_IOUS) == {0.3, 0.5, 0.7}
+
+
+# ── synthetic calibration fixtures ───────────────────────────────────
+
+def test_synthetic_fixtures_validate_and_score_empty(tmp_path):
+    # The generator is its own annotator: references validate, and
+    # with no proposals every reference is a miss (recall 0.0, never
+    # an error) across all four scenes.
+    import json
+    from library.tools.analysis import sound_event_benchmark as seb
+    from library.tools.analysis import sound_event_fixtures as fix
+
+    doc = fix.synthesize(tmp_path / "fixtures")
+    assert [s["source_id"] for s in doc["sources"]] == list(fix.SCENES)
+    for name in fix.SCENES:
+        assert (tmp_path / "fixtures" / f"{name}.wav").is_file()
+    stored = json.loads(
+        (tmp_path / "fixtures" / "references.json").read_text(
+            encoding="utf-8"))
+    assert stored["generator"] == fix.GENERATOR
+    result = seb.score_document(stored)
+    assert result["n_sources"] == 4
+    assert result["overall_at_0_5"]["recall"] == 0.0
+    assert result["overall_at_0_5"]["precision"] is None
+    rare = [s for s in result["sources"] if s["n_rare_references"]]
+    assert len(rare) == 2  # glass (rare) and boing (nonstandard)
+
+
 # ── ren doctor reports the checkpoint ────────────────────────────────
 
 def _stub_doctor_models(monkeypatch, tmp_path, panns_ok):

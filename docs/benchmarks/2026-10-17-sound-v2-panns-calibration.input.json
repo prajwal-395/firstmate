@@ -1,0 +1,117 @@
+{
+  "reference_policy": {
+    "hard_negatives": "all 10 Gemini hard negatives retained; acoustic checks did not contradict absence, not semantic confirmation",
+    "label_limit": "weak agent reference, not gold or human ground truth; exact string labels, no class aliasing.",
+    "source": "two-pass sound-v2 label check",
+    "supported_positive_events_only": true,
+    "timing_tolerance": "use consensus measured extent if available; for three included steady low-frequency ambience labels, both independent passes found persistent LF floor but no source onset/offset; retain original 0-15 s excerpt extent and report boundaries as censored, not measured.",
+    "unscored_flagged_or_unresolved_events": "retained as unscored_labels for transparency"
+  },
+  "schema_version": 1,
+  "sources": [
+    {
+      "conditions": [
+        "walking_vlog"
+      ],
+      "duration_seconds": 15.0,
+      "hard_negatives": [
+        {
+          "end": 15.0,
+          "label": "Laughter",
+          "negative_id": "negative-1816-001",
+          "reason": "Speaker expresses embarrassment about vlogging in front of people, but reacts with an exasperated groan rather than laughter.",
+          "start": 0.0
+        },
+        {
+          "end": 15.0,
+          "label": "Car horn",
+          "negative_id": "negative-1816-002",
+          "reason": "Urban street traffic audible in background, but no automobile horns sound.",
+          "start": 0.0
+        }
+      ],
+      "proposal_generation_seconds": null,
+      "proposals": [
+        {
+          "confidence": 0.313,
+          "end": 1.279,
+          "label": "Vehicle",
+          "model_id": "panns.cnn14_decision_max",
+          "proposal_id": "calib-apple-1816-p0",
+          "proposal_method": "panns-cnn14-decisionlevelmax@thr0.25",
+          "start": 0.32
+        },
+        {
+          "confidence": 0.261,
+          "end": 2.558,
+          "label": "Vehicle",
+          "model_id": "panns.cnn14_decision_max",
+          "proposal_id": "calib-apple-1816-p1",
+          "proposal_method": "panns-cnn14-decisionlevelmax@thr0.25",
+          "start": 2.239
+        }
+      ],
+      "reference_events": [
+        {
+          "end": 15.0,
+          "event_id": "event-1816-003",
+          "label": "Traffic noise, roadway noise",
+          "provenance": {
+            "annotator_id": "agent:gemini-3.8-flash-high-2026-10-17 + agent:claude-sonnet-5-5 (acoustic weak agreement)",
+            "evidence_ref": "Gemini label and both-pass weak low-frequency ambience support; source identity remains unverified; excerpt edges censored.",
+            "review_status": "reviewed"
+          },
+          "rarity": "common",
+          "start": 0.0
+        }
+      ],
+      "source_id": "calib-apple-1816",
+      "unscored_labels": [
+        {
+          "end": 11.8,
+          "event_id": "event-1816-001",
+          "label": "Groan",
+          "reason": "A single voiced low-f0 swell is present at 10.87-11.15 s (5.9 dB above the 2.5 s preceding median in 20-250 Hz, voiced fraction 0.52, f0 108 Hz, no 1-8 kHz energy), which is what a short groan or low hum would look like. The label spans 10.4-11.8 s: its onset change is only +1.7 dB (percentile 0.59) and its offset +0.7 dB (0.26); the span's mean level equals the 2 s before it (+0.1 dB) and its 1-8 kHz content is 5.8 dB lower. So the acoustic event is about 0.3 s long and sits inside the labelled 1.4 s; both boundaries are off by 0.47 s (start) and 0.65 s (end).",
+          "start": 10.4,
+          "verdict": "flag"
+        },
+        {
+          "end": 15.0,
+          "event_id": "event-1816-002",
+          "label": "Footsteps",
+          "reason": "Cadence autocorrelation is low (max 0.16, median 0.10), but the clip has 23 unvoiced impulsive onsets in 15 s (1.5/s, median spacing 0.42 s, in the range of a walking cadence) in the same stretches as whispered speech, which Gemini itself describes. Steps and unvoiced whisper consonants cannot be separated with energy and pitch alone.",
+          "start": 0.0,
+          "verdict": "unresolved"
+        }
+      ]
+    },
+    {
+      "conditions": [
+        "podcast_dialogue"
+      ],
+      "duration_seconds": 15.0,
+      "hard_negatives": [
+        {
+          "end": 15.0,
+          "label": "Laughter",
+          "negative_id": "negative-lcatl0011-001",
+          "reason": "Conversational discussion between Craig and Akshita, but tone is business-focused with zero chuckles or laughter.",
+          "start": 0.0
+        },
+        {
+          "end": 15.0,
+          "label": "Music",
+          "negative_id": "negative-lcatl0011-002",
+          "reason": "Studio podcast environment where intro/bumper music might be mixed, but track is completely dry vocal dialogue.",
+          "start": 0.0
+        }
+      ],
+      "proposal_generation_seconds": null,
+      "proposals": [],
+      "reference_events": [],
+      "source_id": "calib-podcast-LCATL0011",
+      "unscored_labels": []
+    }
+  ],
+  "split": "calibration"
+}
