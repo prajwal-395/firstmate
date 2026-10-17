@@ -260,17 +260,19 @@ def completeness_of(utterance: dict[str, Any]) -> dict[str, Any]:
 def _longest_shared_run(first: list[str],
                         second: list[str]) -> list[str]:
     """Longest contiguous token run both lists share, or [] ."""
-    best: list[str] = []
-    for i in range(len(first)):
-        for j in range(len(second)):
-            run: list[str] = []
-            while (i + len(run) < len(first)
-                   and j + len(run) < len(second)
-                   and first[i + len(run)] == second[j + len(run)]):
-                run.append(first[i + len(run)])
-            if len(run) > len(best):
-                best = run
-    return best
+    best_start, best_length = 0, 0
+    following = [0] * (len(second) + 1)
+    for i in range(len(first) - 1, -1, -1):
+        row = [0] * (len(second) + 1)
+        for j in range(len(second) - 1, -1, -1):
+            if first[i] == second[j]:
+                row[j] = following[j + 1] + 1
+                # Reverse traversal plus >= preserves the original
+                # earliest-first-text tie break exactly.
+                if row[j] >= best_length:
+                    best_start, best_length = i, row[j]
+        following = row
+    return first[best_start:best_start + best_length]
 
 
 def classify_pair(text_a: Any, text_b: Any) -> dict | None:
@@ -283,7 +285,10 @@ def classify_pair(text_a: Any, text_b: Any) -> dict | None:
     twice, the second time in new words. Anything sharing less than
     ``SHARED_RUN_TOKENS`` ordered tokens is no link at all.
     """
-    tokens_a, tokens_b = tokens_of(text_a), tokens_of(text_b)
+    return _classify_tokens(tokens_of(text_a), tokens_of(text_b))
+
+
+def _classify_tokens(tokens_a, tokens_b):
     if tokens_a and tokens_a == tokens_b:
         return {"kind": "identical", "shared_run": tokens_a}
     run = _longest_shared_run(tokens_a, tokens_b)
@@ -385,6 +390,20 @@ def cross_source_links(utterances_by_digest: dict[str, list[dict]],
     so the record is deterministic regardless of call order.
     """
     digests = sorted(utterances_by_digest)
+    token_rows = {digest: [tokens_of(utterance["text"])
+                           for utterance in utterances_by_digest[digest]]
+                  for digest in digests}
+    indexes = {}
+    exact = {}
+    for digest in digests:
+        grams, texts = {}, {}
+        for position, tokens in enumerate(token_rows[digest]):
+            if tokens:
+                texts.setdefault(tuple(tokens), set()).add(position)
+            for offset in range(len(tokens) - SHARED_RUN_TOKENS + 1):
+                gram = tuple(tokens[offset:offset + SHARED_RUN_TOKENS])
+                grams.setdefault(gram, set()).add(position)
+        indexes[digest], exact[digest] = grams, texts
     links: list[dict] = []
     for i, digest_a in enumerate(digests):
         for digest_b in digests[i + 1:]:
@@ -398,9 +417,19 @@ def cross_source_links(utterances_by_digest: dict[str, list[dict]],
                           else "cross_clock_unaligned")
             offset_a, offset_b, uncertainty, basis = _m6_uncertainty(
                 clock_a, clock_b)
-            for utt_a in utterances_by_digest[digest_a]:
-                for utt_b in utterances_by_digest[digest_b]:
-                    classified = classify_pair(utt_a["text"], utt_b["text"])
+            for position_a, utt_a in enumerate(utterances_by_digest[digest_a]):
+                tokens_a = token_rows[digest_a][position_a]
+                candidates = set(exact[digest_b].get(tuple(tokens_a), ()))
+                for offset in range(len(tokens_a) - SHARED_RUN_TOKENS + 1):
+                    gram = tuple(tokens_a[offset:offset + SHARED_RUN_TOKENS])
+                    candidates.update(indexes[digest_b].get(gram, ()))
+                # A non-identical pair cannot pass without one shared
+                # floor-length gram. This eliminates no possible link;
+                # equal one/two-word utterances use the exact-text index.
+                for position_b in sorted(candidates):
+                    utt_b = utterances_by_digest[digest_b][position_b]
+                    classified = _classify_tokens(
+                        tokens_a, token_rows[digest_b][position_b])
                     if classified is None:
                         continue
                     first = utt_a if (digest_a, utt_a["utterance_index"]) < (

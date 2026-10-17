@@ -93,6 +93,12 @@ def source_fingerprint(root: str | Path) -> str | None:
             entries.append(_entry(native, base))
     if not entries:
         return None
+    # Build flags are part of the artifact identity too. In particular,
+    # switching maturin from debug to release must not reuse a debug .so.
+    builder = Path(root) / "scripts/build_ren_native.sh"
+    if builder.is_file():
+        entries.append(("../scripts/build_ren_native.sh",
+                        hashlib.sha256(builder.read_bytes()).hexdigest()))
     entries.sort()
     digest = hashlib.sha256()
     for relative, hex_hash in entries:

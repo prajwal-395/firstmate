@@ -12,10 +12,28 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 from library.tools.project_model import validate_project_model
+
+# Validation verdicts are keyed by the verified chain head. Loads with
+# changed file signatures still verify every event hash before using one.
+_validated_heads: OrderedDict[tuple, None] = OrderedDict()
+_validation_lock = threading.Lock()
+_VALIDATED_HEAD_LIMIT = 64
+_verified_revisions: OrderedDict[tuple, int] = OrderedDict()
+
+
+def _file_signature(path: Path) -> tuple | None:
+    try:
+        stat = path.stat()
+        return (stat.st_dev, stat.st_ino, stat.st_size,
+                stat.st_mtime_ns, stat.st_ctime_ns)
+    except OSError:
+        return None
 
 STORE_DIR = "project_model"
 EVENTS_FILE = "events.jsonl"
@@ -92,7 +110,7 @@ def _apply_patch(model: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]
     return result
 
 
-def _replay(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _replay(events: list[dict[str, Any]], *, verified: bool = False) -> dict[str, Any] | None:
     model = None
     for event in events:
         if event["kind"] == "replace":
@@ -111,7 +129,19 @@ def _replay(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     # the `sorted(validator.iter_errors(...))` frame inside
     # `protocol_conformance.validate`.
     if model is not None:
-        validate_project_model(model)
+        head = ((events[-1].get("event_hash"), validate_project_model)
+                if verified else None)
+        with _validation_lock:
+            known = head is not None and head in _validated_heads
+            if known:
+                _validated_heads.move_to_end(head)
+        if not known:
+            validate_project_model(model)
+            if head is not None:
+                with _validation_lock:
+                    _validated_heads[head] = None
+                    if len(_validated_heads) > _VALIDATED_HEAD_LIMIT:
+                        _validated_heads.popitem(last=False)
     return model
 
 
@@ -121,6 +151,21 @@ def _write_snapshot(path: Path, events: list[dict[str, Any]], model: dict[str, A
         "head_hash": events[-1]["event_hash"],
         "model": model,
     }))
+    # Every caller has just validated this exact model while holding
+    # the store lock. Preserve that verdict for the head we wrote too,
+    # not only heads subsequently loaded from disk.
+    events_path = path.with_name(EVENTS_FILE)
+    key = (events_path.resolve(), _file_signature(events_path),
+           validate_project_model)
+    with _validation_lock:
+        head = (events[-1]["event_hash"], validate_project_model)
+        _validated_heads[head] = None
+        _validated_heads.move_to_end(head)
+        _verified_revisions[key] = len(events)
+        _verified_revisions.move_to_end(key)
+        for cache in (_validated_heads, _verified_revisions):
+            if len(cache) > _VALIDATED_HEAD_LIMIT:
+                cache.popitem(last=False)
 
 
 def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
@@ -129,8 +174,9 @@ def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        signature = _file_signature(events_path)
         events = _read_events(events_path)
-        model = _replay(events)
+        model = _replay(events, verified=True)
         if model is None:
             raise FileNotFoundError(f"no canonical Project Model in {events_path}")
         expected = {"revision": len(events), "head_hash": events[-1]["event_hash"], "model": model}
@@ -140,7 +186,36 @@ def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
             snapshot = None
         if snapshot != expected:
             _write_snapshot(snapshot_path, events, model)
+        if signature is not None and _file_signature(events_path) == signature:
+            key = (events_path.resolve(), signature, validate_project_model)
+            with _validation_lock:
+                _verified_revisions[key] = len(events)
+                _verified_revisions.move_to_end(key)
+                if len(_verified_revisions) > _VALIDATED_HEAD_LIMIT:
+                    _verified_revisions.popitem(last=False)
         return len(events), model
+
+
+def project_model_revision(project: Path) -> int:
+    """The validated revision pin, without loading unused model data again.
+
+    A changed file must pass a full load. The kernel signature includes
+    inode and ctime, so replacing the log or restoring its mtime cannot
+    preserve a cached verdict. All reads and writes use the store lock.
+    """
+    events_path, _, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
+        signature = _file_signature(events_path)
+        key = (events_path.resolve(), signature, validate_project_model)
+        with _validation_lock:
+            revision = _verified_revisions.get(key)
+            if signature is not None and revision is not None:
+                _verified_revisions.move_to_end(key)
+                return revision
+    revision, _ = load_project_model(project)
+    return revision
 
 
 def pipeline_projection(project: Path) -> dict[str, Any] | None:
@@ -212,7 +287,7 @@ def append_model_patch(project: Path, patch: dict[str, Any], *, expected_revisio
         revision = len(events)
         if revision != expected_revision:
             raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
-        model = _replay(events)
+        model = _replay(events, verified=True)
         if model is None:
             raise FileNotFoundError(f"no canonical Project Model in {events_path}")
         updated = _apply_patch(model, patch)
@@ -245,7 +320,7 @@ def merge_evidence_records(project: Path, *, observations: list[dict[str, Any]],
         revision = len(current_events)
         if revision != expected_revision:
             raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
-        model = _replay(current_events)
+        model = _replay(current_events, verified=True)
         if model is None:
             raise FileNotFoundError(f"no canonical Project Model in {events_path}")
         changed = False
@@ -292,7 +367,7 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
         revision = len(events)
         if revision != expected_revision:
             raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
-        model = _replay(events)
+        model = _replay(events, verified=True)
         if model is None:
             raise FileNotFoundError(f"no canonical Project Model in {events_path}")
         if evidence_model["id"] != model["id"]:
@@ -375,7 +450,7 @@ def parity_report(project: Path, model: dict[str, Any] | None = None) -> dict[st
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_SH)
         events = _read_events(events_path)
-        canonical = _replay(events)
+        canonical = _replay(events, verified=True)
         current_projection = ({"revision": len(events),
                                "head_hash": events[-1]["event_hash"]}
                               if events else None)

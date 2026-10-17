@@ -22,6 +22,58 @@ FIXTURE = json.loads(
 )
 
 
+def test_repeated_verified_head_is_validated_once_without_sharing_mutable_data(
+        tmp_path, monkeypatch):
+    project_model_store._validated_heads.clear()
+    commit_project_model(tmp_path, FIXTURE, expected_revision=0)
+    calls = []
+    reads = []
+    original = project_model_store.validate_project_model
+    original_read = project_model_store._read_events
+
+    def validate(model):
+        calls.append(model["id"])
+        original(model)
+
+    def read(path):
+        reads.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(project_model_store, "validate_project_model", validate)
+    monkeypatch.setattr(project_model_store, "_read_events", read)
+    _, first = load_project_model(tmp_path)
+    first["id"] = "caller-mutated"
+    assert load_project_model(tmp_path) == (1, FIXTURE)
+    assert len(calls) == 1
+    assert len(reads) == 2
+    assert project_model_store.project_model_revision(tmp_path) == 1
+    assert len(reads) == 2
+    # A verified new head gets its own validation verdict.
+    intents = [{**FIXTURE["intents"][0], "constraints": ["changed"]}]
+    append_model_patch(tmp_path, {"intents": intents}, expected_revision=1)
+    assert load_project_model(tmp_path)[1]["intents"] == intents
+    assert len(calls) == 2
+    # Even a cached head must pass the hash chain on every load.
+    path = tmp_path / "project_model/events.jsonl"
+    path.write_text(path.read_text().replace('"changed"', '"tampered"'),
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        load_project_model(tmp_path)
+
+
+def test_model_load_cache_detects_rewrite_even_when_mtime_is_restored(tmp_path):
+    import os
+    commit_project_model(tmp_path, FIXTURE, expected_revision=0)
+    load_project_model(tmp_path)
+    path = tmp_path / "project_model/events.jsonl"
+    stat = path.stat()
+    path.write_text(path.read_text().replace('"project-demo"', '"project-fake"'),
+                    encoding="utf-8")
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    with pytest.raises(ValueError, match="hash mismatch"):
+        project_model_store.project_model_revision(tmp_path)
+
+
 def test_revision_log_replays_and_repairs_snapshot(tmp_path):
     project = tmp_path / "project"
     assert commit_project_model(project, FIXTURE, expected_revision=0, reason="fixture") == 1
@@ -277,6 +329,7 @@ def test_replay_validates_once_not_once_per_event(tmp_path, monkeypatch):
         append_model_patch(project, {"intents": updated["intents"]},
                            expected_revision=revision)
     calls.clear()
+    store._validated_heads.clear()
 
     revision, model = load_project_model(project)
 

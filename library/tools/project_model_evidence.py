@@ -295,6 +295,9 @@ class _Builder:
         self._obs_counter: dict[str, int] = {}
         self._seen_prov: set[str] = set()
         self._memory_envelopes: dict[tuple[str, str], dict | None] = {}
+        self._indexed_observations = None
+        self._observation_count = 0
+        self._observation_by_id = {}
 
     def memory_envelope(self, digest: str, lane: str) -> dict | None:
         key = (digest, lane)
@@ -459,8 +462,18 @@ class _Builder:
              uncertainty: float | None = None,
              track_id: str | None = None) -> str:
         link_id = f"link-{entity_id}-{observation_id}-{method}"
-        observation = next((row for row in self.model["observations"]
-                            if row["id"] == observation_id), None)
+        observations = self.model["observations"]
+        if observations is not self._indexed_observations or len(observations) < self._observation_count:
+            self._indexed_observations = observations
+            self._observation_count = 0
+            self._observation_by_id = {}
+        # A migration appends stable observation identities. Index only
+        # the new suffix, including observations supplied by other lane
+        # adapters, and preserve the old first-match duplicate semantics.
+        for row in observations[self._observation_count:]:
+            self._observation_by_id.setdefault(row["id"], row)
+        self._observation_count = len(observations)
+        observation = self._observation_by_id.get(observation_id)
         if observation is None:
             raise ValueError(f"identity link anchor observation missing: {observation_id}")
         interval = observation["interval"]
@@ -1690,15 +1703,16 @@ def _materialize_source_signals(builder: _Builder, digest: str,
     existing measurement lanes, not a second analysis pass.
     """
     model = builder.model
+    signal_ids = {signal["id"] for signal in model["signals"]}
 
     def append_signal(signal_id: str, measurement_type: str, unit: str,
                       start: int, end: int, samples: list[dict],
                       provenance_id: str, *, samples_ref: str | None = None,
                       source_signal_id: str | None = None,
                       estimate_status: str | None = None) -> None:
-        if start >= end or any(
-                signal["id"] == signal_id for signal in model["signals"]):
+        if start >= end or signal_id in signal_ids:
             return
+        signal_ids.add(signal_id)
         model["signals"].append({
             "id": signal_id,
             "asset_id": asset_id,

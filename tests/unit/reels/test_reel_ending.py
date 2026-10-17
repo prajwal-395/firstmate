@@ -355,8 +355,10 @@ def test_the_freeze_placement_is_a_picture_clip_that_speaks_nothing():
     assert place["track_index"] == _shots()[0].track_index
     assert place["clip"].track_type == "video"
     assert place["clip"].source_file == freeze.held_from
-    assert place["source_in"] == pytest.approx(1509 / 24.0)
-    assert place["source_out"] == pytest.approx(1528 / 24.0)
+    assert freeze.source_start_frame == 1491
+    assert place["source_in"] == pytest.approx(1491 / 24.0)
+    assert freeze.source_end_frame == 1510
+    assert place["source_out"] == pytest.approx(1510 / 24.0)
     # An empty master span: a held frame speaks no words, so no
     # word-anchored pass may claim it as a shot - it inherits the
     # treatment of the shot it holds instead.

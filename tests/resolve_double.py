@@ -2003,6 +2003,11 @@ class FakeTimelineItem:
             self._speed = float(speed.get("Percentage", 100.0))
         else:
             self._speed = float(speed) * 100.0
+        if self._speed == 0.0:
+            # Measured native behavior: the appended window collapses
+            # onto its final frame while the record span is retained.
+            self._source_start_frame = self._source_end_frame - 1
+            self._source_end_frame = self._source_start_frame
         return True
 
     def SplitAtFrame(self, frame):

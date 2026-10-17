@@ -1642,3 +1642,58 @@ def test_transient_tolerance_comes_from_the_frame_rate(tmp_path):
     cut100, info100 = cut_at(100.0)
     assert abs(cut100 - 2.3) < 1e-6
     assert info100["transient_snapped"] is False
+
+
+def test_footage_batches_preserve_every_item_with_fixed_patch_count(tmp_path, monkeypatch):
+    """More clips on the same rows must not mean more whole-timeline patches."""
+    from library.tools import edit_patch, timeline_shadow
+    from library.tools.reel_read import QUICK, read_reel
+
+    original = edit_patch.apply_live_patch
+    results = []
+    counts = []
+    for serial, count in ((True, 20), (False, 20), (False, 2)):
+        timeline, pool, project = _world()
+        clips = []
+        for kind in ("video", "audio"):
+            for row, speaker in ((1, "SpeakerOne"), (2, "SpeakerTwo")):
+                path = f"/m/{speaker.lower()}.MXF"
+                for index in range(count):
+                    start, end = index * 20 / count, (index + 1) * 20 / count
+                    clips.append(_clip(kind, row, speaker, speaker, path,
+                                       start, end, 1000 + start))
+        project_folder = tmp_path / f"run-{serial}-{count}"
+        project_folder.mkdir()
+        patches = []
+        store = timeline_shadow.ShadowStore(project_folder / "shadow.db")
+
+        def apply(*, patches=patches, serial=serial, store=store, **kwargs):
+            operations = kwargs["operations"]
+            patches.append(len(operations))
+            if serial:
+                for index, operation in enumerate(operations):
+                    receipt = original(**{**kwargs, "operations": [operation],
+                        "store": store,
+                        "idempotency_key": f"{kwargs['idempotency_key']}:{index}"})
+                return receipt
+            return original(**{**kwargs, "store": store})
+
+        monkeypatch.setattr(edit_patch, "apply_live_patch", apply)
+        monkeypatch.setattr("library.tools.reel_append_placement.supports",
+                            lambda *args, serial=serial: not serial)
+        record = build_reel_timeline(
+            project, FakeMoment("Reel batch parity"), clips, [],
+            FPS, 1080, 1920, str(project_folder), {"segments": []},
+            program_channels={"1": 1, "2": 1}, placement_mode="append")
+        assert record["stream_enforcement"]["unverified"] == []
+        snapshot = read_reel(timeline, project.GetName(), mode=QUICK,
+                             resolve_project=project)
+        results.append([(track["type"], track["index"], [
+            {key: clip[key] for key in (
+                "source_file", "source_in_frame", "source_out_frame",
+                "record_in", "record_out", "transform", "enabled")}
+            for clip in track["clips"]]) for track in snapshot["tracks"]])
+        counts.append(patches)
+    assert results[0] == results[1]
+    assert counts[1] == []
+    assert counts[2] == []

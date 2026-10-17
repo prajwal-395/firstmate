@@ -630,6 +630,25 @@ def holder(path: Optional[Path] = None) -> Optional[Lease]:
         return None
 
 
+def active_holder() -> Optional[Lease]:
+    """The diagnostic holder only while an exclusive OS lock still exists.
+
+    SIGKILL releases flock but cannot remove the diagnostic JSON. Never
+    unlink that file here: another writer may already be acquiring the
+    lock and publishing its own record. Probe with a separate descriptor,
+    without connecting to Resolve or queueing behind the broker itself.
+    """
+    try:
+        with open(lock_path(), "a+", encoding="utf-8") as handle:
+            if _flock(handle, exclusive=False, blocking=False):
+                _unflock(handle)
+                return None
+            return holder()
+    except OSError:
+        # An unprobeable lock must not make an existing holder disappear.
+        return holder()
+
+
 def held() -> bool:
     """Does THIS process hold the instance (or stand in for holding it)?"""
     with _state_lock:

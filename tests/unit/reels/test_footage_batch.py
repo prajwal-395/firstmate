@@ -330,9 +330,9 @@ def test_pinned_model_revision_skips_per_patch_reloads(tmp_path, monkeypatch):
             idempotency_key="unpinned:one",
             store=store, project_folder=str(tmp_path))
         assert receipt["status"] == "committed", receipt
-        # One load for the patch (the commit reuses it instead of
-        # loading again); before the passthrough every patch paid two.
-        assert calls["loads"] == before + 1, calls
+        # Both forms use the validated revision pointer, without loading
+        # unused model data. Actual readback commits remain separate.
+        assert calls["loads"] == before, calls
 
 
 def test_sweep_many_reports_unmatched_additions_without_deleting(tmp_path):
@@ -364,3 +364,36 @@ def test_sweep_many_reports_unmatched_additions_without_deleting(tmp_path):
     assert timeline.DeleteClips.call_count == 0
     assert kept_all == [item]
     assert any("matches no placement" in line for line in unverified)
+
+
+def test_batch_reads_the_revision_advanced_by_its_previous_readback(tmp_path, monkeypatch):
+    """Real model commits, unlike a neutralized readback, advance the pin."""
+    from pathlib import Path
+    from library.tools import project_model_store
+
+    model = json.loads(Path(
+        "native/ren-protocol/fixtures/project-model.json"
+    ).read_text(encoding="utf-8"))
+    project_model_store.commit_project_model(tmp_path, model, expected_revision=0)
+    project, timeline, pool, clips = _world(audio_channels=(1, 2))
+    store = shadow.ShadowStore(tmp_path / "shadow.db")
+    original = edit_patch.apply_live_patch
+    def apply(**kwargs):
+        return original(**kwargs, store=store)
+    monkeypatch.setattr(edit_patch, "apply_live_patch", apply)
+    plan = SimpleNamespace(speech_rows=lambda: [
+        SimpleNamespace(index=1), SimpleNamespace(index=2)])
+    entries = _plan()
+    video_ops = [_op("Reel 26", clips, entry) for entry in entries
+                 if entry[1] == "video"]
+    audio_pairs = [(_op("Reel 26", clips, entry), _exp(clips, entry))
+                   for entry in entries if entry[1] == "audio"]
+    with assume_sole_writer("real-model-batch"):
+        result = commit_footage_placements(
+            project, timeline, plan, "Reel 26", video_ops, audio_pairs,
+            project_folder=str(tmp_path), model_revision=1)
+    assert result["batches"] == 3
+    revision, model = project_model_store.load_project_model(tmp_path)
+    assert revision == 4
+    assert len(model["edits"]) == 4
+    assert result["unverified"] == []

@@ -1232,18 +1232,10 @@ def route_project(project_folder, timelines=None) -> list:
     # Read once for the whole project: the ledger is one file and every
     # note is looked up in the same one.
     ledger = timeline_decisions.read_ledger(project_folder)
-    # Cascade Lane C3: the current Project Model, read once for the
-    # whole project so every note resolves its anchor against the same
-    # frame maps. Fail-soft: without a model each note carries the
-    # reason instead of an id, and routing is otherwise unchanged.
+    # Defer the large model read until there is a scoped note to route.
+    # Empty or unrelated pull files carry no anchor to resolve.
     model = None
-    try:
-        from pathlib import Path as _Path
-        from library.tools import project_model_store as _pm_store
-        _revision, model = _pm_store.load_project_model(
-            _Path(project_folder))
-    except Exception:  # noqa: BLE001 - routing never depends on the model
-        model = None
+    model_loaded = False
     edit_rows = edit_ledger.load_rows(project_folder)
     # Keep `ren notes` useful as a routing diagnostic: it shows the old
     # vocabulary guess for an untranslated note, but the run guard refuses
@@ -1257,6 +1249,13 @@ def route_project(project_folder, timelines=None) -> list:
         if wanted and payload.get("timeline", "") not in wanted:
             continue
         for raw in payload.get("notes", []):
+            if not model_loaded:
+                model_loaded = True
+                try:
+                    from library.tools import project_model_store as _pm_store
+                    _revision, model = _pm_store.load_project_model(Path(project_folder))
+                except Exception:  # routing remains useful without a model
+                    model = None
             identity = (
                 raw.get("source", ""), raw.get("name", ""),
                 raw.get("note", ""), raw.get("frame_in_timeline_space"),

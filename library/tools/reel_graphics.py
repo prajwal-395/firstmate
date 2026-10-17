@@ -23,7 +23,7 @@ def require_current_units(model, transform) -> None:
         raise UnitMismatchError(reason)
 
 
-def assert_tight_alpha(path: str) -> tuple[int, int]:
+def assert_tight_alpha(path: str, *, tight_box=None) -> tuple[int, int]:
     """Reject transparent padding around a PNG overlay's alpha bounds."""
     from PIL import Image
 
@@ -38,6 +38,20 @@ def assert_tight_alpha(path: str) -> tuple[int, int]:
     if bbox is None:
         raise ReelGraphicsError(f"overlay {path!r} has no visible alpha pixels")
     if bbox != (0, 0, size[0], size[1]):
+        # A declared tight crop includes the renderer's measured shadow
+        # padding and the native placement canvas floor. Requiring ink at
+        # all four edges contradicts the header renderer's own contract.
+        from library.tools.tight_box import MIN_CANVAS_HEIGHT, PAD_BOTTOM, PAD_TOP, PAD_X
+        box = (tight_box or {}).get("canvas_box")
+        declared_size = ((tight_box or {}).get("width"),
+                         (tight_box or {}).get("height"))
+        if (box and len(box) == 4 and declared_size == size
+                and (box[2] - box[0], box[3] - box[1]) == size
+                and bbox[0] <= PAD_X + 1 and size[0] - bbox[2] <= PAD_X + 1
+                and bbox[1] <= PAD_TOP + 1
+                and (size[1] - bbox[3] <= PAD_BOTTOM + 1
+                     or size[1] == MIN_CANVAS_HEIGHT)):
+            return size
         raise ReelGraphicsError(
             f"overlay {path!r} is not tight-boxed: media is {size[0]}x{size[1]} "
             f"but its alpha bounds are {bbox}")

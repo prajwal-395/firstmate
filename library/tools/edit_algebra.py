@@ -52,6 +52,7 @@ behind it; `resolve-axi` verbs are projections, not a second algebra.
 from __future__ import annotations
 
 import contextlib
+from contextvars import ContextVar
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -61,6 +62,20 @@ from library.tools import timeline_shadow as shadow
 #: How close a re-read float must be to what was written.
 FLOAT_TOLERANCE = 1e-6
 SMART_REFRAME_KEYS = ("Pan", "Tilt", "ZoomX", "ZoomY")
+_clip_index: ContextVar[tuple | None] = ContextVar("clip_index", default=None)
+
+
+@contextlib.contextmanager
+def indexed_snapshot(snapshot):
+    index = {}
+    for clip in shadow.clips(snapshot):
+        uid = clip["unique_id"]
+        index[uid] = None if uid in index else clip
+    token = _clip_index.set((snapshot, index))
+    try:
+        yield
+    finally:
+        _clip_index.reset(token)
 
 
 # ── Reading a snapshot ─────────────────────────────────────────────────
@@ -72,6 +87,9 @@ SMART_REFRAME_KEYS = ("Pan", "Tilt", "ZoomX", "ZoomY")
 
 
 def _clip(snapshot: dict, unique_id: str) -> dict | None:
+    indexed = _clip_index.get()
+    if indexed is not None and indexed[0] is snapshot:
+        return indexed[1].get(unique_id)
     found = [c for c in shadow.clips(snapshot)
              if c["unique_id"] == unique_id]
     return found[0] if len(found) == 1 else None
@@ -1536,6 +1554,19 @@ def _delete_clip_with_measured_retry(op, timeline, item, _project=None):
     return second if second else first
 
 
+_insert_sources: ContextVar[dict | None] = ContextVar("insert_sources", default=None)
+
+
+@contextlib.contextmanager
+def insertion_sources():
+    """One lazy pool-id index for a patch, discarded before imports can stale it."""
+    token = _insert_sources.set({})
+    try:
+        yield
+    finally:
+        _insert_sources.reset(token)
+
+
 def _find_pool_item_by_id(pool, unique_id):
     """The pool item holding *unique_id*, searched through every folder.
 
@@ -1543,14 +1574,23 @@ def _find_pool_item_by_id(pool, unique_id):
     same identity `pool_item_for` matches on, so a reel's overlay never
     pairs with another reel's file of the same name.
     """
+    cache = _insert_sources.get()
+    if cache is not None and "items" in cache:
+        return cache["items"].get(str(unique_id))
+    indexed = {}
     stack = [pool.GetRootFolder()]
     while stack:
         folder = stack.pop()
         for item in folder.GetClipList() or ():
-            if str(item.GetUniqueId()) == str(unique_id):
+            identity = str(item.GetUniqueId())
+            if cache is not None:
+                indexed.setdefault(identity, item)
+            elif identity == str(unique_id):
                 return item
         stack.extend(folder.GetSubFolderList() or ())
-    return None
+    if cache is not None:
+        cache["items"] = indexed
+    return indexed.get(str(unique_id))
 
 
 def _apply_clip_insert(op, timeline, _item, project=None):
@@ -2857,7 +2897,8 @@ def spans(operations, base):
         count_call("edit_core_calls")
         with ledger_span("edit_core_rust", backend="rust", calls=1):
             return rust.span_many(operations, base_handle)
-    return [span(op, base) for op in operations]
+    with indexed_snapshot(base):
+        return [span(op, base) for op in operations]
 
 
 def key(op):
@@ -2916,4 +2957,5 @@ def verifies(operations, after):
         count_call("edit_core_calls")
         with span("edit_core_rust", backend="rust", calls=1):
             return rust.verify_many(operations, after_handle)
-    return [verify(op, after) for op in operations]
+    with indexed_snapshot(after):
+        return [verify(op, after) for op in operations]

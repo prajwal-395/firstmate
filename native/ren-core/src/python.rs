@@ -252,6 +252,7 @@ fn edit_core_snapshot_from_py(
         end_frame,
         tracks: projected,
         markers: Markers::default(),
+        clip_index: Default::default(),
     })
 }
 
@@ -281,18 +282,7 @@ impl SnapshotHandle {
             .snapshot
             .write()
             .map_err(|_| PyValueError::new_err("snapshot handle lock poisoned"))?;
-        let mut found = None;
-        for (track_index, track) in snapshot.tracks.iter().enumerate() {
-            for (clip_index, clip) in track.clips.iter().enumerate() {
-                if clip.unique_id == unique_id.0 {
-                    if found.is_some() {
-                        return Ok(false);
-                    }
-                    found = Some((track_index, clip_index));
-                }
-            }
-        }
-        let Some((track_index, clip_index)) = found else {
+        let Some((track_index, clip_index)) = snapshot.clip_location(&unique_id.0) else {
             return Ok(false);
         };
         snapshot.tracks[track_index].clips[clip_index]

@@ -434,9 +434,54 @@ fn start_shadow_watcher() -> Option<Child> {
 
 /// Read the diagnostic lease record without entering the Resolve worker.
 fn active_lease() -> Option<protocol::LeaseStatus> {
-    let path = instance_lock_dir().join(LEASE_NAME);
-    let body = std::fs::read_to_string(path).ok()?;
+    active_lease_in(&instance_lock_dir())
+}
+
+fn active_lease_in(directory: &Path) -> Option<protocol::LeaseStatus> {
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
+
+    // The JSON is diagnostic, not a lock. A killed writer cannot remove
+    // it, but the kernel releases its flock. Do not unlink the record:
+    // a new writer may be publishing its own as this probe returns.
+    if let Ok(lock) = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .append(true)
+        .open(directory.join("resolve_instance.lock"))
+    {
+        // SAFETY: lock owns this valid descriptor for the entire call.
+        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+            return None; // Closing the descriptor releases the probe lock.
+        }
+    }
+    let body = std::fs::read_to_string(directory.join(LEASE_NAME)).ok()?;
     serde_json::from_str(&body).ok()
+}
+
+#[cfg(test)]
+mod lease_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn abandoned_record_is_ignored_and_a_new_holder_is_visible() {
+        let directory =
+            std::env::temp_dir().join(format!("ren-resolved-lease-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let lock = std::fs::File::create(directory.join("resolve_instance.lock")).unwrap();
+        let record = serde_json::json!({"owner": "build", "purpose": "place",
+            "pid": 123, "host": "test", "since": 1.0});
+        std::fs::write(directory.join(LEASE_NAME), record.to_string()).unwrap();
+        assert!(active_lease_in(&directory).is_none());
+        // SAFETY: the file owns a valid descriptor throughout both calls.
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) }, 0);
+        assert_eq!(active_lease_in(&directory).unwrap().pid, 123);
+        assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
+        assert!(active_lease_in(&directory).is_none());
+        assert!(directory.join(LEASE_NAME).exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 }
 
 /// Serve on the socket until `shutdown` or a signal.

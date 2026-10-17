@@ -1962,3 +1962,13 @@ def test_format_error_message_names_clips_and_params():
     assert "phantom" in msg
     assert "glow_gain" in msg
     assert "cannot reach" in msg
+
+
+def test_reclaim_can_defer_pool_filing_until_the_build_finishes(tmp_path, monkeypatch):
+    from library.tools import reel_build
+    calls = []
+    monkeypatch.setattr(reel_build, "_organise_after_refusal", lambda *a: calls.append(a))
+    reel_build.discard_staged_reels(object(), str(tmp_path), [], "master", organise=False)
+    assert calls == []
+    reel_build.discard_staged_reels(object(), str(tmp_path), [], "master")
+    assert len(calls) == 1

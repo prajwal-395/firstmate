@@ -611,7 +611,12 @@ class FreezeTail:
     @property
     def source_end_frame(self) -> int:
         """Exclusive source edge reserved for the native hold segment."""
-        return self.held_source_frame + self.duration_frames
+        return self.held_source_frame + 1
+
+    @property
+    def source_start_frame(self) -> int:
+        """Resolve's zero-speed retime holds the appended span's last frame."""
+        return self.held_source_frame - self.duration_frames + 1
 
     @property
     def end_frame(self) -> int:
@@ -738,7 +743,7 @@ def freeze_placement(freeze: "FreezeTail", fps: float) -> dict:
             track_type="video",
             timeline_start=0.0,
             timeline_end=freeze.duration_frames / fps),
-        "source_in": freeze.held_source_frame / freeze.source_fps,
+        "source_in": freeze.source_start_frame / freeze.source_fps,
         "source_out": freeze.source_end_frame / freeze.source_fps,
         "record": freeze.reel_start_frame / fps,
         "snapped_record": freeze.reel_start_frame,

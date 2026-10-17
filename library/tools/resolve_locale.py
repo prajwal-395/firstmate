@@ -115,6 +115,20 @@ def resolve_script_modules_path() -> str:
     return os.fspath(_configured_script_paths()[1])
 
 
+def _checked_script_module(module):
+    # Test brokers run in non-pytest subprocesses, outside conftest's
+    # import hook. Their watchdog must not open another live scripting
+    # client just because the test socket and lease are isolated.
+    if (os.environ.get("PYTEST_CURRENT_TEST")
+            and os.environ.get("REN_LIVE_RESOLVE") != "1"
+            and getattr(module, "__name__", "") == "fusionscript"):
+        raise RuntimeError(
+            "refusing live Resolve scripting from a test subprocess; "
+            "only REN_LIVE_RESOLVE=1 inside a granted Resolve window "
+            "allows the real fusionscript module")
+    return module
+
+
 def load_resolve_script():
     """Import DaVinciResolveScript from the configured Resolve install.
 
@@ -138,7 +152,7 @@ def load_resolve_script():
     # installation prerequisite.
     loaded = sys.modules.get("DaVinciResolveScript")
     if loaded is not None:
-        return loaded
+        return _checked_script_module(loaded)
 
     api_path, modules_path, lib_path = _configured_script_paths()
 
@@ -155,7 +169,7 @@ def load_resolve_script():
         os.environ["RESOLVE_SCRIPT_API"] = os.fspath(api_path)
         os.environ["RESOLVE_SCRIPT_LIB"] = lib_path
         importlib.invalidate_caches()
-        return importlib.import_module("DaVinciResolveScript")
+        return _checked_script_module(importlib.import_module("DaVinciResolveScript"))
     finally:
         try:
             for key, value in prior_environment.items():
@@ -187,6 +201,7 @@ def scriptapp_preserving_locale(dvr, name: str = "Resolve"):
     refused = direct_connect_refused()
     if refused is not None:
         raise RuntimeError(refused)
+    _checked_script_module(dvr)
     try:
         before = locale.setlocale(locale.LC_CTYPE)
     except locale.Error:  # pragma: no cover - a locale we cannot read back

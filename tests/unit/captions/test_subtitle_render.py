@@ -3389,3 +3389,16 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
                                       project_folder=str(tmp_path),
                                       remotion_dir=REMOTION_4)
     assert built and built[0].closed == 1, "we built it, so we close it"
+
+
+def test_unchanged_caption_receipt_does_not_rewrite_the_ledger(tmp_path, monkeypatch):
+    import library.tools.caption_asset_gc as gc
+    asset_dir = _asset_dir(str(tmp_path))
+    path = _write(os.path.join(asset_dir, "unchanged.mov"))
+    entry = {"segment_id": "unchanged", "overlay_path": path,
+             "provenance": "reused", "superseded": []}
+    ledger = record_rendered_segments(asset_dir, [entry])
+    before = Path(ledger).read_bytes()
+    monkeypatch.setattr(gc.os, "fsync", lambda *_: pytest.fail("unchanged receipt must not rewrite"))
+    record_rendered_segments(asset_dir, [entry])
+    assert Path(ledger).read_bytes() == before

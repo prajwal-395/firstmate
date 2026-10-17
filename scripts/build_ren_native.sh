@@ -79,7 +79,7 @@ rm -rf "$WHEEL_DIR"
 mkdir -p "$WHEEL_DIR"
 cd "$REPO_ROOT/native/ren-core"
 export REN_NATIVE_SOURCE_FINGERPRINT="$FINGERPRINT"
-"$VENV_BIN_DIR/maturin" build --locked -i "$VENV_BIN_DIR/python3" --out "$WHEEL_DIR"
+"$VENV_BIN_DIR/maturin" build --release --locked -i "$VENV_BIN_DIR/python3" --out "$WHEEL_DIR"
 
 # Exactly one wheel, exactly one extension inside it.
 set -- "$WHEEL_DIR"/*.whl

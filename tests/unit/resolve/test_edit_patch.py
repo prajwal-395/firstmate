@@ -2182,3 +2182,89 @@ def test_grade_node_remove_refuses_when_the_playhead_will_not_park(
     assert receipt["status"] == "verification_failed", receipt
     assert "park" in receipt["stopped"]["raised"]
     assert item.nodes == 2
+
+
+def test_insert_batch_indexes_sources_once_and_does_not_relist_each_insert(world, monkeypatch):
+    project, timeline, _, store, _ = world
+    pool_clip = make_pool_clip("batch.mov", path="/m/batch.mov", frames=2000)
+    root = project.GetMediaPool().GetRootFolder()
+    root._clips.append(pool_clip)
+    calls = {"pool_walks": 0, "handle_walks": 0, "span_batches": 0}
+    original_pool = root.GetClipList
+    original_handles = edit_patch._live_handles
+    original_spans = edit_patch.edit_algebra.spans
+
+    def pool_list():
+        calls["pool_walks"] += 1
+        return original_pool()
+
+    def handles(tl):
+        calls["handle_walks"] += 1
+        return original_handles(tl)
+
+    def spans(operations, snapshot):
+        calls["span_batches"] += 1
+        return original_spans(operations, snapshot)
+
+    def no_history(*args, **kwargs):
+        raise AssertionError("idempotency must not scan/decode timeline history")
+
+    monkeypatch.setattr(root, "GetClipList", pool_list)
+    monkeypatch.setattr(edit_patch, "_live_handles", handles)
+    monkeypatch.setattr(store, "history", no_history)
+    monkeypatch.setattr(edit_patch.edit_algebra, "spans", spans)
+    operations = []
+    for i in range(24):
+        operations.extend([
+            {"op": "clip.insert", "unique_id": f"new-{i}",
+             "track_type": "video", "track_index": 1,
+             "record_in": 100 + i * 48, "record_out": 148 + i * 48,
+             "media_pool_item": str(pool_clip.GetUniqueId()),
+             "source_in": i * 48, "source_out": (i + 1) * 48},
+            {"op": "clip.set_property", "unique_id": f"new-{i}",
+             "key": "Pan", "value": i},
+        ])
+    kwargs = dict(project=project, timeline=timeline, capability="render.build",
+                  operations=operations, conflict_domains=(
+                      "timeline_structure", "picture_transform"),
+                  idempotency_key="batch-counts", store=store,
+                  project_folder=store.path.parent)
+    receipt = edit_patch.apply_live_patch(**kwargs)
+    assert receipt["status"] == "committed", receipt
+    assert calls == {"pool_walks": 1, "handle_walks": 1, "span_batches": 1}
+    assert edit_patch.apply_live_patch(**kwargs) == receipt
+    assert calls == {"pool_walks": 1, "handle_walks": 1, "span_batches": 1}
+    snapshot = store.snapshot(store.head(project.GetName(), timeline.GetUniqueId()))
+    inserted = [c for c in shadow.clips(snapshot)
+                if c["source_file"].endswith("batch.mov")]
+    assert len(inserted) == 24
+    assert [c["transform"]["Pan"] for c in inserted] == list(range(24))
+
+
+def test_empty_conditions_do_not_marshal_snapshots_to_rust(monkeypatch):
+    def unexpected():
+        raise AssertionError("there is no condition to judge")
+    monkeypatch.setattr(edit_patch.edit_backend, "rust", unexpected)
+    assert edit_patch._judge((), {"tracks": []}, {"tracks": []}) == []
+
+
+def test_python_batch_verification_indexes_snapshot_once(monkeypatch):
+    algebra = edit_patch.edit_algebra
+    monkeypatch.setattr(algebra.edit_backend, "rust", lambda: None)
+    clips = [{"unique_id": str(i), "transform": {"Pan": i}}
+             for i in range(100)]
+    snapshot = {"tracks": [{"clips": clips}]}
+    reads = []
+    original = algebra.shadow.clips
+
+    def read(snap):
+        reads.append(snap)
+        return original(snap)
+
+    monkeypatch.setattr(algebra.shadow, "clips", read)
+    operations = [{"op": "clip.set_property", "unique_id": str(i),
+                   "key": "Pan", "value": i} for i in range(100)]
+    assert algebra.verifies(operations, snapshot) == [None] * 100
+    assert len(reads) == 1
+    clips.append(dict(clips[5]))
+    assert algebra.verifies([operations[5]], snapshot)[0] is not None

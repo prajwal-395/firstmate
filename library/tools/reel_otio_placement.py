@@ -438,6 +438,8 @@ class PlacementRecorder:
 
     def __init__(self, pool):
         self.pool = pool                      # the REAL pool, for footage reads
+        from library.tools.reel_build import PoolIndex
+        self.pool_index = PoolIndex(pool, authoritative=True)
         self.timeline = RecordingTimeline()
         self.specs: list = []
         self.bins: dict = {}                  # path -> overlay_import_bin
@@ -481,7 +483,7 @@ class PlacementRecorder:
             return _PathItem(path)
         if path not in self._footage:
             from library.tools.reel_build import pool_item_for
-            self._footage[path] = pool_item_for(self.pool, path)
+            self._footage[path] = pool_item_for(self.pool, path, pool_index=self.pool_index)
         real = self._footage[path]
         return _PathItem(path, real) if real is not None else None
 

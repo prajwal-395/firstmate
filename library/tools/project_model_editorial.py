@@ -230,6 +230,10 @@ def commit_edit_readback(project, *, patch: Any, readback: Mapping[str, Any],
         for clip in track["clips"]:
             source_start = int(clip["source_in_frame"])
             source_end = int(clip["source_out_frame"])
+            # A native hold reports the held frame as both inclusive
+            # source edges. Model that single source frame explicitly.
+            if clip.get("speed") == 0 and source_end == source_start:
+                source_end = source_start + 1
             timeline_start = int(clip["record_in"])
             timeline_end = int(clip["record_out"])
             if source_end <= source_start or timeline_end <= timeline_start:

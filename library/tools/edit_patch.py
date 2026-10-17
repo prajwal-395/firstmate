@@ -348,6 +348,8 @@ CONDITIONS = {
 
 
 def _judge(conditions, snap: dict, base: dict) -> list:
+    if not conditions:
+        return []
     rust = edit_backend.rust()
     if rust is not None:
         return rust.judge_conditions(conditions, snap, base)
@@ -598,32 +600,31 @@ def apply_live_patch(*, project, timeline, capability: str,
     # even though observing the live timeline would now produce a newer
     # base. The prior intent is checked against the reused key, so this
     # cannot return a receipt for different work.
-    for generation in store.history(project_name, timeline_id):
-        if (generation.source == shadow.PATCH
-                and (generation.patch or {}).get("id") == patch_id):
-            prior = generation.patch
-            prior_intent = {key: prior[key] for key in intent}
-            prior_intent["operations"] = _intent_form(
-                prior.get("operations") or ())
-            if json.dumps(prior_intent, ensure_ascii=False, sort_keys=True,
-                          separators=(",", ":"), default=str) != json.dumps(
-                              intent, ensure_ascii=False, sort_keys=True,
-                              separators=(",", ":"), default=str):
-                _refuse(
-                    EditPatch.from_dict(prior),
-                    "this idempotency key was already used with different "
-                    "contents",
-                    "a patch id is a durable identity for one complete edit",
-                    "retry the original operation unchanged, or assign a "
-                    "new idempotency key")
-            return _receipt_of(generation)
+    generation = store.patch_generation(project_name, timeline_id, patch_id)
+    if generation is not None:
+        prior = generation.patch
+        prior_intent = {key: prior[key] for key in intent}
+        prior_intent["operations"] = _intent_form(
+            prior.get("operations") or ())
+        if json.dumps(prior_intent, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), default=str) != json.dumps(
+                          intent, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"), default=str):
+            _refuse(
+                EditPatch.from_dict(prior),
+                "this idempotency key was already used with different "
+                "contents",
+                "a patch id is a durable identity for one complete edit",
+                "retry the original operation unchanged, or assign a "
+                "new idempotency key")
+        return _receipt_of(generation)
 
     if model_revision is None and project_folder:
         from pathlib import Path
 
         from library.tools import project_model_store
         try:
-            model_revision, _ = project_model_store.load_project_model(
+            model_revision = project_model_store.project_model_revision(
                 Path(project_folder))
         except FileNotFoundError:
             model_revision = None
@@ -634,6 +635,9 @@ def apply_live_patch(*, project, timeline, capability: str,
         snapshot = store.snapshot(base)
         spans_by_index = {}
         insert_spans: dict = {}
+        insert_ops = [op for op in operations if op.get("op") == "clip.insert"]
+        planned_inserts = iter(edit_algebra.spans(insert_ops, snapshot)
+                               if insert_ops else ())
         pending_span_indices = []
         pending_span_ops = []
         for index, operation in enumerate(operations):
@@ -641,7 +645,7 @@ def apply_live_patch(*, project, timeline, capability: str,
             if spec is None:
                 continue
             if operation.get("op") == "clip.insert":
-                span = edit_algebra.span(operation, snapshot)
+                span = next(planned_inserts)
                 insert_spans[operation["unique_id"]] = span
             elif (operation.get("unique_id") in insert_spans):
                 span = insert_spans[operation["unique_id"]]
@@ -727,26 +731,26 @@ def apply_patch(patch, *, resolve, project, timeline,
                 "observe the timeline first (`timeline_shadow.observe`)")
     # The id is the idempotency key: a retry of a patch already recorded
     # answers with the receipt it got, and writes nothing again.
-    for gen in store.history(project_name, timeline_id):
-        if gen.source == shadow.PATCH and gen.patch["id"] == patch.id:
-            recorded = {**gen.patch,
-                         "operations": _intent_form(
-                             gen.patch.get("operations") or ())}
-            attempted = {**patch.to_dict(),
-                         "operations": _intent_form(patch.operations)}
-            if recorded != attempted:
-                _refuse(
-                    patch,
-                    "this id was already committed with different contents",
-                    "a patch id is a durable identity for one complete patch",
-                    "retry the original patch unchanged, or assign a new id")
-            return _receipt_of(gen)
-    if model_revision is None and project_folder:
+    gen = store.patch_generation(project_name, timeline_id, patch.id)
+    if gen is not None:
+        recorded = {**gen.patch,
+                     "operations": _intent_form(
+                         gen.patch.get("operations") or ())}
+        attempted = {**patch.to_dict(),
+                     "operations": _intent_form(patch.operations)}
+        if recorded != attempted:
+            _refuse(
+                patch,
+                "this id was already committed with different contents",
+                "a patch id is a durable identity for one complete patch",
+                "retry the original patch unchanged, or assign a new id")
+        return _receipt_of(gen)
+    if project_folder:
         from pathlib import Path
 
         from library.tools import project_model_store
         try:
-            model_revision, _ = project_model_store.load_project_model(
+            model_revision = project_model_store.project_model_revision(
                 Path(project_folder))
         except FileNotFoundError:
             # Projects predating the canonical model remain on the legacy
@@ -779,7 +783,8 @@ def apply_patch(patch, *, resolve, project, timeline,
 
     started = time.monotonic()
     with resolve_lock.cursor_fence(project, timeline,
-                                   f"apply EditPatch {patch.id}"):
+                                   f"apply EditPatch {patch.id}"), \
+            edit_algebra.insertion_sources():
         live = shadow.read_live(project, timeline)
         if shadow.snapshot_hash(live) != head.hash:
             seen = store.record(
@@ -812,6 +817,8 @@ def apply_patch(patch, *, resolve, project, timeline,
                 later_needs_handles[_rev + 1]
                 or OPERATIONS[patch.operations[_rev]["op"]].item)
         id_map: dict = {}
+        handles_dirty = False
+        newest_insert = None
         ran = []
         stopped = None
         for index, op in enumerate(patch.operations):
@@ -819,6 +826,11 @@ def apply_patch(patch, *, resolve, project, timeline,
             try:
                 if spec.item:
                     resolved = id_map.get(op["unique_id"], op["unique_id"])
+                    if handles_dirty and resolved != newest_insert:
+                        # An append may invalidate earlier item handles.
+                        # Refresh only when a later op actually needs one.
+                        handles = _live_handles(timeline)
+                        handles_dirty = False
                     item = handles.get(resolved)
                 else:
                     item = None
@@ -864,24 +876,15 @@ def apply_patch(patch, *, resolve, project, timeline,
                         "returned": bool(returned)})
             if op["op"] == "clip.insert":
                 id_map[op["client_unique_id"]] = op["unique_id"]
-            if (spec.domain == "timeline_structure"
-                    and later_needs_handles[index + 1]):
-                if op["op"] == "clip.insert" and returned:
-                    # The only mutation an insert makes is one new item,
-                    # whose handle `spec.apply` just returned - register
-                    # it under both its Resolve id and the client id a
-                    # later op addresses it by, instead of re-walking
-                    # every row. Nothing else writes mid-patch (the
-                    # fence above holds the lease), so the increment is
-                    # exactly what a re-walk would report.
-                    handles[op["unique_id"]] = returned
-                    if op.get("client_unique_id"):
-                        handles[op["client_unique_id"]] = returned
-                elif op["op"] == "clip.delete":
-                    handles.pop(op["unique_id"], None)
-                    handles.pop(resolved, None)
-                else:
-                    handles = _live_handles(timeline)
+                # Append returns the newly assigned handle. Re-listing
+                # every row after every insert made a batch quadratic.
+                handles[op["unique_id"]] = returned
+                newest_insert = op["unique_id"]
+                handles_dirty = True
+            elif (spec.domain == "timeline_structure"
+                  and later_needs_handles[index + 1]):
+                handles = _live_handles(timeline)
+                handles_dirty = False
         after = shadow.read_live(project, timeline)
     from library.tools import transform_write_log
 

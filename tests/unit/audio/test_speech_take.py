@@ -467,3 +467,60 @@ def test_stale_m1_refuses_derived_records(tmp_path):
         "derived numbers off a superseded transcript would disagree "
         "with the words beside them")
     assert any("M1 stale" in note for note in stale_report["notes"])
+
+
+def test_shared_run_keeps_the_original_tie_break():
+    import random
+    rng = random.Random(81)
+    def previous(a, b):
+        best = []
+        for i in range(len(a)):
+            for j in range(len(b)):
+                run = []
+                while i + len(run) < len(a) and j + len(run) < len(b) and a[i + len(run)] == b[j + len(run)]:
+                    run.append(a[i + len(run)])
+                if len(run) > len(best):
+                    best = run
+        return best
+    for _ in range(200):
+        a = [rng.choice("abcd") for _ in range(rng.randrange(15))]
+        b = [rng.choice("abcd") for _ in range(rng.randrange(15))]
+        assert speech_take._longest_shared_run(a, b) == previous(a, b)
+
+
+def test_cross_source_index_preserves_every_exhaustive_candidate():
+    import itertools
+    texts = ["", "yes", "no", "YES!", "a b", "a b c", "x a b c y",
+             "a b c again", "x y z and a b c", "foo bar baz foo bar baz"]
+    rows = {digest: [{"text": text, "utterance_index": i,
+                      "start": float(i), "end": float(i + 1)}
+                     for i, text in enumerate(texts)]
+            for digest in (D1, D2)}
+    expected = []
+    for a, b in itertools.product(rows[D1], rows[D2]):
+        relation = speech_take.classify_pair(a["text"], b["text"])
+        if relation:
+            expected.append((a["utterance_index"], b["utterance_index"],
+                             relation["kind"], relation["shared_run"]))
+    actual = speech_take.cross_source_links(rows, {})
+    assert [(row["utterance_a"]["utterance_index"], row["utterance_b"]["utterance_index"],
+             row["kind"], row["shared_run"]) for row in actual] == expected
+
+
+def test_cross_source_negative_pairs_are_never_classified(monkeypatch):
+    rows = {digest: [{"text": f"{prefix}{i} {prefix}{i}x {prefix}{i}y",
+                      "utterance_index": i, "start": i, "end": i + 1}
+                     for i in range(200)]
+            for digest, prefix in ((D1, "first"), (D2, "second"))}
+    for digest in rows:
+        rows[digest].append({"text": "yes", "utterance_index": 200,
+                             "start": 200, "end": 201})
+    calls = []
+    original = speech_take._classify_tokens
+    def counted(a, b):
+        calls.append((a, b))
+        return original(a, b)
+    monkeypatch.setattr(speech_take, "_classify_tokens", counted)
+    links = speech_take.cross_source_links(rows, {})
+    assert len(links) == 1 and links[0]["kind"] == "identical"
+    assert len(calls) == 1

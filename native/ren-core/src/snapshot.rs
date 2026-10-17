@@ -8,6 +8,8 @@
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// How close a re-read float must be to what was written
 /// (`edit_algebra.FLOAT_TOLERANCE`).
@@ -116,6 +118,10 @@ pub struct Snapshot {
     pub tracks: Vec<Track>,
     #[serde(default)]
     pub markers: Markers,
+    // Identities and row structure stay immutable for a snapshot's life.
+    // Updating transform values does not invalidate these locations.
+    #[serde(skip)]
+    pub(crate) clip_index: OnceLock<HashMap<String, Option<(usize, usize)>>>,
 }
 
 impl Snapshot {
@@ -130,18 +136,24 @@ impl Snapshot {
     /// The clip holding `unique_id`, only when it is present EXACTLY
     /// once (`edit_algebra._clip`): a duplicate id is not an address.
     pub fn clip(&self, unique_id: &str) -> Option<&Clip> {
-        let mut found = None;
-        for track in &self.tracks {
-            for clip in &track.clips {
-                if clip.unique_id == unique_id {
-                    if found.is_some() {
-                        return None;
-                    }
-                    found = Some(clip);
+        let (track, clip) = self.clip_location(unique_id)?;
+        Some(&self.tracks[track].clips[clip])
+    }
+
+    pub fn clip_location(&self, unique_id: &str) -> Option<(usize, usize)> {
+        let index = self.clip_index.get_or_init(|| {
+            let mut index = HashMap::new();
+            for (track_index, track) in self.tracks.iter().enumerate() {
+                for (clip_index, clip) in track.clips.iter().enumerate() {
+                    index
+                        .entry(clip.unique_id.clone())
+                        .and_modify(|location| *location = None)
+                        .or_insert(Some((track_index, clip_index)));
                 }
             }
-        }
-        found
+            index
+        });
+        index.get(unique_id).copied().flatten()
     }
 
     /// The row of `track_type` at `index`, or None.
@@ -202,4 +214,33 @@ pub fn matches_marker(marker: &Marker, want: &Value) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn clip_batch_builds_one_index_and_preserves_duplicate_refusal() {
+        let mut clips: Vec<Value> = (0..1000)
+            .map(|i| json!({"unique_id": i.to_string(), "record_in": i, "record_out": i + 1}))
+            .collect();
+        clips.push(clips[5].clone());
+        let snapshot: Snapshot = serde_json::from_value(json!({
+            "start_frame": 0, "end_frame": 1000,
+            "tracks": [{"type": "video", "index": 1, "clips": clips}]
+        }))
+        .unwrap();
+        assert!(snapshot.clip_index.get().is_none());
+        assert_eq!(snapshot.clip("999").unwrap().record_in, 999);
+        let index = snapshot.clip_index.get().unwrap();
+        assert_eq!(index.len(), 1000);
+        for i in 0..1000 {
+            assert_eq!(snapshot.clip(&i.to_string()).is_some(), i != 5);
+        }
+        assert!(std::ptr::eq(index, snapshot.clip_index.get().unwrap()));
+        assert!(snapshot.clip("missing").is_none());
+        assert!(snapshot.clone().clip("5").is_none());
+    }
 }

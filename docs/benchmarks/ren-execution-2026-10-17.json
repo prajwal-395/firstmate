@@ -1,0 +1,1373 @@
+{
+  "state": "final-scratch-placement-and-quick-edit-verified-promotion-refused-by-guard",
+  "baseline_engine_sha": "33f50210aa3e6b49863ab7d2eac34259299d3ae5",
+  "baseline_run_id": "run-20261017T162006Z-1d3d58",
+  "baseline_command": "build-reels <copy-on-write geo-podcast clone> --only-reel 26 --rebuild-all",
+  "baseline_wall_s": 203.7882982500014,
+  "baseline_outcome": "refused before placement: unsupported speaker_lower_thirds fields animation_variant, construction, logo_asset",
+  "cprofile_functions": [
+    {
+      "function": "tools/resolved/client.py:_exchange",
+      "calls": 51,
+      "own_s": 0.0006932030000000001,
+      "cumulative_s": 0.047888414000000004
+    },
+    {
+      "function": "tools/execution/organise_media_pool.py:read_pool",
+      "calls": 4,
+      "own_s": 5.737895525000001,
+      "cumulative_s": 20.226344167
+    },
+    {
+      "function": "tools/reel_build.py:reel_subtitle_segments",
+      "calls": 1,
+      "own_s": 0.0013207420000000002,
+      "cumulative_s": 64.45613679200001
+    },
+    {
+      "function": "tools/reel_build.py:discard_staged_reels",
+      "calls": 2,
+      "own_s": 0.28859037800000004,
+      "cumulative_s": 41.951344543000005
+    },
+    {
+      "function": "processes/edit_video/run_pipeline.py:gather_step_inputs",
+      "calls": 1,
+      "own_s": 0.108361012,
+      "cumulative_s": 35.815795125
+    },
+    {
+      "function": "tools/resolved/client.py:call",
+      "calls": 1,
+      "own_s": 6.0086e-05,
+      "cumulative_s": 0.038339000000000005
+    },
+    {
+      "function": "tools/resolved/client.py:grant",
+      "calls": 24,
+      "own_s": 0.00047217200000000003,
+      "cumulative_s": 0.029302374000000003
+    },
+    {
+      "function": "tools/resolve_lock.py:resolve_lease",
+      "calls": 38,
+      "own_s": 0.0022959160000000003,
+      "cumulative_s": 2.795442543
+    },
+    {
+      "function": "tools/resolve_lock.py:_broker_turn",
+      "calls": 24,
+      "own_s": 0.002114539,
+      "cumulative_s": 2.5820632910000003
+    },
+    {
+      "function": "tools/resolved/client.py:ping",
+      "calls": 26,
+      "own_s": 0.000495458,
+      "cumulative_s": 0.024691920000000003
+    },
+    {
+      "function": "tools/timeline_ingest.py:snapshot_timeline",
+      "calls": 3,
+      "own_s": 7.87991532,
+      "cumulative_s": 10.641365292000001
+    },
+    {
+      "function": "tools/marker_routing.py:route_project",
+      "calls": 1,
+      "own_s": 0.12127784700000001,
+      "cumulative_s": 33.92569325
+    },
+    {
+      "function": "tools/project_model_store.py:load_project_model",
+      "calls": 1,
+      "own_s": 0.402930581,
+      "cumulative_s": 33.591580875000005
+    }
+  ],
+  "ledger_spans": {
+    "resolve_wait": {
+      "rows": 12,
+      "wall_s": 2.587
+    },
+    "resolve_hold": {
+      "rows": 12,
+      "wall_s": 63.483
+    },
+    "reel_build_survey": {
+      "rows": 1,
+      "wall_s": 199.106
+    },
+    "ffmpeg_encode": {
+      "rows": 22,
+      "wall_s": 11.389000000000001
+    }
+  },
+  "native_verify": {
+    "before": [
+      {
+        "items": 1000,
+        "wall_s": 0.012514542002463713,
+        "cpu_s": 0.012008000000000005,
+        "failures": 0
+      },
+      {
+        "items": 10000,
+        "wall_s": 1.1150777080038097,
+        "cpu_s": 1.062171,
+        "failures": 0
+      }
+    ],
+    "indexed-debug": [
+      {
+        "items": 1000,
+        "wall_s": 0.009333791997050866,
+        "cpu_s": 0.007068999999999999,
+        "failures": 0
+      },
+      {
+        "items": 10000,
+        "wall_s": 0.041906999991624616,
+        "cpu_s": 0.041395,
+        "failures": 0
+      }
+    ],
+    "after": [
+      {
+        "items": 1000,
+        "wall_s": 0.0024026669998420402,
+        "cpu_s": 0.0016570000000000057,
+        "failures": 0
+      },
+      {
+        "items": 10000,
+        "wall_s": 0.007223042004625313,
+        "cpu_s": 0.007216,
+        "failures": 0
+      }
+    ]
+  },
+  "revision_pin": [
+    {
+      "operation": "load_used_for_revision",
+      "revision": 50,
+      "wall_s": 21.475268916998175,
+      "cpu_s": 19.436128
+    },
+    {
+      "operation": "validated_revision_pin",
+      "revision": 50,
+      "wall_s": 0.0002945420128526166,
+      "cpu_s": 0.00029600000000229443
+    },
+    {
+      "operation": "validated_revision_pin",
+      "revision": 50,
+      "wall_s": 9.775000216905028e-05,
+      "cpu_s": 9.799999999771103e-05
+    }
+  ],
+  "live_engine_sha": "2e5499315",
+  "live_placement": {
+    "wall_s": 11.59301699999196,
+    "cpu_s": 5.206049,
+    "placement_check": {
+      "passed": true,
+      "expected_items": 33,
+      "actual_items": 33,
+      "missing": [],
+      "unexpected": [],
+      "broken_links": [],
+      "property_mismatches": [],
+      "repair_attempted": false
+    },
+    "profile": {
+      "timeline_name": "Reel 26 - write-for-the-question-your-customer-ask (rebuild staging)",
+      "recorded_placement_planning_s": 0.726,
+      "counts": {
+        "recorded_items": 33,
+        "deferred_transforms": 27,
+        "recorded_overlay_bins": 28
+      },
+      "deferred_transform_s": 2.758,
+      "ledger_retime_s": 0.0,
+      "grade_s": 0.204,
+      "punch_in_s": 0.626,
+      "transform_overrides_and_replay_s": 1.053,
+      "overlay_sweep_readback_s": 0.099,
+      "linking_s": 0.125,
+      "row_occupancy_cleanup_s": 0.001,
+      "motion_coverage_s": 0.0,
+      "build_reel_timeline_s": 11.572,
+      "unattributed_build_work_s": 6.706
+    },
+    "resolve_api": {
+      "GetUniqueId": {
+        "calls": 1932,
+        "wall_s": 0.19946511481248308,
+        "cpu_s": 0.03976199999998187
+      },
+      "GetName": {
+        "calls": 1562,
+        "wall_s": 0.1469159111729823,
+        "cpu_s": 0.03627300000026423
+      },
+      "GetSetting": {
+        "calls": 512,
+        "wall_s": 0.10466272714256775,
+        "cpu_s": 0.012014000000114322
+      },
+      "GetCurrentTimeline": {
+        "calls": 272,
+        "wall_s": 0.18926629991619848,
+        "cpu_s": 0.0096310000000841
+      },
+      "GetTrackCount": {
+        "calls": 29,
+        "wall_s": 0.09095487598096952,
+        "cpu_s": 0.0008220000000065397
+      },
+      "GetItemListInTrack": {
+        "calls": 108,
+        "wall_s": 0.13387583798612468,
+        "cpu_s": 0.013354000000013855
+      },
+      "GetMediaPoolItem": {
+        "calls": 89,
+        "wall_s": 0.02378913201391697,
+        "cpu_s": 0.0026370000000142113
+      },
+      "GetClipProperty": {
+        "calls": 3867,
+        "wall_s": 1.1820912913244683,
+        "cpu_s": 0.09446200000001426
+      },
+      "GetSourceStartFrame": {
+        "calls": 40,
+        "wall_s": 0.002223332950961776,
+        "cpu_s": 0.0007710000000002992
+      },
+      "GetEnd": {
+        "calls": 162,
+        "wall_s": 0.009503166889771819,
+        "cpu_s": 0.0032630000000182235
+      },
+      "GetStart": {
+        "calls": 715,
+        "wall_s": 0.11252113805676345,
+        "cpu_s": 0.016219999999982804
+      },
+      "GetSourceEndFrame": {
+        "calls": 33,
+        "wall_s": 0.0017106709710787982,
+        "cpu_s": 0.0006410000000087734
+      },
+      "GetSpeed": {
+        "calls": 40,
+        "wall_s": 0.004189087048871443,
+        "cpu_s": 0.0008669999999852962
+      },
+      "GetProperty": {
+        "calls": 104,
+        "wall_s": 0.01803903598920442,
+        "cpu_s": 0.005120000000012226
+      },
+      "GetSourceAudioChannelMapping": {
+        "calls": 3,
+        "wall_s": 0.0005909589963266626,
+        "cpu_s": 0.00015999999999394277
+      },
+      "GetMediaPool": {
+        "calls": 2,
+        "wall_s": 0.001845958991907537,
+        "cpu_s": 7.200000000295859e-05
+      },
+      "CreateEmptyTimeline": {
+        "calls": 1,
+        "wall_s": 0.17663924999942537,
+        "cpu_s": 6.8999999996322e-05
+      },
+      "SetSetting": {
+        "calls": 3,
+        "wall_s": 0.19917204100056551,
+        "cpu_s": 0.0006079999999997199
+      },
+      "SetCurrentTimeline": {
+        "calls": 7,
+        "wall_s": 0.5272341259988025,
+        "cpu_s": 0.0008900000000053865
+      },
+      "AppendToTimeline": {
+        "calls": 4,
+        "wall_s": 0.08946945899515413,
+        "cpu_s": 0.006455999999992912
+      },
+      "SetProperty": {
+        "calls": 108,
+        "wall_s": 0.16634070908185095,
+        "cpu_s": 0.005283000000048332
+      },
+      "DeleteClips": {
+        "calls": 1,
+        "wall_s": 0.0028845000051660463,
+        "cpu_s": 7.700000000454565e-05
+      },
+      "GetMarkers": {
+        "calls": 2,
+        "wall_s": 9.7207012004219e-05,
+        "cpu_s": 3.4999999989793196e-05
+      },
+      "GetDuration": {
+        "calls": 5,
+        "wall_s": 0.0005147079937160015,
+        "cpu_s": 0.0001469999999983429
+      },
+      "GetLeftOffset": {
+        "calls": 33,
+        "wall_s": 0.0017076239892048761,
+        "cpu_s": 0.0006629999999816505
+      },
+      "GetClipEnabled": {
+        "calls": 3,
+        "wall_s": 0.00018975000421050936,
+        "cpu_s": 8.000000000407681e-05
+      },
+      "GetNodeGraph": {
+        "calls": 9,
+        "wall_s": 0.023686417960561812,
+        "cpu_s": 0.0006870000000063214
+      },
+      "GetNumNodes": {
+        "calls": 6,
+        "wall_s": 0.002832041005603969,
+        "cpu_s": 0.00032700000000573937
+      },
+      "GetRootFolder": {
+        "calls": 28,
+        "wall_s": 0.06224100003601052,
+        "cpu_s": 0.001681000000012034
+      },
+      "GetClipList": {
+        "calls": 160,
+        "wall_s": 0.037547623869613744,
+        "cpu_s": 0.018276999999969235
+      },
+      "GetSubFolderList": {
+        "calls": 211,
+        "wall_s": 0.02513675793306902,
+        "cpu_s": 0.012302000000005364
+      },
+      "GetCurrentFolder": {
+        "calls": 26,
+        "wall_s": 0.0643630429985933,
+        "cpu_s": 0.001086999999984073
+      },
+      "SetCurrentFolder": {
+        "calls": 52,
+        "wall_s": 0.7229219180007931,
+        "cpu_s": 0.002760000000016305
+      },
+      "AddTrack": {
+        "calls": 7,
+        "wall_s": 0.022998499989625998,
+        "cpu_s": 0.00021600000000887576
+      },
+      "SetTrackName": {
+        "calls": 9,
+        "wall_s": 0.06592700000328477,
+        "cpu_s": 0.00029900000001958915
+      },
+      "SetClipProperty": {
+        "calls": 53,
+        "wall_s": 0.7162952510698233,
+        "cpu_s": 0.004494000000015319
+      },
+      "AddSubFolder": {
+        "calls": 2,
+        "wall_s": 0.00556720799067989,
+        "cpu_s": 0.0001529999999974052
+      },
+      "ImportMedia": {
+        "calls": 25,
+        "wall_s": 0.4125950849702349,
+        "cpu_s": 0.006208999999998355
+      },
+      "GetUserPreferencesPresetList": {
+        "calls": 6,
+        "wall_s": 0.0007774179830448702,
+        "cpu_s": 0.000309000000001447
+      },
+      "SaveUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.005000833029043861,
+        "cpu_s": 0.0002420000000000755
+      },
+      "ExportUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.003127208023215644,
+        "cpu_s": 0.00045100000000530827
+      },
+      "ImportUserPreferencesPreset": {
+        "calls": 2,
+        "wall_s": 0.004477332986425608,
+        "cpu_s": 0.000171000000008803
+      },
+      "LoadUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.015582918000291102,
+        "cpu_s": 0.00024500000000671207
+      },
+      "DeleteUserPreferencesPreset": {
+        "calls": 6,
+        "wall_s": 0.0038617920072283596,
+        "cpu_s": 0.00026400000000137425
+      },
+      "SetSpeed": {
+        "calls": 1,
+        "wall_s": 0.004620249994331971,
+        "cpu_s": 5.199999999661031e-05
+      },
+      "ApplyGradeFromDRX": {
+        "calls": 3,
+        "wall_s": 0.14480808399093803,
+        "cpu_s": 0.0001790000000028158
+      },
+      "GetNodeLabel": {
+        "calls": 6,
+        "wall_s": 0.008500250012730248,
+        "cpu_s": 0.00024700000000166256
+      },
+      "SetCDL": {
+        "calls": 3,
+        "wall_s": 0.0015558330051135272,
+        "cpu_s": 0.00012900000000115597
+      },
+      "CopyGrades": {
+        "calls": 1,
+        "wall_s": 0.005599541997071356,
+        "cpu_s": 0.00010400000000032605
+      },
+      "SetClipsLinked": {
+        "calls": 2,
+        "wall_s": 0.0025854999985313043,
+        "cpu_s": 0.00011400000000350019
+      },
+      "GetLinkedItems": {
+        "calls": 59,
+        "wall_s": 0.012438419958925806,
+        "cpu_s": 0.007384999999985098
+      }
+    }
+  },
+  "main_patch_comparison": [
+    {
+      "phase": "incremental_lower_third",
+      "wall_s": 0.8364638749917503,
+      "cpu_s": 0.06606799999999424,
+      "resolve_api": {
+        "GetUniqueId": {
+          "calls": 81,
+          "wall_s": 0.04784412297885865,
+          "cpu_s": 0.0020419999999461425
+        },
+        "GetName": {
+          "calls": 106,
+          "wall_s": 0.0803332509676693,
+          "cpu_s": 0.002393999999988239
+        },
+        "GetSetting": {
+          "calls": 6,
+          "wall_s": 0.008278207984403707,
+          "cpu_s": 0.00019099999998672956
+        },
+        "GetTimelineCount": {
+          "calls": 1,
+          "wall_s": 0.0004121659876545891,
+          "cpu_s": 6.599999999679085e-05
+        },
+        "GetTimelineByIndex": {
+          "calls": 34,
+          "wall_s": 0.002214746957179159,
+          "cpu_s": 0.0008039999999880365
+        },
+        "GetCurrentTimeline": {
+          "calls": 7,
+          "wall_s": 0.0952341260126559,
+          "cpu_s": 0.0006580000000013797
+        },
+        "GetTrackCount": {
+          "calls": 4,
+          "wall_s": 0.00040195802284870297,
+          "cpu_s": 0.00011099999999686361
+        },
+        "GetTrackName": {
+          "calls": 18,
+          "wall_s": 0.0011082879937021062,
+          "cpu_s": 0.0004100000000235582
+        },
+        "GetItemListInTrack": {
+          "calls": 18,
+          "wall_s": 0.0019125409744447097,
+          "cpu_s": 0.0009510000000005903
+        },
+        "GetMediaPoolItem": {
+          "calls": 66,
+          "wall_s": 0.004260627989424393,
+          "cpu_s": 0.0017849999999555166
+        },
+        "GetClipProperty": {
+          "calls": 198,
+          "wall_s": 0.011779171822126955,
+          "cpu_s": 0.004076000000040381
+        },
+        "GetSourceStartFrame": {
+          "calls": 198,
+          "wall_s": 0.010351950128097087,
+          "cpu_s": 0.0038449999999272677
+        },
+        "GetEnd": {
+          "calls": 132,
+          "wall_s": 0.0066547099413583055,
+          "cpu_s": 0.0025030000000185737
+        },
+        "GetStart": {
+          "calls": 132,
+          "wall_s": 0.006638376857154071,
+          "cpu_s": 0.002514999999981171
+        },
+        "GetSourceEndFrame": {
+          "calls": 66,
+          "wall_s": 0.0033545840269653127,
+          "cpu_s": 0.0012220000000198183
+        },
+        "GetSpeed": {
+          "calls": 66,
+          "wall_s": 0.003582083125365898,
+          "cpu_s": 0.0013989999999921565
+        },
+        "GetProperty": {
+          "calls": 66,
+          "wall_s": 0.007550413909484632,
+          "cpu_s": 0.002836000000002059
+        },
+        "GetStartFrame": {
+          "calls": 2,
+          "wall_s": 0.00010045798262581229,
+          "cpu_s": 3.400000000652881e-05
+        },
+        "GetEndFrame": {
+          "calls": 2,
+          "wall_s": 0.00010295800166204572,
+          "cpu_s": 4.7999999999603915e-05
+        },
+        "SetCurrentTimeline": {
+          "calls": 5,
+          "wall_s": 0.37293795801815577,
+          "cpu_s": 0.0003969999999995366
+        },
+        "DuplicateTimeline": {
+          "calls": 1,
+          "wall_s": 0.10924316599266604,
+          "cpu_s": 0.00012300000000209366
+        }
+      }
+    },
+    {
+      "phase": "main_first_placement_patch",
+      "wall_s": 149.56719004099432,
+      "cpu_s": 146.203057,
+      "resolve_api": {
+        "GetUniqueId": {
+          "calls": 107,
+          "wall_s": 0.036915339005645365,
+          "cpu_s": 0.0030740000000406553
+        },
+        "GetName": {
+          "calls": 24,
+          "wall_s": 0.0030974559776950628,
+          "cpu_s": 0.0009319999999846118
+        },
+        "GetSetting": {
+          "calls": 12,
+          "wall_s": 0.0012693750177277252,
+          "cpu_s": 0.0004050000000148657
+        },
+        "GetCurrentTimeline": {
+          "calls": 8,
+          "wall_s": 0.15024795600038487,
+          "cpu_s": 0.0010749999999717375
+        },
+        "GetTrackCount": {
+          "calls": 20,
+          "wall_s": 0.00916637601039838,
+          "cpu_s": 0.0007130000000046266
+        },
+        "GetTrackName": {
+          "calls": 36,
+          "wall_s": 0.019096503994660452,
+          "cpu_s": 0.001245000000011487
+        },
+        "GetItemListInTrack": {
+          "calls": 90,
+          "wall_s": 0.017690380962449126,
+          "cpu_s": 0.0030109999999723414
+        },
+        "GetMediaPoolItem": {
+          "calls": 5,
+          "wall_s": 0.00043837599514517933,
+          "cpu_s": 0.00015700000000151704
+        },
+        "GetClipProperty": {
+          "calls": 6,
+          "wall_s": 0.0006009599746903405,
+          "cpu_s": 0.00019099999998672956
+        },
+        "GetSourceStartFrame": {
+          "calls": 1,
+          "wall_s": 8.008300210349262e-05,
+          "cpu_s": 2.099999998961266e-05
+        },
+        "GetEnd": {
+          "calls": 2,
+          "wall_s": 0.00015058300050441176,
+          "cpu_s": 4.100000001017179e-05
+        },
+        "GetStart": {
+          "calls": 2,
+          "wall_s": 0.00015291698218788952,
+          "cpu_s": 4.400000001680837e-05
+        },
+        "GetSourceEndFrame": {
+          "calls": 1,
+          "wall_s": 8.687500667292625e-05,
+          "cpu_s": 2.7000000002885827e-05
+        },
+        "GetSpeed": {
+          "calls": 1,
+          "wall_s": 9.495799895375967e-05,
+          "cpu_s": 2.4999999993724487e-05
+        },
+        "GetProperty": {
+          "calls": 1,
+          "wall_s": 0.0001825420040404424,
+          "cpu_s": 5.2999999994085556e-05
+        },
+        "GetStartFrame": {
+          "calls": 3,
+          "wall_s": 0.00021791699691675603,
+          "cpu_s": 5.899999999314787e-05
+        },
+        "GetEndFrame": {
+          "calls": 3,
+          "wall_s": 0.0002455000067129731,
+          "cpu_s": 8.900000001688113e-05
+        },
+        "GetMediaPool": {
+          "calls": 1,
+          "wall_s": 0.00010504199599381536,
+          "cpu_s": 3.8000000003535206e-05
+        },
+        "SetCurrentTimeline": {
+          "calls": 3,
+          "wall_s": 0.37286304200824816,
+          "cpu_s": 0.0011159999999819092
+        },
+        "AppendToTimeline": {
+          "calls": 1,
+          "wall_s": 0.005230499999015592,
+          "cpu_s": 0.00016499999999552983
+        },
+        "GetMarkers": {
+          "calls": 9,
+          "wall_s": 0.0008500399999320507,
+          "cpu_s": 0.00026800000000548607
+        },
+        "GetDuration": {
+          "calls": 2,
+          "wall_s": 0.00016012600099202245,
+          "cpu_s": 5.400000000577165e-05
+        },
+        "GetMediaId": {
+          "calls": 1,
+          "wall_s": 8.266700024250895e-05,
+          "cpu_s": 3.2000000004472895e-05
+        },
+        "GetFusionCompNameList": {
+          "calls": 1,
+          "wall_s": 7.958400237839669e-05,
+          "cpu_s": 2.2999999998774e-05
+        },
+        "GetLeftOffset": {
+          "calls": 3,
+          "wall_s": 0.0002344170061405748,
+          "cpu_s": 6.399999999473494e-05
+        },
+        "GetRightOffset": {
+          "calls": 1,
+          "wall_s": 8.012499893084168e-05,
+          "cpu_s": 2.2999999998774e-05
+        },
+        "GetClipColor": {
+          "calls": 2,
+          "wall_s": 0.00015083400649018586,
+          "cpu_s": 4.200000000764703e-05
+        },
+        "GetFlagList": {
+          "calls": 2,
+          "wall_s": 0.00014141699648462236,
+          "cpu_s": 4.0000000012696546e-05
+        },
+        "GetClipEnabled": {
+          "calls": 1,
+          "wall_s": 7.824999920558184e-05,
+          "cpu_s": 2.2999999998774e-05
+        },
+        "GetFusionCompCount": {
+          "calls": 2,
+          "wall_s": 0.0001526249834569171,
+          "cpu_s": 4.9000000004184585e-05
+        },
+        "GetColorGroup": {
+          "calls": 1,
+          "wall_s": 8.937501115724444e-05,
+          "cpu_s": 3.299999998773728e-05
+        },
+        "GetNodeGraph": {
+          "calls": 1,
+          "wall_s": 0.0002593749959487468,
+          "cpu_s": 2.9999999995311555e-05
+        },
+        "GetNumNodes": {
+          "calls": 1,
+          "wall_s": 9.370800398755819e-05,
+          "cpu_s": 2.2999999998774e-05
+        },
+        "GetLUT": {
+          "calls": 1,
+          "wall_s": 0.00013233300705906004,
+          "cpu_s": 2.1000000003823516e-05
+        },
+        "GetRootFolder": {
+          "calls": 1,
+          "wall_s": 0.00010099999781232327,
+          "cpu_s": 3.8000000003535206e-05
+        },
+        "GetClipList": {
+          "calls": 82,
+          "wall_s": 0.02093975395837333,
+          "cpu_s": 0.00996500000005085
+        },
+        "GetSubFolderList": {
+          "calls": 81,
+          "wall_s": 0.007221295993076637,
+          "cpu_s": 0.002382999999994695
+        }
+      }
+    }
+  ],
+  "main_card_parity": {
+    "passed": true,
+    "main_items": 1,
+    "new_items": 1
+  },
+  "fixture": "Frozen 33-item Reel 26 in an APFS project clone and Ren Scratch - exec deep; supported lower-third declaration with two already-rendered source assets; no approved live timeline written.",
+  "limits": [
+    "Full-build and main-patch timings include cProfile and API instrumentation; the final quick-edit timing uses the API wrapper without cProfile.",
+    "The controlled main comparison executes one real placement patch using frozen main Python sources in the same process and current native extension; it stops after that patch. It is not a completed full main build.",
+    "Main rejected the current lower-third construction/animation fields, so this is a frozen supported fixture, not a claim about the latest artwork branch.",
+    "The initial incremental attempt refused the hold. The final recorded quick edit passed 33/33; a fresh full-versus-incremental build with held source frames/speed/header is separately covered by deterministic tests."
+  ],
+  "final_quick_edit": {
+    "wall_s": 3.1776841249957215,
+    "cpu_s": 0.7378879999999981,
+    "passed": true,
+    "actual_items": 33,
+    "expected_items": 33,
+    "placement_check": {
+      "passed": true,
+      "repair_attempted": false
+    },
+    "resolve_api": {
+      "GetCurrentTimeline": {
+        "calls": 284,
+        "wall_s": 0.2014484078681562,
+        "cpu_s": 0.009307000001172128
+      },
+      "GetUniqueId": {
+        "calls": 1478,
+        "wall_s": 0.15467248939967249,
+        "cpu_s": 0.03598199999817098
+      },
+      "SetCurrentTimeline": {
+        "calls": 9,
+        "wall_s": 0.7141552899993258,
+        "cpu_s": 0.0006469999998444109
+      },
+      "GetName": {
+        "calls": 672,
+        "wall_s": 0.1295585449988721,
+        "cpu_s": 0.017058999998994295
+      },
+      "GetSetting": {
+        "calls": 529,
+        "wall_s": 0.0537875487934798,
+        "cpu_s": 0.014544999999884567
+      },
+      "GetTrackCount": {
+        "calls": 8,
+        "wall_s": 0.000714164023520425,
+        "cpu_s": 0.0002420000005258771
+      },
+      "GetTrackName": {
+        "calls": 36,
+        "wall_s": 0.029782913989038207,
+        "cpu_s": 0.0011740000003328532
+      },
+      "GetItemListInTrack": {
+        "calls": 84,
+        "wall_s": 0.047814831996220164,
+        "cpu_s": 0.0038269999997737614
+      },
+      "GetMediaPoolItem": {
+        "calls": 181,
+        "wall_s": 0.014892043982399628,
+        "cpu_s": 0.004397000000381013
+      },
+      "GetClipProperty": {
+        "calls": 2179,
+        "wall_s": 0.23584116448182613,
+        "cpu_s": 0.045799000002148205
+      },
+      "GetSourceStartFrame": {
+        "calls": 205,
+        "wall_s": 0.010318212924175896,
+        "cpu_s": 0.0033020000000760774
+      },
+      "GetEnd": {
+        "calls": 547,
+        "wall_s": 0.04779924495960586,
+        "cpu_s": 0.01337000000023636
+      },
+      "GetStart": {
+        "calls": 580,
+        "wall_s": 0.0713082058209693,
+        "cpu_s": 0.014490999999679843
+      },
+      "GetSourceEndFrame": {
+        "calls": 66,
+        "wall_s": 0.0033198269666172564,
+        "cpu_s": 0.0010429999991856675
+      },
+      "GetSpeed": {
+        "calls": 73,
+        "wall_s": 0.0037547059764619917,
+        "cpu_s": 0.001312999999981912
+      },
+      "GetProperty": {
+        "calls": 140,
+        "wall_s": 0.018835334107279778,
+        "cpu_s": 0.0056150000000343425
+      },
+      "GetStartFrame": {
+        "calls": 2,
+        "wall_s": 8.912499470170587e-05,
+        "cpu_s": 3.500000002532033e-05
+      },
+      "GetEndFrame": {
+        "calls": 2,
+        "wall_s": 8.841599628794938e-05,
+        "cpu_s": 3.399999991415825e-05
+      },
+      "GetTimelineCount": {
+        "calls": 1,
+        "wall_s": 6.44999963697046e-05,
+        "cpu_s": 2.4999999936881068e-05
+      },
+      "GetTimelineByIndex": {
+        "calls": 35,
+        "wall_s": 0.0018443740555085242,
+        "cpu_s": 0.0005979999997407504
+      },
+      "DuplicateTimeline": {
+        "calls": 1,
+        "wall_s": 0.12194958399049938,
+        "cpu_s": 0.00016100000004826143
+      },
+      "GetMediaPool": {
+        "calls": 1,
+        "wall_s": 8.012499893084168e-05,
+        "cpu_s": 2.599999993435631e-05
+      },
+      "DeleteClips": {
+        "calls": 1,
+        "wall_s": 0.0019049160036956891,
+        "cpu_s": 0.00011199999994460086
+      },
+      "GetRootFolder": {
+        "calls": 1,
+        "wall_s": 0.004568500007735565,
+        "cpu_s": 7.700000003296736e-05
+      },
+      "GetClipList": {
+        "calls": 82,
+        "wall_s": 0.0240084620018024,
+        "cpu_s": 0.0072760000001608205
+      },
+      "GetSubFolderList": {
+        "calls": 82,
+        "wall_s": 0.005865210056072101,
+        "cpu_s": 0.0022389999998040366
+      },
+      "SetClipProperty": {
+        "calls": 4,
+        "wall_s": 0.0601621670066379,
+        "cpu_s": 0.0004590000000916916
+      },
+      "AppendToTimeline": {
+        "calls": 2,
+        "wall_s": 0.049020292004570365,
+        "cpu_s": 0.0002919999999448919
+      },
+      "SetProperty": {
+        "calls": 33,
+        "wall_s": 0.07666937795875128,
+        "cpu_s": 0.0020449999994980317
+      },
+      "GetNodeGraph": {
+        "calls": 9,
+        "wall_s": 0.0455224570032442,
+        "cpu_s": 0.0008269999999583888
+      },
+      "ApplyGradeFromDRX": {
+        "calls": 3,
+        "wall_s": 0.15424458400229923,
+        "cpu_s": 0.00033700000017233833
+      },
+      "GetNumNodes": {
+        "calls": 6,
+        "wall_s": 0.0343835409876192,
+        "cpu_s": 0.0005869999998822095
+      },
+      "GetNodeLabel": {
+        "calls": 6,
+        "wall_s": 0.0009586660016793758,
+        "cpu_s": 0.0002569999998058847
+      },
+      "SetCDL": {
+        "calls": 3,
+        "wall_s": 0.0017031669995049015,
+        "cpu_s": 0.0001790000000028158
+      },
+      "CopyGrades": {
+        "calls": 1,
+        "wall_s": 0.0020837079937336966,
+        "cpu_s": 0.0001059999999597494
+      },
+      "SetClipsLinked": {
+        "calls": 2,
+        "wall_s": 0.002772291991277598,
+        "cpu_s": 0.00010999999994965037
+      },
+      "GetLinkedItems": {
+        "calls": 26,
+        "wall_s": 0.002840042012394406,
+        "cpu_s": 0.0011179999997921186
+      },
+      "GetClipEnabled": {
+        "calls": 3,
+        "wall_s": 0.0001982079993467778,
+        "cpu_s": 7.80000000304426e-05
+      }
+    },
+    "engine_sha": "f2ff21054",
+    "fixture": "two MOV lower thirds remuxed without changing decoded frames; unchanged native hold, header, cards, footage and captions",
+    "parity_reference": "complete 33-item full placement with only the two declared source paths replaced; canonical windows, spans, rows, transforms and links matched",
+    "recorded_job_inventory_guard_passed": true
+  },
+  "final_full_placement": {
+    "wall_s": 11.43336216598982,
+    "cpu_s": 5.959483999999996,
+    "placement_check": {
+      "passed": true,
+      "media_errors": [],
+      "expected_items": 33,
+      "actual_items": 33,
+      "missing": [],
+      "unexpected": [],
+      "broken_links": [],
+      "property_mismatches": [],
+      "repair_attempted": false
+    },
+    "profile": {
+      "timeline_name": "Reel 26 - write-for-the-question-your-customer-ask (rebuild staging)",
+      "recorded_placement_planning_s": 0.835,
+      "counts": {
+        "recorded_items": 33,
+        "deferred_transforms": 27,
+        "recorded_overlay_bins": 28
+      },
+      "deferred_transform_s": 3.481,
+      "ledger_retime_s": 0.001,
+      "grade_s": 0.207,
+      "punch_in_s": 0.636,
+      "transform_overrides_and_replay_s": 1.051,
+      "overlay_sweep_readback_s": 0.197,
+      "linking_s": 0.188,
+      "row_occupancy_cleanup_s": 0.0,
+      "motion_coverage_s": 0.0,
+      "build_reel_timeline_s": 11.422,
+      "unattributed_build_work_s": 5.661
+    },
+    "resolve_api": {
+      "GetUniqueId": {
+        "calls": 1932,
+        "wall_s": 0.26243108295602724,
+        "cpu_s": 0.05767900000033421
+      },
+      "GetName": {
+        "calls": 528,
+        "wall_s": 0.0856789160752669,
+        "cpu_s": 0.01609399999966854
+      },
+      "GetSetting": {
+        "calls": 512,
+        "wall_s": 0.11189825194014702,
+        "cpu_s": 0.017231000000222707
+      },
+      "GetCurrentTimeline": {
+        "calls": 272,
+        "wall_s": 0.17735154298134148,
+        "cpu_s": 0.014075999999917599
+      },
+      "GetTrackCount": {
+        "calls": 25,
+        "wall_s": 0.010389957984443754,
+        "cpu_s": 0.0007209999999702177
+      },
+      "GetItemListInTrack": {
+        "calls": 90,
+        "wall_s": 0.05910763016436249,
+        "cpu_s": 0.019350999999915075
+      },
+      "GetMediaPoolItem": {
+        "calls": 56,
+        "wall_s": 0.007778087005135603,
+        "cpu_s": 0.0024420000000304753
+      },
+      "GetClipProperty": {
+        "calls": 2121,
+        "wall_s": 1.0963907070836285,
+        "cpu_s": 0.0624209999998655
+      },
+      "GetSourceStartFrame": {
+        "calls": 40,
+        "wall_s": 0.003728999989107251,
+        "cpu_s": 0.00111599999999612
+      },
+      "GetEnd": {
+        "calls": 162,
+        "wall_s": 0.02177300395851489,
+        "cpu_s": 0.004983000000052584
+      },
+      "GetStart": {
+        "calls": 715,
+        "wall_s": 0.13479017514328007,
+        "cpu_s": 0.022872999999904664
+      },
+      "GetSourceEndFrame": {
+        "calls": 33,
+        "wall_s": 0.003274583999882452,
+        "cpu_s": 0.001024999999927445
+      },
+      "GetSpeed": {
+        "calls": 40,
+        "wall_s": 0.004564377071801573,
+        "cpu_s": 0.001309999999918432
+      },
+      "GetProperty": {
+        "calls": 104,
+        "wall_s": 0.02800479205325246,
+        "cpu_s": 0.007189000000082046
+      },
+      "GetSourceAudioChannelMapping": {
+        "calls": 3,
+        "wall_s": 0.0005602500023087487,
+        "cpu_s": 0.00015199999998571911
+      },
+      "GetMediaPool": {
+        "calls": 2,
+        "wall_s": 0.0004508339916355908,
+        "cpu_s": 9.399999999715192e-05
+      },
+      "CreateEmptyTimeline": {
+        "calls": 1,
+        "wall_s": 0.11719920800533146,
+        "cpu_s": 8.300000000360797e-05
+      },
+      "SetSetting": {
+        "calls": 3,
+        "wall_s": 0.10602533297787886,
+        "cpu_s": 0.0007619999999803895
+      },
+      "SetCurrentTimeline": {
+        "calls": 7,
+        "wall_s": 0.5699775829998543,
+        "cpu_s": 0.0008140000000054215
+      },
+      "AppendToTimeline": {
+        "calls": 4,
+        "wall_s": 0.09051158299553208,
+        "cpu_s": 0.0013630000000119935
+      },
+      "SetProperty": {
+        "calls": 108,
+        "wall_s": 0.16016083692375105,
+        "cpu_s": 0.006290000000049645
+      },
+      "DeleteClips": {
+        "calls": 1,
+        "wall_s": 0.0029312499973457307,
+        "cpu_s": 7.500000000959517e-05
+      },
+      "GetMarkers": {
+        "calls": 2,
+        "wall_s": 0.002568124997196719,
+        "cpu_s": 4.100000000306636e-05
+      },
+      "GetDuration": {
+        "calls": 5,
+        "wall_s": 0.0005642090400215238,
+        "cpu_s": 0.00019700000000000273
+      },
+      "GetLeftOffset": {
+        "calls": 33,
+        "wall_s": 0.002980793942697346,
+        "cpu_s": 0.0009480000000081645
+      },
+      "GetClipEnabled": {
+        "calls": 3,
+        "wall_s": 0.00015233299927785993,
+        "cpu_s": 5.2999999994085556e-05
+      },
+      "GetNodeGraph": {
+        "calls": 9,
+        "wall_s": 0.023142876001656987,
+        "cpu_s": 0.0009390000000024656
+      },
+      "GetNumNodes": {
+        "calls": 6,
+        "wall_s": 0.02462066599400714,
+        "cpu_s": 0.00047299999998529074
+      },
+      "GetRootFolder": {
+        "calls": 2,
+        "wall_s": 0.00038029099232517183,
+        "cpu_s": 8.000000001118224e-05
+      },
+      "GetSubFolderList": {
+        "calls": 83,
+        "wall_s": 0.005632791988318786,
+        "cpu_s": 0.0024470000000036407
+      },
+      "GetClipList": {
+        "calls": 82,
+        "wall_s": 0.025192338012857363,
+        "cpu_s": 0.01460499999996756
+      },
+      "GetCurrentFolder": {
+        "calls": 1,
+        "wall_s": 0.0001180420076707378,
+        "cpu_s": 3.499999999689862e-05
+      },
+      "SetCurrentFolder": {
+        "calls": 2,
+        "wall_s": 0.05311179198906757,
+        "cpu_s": 0.00010999999999228294
+      },
+      "AddTrack": {
+        "calls": 7,
+        "wall_s": 0.023302334011532366,
+        "cpu_s": 0.00030400000002828165
+      },
+      "SetTrackName": {
+        "calls": 9,
+        "wall_s": 0.0029897910280851647,
+        "cpu_s": 0.00028600000001688386
+      },
+      "SetClipProperty": {
+        "calls": 53,
+        "wall_s": 0.6407268769689836,
+        "cpu_s": 0.005473000000023376
+      },
+      "GetUserPreferencesPresetList": {
+        "calls": 6,
+        "wall_s": 0.0009361659904243425,
+        "cpu_s": 0.0003379999999992833
+      },
+      "SaveUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.016374250990338624,
+        "cpu_s": 0.0003849999999800957
+      },
+      "ExportUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.0043507079826667905,
+        "cpu_s": 0.0002780000000086602
+      },
+      "ImportUserPreferencesPreset": {
+        "calls": 2,
+        "wall_s": 0.005814541989821009,
+        "cpu_s": 0.0002000000000066393
+      },
+      "LoadUserPreferencesPreset": {
+        "calls": 4,
+        "wall_s": 0.017136499998741783,
+        "cpu_s": 0.0004069999999956053
+      },
+      "DeleteUserPreferencesPreset": {
+        "calls": 6,
+        "wall_s": 0.004603167006280273,
+        "cpu_s": 0.0003800000000211412
+      },
+      "SetSpeed": {
+        "calls": 1,
+        "wall_s": 0.00422308300039731,
+        "cpu_s": 6.199999999978445e-05
+      },
+      "ApplyGradeFromDRX": {
+        "calls": 3,
+        "wall_s": 0.14516174999880604,
+        "cpu_s": 0.0002510000000057744
+      },
+      "GetNodeLabel": {
+        "calls": 6,
+        "wall_s": 0.002098293000017293,
+        "cpu_s": 0.0002909999999900492
+      },
+      "SetCDL": {
+        "calls": 3,
+        "wall_s": 0.0016863329947227612,
+        "cpu_s": 0.00014500000001760327
+      },
+      "CopyGrades": {
+        "calls": 1,
+        "wall_s": 0.007923625002149493,
+        "cpu_s": 0.00013400000000274304
+      },
+      "SetClipsLinked": {
+        "calls": 2,
+        "wall_s": 0.0032378749892814085,
+        "cpu_s": 0.00032599999998694784
+      },
+      "GetLinkedItems": {
+        "calls": 59,
+        "wall_s": 0.02598958597809542,
+        "cpu_s": 0.014393999999882112
+      }
+    },
+    "engine_sha": "bdd11e4c3"
+  },
+  "final_run": {
+    "engine_sha": "bdd11e4c3",
+    "wall_s": 293.0226532499946,
+    "outcome": "conformance passed 0 errors / 4 warnings; promotion refused carried editor changes on two old lower-third assets; nothing renamed",
+    "includes": "cProfile/API instrumentation, old-staging cleanup, failed comparison name-collision probe; not uninstrumented user latency",
+    "phases": [
+      {
+        "function": "library.tools.reel_build.discard_staged_reels",
+        "wall_s": 14.989851500009536,
+        "cpu_s": 8.233719999999998
+      },
+      {
+        "function": "library.tools.reel_incremental.build_staged_incremental",
+        "error": "IncrementalRefused('the final drifted since its build (or its record is gone) - only the full rebuild restores it')",
+        "wall_s": 0.3526282499951776,
+        "cpu_s": 0.04380899999999599
+      },
+      {
+        "function": "library.tools.reel_incremental.build_staged_incremental",
+        "error": "IncrementalRefused('the staging copy did not land under its staging name - falling back to the full rebuild')",
+        "wall_s": 0.6559646660025464,
+        "cpu_s": 0.06289600000000917
+      },
+      {
+        "function": "library.tools.reel_build.build_reel_timeline",
+        "status": null,
+        "wall_s": 13.004595207996317,
+        "cpu_s": 6.181671999999999
+      },
+      {
+        "function": "library.tools.project_model_evidence.migrate_project_evidence",
+        "wall_s": 58.26302433300589,
+        "cpu_s": 57.06232799999998
+      },
+      {
+        "function": "library.tools.reel_project_model.maintain_from_build",
+        "status": "committed",
+        "wall_s": 108.53906608300167,
+        "cpu_s": 105.12644999999999
+      },
+      {
+        "function": "library.tools.reel_build.verify_built_reels",
+        "wall_s": 5.017813416008721,
+        "cpu_s": 4.124090999999993
+      },
+      {
+        "function": "library.tools.reel_build.promote_staged_reels",
+        "error": "ReelBuildError(\"REFUSING to promote 1 reel(s): ['Reel 26 - write-for-the-question-your-customer-ask']. Nothing was renamed; the approved timelines are still in the project.\\nREFUSING to replace 'Reel 26 - write-for-the-question-your-customer-ask': the carried edits (editor changes and Ren touch writes) cannot be mapped onto the staged timeline. Nothing was renamed; the live timeline is still in the project.\\n  extend video:Motion Graphics 'mg_geo-podcast_b6d5d24e_tight.mov' source 0..83: staging does not play that passage\\n  extend video:Motion Graphics 'mg_geo-podcast_9c94c2f2.mov' source 0..83: staging does not play that passage\\nTo accept this loss deliberately, pass --accept-editor-changes 'Reel 26 - write-for-the-question-your-customer-ask'.\")",
+        "wall_s": 21.979063750011846,
+        "cpu_s": 17.00341499999999
+      }
+    ],
+    "post_profile_fixes_not_retimed": [
+      "skip Project Model loads when scoped marker pulls contain no notes",
+      "defer pool filing during reclaimed staging replacement"
+    ]
+  },
+  "post_build_costs": {
+    "before_profile": "combined earlier scratch run, 2e5499315",
+    "after_profile": "final normal entry point, bdd11e4c3",
+    "evidence_migration_s": [
+      279.27941075,
+      58.26302433300589
+    ],
+    "model_maintenance_s": [
+      330.742920875,
+      108.53906608300167
+    ],
+    "cross_source_links_s": [
+      163.954,
+      0.212
+    ],
+    "classified_pairs": [
+      2688997,
+      42379
+    ],
+    "longest_shared_run_calls": [
+      2655690,
+      9072
+    ],
+    "source_signal_projection_s": [
+      43.451,
+      0.098
+    ],
+    "speech_face_links_s": [
+      22.625,
+      0.043
+    ],
+    "remaining_schema_validation_s": 77.922,
+    "remaining_actual_model_reads_s": 53.448,
+    "scoped_empty_marker_routing_s_before_followup": 48.852
+  },
+  "restored": {
+    "project": "Podcast (field test)",
+    "timeline": "Reel 26 - write-for-the-question-your-customer-ask",
+    "verified": true,
+    "active_holder": null
+  },
+  "initial_live_incremental": {
+    "passed": false,
+    "error": "IncrementalRefused('a native ending hold is declared - its trace is placement-time evidence a patch cannot reproduce; refusing')",
+    "engine_sha": "2e5499315"
+  }
+}

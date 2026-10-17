@@ -896,7 +896,8 @@ def sweep_placed_audio_many(timeline, plan, before: dict, expectations):
 
 def commit_footage_placements(project, timeline, track_plan, name,
                               video_ops, audio_pairs, *,
-                              project_folder=None, model_revision=None):
+                              project_folder=None, model_revision=None,
+                              append_ops=None):
     """Commit a footage pass in overlap-layered batches, not per clip.
 
     The whole pass used to commit one `clip.insert` patch plus one
@@ -944,6 +945,9 @@ def commit_footage_placements(project, timeline, track_plan, name,
             f"{_hashlib.sha256(material.encode('utf-8')).hexdigest()[:32]}")
 
     def _commit_batch(ops, tag):
+        if append_ops is not None:
+            append_ops(ops)
+            return
         from library.tools import edit_patch
 
         _receipt = edit_patch.apply_live_patch(
@@ -953,7 +957,7 @@ def commit_footage_placements(project, timeline, track_plan, name,
             conflict_domains=("timeline_structure",),
             idempotency_key=_batch_key(ops, tag),
             project_folder=project_folder,
-            model_revision=model_revision)
+            model_revision=None if project_folder else model_revision)
         if _receipt["status"] != "committed":
             raise ReelBuildError(
                 f"{name}: the footage batch {tag} of {len(ops)} "
@@ -1087,7 +1091,8 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
     `OffsetRefused`. In an ordinary build, unmatched items remain
     warnings for the conformance gate to catch.
     """
-    record = {"link_groups": [], "caption_links": [], "warnings": []}
+    record = {"link_groups": [], "caption_links": [], "warnings": [],
+              "planned_groups": []}
     verified_groups: list = []  # each verified call's member items
     declared_offset_links = list(offset_links or [])
     offset_links = list(declared_offset_links)
@@ -1209,6 +1214,7 @@ def link_reel_groups(timeline, plan, offset_links=()) -> dict:
                 f"Speech at {only[0]}-{only[1]} on {row_name} has no "
                 f"picture starting on its frame; left unlinked")
             continue
+        record["planned_groups"].append([_item_uid(item) for item in group])
         try:
             ok = timeline.SetClipsLinked(group, True)
         except Exception as exc:
@@ -1376,6 +1382,8 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
             continue
         if len(items) < 2:
             continue
+        record.setdefault("planned_groups", []).append(
+            [_item_uid(item) for item in items])
         try:
             ok = timeline.SetClipsLinked(items, True)
         except Exception as exc:
@@ -7511,7 +7519,7 @@ def _verify_freeze_tail_after_fusion(project, name: str, freeze,
             item_matches = _freeze_tail_matches(
                 timeline_matches[0], int(expected["track_index"]),
                 int(expected["start_frame"]), int(expected["end_frame"]),
-                freeze.held_from, int(expected["source_start_frame"]),
+                freeze.held_from, freeze.held_source_frame,
                 require_hold=True)
     except Exception as exc:
         error = str(exc)
@@ -7647,7 +7655,7 @@ def _apply_native_hold(name: str, timeline, freeze, row: int,
     start, end = freeze.reel_start_frame, freeze.end_frame
     before = _freeze_tail_matches(
         timeline, row, start, end, freeze.held_from,
-        freeze.held_source_frame)
+        freeze.source_start_frame)
     if len(before) != 1:
         raise ReelBuildError(
             f"{name}: expected one native hold segment from "
@@ -8056,7 +8064,8 @@ class PoolIndex:
     item, so nothing indexed goes stale while it is read.
     """
 
-    def __init__(self, pool):
+    def __init__(self, pool, *, authoritative=False):
+        self.authoritative = authoritative
         self._by_path: dict = {}
         self._by_frame_dir: dict = {}
         self._build(pool)
@@ -8077,6 +8086,12 @@ class PoolIndex:
                 _search(sub)
 
         _search(pool.GetRootFolder())
+
+    def remember(self, filepath, item):
+        items = self._by_path.setdefault(filepath, [])
+        if item not in items:
+            items.append(item)
+        self._by_frame_dir.setdefault(os.path.normpath(os.path.dirname(filepath)), item)
 
     def items_for(self, filepath: str) -> list:
         """`pool_items_for` for *filepath*, from the snapshot walk."""
@@ -8104,7 +8119,7 @@ def pool_items_for(pool, filepath: str, pool_index=None):
     """
     if pool_index is not None:
         found = pool_index.items_for(filepath)
-        if found:
+        if found or pool_index.authoritative:
             return found
         # Another lane may have pooled this after the snapshot was
         # taken: a miss is verified live rather than read as absent,
@@ -8350,6 +8365,8 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
 
         if item is not None:
             apply_clip_attributes(item, filepath)
+            if pool_index is not None:
+                pool_index.remember(filepath, item)
         return item
 
     fresh, stale_record = _fresh_pooled_item(
@@ -8747,7 +8764,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 ReelGraphicsError, assert_tight_alpha,
             )
             try:
-                assert_tight_alpha(segment["overlay_path"])
+                assert_tight_alpha(segment["overlay_path"], tight_box=segment.get("tight_box"))
             except ReelGraphicsError as exc:
                 raise ReelBuildError(f"{name}: {exc}") from exc
         if project_folder:
@@ -8875,7 +8892,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         if sweep_out is not None and canvas is not None:
             held_transform = (_held_transform(
                 placed[0], timeline, project)
-                if isinstance(placed, list) and placed else None)
+                if isinstance(placed, list) and placed
+                and not isinstance(timeline, RecordingTimeline) else None)
             duration_frames = segment.get("total_frames")
             if duration_frames is None:
                 duration_frames = int(round(
@@ -9357,6 +9375,77 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
         subject_measure=subject_measure)
 
 
+def _create_sized_reel_timeline(project, pool, name, track_plan, width, height, fps=None):
+    timeline = create_reel_timeline(pool, name)
+
+    # Sized BEFORE it becomes current. 2026-10-02: these same three
+    # writes on a timeline that had JUST been made current
+    # deadlocked Resolve - the main thread in Fusion's
+    # SyncProjectSettings waiting on a render lock never released
+    # (https://github.com/prajwal-395/video_editing_pilot/pull/1594,
+    # "the timeline-resolution race"; passed 3 times,
+    # hung once). A fresh timeline nothing is rendering yet holds
+    # no render lock, so the settings sync has nothing to contend
+    # with. Each write runs under a deadline, so a hang that still
+    # happens refuses the build by name after the deadline
+    # (`library/tools/resolve_deadline.py`).
+    #
+    # The frame the caller already resolved and every overlay above
+    # was rendered at. Written from `width`/`height` rather than by
+    # literal: a timeline sized differently from the overlays drawn
+    # for it is exactly the 001 defect (a vertical overlay band down
+    # the middle of a landscape master), and the two numbers cannot
+    # disagree if only one of them exists.
+    from library.tools import resolve_deadline as _deadline
+    try:
+        _deadline.apply_timeline_resolution(timeline, width, height)
+    except (_deadline.ResolveCallTimeout,
+            _deadline.ResolutionNotApplied) as exc:
+        raise ReelBuildError(f"{name}: {exc}") from exc
+
+    # Through the guard: this runs inside the per-reel exclusive hold,
+    # and a direct set would bypass the lease refusal and the fence's
+    # drift record. An unleased cursor move killed a sibling lane's
+    # Fusion pass on 2026-09-20.
+    assert_current_timeline(project, timeline)
+
+    # The plan's rows, and only those. A row exists because the plan
+    # put something on it; occupancy is enforced after placement, so
+    # a row whose placements all fail is DELETED, never kept blank.
+    for kind, wanted in (("video", len(track_plan.video_tracks)),
+                         ("audio", len(track_plan.audio_tracks))):
+        while timeline.GetTrackCount(kind) < wanted:
+            before = timeline.GetTrackCount(kind)
+            if not timeline.AddTrack(kind) or timeline.GetTrackCount(kind) <= before:
+                raise ReelBuildError(f"{name}: Resolve declined to add a {kind} row")
+
+    # Names come from the plan, which named them from the material, and
+    # they go on BEFORE placement: a row the plan did not name is an
+    # error, not a fallback, and there is no "Video 1" anywhere
+    # downstream of the plan.
+    for spec in track_plan.video_tracks + track_plan.audio_tracks:
+        if not timeline.SetTrackName(spec.media_type, spec.index,
+                                      spec.name):
+            raise ReelBuildError(
+                f"{name}: Resolve would not name {spec.media_type} row "
+                f"{spec.index} {spec.name!r} - an unnamed row means "
+                f"nothing organised it, so the build stops rather than "
+                f"placing onto defaults.")
+    if fps is not None:
+        # A newly created timeline otherwise inherits the project default,
+        # which need not be the plan's clock.
+        from library.tools.timeline_ingest import exact_frame_rate
+        rate = f"{float(fps):.3f}".rstrip("0").rstrip(".")
+        actual = exact_frame_rate(float(timeline.GetSetting("timelineFrameRate")))
+        if not math.isclose(actual, float(fps), abs_tol=0.001):
+            if not timeline.SetSetting("timelineFrameRate", rate):
+                raise ReelBuildError(f"{name}: Resolve refused the planned frame rate {rate}")
+            actual = exact_frame_rate(float(timeline.GetSetting("timelineFrameRate")))
+            if not math.isclose(actual, float(fps), abs_tol=0.001):
+                raise ReelBuildError(f"{name}: planned frame rate {rate} read back as {actual}")
+    return timeline
+
+
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
                       draw_gain: float = FALLBACK_DRAW_GAIN,
                       edit_ledger_rows=None,
@@ -9570,14 +9659,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                       f"before placement: {exc}", file=sys.stderr)
             else:
                 raise
-    recording = placement_mode == "otio"
+    # Compile the entire plan before native appends too. Unsupported
+    # recorder shapes retain the existing path until their native
+    # carriage is represented (the explicit OTIO route still refuses).
+    from library.tools.reel_append_placement import supports as supports_native_plan
+    native_recording = (placement_mode == "append" and
+                        supports_native_plan(prepared, overlay_placements))
+    recording = placement_mode == "otio" or native_recording
+    placement_expected = None
     pool = project.GetMediaPool()
     # One pool walk for the whole placement pass below, not one per
     # placed file: every footage, card, caption and overlay lookup in
     # this function answers from the snapshot and falls back to a live
     # walk only for a path the snapshot never saw. The recorder needs
     # no pool index - it answers from its own recorded items.
-    pool_index = None if recording else PoolIndex(pool)
+    pool_index = None if recording else PoolIndex(pool, authoritative=True)
     if recording:
         real_pool, pool = pool, _otio.PlacementRecorder(pool)
     profile = pool.profile if recording else None
@@ -9590,59 +9686,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # the compiled document's, read back after it lands.
         timeline = pool.timeline
     else:
-        timeline = create_reel_timeline(pool, name)
-
-        # Sized BEFORE it becomes current. 2026-10-02: these same three
-        # writes on a timeline that had JUST been made current
-        # deadlocked Resolve - the main thread in Fusion's
-        # SyncProjectSettings waiting on a render lock never released
-        # (https://github.com/prajwal-395/video_editing_pilot/pull/1594,
-        # "the timeline-resolution race"; passed 3 times,
-        # hung once). A fresh timeline nothing is rendering yet holds
-        # no render lock, so the settings sync has nothing to contend
-        # with. Each write runs under a deadline, so a hang that still
-        # happens refuses the build by name after the deadline
-        # (`library/tools/resolve_deadline.py`).
-        #
-        # The frame the caller already resolved and every overlay above
-        # was rendered at. Written from `width`/`height` rather than by
-        # literal: a timeline sized differently from the overlays drawn
-        # for it is exactly the 001 defect (a vertical overlay band down
-        # the middle of a landscape master), and the two numbers cannot
-        # disagree if only one of them exists.
-        from library.tools import resolve_deadline as _deadline
-        try:
-            _deadline.apply_timeline_resolution(timeline, width, height)
-        except (_deadline.ResolveCallTimeout,
-                _deadline.ResolutionNotApplied) as exc:
-            raise ReelBuildError(f"{name}: {exc}") from exc
-
-        # Through the guard: this runs inside the per-reel exclusive hold,
-        # and a direct set would bypass the lease refusal and the fence's
-        # drift record. An unleased cursor move killed a sibling lane's
-        # Fusion pass on 2026-09-20.
-        assert_current_timeline(project, timeline)
-
-        # The plan's rows, and only those. A row exists because the plan
-        # put something on it; occupancy is enforced after placement, so
-        # a row whose placements all fail is DELETED, never kept blank.
-        while timeline.GetTrackCount("video") < len(track_plan.video_tracks):
-            timeline.AddTrack("video")
-        while timeline.GetTrackCount("audio") < len(track_plan.audio_tracks):
-            timeline.AddTrack("audio")
-
-        # Names come from the plan, which named them from the material, and
-        # they go on BEFORE placement: a row the plan did not name is an
-        # error, not a fallback, and there is no "Video 1" anywhere
-        # downstream of the plan.
-        for spec in track_plan.video_tracks + track_plan.audio_tracks:
-            if not timeline.SetTrackName(spec.media_type, spec.index,
-                                          spec.name):
-                raise ReelBuildError(
-                    f"{name}: Resolve would not name {spec.media_type} row "
-                    f"{spec.index} {spec.name!r} - an unnamed row means "
-                    f"nothing organised it, so the build stops rather than "
-                    f"placing onto defaults.")
+        timeline = _create_sized_reel_timeline(
+            project, pool, name, track_plan, width, height, fps=fps)
 
     # A span IS the picture for the whole body, so the footage video it
     # replaces is not placed: two pictures on V1 would be an overlap, not
@@ -9715,30 +9760,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # throw away (library/tools/reel_placed_assets.py).
     # Already promoted out of scratch by `prepare_reel_timeline`.
     from library.tools.reel_placed_assets import assert_placeable
-    # The Project Model revision every patch of this pass is planned
-    # against, loaded ONCE: `apply_live_patch` otherwise re-loads (and
-    # re-validates) the whole model per patch - measured 2026-10-17 at
-    # ~10 s per load on the live model, twice per patch, which is the
-    # Ren-CPU half of the per-insert placement stall. The window is one
-    # build's placement pass under its own lease; a revision pinned
-    # here is checked, not re-read, downstream.
-    _pinned_model = {"loaded": False, "revision": None}
-
-    def _model_revision():
-        if not _pinned_model["loaded"]:
-            _pinned_model["loaded"] = True
-            if project_folder:
-                try:
-                    from pathlib import Path as _Path
-
-                    from library.tools import project_model_store
-                    _pinned_model["revision"], _ = (
-                        project_model_store.load_project_model(
-                            _Path(project_folder)))
-                except FileNotFoundError:
-                    _pinned_model["revision"] = None
-        return _pinned_model["revision"]
-
     head_tail_at = 0
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
@@ -9778,28 +9799,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # rate it chose, and `source_frames` is what was measured
         # off the file.
         _card_frames = card.source_frames or card.duration_frames
-        from library.tools import edit_patch
-        _receipt = edit_patch.apply_live_patch(
-            project=project, timeline=timeline, capability="reel.build",
-            operations=[{
-                "op": "clip.insert",
-                "unique_id": f"card:{name}:{card.render_name}",
-                "track_type": "video",
-                "track_index": dest_row,
-                "record_in": card.reel_start_frame,
-                "record_out": card.reel_start_frame + _card_frames,
-                "media_pool_item": str(card_item.GetUniqueId()),
-                "source_in": 0,
-                "source_out": _card_frames,
-            }],
-            conflict_domains=("timeline_structure",),
-            idempotency_key=f"reel-build:{name}:card:{card.render_name}:{dest_row}",
-            project_folder=project_folder,
-            model_revision=_model_revision())
-        if _receipt["status"] != "committed":
-            raise ReelBuildError(
-                f"{name}: the card {card.render_name!r} did not verify: "
-                f"{_receipt}")
+        pool.AppendToTimeline([{
+            "mediaPoolItem": card_item, "startFrame": 0,
+            "endFrame": _card_frames, "mediaType": 1,
+            "trackIndex": dest_row, "recordFrame": card.reel_start_frame,
+        }])
 
     # The footage lookup is `pool_item_for` now, module level, because
     # every import in this module has to ask the same question and a
@@ -9827,6 +9831,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # insert order, so the placed timeline is the same.
     footage_video_ops: list = []
     footage_audio_pairs: list = []
+    footage_pool_items = {}
     for p in placements_list:
         c = p["clip"]
         is_freeze_tail = bool(p.get("freeze"))
@@ -9876,7 +9881,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         source_start_frame, source_end_frame = _resolve_source_frame_span(
             p["source_in"], appended_out, pool_fps)
         if is_freeze_tail:
-            source_start_frame = freeze_tail.held_source_frame
+            source_start_frame = freeze_tail.source_start_frame
             source_end_frame = freeze_tail.source_end_frame
             try:
                 source_frames = int(pool_item.GetClipProperty("Frames") or 0)
@@ -9921,6 +9926,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         else:
             record_duration = int(round(
                 (p["source_out"] - p["source_in"]) * fps))
+        footage_pool_items[str(pool_item.GetUniqueId())] = pool_item
         op = {
             "op": "clip.insert",
             # The track type is part of the identity: one source
@@ -9952,11 +9958,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             }))
 
     if (footage_video_ops or footage_audio_pairs) and not recording:
+        def append_planned_footage(operations):
+            pool.AppendToTimeline([{
+                "mediaPoolItem": footage_pool_items[op["media_pool_item"]],
+                "startFrame": op["source_in"], "endFrame": op["source_out"],
+                "mediaType": 1 if op["track_type"] == "video" else 2,
+                "trackIndex": op["track_index"], "recordFrame": op["record_in"],
+            } for op in operations])
         placement_record = commit_footage_placements(
             project, timeline, track_plan, name,
             footage_video_ops, footage_audio_pairs,
-            project_folder=project_folder,
-            model_revision=_model_revision())
+            append_ops=append_planned_footage)
         build_record["stream_enforcement"]["checked"] += (
             placement_record["checked"])
         build_record["stream_enforcement"]["deleted"].extend(
@@ -10553,15 +10565,22 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "deferred_transforms": len(recorder.timeline.deferred),
             "recorded_overlay_bins": len(recorder.bins),
         }
-        timeline = _otio.import_recorded(
-            project, recorder, name, track_plan, fps, width, height,
-            reel_timeline_bin(name))
-        build_record["stream_enforcement"] = _otio.verify_channels(
-            timeline, recorder)
+        if native_recording:
+            from library.tools.reel_append_placement import append_recorded
+            timeline, enforcement, placement_expected = append_recorded(
+                project, recorder, name, track_plan, fps, width, height,
+                project_folder, resolve_app)
+            build_record["stream_enforcement"] = enforcement
+        else:
+            timeline = _otio.import_recorded(
+                project, recorder, name, track_plan, fps, width, height,
+                reel_timeline_bin(name))
+            build_record["stream_enforcement"] = _otio.verify_channels(
+                timeline, recorder)
         deferred = _otio.run_deferred(
             timeline, recorder, project_folder=project_folder,
             timeline_name=name)
-        print(f"  {name}: placed by ONE OTIO import - "
+        print(f"  {name}: placed by {'compiled native append' if native_recording else 'ONE OTIO import'} - "
               f"{len(recorder.specs)} item(s), {deferred} deferred "
               f"transform(s)", file=sys.stderr)
         _retime_and_grade()
@@ -10705,7 +10724,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     plan_names = {(spec.media_type, spec.index): spec.name
                   for spec in (track_plan.video_tracks
                                + track_plan.audio_tracks)}
-    for media_type in ("video", "audio"):
+    for media_type in (() if placement_expected is not None else ("video", "audio")):
         try:
             count = timeline.GetTrackCount(media_type) or 0
         except Exception:
@@ -10752,7 +10771,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             timeline, int(expected["track_index"]),
             int(expected["start_frame"]),
             int(expected["end_frame"]), freeze_tail.held_from,
-            int(expected["source_start_frame"]), require_hold=True)
+            freeze_tail.held_source_frame, require_hold=True)
         freeze_trace["post_placement"] = {
             "readback_matches": len(found),
             "verified": len(found) == 1,
@@ -10782,6 +10801,54 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     else:
         build_record["motion_coverage"] = []
 
+    if placement_expected is not None:
+        if freeze_tail is not None:
+            for expected_item in placement_expected:
+                if (expected_item["track_type"] == "video"
+                        and expected_item["record_in"] == freeze_tail.reel_start_frame
+                        and expected_item["source_file"] == freeze_tail.held_from):
+                    expected_item["source_in"] = freeze_tail.held_source_frame
+                    expected_item["source_out"] = freeze_tail.held_source_frame + 1
+        from library.tools.overlay_intent import resolve as resolve_placement_intent
+        overlays_by_position = {(entry["track_index"], entry["record_frame"]): entry
+                                for entry in _sweep_records}
+        picture_rows = set(video_row_by_angle.values())
+        for expected_item in placement_expected:
+            entry = overlays_by_position.get((expected_item["track_index"],
+                                               expected_item["record_in"]))
+            if expected_item["track_type"] == "video" and entry is not None:
+                placement, _ = resolve_placement_intent(
+                    entry["kind"], entry["segment_id"], entry["placement"],
+                    overlay_intent, canvas=entry["canvas_wh"],
+                    frame=(width, height), placement_label=entry["placement_label"],
+                    draw_gain=draw_gain)
+                expected_item["properties"].update({
+                    key: placement[field] for field, key in
+                    (("scaling", "Scaling"), ("pan", "Pan"), ("tilt", "Tilt"))
+                    if placement and field in placement})
+            if expected_item["track_type"] == "video" and expected_item["track_index"] in picture_rows:
+                expected_item["requires_full_replay"] = bool(
+                    look or grade_cdl or power_grade or ledger_rows or freeze_tail)
+        from library.tools.reel_append_placement import verify_or_repair
+        placement_check, inventory = verify_or_repair(
+            project, timeline, placement_expected,
+            deleted_tracks=build_record["deleted_empty_tracks"],
+            link_groups=link_record.get("planned_groups", ()),
+            resolve_app=resolve_app, fps=fps, project_folder=project_folder,
+            prune_empty_rows=True)
+        by_position = {(row["track_index"], row["record_in"]): row
+                       for row in inventory if row["track_type"] == "video"}
+        for entry in _sweep_records:
+            held = by_position.get((entry["track_index"], entry["record_frame"]))
+            if held is not None:
+                entry["transform"] = held["transform"]
+                entry["native_position"] = _native_overlay_position(
+                    held["transform"], entry["canvas_wh"],
+                    (width, height), draw_gain)
+        build_record["placement_check"] = placement_check
+        if not placement_check["passed"]:
+            raise ReelBuildError(f"{name}: planned placement differs: {placement_check}")
+
     if profile is not None:
         _otio.record_duration(
             profile, "build_reel_timeline_s", build_total_started,
@@ -10809,7 +10876,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         placements_list, fps=float(fps))
     build_record["overlay_placements"] = [dict(row) for row in _sweep_records]
     from library.tools.reel_otio_placement import RecordingTimeline
-    if resolve_app is not None and not isinstance(timeline, RecordingTimeline):
+    if (resolve_app is not None and placement_expected is None
+            and not isinstance(timeline, RecordingTimeline)):
         from library.tools.reel_graphics import (
             ReelGraphicsError, assert_timeline_media_online,
         )
@@ -12842,7 +12910,7 @@ def _organise_after_refusal(project, project_folder: str,
 def discard_staged_reels(project, project_folder: str,
                           staging_names,
                           master_timeline_name: str | None = None,
-                          expect_holds: bool = True) -> None:
+                          expect_holds: bool = True, organise: bool = True) -> None:
     """Delete refused staging containers and forget their baselines.
 
     The gate-fail path, called before the refusal propagates: the
@@ -12860,6 +12928,10 @@ def discard_staged_reels(project, project_folder: str,
     `None` keeps the old behaviour (discard only) for callers that do
     not name the master.
 
+    `organise=False` is only for reclaim-before-replacement: the same
+    build files the pool at promotion or final refusal, so reclaim does
+    not survey and file the whole project twice.
+
     `expect_holds` is True on the rebuild lifecycle, which takes a
     hold for every staging up front: a discarded name with no hold is
     then said loudly (a lifecycle bug or a dropped hold - either way
@@ -12873,8 +12945,9 @@ def discard_staged_reels(project, project_folder: str,
     if not staging:
         # Nothing staged, but a build that imported before failing may
         # still have left clips behind - file those too.
-        _organise_after_refusal(project, project_folder,
-                                master_timeline_name)
+        if organise:
+            _organise_after_refusal(project, project_folder,
+                                    master_timeline_name)
         return
     found = timelines_to_replace(project, set(staging))
     assert_deletion_scope(found, set(staging))
@@ -12920,7 +12993,8 @@ def discard_staged_reels(project, project_folder: str,
     from library.tools.reel_post_header import (
         drop_plan_reels as _drop_post_headers)
     _drop_post_headers(project_folder, staging)
-    _organise_after_refusal(project, project_folder, master_timeline_name)
+    if organise:
+        _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
 @under_lease("discard refused staging")
@@ -13789,8 +13863,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   f"{_reclaimable} - discarding and re-staging",
                   flush=True)
             with resolve_lease("reclaim refused staging", exclusive=True):
+                # This run immediately replaces the reclaimed staging.
+                # File the pool once at promotion (or final refusal),
+                # instead of inventorying every timeline before placing.
                 discard_staged_reels(project, project_folder,
-                                     _reclaimable, master_timeline_name)
+                                     _reclaimable, master_timeline_name,
+                                     organise=False)
         if _foreign:
             raise ReelBuildError(
                 f"REFUSING to build: {len(_foreign)} staging "

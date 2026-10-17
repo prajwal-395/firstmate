@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS generations (
 );
 CREATE INDEX IF NOT EXISTS generations_by_name
     ON generations (project, timeline_name);
+CREATE INDEX IF NOT EXISTS generations_by_patch_id
+    ON generations (project, timeline_id, json_extract(patch, '$.id'))
+    WHERE source='patch';
 -- One row per question answered here instead of by a live read: the
 -- "live reads avoided" KPI (`library/tools/resolved/kpi.py`).
 CREATE TABLE IF NOT EXISTS answers (
@@ -631,6 +634,17 @@ class ShadowStore:
                 " AND generation>? ORDER BY generation",
                 (project, timeline_id, after)).fetchall()
         return [_row_to_generation(r) for r in rows]
+
+    def patch_generation(self, project: str, timeline_id: str,
+                         patch_id: str) -> Generation | None:
+        """Find an idempotency receipt without decoding the entire history."""
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM generations WHERE project=? AND timeline_id=?"
+                " AND source='patch' AND json_extract(patch, '$.id')=?"
+                " ORDER BY generation LIMIT 1",
+                (project, timeline_id, patch_id)).fetchone()
+        return _row_to_generation(row) if row else None
 
     def generations_of(self, project: str) -> list[Generation]:
         """Every recorded generation of every timeline in a project.

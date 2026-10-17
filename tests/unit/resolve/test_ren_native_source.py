@@ -87,3 +87,18 @@ def test_a_tree_with_no_native_sources_fingerprints_none(tmp_path):
     to, so any extension is unverifiable."""
     (tmp_path / "library").mkdir()
     assert ren_native_source.source_fingerprint(tmp_path) is None
+
+
+def test_release_build_flags_invalidate_previously_cached_debug_extension(tmp_path):
+    _tree(tmp_path)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    builder = scripts / "build_ren_native.sh"
+    builder.write_text('maturin build --locked\n', encoding='utf-8')
+    debug = ren_native_source.source_fingerprint(tmp_path)
+    builder.write_text('maturin build --release --locked\n', encoding='utf-8')
+    assert ren_native_source.source_fingerprint(tmp_path) != debug
+    shipped = Path(__file__).resolve().parents[3] / 'scripts/build_ren_native.sh'
+    command = next(line for line in shipped.read_text(encoding='utf-8').splitlines()
+                   if '"$VENV_BIN_DIR/maturin" build ' in line)
+    assert '--release' in command.split()

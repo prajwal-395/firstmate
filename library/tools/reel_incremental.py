@@ -1,54 +1,18 @@
-"""A small plan change touches only what changed, in seconds.
+"""Apply changed overlays to a duplicate staging, then check the whole plan.
 
-A reel rebuild used to re-place the whole reel into a fresh staging
-timeline for ANY change - a lower-third text fix re-placed sixty
-footage clips to change one graphic. This module diffs the new plan
-against what is already on the reel timeline and patches only the
-changed items, re-rendering only changed graphics (render steps
-content-address their outputs, so unchanged segments are byte-identical
-and never re-rendered). The patched staging flows through the SAME
-verify and promote gates as a full rebuild, and anything the diff
-cannot prove safe refuses with `IncrementalRefused` - the caller falls
-back to the full rebuild, which stays the default.
+Unchanged footage, cards, captions, frame, post header and native ending
+hold are proved against the plan. A card may share a motion-graphics row
+with lower thirds without becoming part of their replacement diff. The
+hold's exact source frame, record span and zero speed must agree; its
+freshly treated live tail supplies its inherited transform and grade.
 
-What v1 patches
-----------------
-Only the ADDITIVE overlay kinds whose placer is the shared
-`place_overlay_segments` helper - explainer, semantic visuals and
-speaker lower thirds. Changed bytes at an identical (row, record span)
-are replaced in place; added spans are placed and removed spans are
-deleted, through the same placer. Everything else must be
-inventory-identical between the duplicate staging and the new plan,
-else refuse:
-
-- footage (picture + speech, span + source per row),
-- cards, transitions, captions, TV frame (span + source; captions join
-  link groups and the frame placer is not idempotent, so neither is
-  patched in place),
-- post header (refused when the new plan carries segments),
-- freeze tail (refused when declared - its trace is placement-time
-  evidence a patch cannot reproduce),
-- edit-ledger `edit_program` rows (the algebra replay is not proven
-  idempotent; every other row kind is re-applied by absolute setters,
-  so a changed one converges rather than duplicating).
-
-What the patch re-runs
-----------------------
-The passes that SET absolute values are re-run over the duplicate, so
-a changed look, grade, retime, transform override or ledger row
-converges to the new plan instead of going stale: ledger retimes, the
-declared CDL/power-grade, the punch-in aim, recorded transform
-overrides, the edit-ledger replay (minus `edit_program`), the motion
-coverage proof and the link pass (the duplicate's link groups are
-rebuilt - a duplicated timeline is not trusted to have carried them).
-The frame pass is NOT re-run (it places); frame items are verified
-identical and their cover zoom is compared, never re-placed.
-
-The end state is proved, not asserted: the equivalence test
-compares a patched staging against a fresh full rebuild of the same
-plan, item by item (`tests/unit/reels/test_reel_incremental.py`).
-
-`tests/unit/reels/test_footage_batch.py` covers the batch layer below.
+Changed overlay removals and placements are one provisional write pass,
+without per-batch Project Model transactions. One final row inventory is
+shared by deterministic checks. A refusal deletes only this call's own
+staging and restores the final cursor before the caller falls back.
+Replayed edit-ledger programs still refuse because their carriers cannot
+safely be duplicated. Fake-Resolve item-by-item parity is tested in
+`tests/unit/reels/test_reel_incremental.py`.
 """
 from __future__ import annotations
 
@@ -60,6 +24,28 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 class IncrementalRefused(Exception):
     """The diff is not applicable - fall back to the full rebuild."""
+
+
+class _RowInventory:
+    """One row enumeration shared by the decision's deterministic checks."""
+    def __init__(self, timeline):
+        self.rows = {}
+        self.names = {}
+        self.counts = {}
+        for kind in ("video", "audio"):
+            self.counts[kind] = int(timeline.GetTrackCount(kind) or 0)
+            for index in range(1, self.counts[kind] + 1):
+                self.names[kind, index] = timeline.GetTrackName(kind, index) or ""
+                self.rows[kind, index] = list(timeline.GetItemListInTrack(kind, index) or ())
+
+    def GetTrackCount(self, kind):
+        return self.counts[kind]
+
+    def GetTrackName(self, kind, index):
+        return self.names[kind, index]
+
+    def GetItemListInTrack(self, kind, index):
+        return self.rows.get((kind, index), ())
 
 
 # ── inventories: plain data, no Resolve writes ──────────────────────
@@ -226,7 +212,7 @@ class OverlayDiff:
 
 
 def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
-                      segments: Sequence[Mapping], fps: float) -> OverlayDiff:
+                      segments: Sequence[Mapping], fps: float, *, exclude_ids=()) -> OverlayDiff:
     """Match the kind's live items to its new segments by (row, span).
 
     Same span, different bytes: replace. A live span the plan no longer
@@ -245,6 +231,8 @@ def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
     live_by_span: Dict[tuple, list] = {}
     for index, items in live_by_row.items():
         for item in items:
+            if str(item.GetUniqueId()) in exclude_ids:
+                continue
             span = _live_span(item)
             if span is None:
                 raise IncrementalRefused(
@@ -310,6 +298,18 @@ class IncrementalPlan:
     touches_overlays: bool = False
 
 
+def _check_incremental_eligibility(freeze_tail, post_header, ledger_rows):
+    """Refuse unsupported plans before creating a staging timeline."""
+    from library.tools import edit_ledger as _ledger
+
+    if any((row.get("op") in (*_ledger.REPLAYED_OPS,
+                              *_ledger.CARRIER_OPS, "edit_program"))
+           for row in (ledger_rows or ())):
+        raise IncrementalRefused(
+            "edit-ledger rows replay onto the footage through the algebra "
+            "- refusing; only the full build replays them")
+
+
 def decide_incremental(*, timeline, track_plan, prepared,
                        placements_list, video_row_by_angle,
                        speech_row_by_angle, fps: float,
@@ -327,26 +327,14 @@ def decide_incremental(*, timeline, track_plan, prepared,
     identical (row, span) - additions and removals ride the same
     delete/place machinery, so they are applicable too.
     """
-    from library.tools import edit_ledger as _ledger
     from library.tools.reel_build import _angle_key
     from library.tools.timeline_layout import (
-        EXPLAINER, FRAME, MOTION_GRAPHICS, SEMANTIC, TRANSITIONS,
+        EXPLAINER, FRAME, MOTION_GRAPHICS, POST_HEADER, SEMANTIC, TRANSITIONS,
     )
 
-    if freeze_tail is not None:
-        raise IncrementalRefused(
-            "a native ending hold is declared - its trace is "
-            "placement-time evidence a patch cannot reproduce; refusing")
-    if post_header is not None and getattr(post_header, "segments", None):
-        raise IncrementalRefused(
-            "a post header is declared - refusing; only the full build "
-            "places it")
-    if any((row.get("op") in (*_ledger.REPLAYED_OPS,
-                              *_ledger.CARRIER_OPS, "edit_program"))
-           for row in (ledger_rows or ())):
-        raise IncrementalRefused(
-            "edit-ledger rows replay onto the footage through the algebra "
-            "- refusing; only the full build replays them")
+    _check_incremental_eligibility(freeze_tail, post_header, ledger_rows)
+    if not isinstance(timeline, _RowInventory):
+        timeline = _RowInventory(timeline)
 
     # The rows themselves: every video and audio row, by index and
     # name. An extra row, a missing row or a renamed row refuses - the
@@ -389,13 +377,18 @@ def decide_incremental(*, timeline, track_plan, prepared,
         "footage")
 
     # Cards, transitions, captions, frame: span + source, identical.
-    _check_cards_identical(timeline, track_plan, cards)
+    fixed_card_ids = _check_cards_identical(timeline, track_plan, cards)
     _check_transitions_identical(
         timeline, track_plan, transition_placements, TRANSITIONS)
     _check_captions_identical(
         timeline, track_plan, subtitle_segments, fps)
     _check_frame_identical(
         timeline, track_plan, frame_segments, fps, FRAME)
+
+    _check_frame_identical(timeline, track_plan,
+                           getattr(post_header, "segments", ()) or (), fps, POST_HEADER)
+    if freeze_tail is not None:
+        _check_native_hold(timeline, freeze_tail, video_row_by_angle)
 
     plan = IncrementalPlan()
     for kind, role, segments in (
@@ -411,7 +404,7 @@ def decide_incremental(*, timeline, track_plan, prepared,
                 f"{kind} segments are planned with no {role} row - "
                 f"refusing")
         diff = diff_overlay_kind(timeline, kind, rows, segments or (),
-                                 fps)
+                                 fps, exclude_ids=fixed_card_ids)
         if diff.replace or diff.added or diff.removed:
             plan.touches_overlays = True
         plan.diffs.append(diff)
@@ -425,7 +418,7 @@ def _card_span_frames(card, fps: float) -> tuple:
     return (start, start + frames)
 
 
-def _check_cards_identical(timeline, track_plan, cards) -> None:
+def _check_cards_identical(timeline, track_plan, cards) -> frozenset:
     from library.tools.timeline_layout import (
         card_spans_for_role, lane_of_span,
     )
@@ -451,13 +444,40 @@ def _check_cards_identical(timeline, track_plan, cards) -> None:
                 (span[0], span[1], _norm_source(
                     getattr(card, "rendered_path", "") or "")))
     live: Dict[tuple, list] = {}
+    fixed_ids = set()
+    # Cards can share the motion-graphics role with lower thirds. Own
+    # only their declared slots; the overlay diff owns the remainder.
+    slots = {(kind, index, start, end) for (kind, index), rows in expected.items()
+             for start, end, _ in rows}
     if role is not None:
         for row in track_plan.rows_for_role(role):
-            live.update(live_row_inventory(timeline, [int(row.index)],
-                                           "video"))
+            for item in timeline.GetItemListInTrack("video", int(row.index)) or ():
+                span = _live_span(item)
+                if span is not None and ("video", int(row.index), *span) in slots:
+                    live.setdefault(("video", int(row.index)), []).append(
+                        (*span, _live_source(item)))
+                    fixed_ids.add(str(item.GetUniqueId()))
     check_rows_identical(
-        {row: sorted(rows) for row, rows in expected.items()}, live,
-        "cards")
+        {row: sorted(rows) for row, rows in expected.items()},
+        {row: sorted(rows) for row, rows in live.items()}, "cards")
+    return frozenset(fixed_ids)
+
+
+def _check_native_hold(timeline, freeze, video_row_by_angle):
+    from library.tools.reel_build import _freeze_tail_matches
+    row = video_row_by_angle.get(str(freeze.track_index))
+    if row is None or len(_freeze_tail_matches(
+            timeline, row, freeze.reel_start_frame, freeze.end_frame,
+            freeze.held_from, freeze.held_source_frame, require_hold=True)) != 1:
+        raise IncrementalRefused("native ending hold differs from the plan")
+    return {"called": False, "reused": True, "landed": True,
+            "append_verified": True, "verified": True,
+            "expected": {"source_file": freeze.held_from,
+                         "source_start_frame": freeze.held_source_frame,
+                         "track_index": row, "start_frame": freeze.reel_start_frame,
+                         "end_frame": freeze.end_frame},
+            "append_attempts": [], "repair": {"attempted": False, "status": "not_needed"},
+            "post_placement": {"readback_matches": 1, "verified": True}}
 
 
 def _check_transitions_identical(timeline, track_plan, placements,
@@ -547,7 +567,6 @@ def apply_overlay_diffs(*, project, pool, timeline, staging_name: str,
     sweep-record plumbing. Returns {"sweep_records", "held_back",
     "applied_intent", "seen_ids", "seen_labels"} for the record.
     """
-    from library.tools import edit_patch
     from library.tools.reel_build import (
         PoolIndex, _assert_placing, place_overlay_segments,
     )
@@ -558,40 +577,11 @@ def apply_overlay_diffs(*, project, pool, timeline, staging_name: str,
         doomed.extend(live for live, _segment in diff.replace)
     if doomed:
         _assert_placing(project, timeline)
-        delete_ops = []
-        for item in doomed:
-            try:
-                uid = item.GetUniqueId()
-            except Exception as exc:
-                raise IncrementalRefused(
-                    f"an overlay item to remove would not report its "
-                    f"id ({exc}) - refusing") from exc
-            delete_ops.append({"op": "clip.delete", "unique_id": uid})
-        import hashlib as _hashlib
+        # Provisional result: the final inventory proves every removal
+        # and replacement together. No per-batch model replay or judge.
+        timeline.DeleteClips(doomed, False)
 
-        from library.tools.stable_json import dumps_stable
-        material = dumps_stable(sorted(
-            op["unique_id"] for op in delete_ops))
-        receipt = edit_patch.apply_live_patch(
-            project=project, timeline=timeline,
-            # "Change one built reel's own timeline in place, instead
-            # of rebuilding it" - the registered capability for
-            # exactly this act (`reel.build` declares only
-            # `clip.insert` and would refuse the deletes).
-            capability="reel.touchup",
-            operations=delete_ops,
-            conflict_domains=("timeline_structure",),
-            idempotency_key=(
-                f"reel-incremental:{staging_name}:overlay-delete:"
-                f"{_hashlib.sha256(material.encode('utf-8')).hexdigest()[:32]}"),
-            project_folder=project_folder,
-            model_revision=model_revision)
-        if receipt["status"] != "committed":
-            raise IncrementalRefused(
-                f"the overlay removals did not verify ({receipt}) - "
-                f"falling back to the full rebuild")
-
-    pool_index = PoolIndex(pool)
+    pool_index = PoolIndex(pool, authoritative=True)
     sweep_records: list = []
     held_back: list = []
     seen_ids: list = []
@@ -747,13 +737,16 @@ def build_staged_incremental(
 
     from library.tools.reel_build import ReelBuildError, _assert_placing
     from library.tools.timeline_layout import (
-        EXPLAINER, FRAME, MOTION_GRAPHICS, SEMANTIC,
+        EXPLAINER, FRAME, MOTION_GRAPHICS, POST_HEADER, SEMANTIC,
     )
 
     if placement_mode != "append":
         raise IncrementalRefused(
             f"placement mode is {placement_mode!r} - the incremental "
             f"path patches a live timeline, so only append applies")
+
+    _check_incremental_eligibility(
+        prepared.freeze_tail, prepared.post_header, prepared.ledger_rows)
 
     patch_started = _time.perf_counter()
     try:
@@ -775,17 +768,6 @@ def build_staged_incremental(
         raise IncrementalRefused(
             "no approved timeline under the final name yet - only the "
             "full build can stage a first reel")
-    try:
-        staging = final_timeline.DuplicateTimeline(staging_name)
-    except Exception as exc:
-        raise IncrementalRefused(
-            f"the final could not be duplicated ({exc}) - falling back "
-            f"to the full rebuild") from exc
-    if staging is None or staging.GetName() != staging_name:
-        raise IncrementalRefused(
-            "the staging copy did not land under its staging name - "
-            "falling back to the full rebuild")
-    _assert_placing(project, staging)
 
     # No drift: the live final must still be the build the record
     # describes, or the diff has no base.
@@ -801,279 +783,315 @@ def build_staged_incremental(
             "the final drifted since its build (or its record is gone) "
             "- only the full rebuild restores it")
 
-    track_plan = prepared.track_plan
-    plan = decide_incremental(        timeline=staging, track_plan=track_plan, prepared=prepared,
-        placements_list=prepared.placements_list,
-        video_row_by_angle=prepared.video_row_by_angle,
-        speech_row_by_angle=prepared.speech_row_by_angle, fps=fps,
-        cards=prepared.cards, transition_placements=overlay_placements,
-        subtitle_segments=prepared.subtitle_segments,
-        frame_segments=prepared.frame_segments,
-        post_header=prepared.post_header, freeze_tail=prepared.freeze_tail,
-        explainer_segments=explainer_segments,
-        semantic_segments=semantic_segments,
-        lower_third_segments=lower_third_segments,
-        ledger_rows=prepared.ledger_rows)
-
-    from library.tools import project_model_store as _model_store
-    from pathlib import Path as _Path
     try:
-        _model_revision, _ = _model_store.load_project_model(
-            _Path(project_folder))
-    except FileNotFoundError:
-        _model_revision = None
+        staging = final_timeline.DuplicateTimeline(staging_name)
+    except Exception as exc:
+        raise IncrementalRefused(
+            f"the final could not be duplicated ({exc}) - falling back "
+            f"to the full rebuild") from exc
+    if staging is None or staging.GetName() != staging_name:
+        raise IncrementalRefused(
+            "the staging copy did not land under its staging name - "
+            "falling back to the full rebuild")
+    _assert_placing(project, staging)
 
-    patch_out = apply_overlay_diffs(
-        project=project, pool=project.GetMediaPool(), timeline=staging,
-        staging_name=staging_name, fps=fps, width=width, height=height,
-        track_plan=track_plan, diffs=plan.diffs,
-        suppressions=suppressions, overlay_intent=overlay_intent,
-        draw_gain=draw_gain, project_folder=project_folder,
-        resolve_app=resolve_app, model_revision=_model_revision)
 
-    from library.tools import edit_ledger as _ledger
-    from library.tools.reel_build import (
-        _angle_key, _apply_ledger_retimes, apply_transform_overrides,
-    )
-    from library.tools.reel_look import apply_grade
 
-    build_record = dict(prepared.build_record)
-    build_record["stream_enforcement"] = {
-        "checked": 0, "deleted": [], "unverified": []}
+    try:
+        track_plan = prepared.track_plan
+        plan = decide_incremental(
+            timeline=staging, track_plan=track_plan, prepared=prepared,
+            placements_list=prepared.placements_list,
+            video_row_by_angle=prepared.video_row_by_angle,
+            speech_row_by_angle=prepared.speech_row_by_angle, fps=fps,
+            cards=prepared.cards, transition_placements=overlay_placements,
+            subtitle_segments=prepared.subtitle_segments,
+            frame_segments=prepared.frame_segments,
+            post_header=prepared.post_header, freeze_tail=prepared.freeze_tail,
+            explainer_segments=explainer_segments,
+            semantic_segments=semantic_segments,
+            lower_third_segments=lower_third_segments,
+            ledger_rows=prepared.ledger_rows)
 
-    # Ledger retimes: absolute speeds, re-applied (a no-op where the
-    # plan is unchanged, the update where it changed).
-    build_record["ledger_retimes"] = _apply_ledger_retimes(
-        staging, prepared.placements_list, fps,
-        sorted(set(prepared.video_row_by_angle.values())),
-        sorted(set(prepared.speech_row_by_angle.values())), staging_name)
+        patch_out = apply_overlay_diffs(
+            project=project, pool=project.GetMediaPool(), timeline=staging,
+            staging_name=staging_name, fps=fps, width=width, height=height,
+            track_plan=track_plan, diffs=plan.diffs,
+            suppressions=suppressions, overlay_intent=overlay_intent,
+            draw_gain=draw_gain, project_folder=project_folder,
+            resolve_app=resolve_app)
 
-    # The declared grade: the same setter the full build runs.
-    footage_sources = {
-        getattr(place["clip"], "source_file", "")
-        for place in prepared.placements_list
-        if getattr(place["clip"], "track_type", "video") == "video"}
-    if grade_cdl or power_grade:
-        from library.tools import reel_look as _grade
-        cdl_record = _grade.apply_grade(
-            staging, track_plan, grade_cdl, power_grade=power_grade,
-            footage_sources={s for s in footage_sources if s})
-        build_record["cdl"] = cdl_record
-    else:
-        build_record["cdl"] = {"applied": [], "skipped": [],
-                               "warnings": [], "route": "none",
-                               "verified": False,
-                               "basis": "no look declared - nothing graded"}
-
-    # The punch-in aim, per shot, exactly as the full build aims it.
-    screen_window = None
-    if look is not None:
-        from library.tools import reel_look as _look
-        from library.tools.reel_build import aim_picture_row
-        from library.tools.tv_frame import screen_window_rect
-        screen_window = screen_window_rect(look, width, height)
-        aimed = 0
-        for aroll_row in track_plan.aroll_rows():
-            row_items = (staging.GetItemListInTrack(
-                "video", aroll_row.index) or [])
-            row_places = [
-                place for place in prepared.placements_list
-                if getattr(place["clip"], "track_type", "video") == "video"
-                and prepared.video_row_by_angle.get(
-                    _angle_key(place["clip"])) == aroll_row.index]
-            row_places.sort(key=lambda place: place["snapped_record"])
-            aimed += aim_picture_row(
-                staging_name, look, screen_window, width, height,
-                row_items, row_places, project_folder=project_folder,
-                measure=prepared.subject_measure,
-                draw_gain=draw_gain, timeline=staging,
-                resolve_project=project)
-        build_record["motion_coverage"] = _look.verify_motion_screen_coverage(
-            staging_name, track_plan, prepared.placements_list,
-            prepared.video_row_by_angle, staging, motion or [], width,
-            height, screen_window, draw_gain,
-            resolve_project=project)
-    else:
-        build_record["motion_coverage"] = []
-
-    # Recorded transform holds, then the edit-ledger replay (safe rows
-    # only - `edit_program` refused above).
-    held = apply_transform_overrides(
-        staging_name, track_plan, prepared.video_row_by_angle,
-        prepared.placements_list, staging, transcript, project_folder,
-        width, height, look=look,
-        screen_window=screen_window,
-        draw_gain=draw_gain,
-        report_sibling_stale=not single_reel_scope,
-        resolve_project=project)
-    if held:
-        print(f"  {staging_name}: {held} recorded transform hold(s) in "
-              f"force", file=_sys.stderr)
-    if any(row.get("op") in (*_ledger.REPLAYED_OPS, *_ledger.CARRIER_OPS)
-           for row in (prepared.ledger_rows or ())):
-        _video_places = [
-            place for place in prepared.placements_list
-            if getattr(place["clip"], "track_type", "video") == "video"]
-        _position = {id(place): index
-                     for index, place in enumerate(_video_places)}
-        _span_items: dict = {}
-        for _aroll_row in track_plan.aroll_rows():
-            _row_items = (staging.GetItemListInTrack(
-                "video", _aroll_row.index) or [])
-            _row_places = [
-                place for place in prepared.placements_list
-                if getattr(place["clip"], "track_type", "video") == "video"
-                and prepared.video_row_by_angle.get(
-                    _angle_key(place["clip"])) == _aroll_row.index]
-            _row_places.sort(key=lambda place: place["snapped_record"])
-            for _index, _item in enumerate(_row_items):
-                if _index >= len(_row_places):
-                    break
-                _span_items[_position.get(
-                    id(_row_places[_index]), -1)] = _item
-        _replay = _ledger.replay_on_timeline(
-            staging_name, prepared.ledger_rows, _video_places,
-            transcript, staging,
-            item_for_span=_span_items.get, reel_name=staging_name,
-            project=project)
-        build_record["edit_ledger"] = {
-            "applied": _replay["applied"],
-            "planned": _replay["planned"],
-            "unreplayable": _replay["unreplayable"],
-        }
-
-    # The TV frame is placed, never re-placed: verify its cover zoom
-    # instead, and refuse rather than ship a stale one.
-    _check_frame_zoom(staging, track_plan, prepared.frame_segments, look,
-                      fps, width, height, draw_gain, staging_name)
-
-    # The link pass rebuilds the duplicate's groups (a copy is not
-    # trusted to have carried them); on identical items it reforms the
-    # identical groups.
-    from library.tools.reel_build import link_reel_groups
-    link_record = link_reel_groups(
-        staging, track_plan, offset_links=prepared.offset_links)
-    build_record["link_groups"] = link_record["link_groups"]
-    build_record["caption_links"] = link_record["caption_links"]
-    build_record["link_warnings"] = link_record["warnings"]
-
-    # Sweep records for EVERY tight overlay on the staging (patched or
-    # not - the sweep judges what the staging holds, and the model
-    # writer reads the same records as what was placed).
-    # Sweep records for every tight overlay on the staging: the
-    # placer already recorded the patched ones, so the reconstruction
-    # below covers only the untouched remainder (matched by row and
-    # record frame, the same identity the deferred sweep reads by).
-    patched_keys = {(record.get("track_index"),
-                     record.get("record_frame"))
-                    for record in patch_out["sweep_records"]}
-    sweep_records = _reconstruct_sweep_records(
-        timeline=staging, project=project, track_plan=track_plan,
-        kinds=[("caption", [track_plan.caption_row().index]
-                if track_plan.caption_row() is not None else [],
-                prepared.subtitle_segments, _caption_span),
-               ("explainer",
-                [int(row.index)
-                 for row in track_plan.rows_for_role(EXPLAINER)],
-                explainer_segments, _helper_span),
-               ("semantic visual",
-                [int(row.index)
-                 for row in track_plan.rows_for_role(SEMANTIC)],
-                semantic_segments, _helper_span),
-               ("speaker lower third",
-                [int(row.index)
-                 for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
-                lower_third_segments, _helper_span),
-               ("TV frame",
-                [int(row.index)
-                 for row in track_plan.rows_for_role(FRAME)],
-                prepared.frame_segments, _helper_span)],
-        width=width, height=height, draw_gain=draw_gain, fps=fps,
-        skip_keys=frozenset(patched_keys))
-    sweep_records.extend(patch_out["sweep_records"])
-
-    from library.tools.overlay_verify import read_reel_overlays
-    from library.tools.timeline_layout import A_ROLL, B_ROLL
-    if sweep_records:
-        print(f"── Overlay sweep ({len(sweep_records)} tight "
-              f"overlay(s)) ──", file=_sys.stderr)
-        sweep_reads = read_reel_overlays(
-            staging, sweep_records, resolve_project=project,
-            picture_tracks=[row.index for row in track_plan.video_tracks
-                            if row.role in (A_ROLL, B_ROLL)])
-        sweep_judgement = {"intent": overlay_intent,
-                           "full_wh": (width, height),
-                           "draw_gain": draw_gain,
-                           "project_folder": project_folder, "fps": fps}
-        build_record["overlay_sweep"] = None
-        build_record["overlay_sweep_reads"] = (sweep_reads,
-                                               sweep_judgement)
-    else:
-        build_record["overlay_sweep"] = {
-            "passed": True, "checked": 0,
-            "detail": "no tight overlays placed on this reel",
-        }
-
-    # Suppressions: complete (pure), intent: what the patch touched.
-    segments_by_kind = [prepared.subtitle_segments, explainer_segments,
-                        semantic_segments, lower_third_segments,
-                        prepared.frame_segments]
-    suppressed, unmatched_dnd = _suppression_ids(
-        segments_by_kind, suppressions, staging_name)
-    build_record["suppressed_overlays"] = suppressed
-    build_record["unmatched_do_not_draw"] = unmatched_dnd
-    if overlay_intent:
-        from library.tools.overlay_intent import (
-            report_unmatched as report_unmatched_intent,
+        from library.tools import edit_ledger as _ledger
+        from library.tools.reel_build import (
+            _angle_key, _apply_ledger_retimes, apply_transform_overrides,
         )
-        build_record["unmatched_overlay_intent"] = report_unmatched_intent(
-            overlay_intent, patch_out["seen_ids"],
-            source=f"overlay_intent.json ({staging_name})",
-            seen_labels=patch_out["seen_labels"])
-        build_record["applied_overlay_intent"] = sorted(
-            set(patch_out["applied_intent"]))
-    else:
-        build_record["applied_overlay_intent"] = []
-    build_record["post_header"] = prepared.post_header.as_dict()
 
-    import dataclasses as _dataclasses
+        build_record = dict(prepared.build_record)
+        build_record["stream_enforcement"] = {
+            "checked": 0, "deleted": [], "unverified": []}
 
-    from library.tools.timeline_layout import TRANSITIONS as _TRANSITIONS
-    _transitions_row = track_plan.row_for_role(_TRANSITIONS)
-    _transitions_index = (_transitions_row.index
-                          if _transitions_row is not None else None)
-    build_record["transition_placements"] = [
-        (placement.as_dict() if hasattr(placement, "as_dict")
-         else dict(placement))
-        for placement in [
-            _dataclasses.replace(placement, track_index=_transitions_index)
-            if (getattr(placement, "track_index", None)
-                    != _transitions_index
-                    and _transitions_index is not None)
-            else placement
-            for placement in (overlay_placements or [])]]
+        # Ledger retimes: absolute speeds, re-applied (a no-op where the
+        # plan is unchanged, the update where it changed).
+        build_record["ledger_retimes"] = _apply_ledger_retimes(
+            staging, prepared.placements_list, fps,
+            sorted(set(prepared.video_row_by_angle.values())),
+            sorted(set(prepared.speech_row_by_angle.values())), staging_name)
 
-    from library.tools.reel_build import serializable_placements
-    build_record["fps"] = float(fps)
-    build_record["placements"] = serializable_placements(
-        prepared.placements_list, fps=float(fps))
-    build_record["overlay_placements"] = [dict(row)
-                                          for row in sweep_records]
-    build_record["placement_profile"] = {
-        "incremental_patch_s": round(_time.perf_counter()
-                                     - patch_started, 4),
-    }
+        # The declared grade: the same setter the full build runs.
+        footage_sources = {
+            getattr(place["clip"], "source_file", "")
+            for place in prepared.placements_list
+            if getattr(place["clip"], "track_type", "video") == "video"}
+        if grade_cdl or power_grade:
+            from library.tools import reel_look as _grade
+            cdl_record = _grade.apply_grade(
+                staging, track_plan, grade_cdl, power_grade=power_grade,
+                footage_sources={s for s in footage_sources if s})
+            build_record["cdl"] = cdl_record
+        else:
+            build_record["cdl"] = {"applied": [], "skipped": [],
+                                   "warnings": [], "route": "none",
+                                   "verified": False,
+                                   "basis": "no look declared - nothing graded"}
 
-    from library.tools.reel_graphics import assert_timeline_media_online
-    from library.tools.reel_otio_placement import RecordingTimeline
-    if resolve_app is not None and not isinstance(staging,
-                                                  RecordingTimeline):
-        try:
-            assert_timeline_media_online(staging)
-        except Exception as exc:
-            from library.tools.reel_build import ReelBuildError
-            raise ReelBuildError(f"{staging_name}: {exc}") from exc
-    return build_record
+        # The punch-in aim, per shot, exactly as the full build aims it.
+        screen_window = None
+        if look is not None:
+            from library.tools.reel_build import aim_picture_row, verify_motion_screen_coverage
+            from library.tools.tv_frame import screen_window_rect
+            screen_window = screen_window_rect(look, width, height)
+            aimed = 0
+            for aroll_row in track_plan.aroll_rows():
+                row_items = (staging.GetItemListInTrack(
+                    "video", aroll_row.index) or [])
+                row_places = [
+                    place for place in prepared.placements_list
+                    if getattr(place["clip"], "track_type", "video") == "video"
+                    and prepared.video_row_by_angle.get(
+                        _angle_key(place["clip"])) == aroll_row.index]
+                row_places.sort(key=lambda place: place["snapped_record"])
+                aimed += aim_picture_row(
+                    staging_name, look, screen_window, width, height,
+                    row_items, row_places, project_folder=project_folder,
+                    measure=prepared.subject_measure,
+                    draw_gain=draw_gain, timeline=staging,
+                    resolve_project=project)
+            build_record["motion_coverage"] = verify_motion_screen_coverage(
+                staging_name, track_plan, prepared.placements_list,
+                prepared.video_row_by_angle, staging, motion or [], width,
+                height, screen_window, draw_gain,
+                resolve_project=project)
+        else:
+            build_record["motion_coverage"] = []
+
+        # Recorded transform holds, then the edit-ledger replay (safe rows
+        # only - `edit_program` refused above).
+        held = apply_transform_overrides(
+            staging_name, track_plan, prepared.video_row_by_angle,
+            prepared.placements_list, staging, transcript, project_folder,
+            width, height, look=look,
+            screen_window=screen_window,
+            draw_gain=draw_gain,
+            report_sibling_stale=not single_reel_scope,
+            resolve_project=project)
+        if held:
+            print(f"  {staging_name}: {held} recorded transform hold(s) in "
+                  f"force", file=_sys.stderr)
+        if any(row.get("op") in (*_ledger.REPLAYED_OPS, *_ledger.CARRIER_OPS)
+               for row in (prepared.ledger_rows or ())):
+            _video_places = [
+                place for place in prepared.placements_list
+                if getattr(place["clip"], "track_type", "video") == "video"]
+            _position = {id(place): index
+                         for index, place in enumerate(_video_places)}
+            _span_items: dict = {}
+            for _aroll_row in track_plan.aroll_rows():
+                _row_items = (staging.GetItemListInTrack(
+                    "video", _aroll_row.index) or [])
+                _row_places = [
+                    place for place in prepared.placements_list
+                    if getattr(place["clip"], "track_type", "video") == "video"
+                    and prepared.video_row_by_angle.get(
+                        _angle_key(place["clip"])) == _aroll_row.index]
+                _row_places.sort(key=lambda place: place["snapped_record"])
+                for _index, _item in enumerate(_row_items):
+                    if _index >= len(_row_places):
+                        break
+                    _span_items[_position.get(
+                        id(_row_places[_index]), -1)] = _item
+            _replay = _ledger.replay_on_timeline(
+                staging_name, prepared.ledger_rows, _video_places,
+                transcript, staging,
+                item_for_span=_span_items.get, reel_name=staging_name,
+                project=project)
+            build_record["edit_ledger"] = {
+                "applied": _replay["applied"],
+                "planned": _replay["planned"],
+                "unreplayable": _replay["unreplayable"],
+            }
+
+        if prepared.freeze_tail is not None:
+            from library.tools.reel_build import _inherit_freeze_treatment
+            build_record["freeze_tail"] = _inherit_freeze_treatment(
+                staging_name, staging, track_plan, prepared.video_row_by_angle,
+                prepared.freeze_tail, project_folder)
+            build_record["freeze_placement"] = _check_native_hold(
+                staging, prepared.freeze_tail, prepared.video_row_by_angle)
+
+        # The TV frame is placed, never re-placed: verify its cover zoom
+        # instead, and refuse rather than ship a stale one.
+        _check_frame_zoom(staging, track_plan, prepared.frame_segments, look,
+                          fps, width, height, draw_gain, staging_name)
+
+        # The link pass rebuilds the duplicate's groups (a copy is not
+        # trusted to have carried them); on identical items it reforms the
+        # identical groups.
+        from library.tools.reel_build import link_reel_groups
+        link_record = link_reel_groups(
+            staging, track_plan, offset_links=prepared.offset_links)
+        build_record["link_groups"] = link_record["link_groups"]
+        build_record["caption_links"] = link_record["caption_links"]
+        build_record["link_warnings"] = link_record["warnings"]
+
+        # Sweep records for EVERY tight overlay on the staging (patched or
+        # not - the sweep judges what the staging holds, and the model
+        # writer reads the same records as what was placed).
+        # Sweep records for every tight overlay on the staging: the
+        # placer already recorded the patched ones, so the reconstruction
+        # below covers only the untouched remainder (matched by row and
+        # record frame, the same identity the deferred sweep reads by).
+        patched_keys = {(record.get("track_index"),
+                         record.get("record_frame"))
+                        for record in patch_out["sweep_records"]}
+        sweep_records = _reconstruct_sweep_records(
+            timeline=staging, project=project, track_plan=track_plan,
+            kinds=[("post header", [int(row.index) for row in track_plan.rows_for_role(POST_HEADER)],
+                    prepared.post_header.segments, _helper_span),
+                   ("caption", [track_plan.caption_row().index]
+                    if track_plan.caption_row() is not None else [],
+                    prepared.subtitle_segments, _caption_span),
+                   ("explainer",
+                    [int(row.index)
+                     for row in track_plan.rows_for_role(EXPLAINER)],
+                    explainer_segments, _helper_span),
+                   ("semantic visual",
+                    [int(row.index)
+                     for row in track_plan.rows_for_role(SEMANTIC)],
+                    semantic_segments, _helper_span),
+                   ("speaker lower third",
+                    [int(row.index)
+                     for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
+                    lower_third_segments, _helper_span),
+                   ("TV frame",
+                    [int(row.index)
+                     for row in track_plan.rows_for_role(FRAME)],
+                    prepared.frame_segments, _helper_span)],
+            width=width, height=height, draw_gain=draw_gain, fps=fps,
+            skip_keys=frozenset(patched_keys))
+        sweep_records.extend(patch_out["sweep_records"])
+
+        from library.tools.overlay_verify import read_reel_overlays
+        from library.tools.timeline_layout import A_ROLL, B_ROLL
+        if sweep_records:
+            print(f"── Overlay sweep ({len(sweep_records)} tight "
+                  f"overlay(s)) ──", file=_sys.stderr)
+            sweep_reads = read_reel_overlays(
+                staging, sweep_records, resolve_project=project,
+                picture_tracks=[row.index for row in track_plan.video_tracks
+                                if row.role in (A_ROLL, B_ROLL)])
+            sweep_judgement = {"intent": overlay_intent,
+                               "full_wh": (width, height),
+                               "draw_gain": draw_gain,
+                               "project_folder": project_folder, "fps": fps}
+            build_record["overlay_sweep"] = None
+            build_record["overlay_sweep_reads"] = (sweep_reads,
+                                                   sweep_judgement)
+        else:
+            build_record["overlay_sweep"] = {
+                "passed": True, "checked": 0,
+                "detail": "no tight overlays placed on this reel",
+            }
+
+        # Suppressions: complete (pure), intent: what the patch touched.
+        segments_by_kind = [prepared.subtitle_segments, explainer_segments,
+                            semantic_segments, lower_third_segments,
+                            prepared.frame_segments]
+        suppressed, unmatched_dnd = _suppression_ids(
+            segments_by_kind, suppressions, staging_name)
+        build_record["suppressed_overlays"] = suppressed
+        build_record["unmatched_do_not_draw"] = unmatched_dnd
+        if overlay_intent:
+            from library.tools.overlay_intent import (
+                report_unmatched as report_unmatched_intent,
+            )
+            build_record["unmatched_overlay_intent"] = report_unmatched_intent(
+                overlay_intent, patch_out["seen_ids"],
+                source=f"overlay_intent.json ({staging_name})",
+                seen_labels=patch_out["seen_labels"])
+            build_record["applied_overlay_intent"] = sorted(
+                set(patch_out["applied_intent"]))
+        else:
+            build_record["applied_overlay_intent"] = []
+        build_record["post_header"] = prepared.post_header.as_dict()
+
+        import dataclasses as _dataclasses
+
+        from library.tools.timeline_layout import TRANSITIONS as _TRANSITIONS
+        _transitions_row = track_plan.row_for_role(_TRANSITIONS)
+        _transitions_index = (_transitions_row.index
+                              if _transitions_row is not None else None)
+        build_record["transition_placements"] = [
+            (placement.as_dict() if hasattr(placement, "as_dict")
+             else dict(placement))
+            for placement in [
+                _dataclasses.replace(placement, track_index=_transitions_index)
+                if (getattr(placement, "track_index", None)
+                        != _transitions_index
+                        and _transitions_index is not None)
+                else placement
+                for placement in (overlay_placements or [])]]
+
+        from library.tools.reel_build import serializable_placements
+        build_record["fps"] = float(fps)
+        build_record["placements"] = serializable_placements(
+            prepared.placements_list, fps=float(fps))
+        build_record["overlay_placements"] = [dict(row)
+                                              for row in sweep_records]
+        build_record["placement_profile"] = {
+            "incremental_patch_s": round(_time.perf_counter()
+                                         - patch_started, 4),
+        }
+
+        final_inventory = _RowInventory(staging)
+        final_plan = decide_incremental(
+            timeline=final_inventory, track_plan=track_plan, prepared=prepared,
+            placements_list=prepared.placements_list,
+            video_row_by_angle=prepared.video_row_by_angle,
+            speech_row_by_angle=prepared.speech_row_by_angle, fps=fps,
+            cards=prepared.cards, transition_placements=overlay_placements,
+            subtitle_segments=prepared.subtitle_segments, frame_segments=prepared.frame_segments,
+            post_header=prepared.post_header, freeze_tail=prepared.freeze_tail,
+            explainer_segments=explainer_segments, semantic_segments=semantic_segments,
+            lower_third_segments=lower_third_segments, ledger_rows=prepared.ledger_rows)
+        if final_plan.touches_overlays:
+            raise IncrementalRefused("incremental placement inventory still differs from the plan")
+        build_record["placement_check"] = {"passed": True, "repair_attempted": False}
+
+        from library.tools.reel_graphics import assert_timeline_media_online
+        from library.tools.reel_otio_placement import RecordingTimeline
+        if resolve_app is not None and not isinstance(staging,
+                                                      RecordingTimeline):
+            try:
+                assert_timeline_media_online(final_inventory)
+            except Exception as exc:
+                from library.tools.reel_build import ReelBuildError
+                raise ReelBuildError(f"{staging_name}: {exc}") from exc
+        return build_record
+    except IncrementalRefused:
+        project.SetCurrentTimeline(final_timeline)
+        if not project.GetMediaPool().DeleteTimelines([staging]):
+            raise ReelBuildError("incremental staging cleanup failed")
+        raise
 
 
 def _caption_span(segment, fps: float) -> tuple:

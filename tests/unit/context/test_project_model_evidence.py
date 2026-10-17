@@ -1428,3 +1428,49 @@ def test_m6_m7_m8_m10_migrate_native_coverage_and_refusals(
         memory_root=str(memory))
     assert stale_m7_coverage["lanes"][D1]["freshness"]["m7"] == "stale"
     assert stale_m7_coverage["lanes"][D1]["freshness"]["m8"] == "stale"
+
+
+def test_identity_anchor_index_only_visits_new_observations():
+    class Observation(dict):
+        visits = 0
+        def __getitem__(self, key):
+            if key == "id":
+                type(self).visits += 1
+            return super().__getitem__(key)
+
+    builder = evidence._Builder("fixture")
+    for i in range(100):
+        builder.model["observations"].append(Observation(
+            id=f"obs-{i}", interval={"clock_id": "source", "start": i, "end": i + 1}))
+        builder.link("person", f"obs-{i}", "fixture", D1, "m1", "fixture", 1.0)
+    assert Observation.visits == 100
+    assert len(builder.model["identity_links"]) == 100
+    # A replaced list is a new index, and duplicate IDs keep first-match semantics.
+    builder.model["observations"] = [
+        {"id": "obs-0", "interval": {"clock_id": "replacement", "start": 3, "end": 4}},
+        {"id": "obs-0", "interval": {"clock_id": "other", "start": 5, "end": 6}}]
+    builder.link("person", "obs-0", "fixture", D1, "m1", "fixture", 1.0)
+    assert builder.model["identity_links"][-1]["scope"]["clock_id"] == "replacement"
+
+
+def test_source_signal_membership_enumerates_existing_ids_once(monkeypatch):
+    class Signal(dict):
+        visits = 0
+        def __getitem__(self, key):
+            if key == "id":
+                type(self).visits += 1
+            return super().__getitem__(key)
+    builder = evidence._Builder("fixture")
+    builder.model["signals"] = [Signal(id=f"existing-{i}") for i in range(100)]
+    builder.model["observations"] = [{
+        "id": f"word-{i}", "asset_id": "asset", "provenance_id": f"prov-{D1}-m1",
+        "modality": "speech_word", "interval": {"start": i, "end": i + 1}}
+        for i in range(100)]
+    monkeypatch.setattr(evidence.source_memory, "read_m1", lambda *_: (None, "missing"))
+    monkeypatch.setattr(evidence.source_memory, "read_sound", lambda *_: None)
+    monkeypatch.setattr(evidence.source_memory, "read_scenes", lambda *_: None)
+    evidence._materialize_source_signals(builder, D1, "asset", "clock", None)
+    assert Signal.visits == 100
+    assert len(builder.model["signals"]) == 200
+    evidence._materialize_source_signals(builder, D1, "asset", "clock", None)
+    assert len(builder.model["signals"]) == 200

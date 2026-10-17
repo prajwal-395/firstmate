@@ -1210,7 +1210,8 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                         masks: list[dict[str, Any]] | None = None,
                         overlay_placements: list[dict[str, Any]] | None = None,
                         fps: float = 24.0,
-                        audio_mix_spec: dict[str, Any] | None = None
+                        audio_mix_spec: dict[str, Any] | None = None,
+                        validate: bool = True
                         ) -> dict[str, Any]:
     """Mint one reel's fragment onto the model, in place.
 
@@ -1303,7 +1304,8 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                for use in model.get("clip_uses") or [])]
     report["frame_map"] = frame_map_for_reel(
         model, reel_slug, reel_clock, uses["use_ids"] + end_card_use_ids)
-    validate_project_model(model)
+    if validate:
+        validate_project_model(model)
     return report
 
 
@@ -1483,8 +1485,10 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
                                 if isinstance(row, dict)],
             audio_mix_spec=(audio_mix_spec
                             if isinstance(audio_mix_spec, dict) else None),
-            fps=reel_fps))
-    validate_project_model(model)
+            fps=reel_fps, validate=False))
+    # commit_project_model validates the complete merged document once,
+    # before writing. Per-fragment and immediate duplicate validation
+    # each walked every source observation again.
     reels_named = sorted(placements_by_reel)
     write_reason = reason or f"reel.build: {', '.join(reels_named)}"
     last_error: Exception | None = None
@@ -1529,7 +1533,7 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
                     audio_mix_spec=(audio_mix_spec
                                     if isinstance(audio_mix_spec, dict)
                                     else None),
-                    fps=reel_fps)
+                    fps=reel_fps, validate=False)
             validate_project_model(model)
     else:
         return {"status": "refused",

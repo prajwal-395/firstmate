@@ -298,7 +298,7 @@ class Broker:
             running = [self.store.get(job.id)
                        for job in self._running.values()]
         active = [job for job in running if job is not None]
-        lease = resolve_lock.holder()
+        lease = resolve_lock.active_holder()
         return {"fenced": fence is not None, "fence": fence,
                 "ready": fence is not None and not active and lease is None,
                 "active_jobs": active, "lease": lease.describe()
@@ -311,7 +311,7 @@ class Broker:
             active = [self.store.get(job.id)
                       for job in self._running.values()]
             active = [job for job in active if job is not None]
-            lease = resolve_lock.holder()
+            lease = resolve_lock.active_holder()
             if active or lease is not None:
                 raise job_kinds.JobRefused(
                     "Resolve is still in use; wait for the active job and "
@@ -570,10 +570,10 @@ class _Handler(socketserver.StreamRequestHandler):
         if op == "ping":
             from dataclasses import asdict
 
-            from library.tools.resolve_lock import holder
+            from library.tools.resolve_lock import active_holder
             # The lease is machine-wide (instance dir), not per broker
             # socket: every broker reports the same holder.
-            lease = holder()
+            lease = active_holder()
             return {
                 "ok": True,
                 "pid": os.getpid(),

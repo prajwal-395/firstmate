@@ -105,3 +105,17 @@ def test_offline_media_in_reel_timeline_is_rejected(tmp_path):
 
     with pytest.raises(ReelGraphicsError, match="A-roll reports Offline"):
         assert_timeline_media_online(Timeline())
+
+
+def test_declared_header_crop_retains_shadow_padding_and_canvas_floor(tmp_path):
+    image = Image.new("RGBA", (728, 480), (0, 0, 0, 0))
+    image.paste((255, 255, 255, 255), (24, 16, 704, 203))
+    path = tmp_path / "header.png"
+    image.save(path)
+    declaration = {"width": 728, "height": 480,
+                   "canvas_box": [96, 261, 824, 741]}
+    assert assert_tight_alpha(str(path), tight_box=declaration) == (728, 480)
+    with pytest.raises(ReelGraphicsError, match="not tight-boxed"):
+        assert_tight_alpha(str(path))
+    with pytest.raises(ReelGraphicsError, match="not tight-boxed"):
+        assert_tight_alpha(str(path), tight_box={**declaration, "width": 729})

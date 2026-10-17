@@ -673,3 +673,14 @@ def test_the_write_command_scopes_its_record_and_report(tmp_path):
     assert "Scoped to 1 timeline(s)" in report
     assert "the live note" in report
     assert "the ghost note" not in report
+
+
+def test_empty_or_out_of_scope_notes_do_not_load_the_project_model(tmp_path, monkeypatch):
+    from library.tools import project_model_store
+    def forbidden(*a, **k):
+        pytest.fail("no note has an anchor, so the large Project Model is unused")
+    monkeypatch.setattr(project_model_store, "load_project_model", forbidden)
+    monkeypatch.setattr(marker_routing, "_pull_payloads", lambda *_: [
+        (tmp_path / "unrelated.json", {"timeline": "Other", "notes": [MOMENT_NOTE]}),
+        (tmp_path / "empty.json", {"timeline": "Selected", "notes": []})])
+    assert marker_routing.route_project(tmp_path, timelines=["Selected"]) == []

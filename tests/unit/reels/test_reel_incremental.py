@@ -49,7 +49,7 @@ def _segments(tmp_path, tag):
     ]
 
 
-def _build(tmp_path, segments, program_channels=None):
+def _build(tmp_path, segments, program_channels=None, **options):
     from library.tools.reel_build import build_reel_timeline
 
     timeline, pool, project = _world()
@@ -59,11 +59,11 @@ def _build(tmp_path, segments, program_channels=None):
         lower_third_segments=list(segments),
         master_timeline=None,
         program_channels=dict(program_channels or {"1": 1, "2": 1}),
-        timeline_name="Reel 99 - incremental")
+        **options, timeline_name="Reel 99 - incremental")
     return timeline, pool, project, record
 
 
-def _prepared(tmp_path, segments, program_channels=None):
+def _prepared(tmp_path, segments, program_channels=None, **options):
     from library.tools.reel_build import prepare_reel_timeline
 
     return prepare_reel_timeline(
@@ -72,7 +72,7 @@ def _prepared(tmp_path, segments, program_channels=None):
         timeline_name="Reel 99 - incremental",
         lower_third_segments=list(segments),
         master_timeline=None,
-        program_channels=dict(program_channels or {"1": 1, "2": 1}))
+        program_channels=dict(program_channels or {"1": 1, "2": 1}), **options)
 
 
 def _inventory(timeline):
@@ -212,6 +212,9 @@ def test_footage_change_refuses(tmp_path):
                 project_folder=str(tmp_path), draw_gain=1.0,
                 resolve_app=None, single_reel_scope=True,
                 placement_mode="append", transcript=_transcript())
+    assert all(project.GetTimelineByIndex(i).GetName() !=
+               "Reel 99 - incremental (rebuild staging)"
+               for i in range(1, project.GetTimelineCount() + 1))
 
 
 def test_caption_change_refuses(tmp_path):
@@ -277,3 +280,124 @@ def test_missing_carried_record_refuses(tmp_path):
                 project_folder=str(tmp_path), draw_gain=1.0,
                 resolve_app=None, single_reel_scope=True,
                 placement_mode="append", transcript=_transcript())
+
+
+@pytest.mark.parametrize("field,value,reason", [
+    ("ledger_rows", [{"op": "edit_program"}], "edit-ledger"),
+])
+def test_unsupported_plan_refuses_before_any_timeline_read(field, value, reason):
+    prepared = SimpleNamespace(freeze_tail=None, post_header=None, ledger_rows=[])
+    setattr(prepared, field, value)
+    class UnreachableProject:
+        def GetTimelineCount(self):
+            pytest.fail("unsupported plan must refuse before reading or duplicating timelines")
+    with pytest.raises(IncrementalRefused, match=reason):
+        incr.build_staged_incremental(
+            project=UnreachableProject(), staging_name="staging", final_name="final",
+            recorded_carried="x", prepared=prepared, overlay_placements=None,
+            explainer_segments=None, semantic_segments=None, lower_third_segments=None,
+            look=None, grade_cdl=None, power_grade=None, motion=None,
+            overlay_intent=None, suppressions=[], fps=24, width=1080, height=1920,
+            project_folder="", draw_gain=1, resolve_app=None, single_reel_scope=True,
+            placement_mode="append", transcript={})
+
+
+def test_native_hold_and_header_lower_third_patch_matches_full_build(tmp_path, monkeypatch):
+    from library.tools import edit_patch, project_model_store
+    header_path = tmp_path / "header.mov"
+    header_path.write_bytes(b"fixed header")
+    header = {"overlay_path": str(header_path), "timeline_start": 0.0,
+              "total_frames": 240, "segment_id": "post-header"}
+    monkeypatch.setattr("library.tools.reel_post_header.plan_for_reel",
+                        lambda *a, **k: SimpleNamespace(segments=[header], as_dict=lambda: {"segments": [header]}))
+    original_world = _world
+    def long_sources():
+        timeline, pool, project = original_world()
+        for item in pool.GetRootFolder().GetClipList() or ():
+            item.SetClipProperty("Frames", "100000")
+        return timeline, pool, project
+    monkeypatch.setattr(__import__(__name__, fromlist=["_world"]), "_world", long_sources)
+    options = {"ending": {"tail_hold": "freeze", "tail_element": "tv_power_tail"}}
+    old_segments = _segments(tmp_path, "old")
+    final, _, project, _ = _build(tmp_path, old_segments, **options)
+    new_segments = _segments(tmp_path, "new")
+    reference, _, _, _ = _build(tmp_path, new_segments, **options)
+    prepared = _prepared(tmp_path, new_segments, **options)
+    assert prepared.freeze_tail is not None
+    from library.tools import reel_rebuild_need as need
+    recorded = need.carried_digest_live(project, final)
+    coverage_calls = []
+    from library.tools import reel_build
+    actual_coverage = reel_build.verify_motion_screen_coverage
+    def coverage(*a, **k):
+        coverage_calls.append(True)
+        return actual_coverage(*a, **k)
+    monkeypatch.setattr(reel_build, "verify_motion_screen_coverage", coverage)
+    monkeypatch.setattr(reel_build, "aim_picture_row", lambda *a, **k: 0)
+    monkeypatch.setattr("library.tools.tv_frame.screen_window_rect", lambda *a, **k: (0, 0, 1080, 1920))
+    def forbidden(*a, **k):
+        pytest.fail("an incremental placement must not reload or transact the Project Model")
+    monkeypatch.setattr(edit_patch, "apply_live_patch", forbidden)
+    monkeypatch.setattr(project_model_store, "load_project_model", forbidden)
+    with assume_sole_writer("hold and header incremental"):
+        record = incr.build_staged_incremental(
+            project=project, staging_name="patched", final_name=final.GetName(),
+            recorded_carried=recorded, prepared=prepared, overlay_placements=None,
+            explainer_segments=None, semantic_segments=None, lower_third_segments=new_segments,
+            look={"origin": "fixture"}, grade_cdl=None, power_grade=None, motion=None, overlay_intent=None,
+            suppressions=[], fps=23.976, width=1080, height=1920,
+            project_folder=str(tmp_path), draw_gain=1, resolve_app=None,
+            single_reel_scope=True, placement_mode="append", transcript=_transcript())
+    patched = project.GetCurrentTimeline()
+    assert _inventory(patched) == _inventory(reference)
+    def properties(timeline):
+        return sorted((kind, row, item.GetStart(), item.GetSourceStartFrame(),
+                       item.GetSourceEndFrame(), item.GetSpeed(),
+                       tuple(sorted(item.GetProperty().items())))
+                      for kind in ("video", "audio")
+                      for row in range(1, timeline.GetTrackCount(kind) + 1)
+                      for item in timeline.GetItemListInTrack(kind, row) or ())
+    assert properties(patched) == properties(reference)
+    assert record["freeze_placement"]["reused"]
+    assert record["placement_check"]["passed"]
+    assert coverage_calls == [True]
+
+
+def test_card_sharing_overlay_row_is_retained_and_row_inventory_is_read_once(tmp_path, monkeypatch):
+    from collections import Counter
+    from tests.resolve_double import FakeTimeline, make_pool_clip
+    project = make_project("shared row")
+    timeline = project.adopt(FakeTimeline("shared", project=project))
+    timeline._ensure_track("video", 1)
+    project.SetCurrentTimeline(timeline)
+    pool = project.GetMediaPool()
+    card_path = tmp_path / "end-card.mov"
+    overlay_path = tmp_path / "lower.mov"
+    card_path.write_bytes(b"card")
+    overlay_path.write_bytes(b"lower")
+    card_item = make_pool_clip("end-card.mov", path=str(card_path))
+    lower_item = make_pool_clip("lower.mov", path=str(overlay_path))
+    pool.AppendToTimeline([
+        {"mediaPoolItem": card_item, "startFrame": 0, "endFrame": 48,
+         "mediaType": 1, "trackIndex": 1, "recordFrame": 240},
+        {"mediaPoolItem": lower_item, "startFrame": 0, "endFrame": 48,
+         "mediaType": 1, "trackIndex": 1, "recordFrame": 0}])
+    row = SimpleNamespace(index=1)
+    plan = SimpleNamespace(material={"card_role": "motion_graphics", "mg_spans": [(0, 48)],
+                                     "card_spans": [(240, 288)]},
+                           rows_for_role=lambda role: [row])
+    card = SimpleNamespace(placement="tail", reel_start_frame=240, source_frames=48)
+    card.rendered_path = str(card_path)
+    reads = Counter()
+    original = timeline.GetItemListInTrack
+    def counted(kind, index):
+        reads[kind, index] += 1
+        return original(kind, index)
+    monkeypatch.setattr(timeline, "GetItemListInTrack", counted)
+    inventory = incr._RowInventory(timeline)
+    fixed = incr._check_cards_identical(inventory, plan, [card])
+    diff = incr.diff_overlay_kind(inventory, "speaker lower third", [1], [{
+        "overlay_path": str(overlay_path), "timeline_start": 0, "total_frames": 48}],
+        24, exclude_ids=fixed)
+    assert not diff.replace and not diff.added and not diff.removed
+    assert len(fixed) == 1 and reads["video", 1] == 1

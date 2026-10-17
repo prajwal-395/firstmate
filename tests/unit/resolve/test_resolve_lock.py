@@ -103,6 +103,44 @@ def test_the_lease_is_reentrant_within_a_process(lock_dir, unguarded):
         assert resolve_lock.held()
 
 
+def test_killed_holder_record_does_not_keep_broker_busy(lock_dir):
+    """SIGKILL leaves JSON behind, but handoff and ping follow flock."""
+    script = """
+import fcntl, json, os, socket, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+lock = (root / 'resolve_instance.lock').open('a+')
+fcntl.flock(lock, fcntl.LOCK_EX)
+(root / 'resolve_instance.lease.json').write_text(json.dumps({
+    'owner': 'killed build', 'purpose': 'place', 'pid': os.getpid(),
+    'host': socket.gethostname(), 'since': 1.0}), encoding='utf-8')
+print('held', flush=True)
+sys.stdin.read()
+"""
+    process = subprocess.Popen(
+        [sys.executable, "-c", script, str(lock_dir)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        encoding="utf-8")
+    try:
+        assert process.stdout.readline().strip() == "held"
+        assert resolve_lock.active_holder().pid == process.pid
+        process.kill()
+        process.wait(timeout=10)
+        assert resolve_lock.holder().pid == process.pid
+        assert resolve_lock.active_holder() is None
+        # A new writer is visible immediately; no stale-record unlink races.
+        import fcntl
+        with resolve_lock.lock_path().open("a+") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            resolve_lock._write_lease(resolve_lock.Lease(
+                "next build", "place", os.getpid(), "host", 2.0))
+            assert resolve_lock.active_holder().pid == os.getpid()
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=10)
+
+
 def test_a_reentrant_lease_survives_the_outer_release(lock_dir, unguarded):
     """A reentrant shared lease must stay held when the outer exclusive
     lease releases.

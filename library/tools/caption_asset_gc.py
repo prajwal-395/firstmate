@@ -600,8 +600,15 @@ def record_rendered_segments(asset_dir: str, segments: list[dict],
                 at = _ledger_entry_path(entry)
                 if at and os.path.exists(at):
                     kept[merge_key] = entry
-            overlay["segments"] = [
-                kept[merge_key] for merge_key in sorted(kept)]
+            merged = [kept[merge_key] for merge_key in sorted(kept)]
+            # A proven reuse normally names the exact recorded placing.
+            # Preserve its durable receipt instead of serializing and
+            # fsyncing the entire ledger again for every unchanged card.
+            if (merged == existing and data.get("ledger_version") == LEDGER_VERSION
+                    and all(data.get(key) == value
+                            for key, value in (extra_top_level or {}).items())):
+                return path
+            overlay["segments"] = merged
             data["ledger_updated_at"] = datetime.now(timezone.utc).isoformat()
             data["ledger_version"] = LEDGER_VERSION
             if extra_top_level:
