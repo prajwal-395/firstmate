@@ -3230,6 +3230,7 @@ def _cmd_run_recorded(args) -> int:
     original_timeline_id = None
     original_timeline_name = None
     original_page = None
+    original_project_folder = ()
     project_name = ""
     timeline_name = ""
     note = ""
@@ -3258,6 +3259,11 @@ def _cmd_run_recorded(args) -> int:
             original_timeline_id = current.GetUniqueId() if current else None
             original_timeline_name = current.GetName() if current else None
             original_page = resolve.GetCurrentPage()
+            from library.tools.qualification_project import (
+                _current_project_folder_path,
+            )
+            original_project_folder = _current_project_folder_path(
+                resolve.GetProjectManager())
         except Exception as exc:
             return fail(f"could not capture Resolve project identity ({exc}).",
                         f"{TOOL} cursor")
@@ -3338,6 +3344,7 @@ def _cmd_run_recorded(args) -> int:
             if switched:
                 from library.tools.qualification_project import restore
                 restore(resolve, {"project": original_project,
+                                  "project_folder": original_project_folder,
                                   "timeline_id": original_timeline_id,
                                   "timeline": original_timeline_name,
                                   "page": original_page})

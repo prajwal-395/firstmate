@@ -145,9 +145,29 @@ class _Project:
 class _Manager:
     def __init__(self, project):
         self.project = project
+        self.folder_path = ()
 
     def GetCurrentProject(self):
         return self.project
+
+    def GetCurrentFolder(self):
+        return self.folder_path[-1] if self.folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self.folder_path:
+            return False
+        self.folder_path = self.folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self.folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        return {}
+
+    def OpenFolder(self, _name):
+        return False
 
 
 class _Resolve:

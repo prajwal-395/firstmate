@@ -70,6 +70,7 @@ def test_broker_worker_keeps_its_connection(monkeypatch):
 def test_operator_process_without_a_lane_keeps_todays_behaviour():
     """No lane signal, no new refusal: operators and tests connect."""
     import os
+
     from library.tools import resolve_locale
     assert not (os.environ.get(resolve_locale.LANE_ENV) or "").strip()
     sentinel = object()
@@ -323,6 +324,7 @@ class _BorrowManager:
         self._projects = {captain.GetName(): captain,
                           qual.GetName(): qual}
         self._open = captain
+        self._folder_path = ()
 
     def LoadProject(self, name):
         self._open = self._projects.get(name)
@@ -333,6 +335,25 @@ class _BorrowManager:
 
     def SaveProject(self):
         return True
+
+    def GetCurrentFolder(self):
+        return self._folder_path[-1] if self._folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self._folder_path:
+            return False
+        self._folder_path = self._folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self._folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        return {}
+
+    def OpenFolder(self, name):
+        return False
 
 
 class _BorrowResolve:
@@ -356,6 +377,7 @@ def test_run_borrow_saves_switches_and_restores(monkeypatch, capsys):
     the script switches with `open_project` and the captain's project
     and timeline read back afterwards - all offline against fakes."""
     import contextlib
+
     from library.tools import resolve_axi
     from library.tools import resolve_switch_guard as guard
     monkeypatch.setenv(resolve_axi.RUN_OPT_IN_ENV, "1")
@@ -371,8 +393,8 @@ def test_run_borrow_saves_switches_and_restores(monkeypatch, capsys):
                         lambda exclusive: contextlib.nullcontext())
     args = resolve_axi.build_parser().parse_args(
         ["run", "--borrow", "--unsafe", "--script",
-         "proj = open_project('Ren Qualification')\n"
-         "result = {'opened': proj.GetName()}"])
+         ("proj = open_project('Ren Qualification')\n"
+          "result = {'opened': proj.GetName()}")])
     assert resolve_axi.cmd_run(args) == 0
     out = capsys.readouterr().out
     assert "Ren Qualification" in out
@@ -386,6 +408,7 @@ def test_run_borrow_restores_even_when_the_script_raises(
     """A failing one-off must not keep the borrowed Resolve: the
     restore runs on the way out, also when the script raised."""
     import contextlib
+
     from library.tools import resolve_axi
     from library.tools import resolve_switch_guard as guard
     monkeypatch.setenv(resolve_axi.RUN_OPT_IN_ENV, "1")
@@ -411,8 +434,8 @@ def test_run_script_job_submits_through_the_broker(monkeypatch):
     """The documented lane path prepares as a broker `resolve_axi`
     job: a purpose-recorded run is admitted without developer opt-in,
     while an unrecorded run remains behind the developer-shell gate."""
-    from library.tools.resolved import jobs
     from library.tools import resolve_axi
+    from library.tools.resolved import jobs
     argv = ["run", "--unsafe", "--borrow", "--file", "one-off.py"]
     monkeypatch.delenv(resolve_axi.RUN_OPT_IN_ENV, raising=False)
     with pytest.raises(jobs.JobRefused, match="opt-in"):

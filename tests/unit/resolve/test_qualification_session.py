@@ -56,6 +56,7 @@ class _Manager:
         self.open = projects[0]
         self.saved = []
         self.pages = ["edit"]
+        self.folder_path = ()
 
     def GetProjectManager(self):
         return self
@@ -77,6 +78,25 @@ class _Manager:
     def LoadProject(self, name):
         self.open = self.projects.get(name)
         return self.open
+
+    def GetCurrentFolder(self):
+        return self.folder_path[-1] if self.folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self.folder_path:
+            return False
+        self.folder_path = self.folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self.folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        return {}
+
+    def OpenFolder(self, _name):
+        return False
 
 
 @pytest.fixture

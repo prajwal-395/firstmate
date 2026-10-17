@@ -318,7 +318,9 @@ def borrowed(resolve, *, qualification_only: bool = False):
             f"Resolve is already on {QUALIFICATION_PROJECT!r}, so the "
             f"captain's project is unknown - reopen it by hand first")
     timeline = project.GetCurrentTimeline()
+    project_folder = _current_project_folder_path(manager)
     found = {"project": name,
+             "project_folder": project_folder,
              "timeline_id": timeline.GetUniqueId() if timeline else None,
              "timeline": timeline.GetName() if timeline else None,
              "page": resolve.GetCurrentPage()}
@@ -503,6 +505,41 @@ def _require_live_manager(manager, where: str):
             f"settles instead of issuing a LoadProject into the switch")
 
 
+def _current_project_folder_path(manager) -> tuple[str, ...]:
+    """Read the full Project Manager path and return to its starting folder."""
+    leaf_to_root = []
+    while True:
+        folder = manager.GetCurrentFolder()
+        if folder is None:
+            raise QualificationError(
+                "Resolve did not report its current project folder")
+        if not manager.GotoParentFolder():
+            break
+        if folder:
+            leaf_to_root.append(str(folder))
+    path = tuple(reversed(leaf_to_root))
+    _open_project_folder_path(manager, path)
+    return path
+
+
+def _open_project_folder_path(manager, path: tuple[str, ...]) -> None:
+    """Navigate from the Project Manager root to a recorded folder path."""
+    if manager.GotoRootFolder() is False:
+        raise QualificationError(
+            "Resolve refused to navigate to the Project Manager root")
+    for segment in path:
+        folders = manager.GetFoldersInCurrentFolder() or []
+        folders = (list(folders.values()) if isinstance(folders, dict)
+                   else list(folders))
+        if folders.count(segment) != 1 or manager.OpenFolder(segment) is False:
+            raise QualificationError(
+                f"Resolve could not navigate to project folder "
+                f"{'/'.join(path)!r}")
+        if manager.GetCurrentFolder() != segment:
+            raise QualificationError(
+                f"Resolve did not read back project folder {segment!r}")
+
+
 def switch_project(manager, name: str, *, settle: float | None = None):
     """The ONE in-repo LoadProject path: live-check, switch, settle.
 
@@ -551,6 +588,7 @@ def restore(resolve, found: dict) -> None:
     current = manager.GetCurrentProject()
     if current and current.GetName() == QUALIFICATION_PROJECT:
         manager.SaveProject()
+    _open_project_folder_path(manager, found["project_folder"])
     if not current or current.GetName() != found["project"]:
         current = switch_project(manager, found["project"])
     reopen = (f"reopen {found['project']!r} on timeline "
@@ -822,6 +860,7 @@ def qualify() -> dict:
 
 def main(argv=None) -> int:
     import argparse
+
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
     # A `ren` verb already set it through the environment, and an
@@ -856,8 +895,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

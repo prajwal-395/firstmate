@@ -63,6 +63,9 @@ class _Manager:
         self.open = projects[0]
         self.saved = []
         self.opened_pages = ["edit"]
+        self.folder_path = ()
+        self.folder_tree = {(): ()}
+        self.project_folders = {p.name: () for p in projects}
 
     def GetProjectManager(self):
         return self
@@ -83,9 +86,34 @@ class _Manager:
 
     def LoadProject(self, name):
         self.open = self.projects.get(name)
+        if self.open:
+            self.folder_path = self.project_folders[name]
         if self.open and self.open.timelines:
             self.open.current = self.open.timelines[0]
         return self.open
+
+    def GetCurrentFolder(self):
+        return self.folder_path[-1] if self.folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self.folder_path:
+            return False
+        self.folder_path = self.folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self.folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        return {index + 1: name for index, name in enumerate(
+            self.folder_tree.get(self.folder_path, ()))}
+
+    def OpenFolder(self, name):
+        if name not in self.GetFoldersInCurrentFolder().values():
+            return False
+        self.folder_path = (*self.folder_path, name)
+        return True
 
 
 def _captain():
@@ -101,10 +129,9 @@ def _captain():
 
 def test_the_borrow_returns_the_exact_timeline_even_when_names_collide():
     resolve, podcast = _captain()
-    with pytest.raises(RuntimeError, match="mid-qualification"):
-        with qp.borrowed(resolve):
-            resolve.LoadProject(qp.QUALIFICATION_PROJECT)
-            raise RuntimeError("mid-qualification failure")
+    with pytest.raises(RuntimeError, match="mid-qualification"), qp.borrowed(resolve):
+        resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+        raise RuntimeError("mid-qualification failure")
     assert resolve.GetCurrentProject() is podcast
     assert podcast.GetCurrentTimeline().GetUniqueId() == "uid-second"
     assert resolve.saved[0] == "Podcast (field test)"
@@ -122,12 +149,36 @@ def test_the_borrow_puts_the_captains_page_back():
     assert resolve.opened_pages == ["edit", "media", "edit"]
 
 
+def test_the_borrow_restores_a_nested_project_folder(monkeypatch):
+    resolve, podcast = _captain()
+    manager = resolve
+    manager.folder_tree = {
+        (): ("Lucie Content",),
+        ("Lucie Content",): ("Social Media",),
+        ("Lucie Content", "Social Media"): ("Podcast",),
+        ("Lucie Content", "Social Media", "Podcast"): (),
+    }
+    manager.folder_path = ("Lucie Content", "Social Media", "Podcast")
+    manager.project_folders[podcast.GetName()] = manager.folder_path
+    manager.project_folders[qp.QUALIFICATION_PROJECT] = ()
+    monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
+
+    with qp.borrowed(resolve) as found:
+        assert found["project_folder"] == (
+            "Lucie Content", "Social Media", "Podcast")
+        resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+
+    assert resolve.GetCurrentProject() is podcast
+    assert manager.folder_path == (
+        "Lucie Content", "Social Media", "Podcast")
+    assert podcast.GetCurrentTimeline().GetUniqueId() == "uid-second"
+
+
 def test_a_restore_that_does_not_read_back_raises():
     resolve, podcast = _captain()
-    with pytest.raises(qp.RestoreFailed, match="by hand"):
-        with qp.borrowed(resolve):
-            resolve.LoadProject(qp.QUALIFICATION_PROJECT)
-            podcast.timelines.pop()     # his timeline is gone on return
+    with pytest.raises(qp.RestoreFailed, match="by hand"), qp.borrowed(resolve):
+        resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+        podcast.timelines.pop()     # his timeline is gone on return
 
 
 def test_a_switch_that_opens_a_stale_project_is_refused():
@@ -153,7 +204,6 @@ def test_a_switch_past_a_dead_project_manager_is_refused():
 
     def dead_load(name):
         resolve.open = None
-        return None
 
     resolve.LoadProject = dead_load
     with pytest.raises(qp.QualificationError, match="reads dead"):
@@ -163,9 +213,8 @@ def test_a_switch_past_a_dead_project_manager_is_refused():
 def test_borrowing_from_the_qualification_project_is_refused():
     resolve, _ = _captain()
     resolve.LoadProject(qp.QUALIFICATION_PROJECT)
-    with pytest.raises(qp.QualificationError, match="captain's project"):
-        with qp.borrowed(resolve):
-            pytest.fail("borrowed with the captain's project unknown")
+    with pytest.raises(qp.QualificationError, match="captain's project"), qp.borrowed(resolve):
+        pytest.fail("borrowed with the captain's project unknown")
 
 
 def test_qualification_only_borrow_keeps_the_existing_cursor(monkeypatch):
@@ -199,9 +248,8 @@ def test_qualification_only_borrow_refuses_without_switching(monkeypatch):
     monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
 
     with pytest.raises(qp.QualificationError,
-                       match="needs 'Ren Qualification' open"):
-        with qp.borrowed(resolve, qualification_only=True):
-            pytest.fail("wrong project reached the qualification body")
+                       match="needs 'Ren Qualification' open"), qp.borrowed(resolve, qualification_only=True):
+        pytest.fail("wrong project reached the qualification body")
 
     assert resolve.GetCurrentProject() is podcast
     assert podcast.GetCurrentTimeline() is timeline
@@ -284,7 +332,7 @@ def test_qualify_passes_end_to_end_against_the_resolve_double(
     monkeypatch.setenv(resolve_lock.LOCK_DIR_ENV, str(lock_dir))
     monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
     monkeypatch.setattr(marker_feedback, "connect_resolve", lambda: resolve)
-    monkeypatch.setattr(qp, "ensure_media", lambda: {})
+    monkeypatch.setattr(qp, "ensure_media", dict)
     monkeypatch.setattr(qp, "rebuild", rebuild)
     monkeypatch.setattr(qp, "_broker", broker)
     try:
@@ -327,19 +375,17 @@ def test_session_marker_cleared_when_restore_fails(lock_dir):
     """A restore that raises must not leave the watcher stood down: the
     marker clears in the finally behind the restore."""
     resolve, podcast = _captain()
-    with pytest.raises(qp.RestoreFailed):
-        with qp.borrowed(resolve):
-            resolve.LoadProject(qp.QUALIFICATION_PROJECT)
-            podcast.timelines.pop()
+    with pytest.raises(qp.RestoreFailed), qp.borrowed(resolve):
+        resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+        podcast.timelines.pop()
     assert qp.qualification_session_active() is None
 
 
 def _borrowing_job(monkeypatch, resolve, kind="qualification.workflow"):
     """A borrowing qualification job executed by the Rust-daemon worker
     path while the captain's project is open."""
-    from library.tools.resolved import cancellation
+    from library.tools.resolved import cancellation, worker
     from library.tools.resolved import jobs as job_kinds
-    from library.tools.resolved import worker
 
     @contextmanager
     def _lease(purpose, exclusive=False):
@@ -394,8 +440,7 @@ def test_rust_worker_runs_qualification_sessions_from_the_captains_project(
 def test_rust_worker_still_refuses_a_wrong_target_for_borrowing_jobs(monkeypatch):
     """Defect: exempting borrowing jobs must not open any project - a
     borrowing job naming a user project is refused before the borrow."""
-    from library.tools.resolved import cancellation
-    from library.tools.resolved import worker
+    from library.tools.resolved import cancellation, worker
 
     resolve, _ = _captain()
 

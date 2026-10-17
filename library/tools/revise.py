@@ -50,7 +50,12 @@ touch-up and a rebuild themselves. This module is the order:
 
 A revision is one durable record per note under
 `pipeline_output/llm_requests/revise/`, so the verb resumes where it
-stopped: `ren revise <p>` alone continues the newest open one.
+stopped: `ren revise <p>` alone continues the newest open one. A landed
+patch or touch records the generation it landed at and the scope it
+touched; a program planned against an older generation is refused naming
+the revisions that landed since (and which of them changed the same
+targets), and a landing over a retranslated base records the revisions
+it supersedes.
 """
 
 from __future__ import annotations
@@ -286,6 +291,17 @@ def _reprepare(project: str, record: dict, answer: str = "") -> None:
     if answer:
         record["clarifications"].append(
             {"question": record["question"]["question"], "answer": answer})
+    else:
+        # A retranslation replaces a program the reel has moved past. Keep
+        # the base it was planned on, so the landing can say which
+        # revisions it retranslated over (F08 conflicting revisions).
+        try:
+            old = edit_spec.load_response_spec(project, record["spec_id"])
+            base = _program_base(old.get("program") or {})
+        except edit_spec.EditSpecError:
+            base = None
+        if base is not None and base not in record.get("prior_bases", []):
+            record.setdefault("prior_bases", []).append(base)
     request = record["note"] + "".join(
         f"\n\nAsked: {entry['question']}\nAnswered: {entry['answer']}"
         for entry in record["clarifications"])
@@ -367,6 +383,68 @@ def scope_for(operations: list[dict]) -> dict:
     return {"clips": list(dict.fromkeys(clips)),
             "marker_frames": list(dict.fromkeys(frames)),
             "clip_markers": clip_markers}
+
+
+def _program_base(program: dict) -> int | None:
+    """The program's base generation as an int, or None when it says none."""
+    try:
+        return int(str((program or {}).get("base_generation")))
+    except (TypeError, ValueError):
+        return None
+
+
+def _landed_revisions(project: str, reel: str) -> list[dict]:
+    """Finished patch/touch revisions on this reel, oldest landing first.
+
+    A patch records the generation it created; a touch-up records the
+    head it applied onto (it stages beside the reel without recording a
+    generation of its own), so a touch orders against later stale
+    programs but not against landings on that same head.
+    """
+    out = [record for record in records(project)
+           if record.get("reel") == reel
+           and record.get("status") in (STATUS_PATCHED, STATUS_TOUCHED)
+           and type(record.get("landed_generation")) is int]
+    return sorted(out, key=lambda record: record["landed_generation"])
+
+
+def _scope_overlap(mine: dict, theirs: dict) -> list[str]:
+    """The targets two scopes both name, in words an editor recognises."""
+    theirs = theirs or {}
+    hits = [f"clip {clip}" for clip in mine.get("clips", ())
+            if clip in set(theirs.get("clips", ()))]
+    hits += [f"the timeline marker at frame {frame}"
+             for frame in mine.get("marker_frames", ())
+             if frame in set(theirs.get("marker_frames", ()))]
+    their_markers = {(uid, frame) for uid, frame in
+                     (theirs.get("clip_markers") or [])}
+    hits += [f"the clip marker at source frame {frame} on clip {uid}"
+             for uid, frame in (mine.get("clip_markers") or [])
+             if (uid, frame) in their_markers]
+    return hits
+
+
+def _intervening(project: str, reel: str, revise_id: str, base: int,
+                 head_generation: int, scope: dict) -> list[dict]:
+    """Landed revisions this program was not planned over, with overlap.
+
+    Each entry carries the other revision's id, its landed generation, its
+    change summary and the overlapping targets (empty when it landed
+    elsewhere on the reel). Ordered oldest landing first.
+    """
+    out = []
+    for other in _landed_revisions(project, reel):
+        if other.get("revise_id") == revise_id:
+            continue
+        landed = other["landed_generation"]
+        if not base < landed <= head_generation:
+            continue
+        summary = ((other.get("change") or {}).get("summary")
+                   or "no summary recorded")
+        out.append({"revise_id": other["revise_id"],
+                    "landed_generation": landed, "summary": summary,
+                    "overlap": _scope_overlap(scope, other.get("scope"))})
+    return out
 
 
 def _recorded_reel(project: str, reel: str):
@@ -585,15 +663,34 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             "a patch is made on one reel's items",
             "answer the translation again naming the reel")
     head, snapshot = _recorded_reel(project, reel)
+    operations = _program_ops(spec)
+    scope = scope_for(operations)
     if str(head.generation) != str(program["base_generation"]):
+        base = _program_base(program)
+        intervening = (_intervening(
+            project, reel, record["revise_id"], base, head.generation, scope)
+            if base is not None else [])
+        what = (f"{reel} changed since the note was translated "
+                f"(generation {program['base_generation']} then, "
+                f"{head.generation} now)")
+        for entry in intervening:
+            where = (f", also changing {', '.join(entry['overlap'])}"
+                     if entry["overlap"] else " elsewhere on the reel")
+            what += (f"; {entry['revise_id']} landed at generation "
+                     f"{entry['landed_generation']}{where}: "
+                     f"{entry['summary']}")
+        why = ("the program names items as they were; applying it to what "
+               "the reel holds now could change the wrong ones")
+        if any(entry["overlap"] for entry in intervening):
+            why += ("; another revision already changed the same targets, "
+                    "so this program would undo that work")
+        elif not intervening:
+            why += ("; with no landed revision explaining the move, the "
+                    "change came from a hand edit or a rebuild")
         raise ReviseRefused(
-            f"{reel} changed since the note was translated (generation "
-            f"{program['base_generation']} then, {head.generation} now)",
-            "the program names items as they were; applying it to what "
-            "the reel holds now could change the wrong ones",
+            what, why,
             f"run `ren revise {shlex.quote(project)} --id "
             f"{record['revise_id']} --retranslate`")
-    operations = _program_ops(spec)
     missing = [op["unique_id"] for op in operations if op.get("unique_id")
                and str(op["unique_id"]) not in _items(snapshot)]
     if missing:
@@ -616,7 +713,7 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             with live(project, reel) as (resolve_project, timeline):
                 flow = feedback_patch_flow.handle_note(
                     routed_note=note, project_folder=project,
-                    operations=operations, scope=scope_for(operations),
+                    operations=operations, scope=scope,
                     idempotency_key=f"revise:{record['revise_id']}",
                     project=resolve_project, timeline=timeline,
                     decide=lambda _note: verdict,
@@ -626,6 +723,13 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
                     **(options.get("patch_overrides") or {}))
             verification = {"state": "timeline_readback",
                             "record": flow["record"]}
+            receipt = (flow.get("receipt") or {}).get("patch") or {}
+            landed_generation = receipt.get("generation")
+            if type(landed_generation) is not int:
+                # A receipt that does not name its generation: read what
+                # the reel holds now rather than guessing.
+                landed_generation = _recorded_reel(
+                    project, reel)[0].generation
             status = STATUS_PATCHED
         else:
             route = ROUTE_TOUCH
@@ -650,6 +754,9 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
                             "record": _addressed(
                                 project, note, "touched in place",
                                 verdict["reason"], change["summary"])}
+            # A touch stages beside the reel without recording a shadow
+            # generation: the head it applied onto is the honest mark.
+            landed_generation = head.generation
             status = STATUS_TOUCHED
     except Exception as exc:
         spine.end_act(act, ok=False, detail=str(exc))
@@ -665,8 +772,18 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             f"{shlex.quote(project)} --id {record['revise_id']} "
             f"--retranslate`") from exc
     spine.end_act(act, ok=True, detail=change["summary"])
+    base = _program_base(program)
+    priors = [entry for entry in record.get("prior_bases", [])
+              if type(entry) is int]
+    floor = min(priors) if priors else base
+    supersedes = (
+        [entry["revise_id"] for entry in _intervening(
+            project, reel, record["revise_id"], floor, base, scope)
+         if entry["overlap"]]
+        if floor is not None and base is not None else [])
     return {"status": status, "route": route, "change": change,
-            "verification": verification}
+            "verification": verification, "landed_generation": landed_generation,
+            "scope": scope, "supersedes": supersedes}
 
 
 def _addressed(project: str, note: dict, action: str, rationale: str,
@@ -780,7 +897,8 @@ def _result(project: str, record: dict) -> dict:
         "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
         "assignment_id",
         "spec_id", "proposal", "classification", "route", "change",
-        "commands", "decisions", "verification", "question")}
+        "commands", "decisions", "verification", "question", "failed_command",
+        "landed_generation", "scope", "supersedes", "prior_bases")}
     out["reply"] = reply
     if status == STATUS_AWAITING:
         out["llm_request"] = record["request_path"]
@@ -944,8 +1062,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

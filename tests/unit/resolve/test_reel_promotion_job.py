@@ -30,6 +30,7 @@ class _BorrowableProjectManager:
         self.current = captain
         self.saved = []
         self.loaded = []
+        self.folder_path = ()
 
     def GetCurrentProject(self):
         return self.current
@@ -44,6 +45,25 @@ class _BorrowableProjectManager:
         if self.current and self.current.GetTimelineCount():
             self.current._current = self.current.GetTimelineByIndex(1)
         return self.current
+
+    def GetCurrentFolder(self):
+        return self.folder_path[-1] if self.folder_path else ""
+
+    def GotoParentFolder(self):
+        if not self.folder_path:
+            return False
+        self.folder_path = self.folder_path[:-1]
+        return True
+
+    def GotoRootFolder(self):
+        self.folder_path = ()
+        return True
+
+    def GetFoldersInCurrentFolder(self):
+        return {}
+
+    def OpenFolder(self, _name):
+        return False
 
 
 def _borrowable_resolve(*, final_is_current=False):
