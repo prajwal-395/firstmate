@@ -2826,6 +2826,9 @@ EXEMPT_IMPORTS = {
     # reel_deliver's own imports - the over-invalidation rot the
     # coverage test exists to stop in the other direction.
     "library/tools/reel_deliver.py",
+    # Reel timeline overlay validation and layout lowering run after the
+    # preflight outputs are frozen; they cannot change a footage measurement.
+    "library/tools/reel_graphics.py",
     # Live-Resolve ingest machinery.  The only preflight-reachable
     # reference is timeline_transcript.main, a command-line entry point
     # no run executes; preflight transcription never connects to

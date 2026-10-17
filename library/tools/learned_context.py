@@ -139,6 +139,38 @@ RECORDABLE = (ACTIVE, PENDING)
 GLOBAL = "*"
 
 
+REEL_GRAPHICS_RULING = (
+    '"for the little lucie logo in the top right of the a-roll frame, '
+    'why did you make it a video render? its literally just a single frame"; '
+    '"i also want all motion graphics to be bound tightly"; '
+    '"resize the still on the timeline rather than re-deriving it"; '
+    'positions are absolute on the canvas or relative to a positioned parent, '
+    'and the logo stays separate from the frame; the corner bug is a tight '
+    'still overlay that ends before any reel ending or end-logo animation; '
+    'TV-off holds the last source frame in the timeline.'
+)
+
+
+def record_reel_graphics_rulings(project_folder: str) -> dict:
+    """Persist the captain's reel graphics corrections once per project."""
+    readers = ["build_reels", "verify_reels"]
+    for reader in readers:
+        for learning in active_for_step(project_folder, reader):
+            if learning.get("statement") == REEL_GRAPHICS_RULING:
+                return learning
+    return record(
+        project_folder, kind=CORRECTION,
+        statement=REEL_GRAPHICS_RULING, read_by=readers,
+        source={"captain_quote": [
+            '"for the little lucie logo in the top right of the a-roll frame, '
+            'why did you make it a video render? its literally just a single frame"',
+            '"i also want all motion graphics to be bound tightly"',
+            '"resize the still on the timeline rather than re-deriving it"',
+            '"also the logo is not in a tightbox and it bleeds into the end logo animation"',
+            '"using the last frame and freezing it in the timeline itself"',
+        ]})
+
+
 class LearnedContextError(ValueError):
     """A learning that cannot be acted on, refused by name."""
 

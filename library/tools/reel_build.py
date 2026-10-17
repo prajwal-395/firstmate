@@ -8365,6 +8365,18 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 f"would hide one of two graphics the plan puts on screen "
                 f"together.")
         track_index = rows[lane]
+        if (segment.get("placement_label") == "corner_brand_bug"
+                and segment.get("ending_start_frame") is not None):
+            from library.tools.reel_graphics import (
+                ReelGraphicsError, assert_before_end,
+            )
+            try:
+                assert_before_end(
+                    round(float(segment["timeline_start"]) * fps),
+                    round(float(segment["timeline_end"]) * fps),
+                    int(segment["ending_start_frame"]), "corner brand bug")
+            except ReelGraphicsError as exc:
+                raise ReelBuildError(f"{name}: {exc}") from exc
         media_type = segment.get("media_type")
         if media_type is None:
             extension = os.path.splitext(
@@ -8374,6 +8386,16 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             raise ReelBuildError(
                 f"{name}: rendered {kind} segment has unsupported media "
                 f"type {media_type!r}; expected 'still' or 'video'")
+        if (media_type == "still"
+                and os.path.splitext(str(segment["overlay_path"]))[1].lower()
+                == ".png"):
+            from library.tools.reel_graphics import (
+                ReelGraphicsError, assert_tight_alpha,
+            )
+            try:
+                assert_tight_alpha(segment["overlay_path"])
+            except ReelGraphicsError as exc:
+                raise ReelBuildError(f"{name}: {exc}") from exc
         if project_folder:
             assert_placeable(segment["overlay_path"], project_folder)
         item = import_pool_item(
@@ -10399,6 +10421,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     build_record["placements"] = serializable_placements(
         placements_list, fps=float(fps))
     build_record["overlay_placements"] = [dict(row) for row in _sweep_records]
+    from library.tools.reel_otio_placement import RecordingTimeline
+    if resolve_app is not None and not isinstance(timeline, RecordingTimeline):
+        from library.tools.reel_graphics import (
+            ReelGraphicsError, assert_timeline_media_online,
+        )
+        try:
+            assert_timeline_media_online(timeline)
+        except ReelGraphicsError as exc:
+            raise ReelBuildError(f"{name}: {exc}") from exc
     return build_record
 
 
@@ -12884,6 +12915,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         if not proj:
             raise ValueError(f"Unknown project {project_slug}")
         project_folder = str(proj.project_root)
+
+    # Persist the captain's graphics correction in the project-owned
+    # learning ledger before a future build prepares any overlays.
+    from library.tools.learned_context import record_reel_graphics_rulings
+    record_reel_graphics_rulings(project_folder)
 
     # Reject a proposal selected from stale evidence before resolving or
     # touching a Resolve project. The same transcript bytes feed the later

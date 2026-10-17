@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import pytest
+from PIL import Image
+
+from library.tools.layout_model import UnitMismatchError
+from library.tools.reel_graphics import (
+    ReelGraphicsError,
+    assert_before_end,
+    assert_timeline_media_online,
+    assert_tight_alpha,
+    corner_brand_bug_segment,
+)
+
+
+def test_full_canvas_overlay_is_rejected(tmp_path):
+    image = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+    image.putpixel((20, 20), (255, 255, 255, 255))
+    path = tmp_path / "full_canvas.png"
+    image.save(path)
+
+    with pytest.raises(ReelGraphicsError, match="not tight-boxed"):
+        assert_tight_alpha(str(path))
+
+
+def test_corner_bug_is_a_still_with_absolute_canvas_box(tmp_path):
+    image = Image.new("RGBA", (120, 40), (255, 255, 255, 255))
+    path = tmp_path / "brand.png"
+    image.save(path)
+
+    segment = corner_brand_bug_segment(
+        str(path), (1080, 1920), (160, 180, 920, 1450),
+        100, 200, 240, width=120, margin=24, fps=30,
+        pan_units="quarter", tilt_units="quarter")
+
+    assert segment["media_type"] == "still"
+    assert segment["absolute_canvas_box"] == [776.0, 204.0, 896.0, 244.0]
+    assert segment["total_frames"] == 100
+    assert segment["tight_box"]["placement"]["pan_units"] == "quarter"
+
+
+def test_corner_bug_cannot_overlap_ending(tmp_path):
+    image = Image.new("RGBA", (20, 10), (255, 255, 255, 255))
+    path = tmp_path / "brand.png"
+    image.save(path)
+
+    with pytest.raises(ReelGraphicsError, match="overlaps reel ending"):
+        corner_brand_bug_segment(
+            str(path), (1080, 1920), (160, 180, 920, 1450),
+            100, 241, 240, width=120, margin=24, fps=30)
+
+
+def test_layout_model_refuses_a_proxy_unit_mismatch():
+    from library.tools.layout_model import LayoutItem, LayoutModel, Transform
+    from library.tools.reel_graphics import require_current_units
+
+    model = LayoutModel(1080, 1920, "quarter", "quarter")
+    transform = Transform(pan=10, tilt=10, pan_units="original",
+                          tilt_units="original")
+    item = LayoutItem(120, 40, transform=transform)
+    with pytest.raises(UnitMismatchError):
+        require_current_units(model, item.transform)
+
+
+def test_an_overlay_ending_exactly_at_boundary_is_allowed():
+    assert_before_end(10, 20, 20, "brand bug")
+
+
+def test_tv_off_hold_uses_source_media_without_a_freeze_render():
+    from library.tools.reel_ending import (
+        FreezeTail, freeze_placement, is_freeze_path,
+    )
+
+    freeze = FreezeTail(
+        held_from="/project/media/closing-shot.mov",
+        held_source_seconds=3.0, source_fps=30.0, held_source_frame=90,
+        reel_start_frame=300, duration_frames=24, element="tv_power_tail",
+        track_index=1)
+    placement = freeze_placement(freeze, 30.0)
+
+    assert placement["native_hold"] is True
+    assert placement["clip"].source_file == freeze.held_from
+    assert not is_freeze_path(placement["clip"].source_file)
+
+
+def test_offline_media_in_reel_timeline_is_rejected(tmp_path):
+    class PoolItem:
+        def GetClipProperty(self, key):
+            return {"Offline": "true",
+                    "File Path": str(tmp_path / "missing.mov")}[key]
+
+    class Item:
+        def GetMediaPoolItem(self):
+            return PoolItem()
+
+        def GetName(self):
+            return "A-roll"
+
+    class Timeline:
+        def GetTrackCount(self, media_type):
+            return 1 if media_type == "video" else 0
+
+        def GetItemListInTrack(self, media_type, track):
+            return [Item()]
+
+    with pytest.raises(ReelGraphicsError, match="A-roll reports Offline"):
+        assert_timeline_media_online(Timeline())
