@@ -1958,6 +1958,20 @@ class FakeTimelineItem:
         self._color = color
         return True
 
+    def Delete(self):
+        """Remove this item from its timeline.
+
+        Returns True if the item was found and removed, False otherwise.
+        """
+        timeline = self._timeline
+        if timeline is None:
+            return False
+        for _name, items in timeline._tracks["video"] + timeline._tracks["audio"]:
+            if self in items:
+                items.remove(self)
+                return True
+        return False
+
     def GetProperty(self, key=None):
         if key is None:
             return dict(self._props)
