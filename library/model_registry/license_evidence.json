@@ -1908,6 +1908,64 @@
       ],
       "review_scope": "Provisional model/checkpoint rights only; code, runtime, architecture, data and conversion are separate artifacts where applicable.",
       "evidence_basis": "Primary publisher source metadata, license text, model card, or explicit statement that the artifact/revision could not be verified. Punch-list classifications are not evidence."
-    }
+    },
+      {
+        "artifact_id": "sortformer_nvidia_v21",
+        "artifact": "NVIDIA diar_streaming_sortformer_4spk-v2.1 checkpoint",
+        "artifact_type": "checkpoint_or_model_artifact",
+        "upstream_url": "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1",
+        "exact_revision": "cd03eee90fbec18297ac31b8c21546e596b7f71c",
+        "retrieved_at": "2026-10-17T03:33:19Z",
+        "license": "NVIDIA Open Model License (model card license_name: nvidia-open-model-license)",
+        "commercial_use": "Commercial use is permitted subject to the NVIDIA Open Model License terms. This exact checkpoint is not a CC-BY-4.0 checkpoint.",
+        "redistribution": "Subject to the NVIDIA Open Model License and its redistribution conditions; preserve applicable license and notices.",
+        "attribution": "Follow the NVIDIA Open Model License and retain applicable model and publisher notices.",
+        "thresholds": "No numeric use threshold identified in the model card or license reviewed.",
+        "copyleft": "No copyleft identified; custom NVIDIA model license applies.",
+        "conditions": "Pinned model-card revision identifies the exact v2.1 checkpoint and links the NVIDIA Open Model License. Review the linked terms before redistribution; FluidAudio documentation characterizes it as no restrictions, but the license itself controls.",
+        "status": "conditional",
+        "evidence_quotes": [
+          "license: other",
+          "license_name: nvidia-open-model-license",
+          "license_link: https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/"
+        ],
+        "evidence_sources": [
+          "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c",
+          "https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/"
+        ],
+        "review_scope": "Exact checkpoint model card metadata and linked publisher license; conversion and runtime are separate records.",
+        "evidence_basis": "Publisher model-card metadata at immutable revision and NVIDIA license linked from that card."
+      },
+      {
+        "artifact_id": "sortformer_coreml_6bit",
+        "artifact": "FluidInference Sortformer CoreML conversion and published 6-bit offline CoreML checkpoint used in diarization evaluation",
+        "artifact_type": "converted_checkpoint",
+        "upstream_url": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml",
+        "exact_revision": "HF conversion repo ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; published bundle v3/palettized/SortformerOffline_v2.1.mlmodelc; FluidAudio source 82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8",
+        "retrieved_at": "2026-10-17T03:33:19Z",
+        "license": "CC-BY-4.0 for both the published CoreML conversion and published 6-bit palettized bundle (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source.",
+        "commercial_use": "Commercial use is permitted under CC-BY-4.0 with attribution; identify modifications if made. The underlying checkpoint is governed by the NVIDIA Open Model License; distributed FluidAudio code carries Apache-2.0 obligations.",
+        "redistribution": "Redistribute the converted or palettized model only with CC-BY-4.0 attribution and change notices and in compliance with the underlying NVIDIA Open Model License; include Apache-2.0 notices for FluidAudio code if distributed.",
+        "attribution": "Attribute FluidInference and NVIDIA and link CC-BY-4.0; retain applicable NVIDIA/FluidAudio notices. Identify further modifications if made.",
+        "thresholds": "No numeric use threshold identified in reviewed terms.",
+        "copyleft": "No copyleft identified; CC-BY-4.0, NVIDIA custom terms, and Apache-2.0 apply to their respective artifacts.",
+        "conditions": "The evaluated 6-bit bundle is published in the same pinned Hub repository at v3/palettized/SortformerOffline_v2.1.mlmodelc. The model card declares CC-BY-4.0 and identifies the NVIDIA v2.1 base checkpoint; the checkpoint card links the NVIDIA Open Model License. FluidAudio source is Apache-2.0.",
+        "status": "conditional",
+        "evidence_quotes": [
+          "license: cc-by-4.0",
+          "base_model: nvidia/diar_streaming_sortformer_4spk-v2.1",
+          "FluidAudio Sortformer documentation: Licensed under NVIDIA Open Model License (no restrictions).",
+          "v3/palettized/SortformerOffline_v2.1.mlmodelc is present in the pinned Hub repository.",
+          "FluidAudio source LICENSE is Apache License, Version 2.0."
+        ],
+        "evidence_sources": [
+          "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1",
+          "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c",
+          "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE",
+          "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/Documentation/Diarization/Sortformer.md"
+        ],
+        "review_scope": "Publisher license metadata at immutable conversion revision, underlying checkpoint license, and conversion/runtime source license. The 6-bit offline bundle is a published file in the pinned conversion repository.",
+        "evidence_basis": "Publisher model-card metadata and source license files at immutable revisions; published palettized model file and benchmark record."
+      }
   ]
 }

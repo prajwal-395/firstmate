@@ -44,6 +44,10 @@
     {
       "id": "visual.depth",
       "description": "Estimate monocular scene depth."
+    },
+    {
+      "id": "audio.speaker_identity_embedding",
+      "description": "Produce a voice embedding for persistent speaker identity matching."
     }
   ],
   "implementations": [
@@ -52,7 +56,8 @@
       "component_id": "model.ecapa",
       "label": "SpeechBrain ECAPA speaker encoder",
       "capabilities": [
-        "audio.diarize"
+        "audio.diarize",
+        "audio.speaker_identity_embedding"
       ],
       "checkpoint": {
         "version": "0f99f2d0ebe89ac095bcc5903c4dd8f72b367286",
@@ -107,6 +112,104 @@
         "license_evidence_ref": "implementations.ecapa.speechbrain_voxceleb.license_evidence",
         "review_required": false,
         "review_note": null
+      }
+    },
+    {
+      "id": "sortformer.offline_coreml",
+      "component_id": "model.sortformer",
+      "label": "FluidAudio Sortformer offline v2.1 (6-bit CoreML)",
+      "capabilities": [
+        "audio.diarize"
+      ],
+      "checkpoint": {
+        "version": "FluidInference/diar-streaming-sortformer-coreml@ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; base nvidia/diar_streaming_sortformer_4spk-v2.1@cd03eee90fbec18297ac31b8c21546e596b7f71c",
+        "weights_hash": null,
+        "provider": "FluidInference Hugging Face",
+        "conversion": "6-bit palettized CoreML offline bundle",
+        "runtime": "FluidAudio CLI/CoreML"
+      },
+      "license_evidence": {
+        "upstream_url": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml",
+        "exact_version": "HF conversion repo ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; FluidAudio source 82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8; 6-bit palettization generated locally from that published conversion",
+        "retrieved_at": "2026-10-17",
+        "license": "CC-BY-4.0 for published CoreML conversion (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source. The locally palettized derivative carries the upstream model terms.",
+        "obligations": [
+          "Attribute FluidInference and NVIDIA, link CC-BY-4.0 and identify the local 6-bit palettization as a change; preserve applicable NVIDIA/FluidAudio notices.",
+          "Redistribute the converted or palettized model only with CC-BY-4.0 attribution and change notices and in compliance with the underlying NVIDIA Open Model License; include Apache-2.0 notices for FluidAudio code if distributed.",
+          "The evaluated 6-bit files were locally generated from the published CoreML conversion and are not individually identified in the Hub repository. Commercial clearance is based on the conversion repo card plus underlying checkpoint terms; preserve lineage and transformation notices if these files are later distributed."
+        ],
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1, https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c, https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE, https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/Documentation/Diarization/Sortformer.md",
+        "primary_evidence": {
+          "artifact_id": "sortformer_coreml_6bit",
+          "artifact": "FluidInference Sortformer CoreML conversion and local 6-bit palettization used in diarization evaluation",
+          "artifact_type": "converted_checkpoint",
+          "upstream_url": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml",
+          "exact_revision": "HF conversion repo ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; FluidAudio source 82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8; 6-bit palettization generated locally from that published conversion",
+          "retrieved_at": "2026-10-17T03:33:19Z",
+          "license": "CC-BY-4.0 for published CoreML conversion (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source. The locally palettized derivative carries the upstream model terms.",
+          "commercial_use": "Commercial use is permitted under CC-BY-4.0 with attribution and change indication for the model derivative, subject to the NVIDIA Open Model License governing the underlying checkpoint and Apache-2.0 obligations for distributed FluidAudio code.",
+          "redistribution": "Redistribute the converted or palettized model only with CC-BY-4.0 attribution and change notices and in compliance with the underlying NVIDIA Open Model License; include Apache-2.0 notices for FluidAudio code if distributed.",
+          "attribution": "Attribute FluidInference and NVIDIA, link CC-BY-4.0 and identify the local 6-bit palettization as a change; preserve applicable NVIDIA/FluidAudio notices.",
+          "thresholds": "No numeric use threshold identified in reviewed terms.",
+          "copyleft": "No copyleft identified; CC-BY-4.0, NVIDIA custom terms, and Apache-2.0 apply to their respective artifacts.",
+          "conditions": "The evaluated 6-bit files were locally generated from the published CoreML conversion and are not individually identified in the Hub repository. Commercial clearance is based on the conversion repo card plus underlying checkpoint terms; preserve lineage and transformation notices if these files are later distributed.",
+          "status": "conditional",
+          "evidence_quotes": [
+            "license: cc-by-4.0",
+            "base_model: nvidia/diar_streaming_sortformer_4spk-v2.1",
+            "FluidAudio Sortformer documentation: Licensed under NVIDIA Open Model License (no restrictions).",
+            "FluidAudio source LICENSE is Apache License, Version 2.0."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1",
+            "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c",
+            "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE",
+            "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/Documentation/Diarization/Sortformer.md"
+          ],
+          "review_scope": "Publisher license metadata at immutable conversion revision, underlying checkpoint license, and conversion/runtime source license. The exact local palettization artifact is not a separate publisher file.",
+          "evidence_basis": "Publisher model-card metadata and source license files at immutable revisions; local conversion provenance from the benchmark record."
+        }
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "qualification": "qualified",
+      "qualification_metrics": {
+        "quality": 0.3906,
+        "latency_cold_seconds": 85.55,
+        "latency_warm_seconds": 0.2,
+        "peak_memory_gb": 0.307
+      },
+      "resources": {
+        "runtime_seconds": 0.2,
+        "memory_gb": 0.75,
+        "resident_memory_gb": 0.307
+      },
+      "hardware": {
+        "accelerators": [
+          "ane",
+          "gpu",
+          "cpu"
+        ]
+      },
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "implementations.sortformer.offline_coreml.license_evidence",
+        "review_required": true,
+        "review_note": "Retain FluidInference/NVIDIA attribution, mark the local 6-bit palettization, and satisfy the NVIDIA Open Model License. FluidAudio Apache-2.0 applies when its runtime is distributed."
       }
     },
     {
@@ -413,11 +516,11 @@
           "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165.",
           "status": "unresolved",
           "evidence_quotes": [
-            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they’re being deployed within.",
+            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they\u2019re being deployed within.",
             "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, arbitrary image classification. We also hope it can be used for interdisciplinary studies of the potential impact of such models - the CLIP paper includes a discussion of potential downstream impacts to provide an example for this sort of analysis.",
             "The primary intended users of these models are AI researchers.",
             "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models.",
-            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP’s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
+            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP\u2019s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
           ],
           "evidence_sources": [
             "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"

@@ -478,6 +478,8 @@ LICENSE_ARTIFACT_MAP = {
     "insightface_buffalo_l": ("insightface.buffalo_l",),
     "minilm": ("minilm.all_minilm_l6_v2",),
     "panns_weights": ("panns.cnn14_decision_max",),
+    "sortformer_nvidia_v21": ("sortformer.offline_coreml",),
+    "sortformer_coreml_6bit": ("sortformer.offline_coreml",),
 }
 
 

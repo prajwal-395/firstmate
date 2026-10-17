@@ -176,6 +176,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
+        "library/tools/model_registry.py",
+        "library/tools/evidence_license.py",
+        # Diarization's default implementation is selected and its model
+        # output reuse terms are checked through these registry readers.
         "library/tools/transcript_confidence.py",
         "library/tools/transcript_corrections.py",
         "library/tools/transcript_fit.py",
@@ -675,6 +679,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
+        "library/tools/model_registry.py",
+        "library/tools/evidence_license.py",
+        # The diarization default and output reuse terms are resolved
+        # through the model and evidence-license registries.
         "library/tools/transcript_confidence.py",
         "library/tools/transcript_corrections.py",
         "library/tools/transcript_fit.py",
@@ -1193,6 +1201,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
+        "library/tools/model_registry.py",
+        "library/tools/evidence_license.py",
+        # Diarization routes through the model registry and emits
+        # registry-derived license obligations with reusable outputs.
         "library/tools/transcript_confidence.py",
         "library/tools/transcript_corrections.py",
         "library/tools/transcript_fit.py",
@@ -1700,6 +1712,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/vision_measure.py",
         "library/tools/caption_reading.py",
         "library/tools/single_track_diarization.py",
+        "library/tools/model_registry.py",
+        "library/tools/evidence_license.py",
         "library/tools/transcript_confidence.py",
         "library/tools/transcript_corrections.py",
         "library/tools/transcript_fit.py",
@@ -2212,6 +2226,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # diarized here before transcription, so a fix here changes
         # which speaker and voice embedding the cached segments carry.
         "library/tools/single_track_diarization.py",
+        "library/tools/model_registry.py",
+        "library/tools/evidence_license.py",
         # The executed sound-event measurement: PANNs AudioSet spans
         # per clip, so a fix here changes the cached sound_events.
         "library/tools/analysis/sound_event_pipeline.py",

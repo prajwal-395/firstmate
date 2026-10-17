@@ -40,6 +40,19 @@ def test_registry_matches_json_schema_and_projected_manifests():
         row["id"] for row in commercial["implementations"]}
     assert "insightface.buffalo_l" not in {
         row["id"] for row in commercial["implementations"]}
+    sortformer = next(row for row in registry["implementations"]
+                      if row["id"] == "sortformer.offline_coreml")
+    assert sortformer["capabilities"] == ["audio.diarize"]
+    assert sortformer["output_reuse"]["class"] == "commercial"
+    assert sortformer["output_reuse"]["review_required"] is True
+    assert sortformer["license_evidence"]["primary_evidence"]["artifact_id"] == "sortformer_coreml_6bit"
+    decision = model_registry.route(
+        "audio.diarize", purpose="commercial_client", mode="quality_first",
+        override="sortformer.offline_coreml",
+        hardware={"accelerators": ["ane", "gpu", "cpu"]}, registry=registry)
+    assert decision["selected_implementation"] == "sortformer.offline_coreml"
+    assert any(item["id"] == "ecapa.speechbrain_voxceleb"
+               for item in commercial["implementations"])
 
 
 def test_research_only_implementations_are_not_client_eligible():
@@ -255,7 +268,7 @@ def test_all_primary_license_records_are_preserved_in_schema_valid_snapshot():
     jsonschema.validate(snapshot, json.loads(
         (ROOT / "library/model_registry/license_evidence.schema.json").read_text()))
     ids = [row["artifact_id"] for row in snapshot["records"]]
-    assert len(ids) == len(set(ids)) == 62
+    assert len(ids) == len(set(ids)) == 64
     assert len(model_registry.unmapped_license_records()) == 49
 
 

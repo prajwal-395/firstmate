@@ -968,6 +968,69 @@ ECAPA_REQUIRED_FILES = ("hyperparams.yaml", "embedding_model.ckpt")
 """What makes a checkout usable: the recipe and the encoder weights."""
 
 
+# ── single-track diarization: offline Sortformer turn detector ─────────
+#
+# The CoreML runtime is a pinned FluidAudio CLI build and the model is a
+# pinned, locally cached CoreML bundle. Both live once per machine.
+
+SORTFORMER_REPO = "FluidInference/diar-streaming-sortformer-coreml"
+SORTFORMER_REVISION = "ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1"
+SORTFORMER_MODEL_RELATIVE = (
+    "models/sortformer/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1/"
+    "v3/palettized/SortformerOffline_v2.1.mlmodelc")
+SORTFORMER_CLI_RELATIVE = "bin/fluidaudiocli"
+SORTFORMER_INSTALL_SCRIPT = "scripts/install_sortformer.sh"
+SORTFORMER_SOURCE_REVISION = "82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8"
+SORTFORMER_SOURCE_RELATIVE = f"src/fluidaudio-{SORTFORMER_SOURCE_REVISION}"
+
+
+def sortformer_cli(explicit: Optional[str | Path] = None) -> Path:
+    """Machine-wide FluidAudio CLI, or an explicit test/operator override."""
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env = os.environ.get("PIPELINE_SORTFORMER_CLI")
+    return Path(env).expanduser() if env else vep_home() / SORTFORMER_CLI_RELATIVE
+
+
+def sortformer_model_path(explicit: Optional[str | Path] = None) -> Path:
+    """Pinned 6-bit offline Sortformer CoreML bundle."""
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env = os.environ.get("PIPELINE_SORTFORMER_MODEL_DIR")
+    return (Path(env).expanduser() if env else
+            vep_home() / SORTFORMER_MODEL_RELATIVE)
+
+
+class SortformerEnvironmentMissing(RuntimeError):
+    """The pinned Sortformer runtime or model bundle is not installed."""
+
+
+def sortformer_available(cli: Optional[str | Path] = None,
+                         model: Optional[str | Path] = None) -> tuple:
+    executable = sortformer_cli(cli)
+    bundle = sortformer_model_path(model)
+    if not executable.is_file() or not os.access(executable, os.X_OK):
+        return False, sortformer_missing_message(cli, model)
+    if not bundle.is_dir() or not (bundle / "model.mil").is_file():
+        return False, sortformer_missing_message(cli, model)
+    return True, f"Sortformer offline {SORTFORMER_REVISION[:12]} via {bundle}"
+
+
+def sortformer_missing_message(cli: Optional[str | Path] = None,
+                               model: Optional[str | Path] = None) -> str:
+    return ("Pinned offline Sortformer is not installed "
+            f"(CLI {sortformer_cli(cli)}, model {sortformer_model_path(model)}). "
+            f"Install once per machine with {SORTFORMER_INSTALL_SCRIPT}.")
+
+
+def require_sortformer(cli: Optional[str | Path] = None,
+                       model: Optional[str | Path] = None) -> tuple[Path, Path]:
+    usable, detail = sortformer_available(cli, model)
+    if not usable:
+        raise SortformerEnvironmentMissing(detail)
+    return sortformer_cli(cli), sortformer_model_path(model)
+
+
 class EcapaEnvironmentMissing(RuntimeError):
     """The ECAPA checkout is not reachable on this machine.
 

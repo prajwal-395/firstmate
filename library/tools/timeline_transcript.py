@@ -1509,7 +1509,7 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
         segments = segments_for_speaker(aligned, cluster.label, clips)
         embeddings = single_track_diarization.segment_voice_embeddings(
             [(s.timeline_start, s.timeline_end) for s in segments],
-            diarization)
+            diarization, speaker_label=cluster.label)
         # The voice print travels on the row: `replace` keeps every
         # measured field and sets only the embedding, so the per-ISO
         # construction above stays the one place segments are born.
@@ -1526,7 +1526,9 @@ def _transcribe_single_path(project_folder, sole, clips, scratch, cache_dir,
         speakers_estimated=diarization.speakers_estimated,
         inference_seconds=diarization.inference_seconds,
         weights=diarization.weights,
-        device=diarization.device).as_dict(), (
+        device=diarization.device,
+        provenance=diarization.provenance,
+        fallback_reason=diarization.fallback_reason).as_dict(), (
             overlapped_speech.not_measured(
                 overlapped_speech.SINGLE_TRACK_REASON))
 

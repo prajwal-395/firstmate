@@ -1,40 +1,34 @@
-"""Single-track speaker diarization: ECAPA embeddings + VAD + clustering.
+"""Single-track speaker diarization: Sortformer turns + ECAPA embeddings.
 
-The fallback for timelines with ONE audio path. The per-ISO path
+The default for timelines with ONE audio path. The per-ISO path
 (`timeline_transcript` rebuilding one track per timeline speaker) stays
 untouched; this module is taken only when there is nothing per-speaker
 to rebuild from (routing: `should_diarize_single_track`).
 
-Method (measured, not chosen): open ECAPA speaker embeddings
-(`speechbrain/spkrec-ecapa-voxceleb` at the revision pinned in
-`shared_environment.ECAPA_REVISION` - public, no HF token) on 1.5 s
-windows at 0.5 s hop, an energy VAD gate (frame speech within 20 dB of
-the file peak; windows with >= 30% speech frames embed), agglomerative
-clustering (cosine, average linkage), speaker count by silhouette over
-k = 2..6. Turns are the union of kept windows, merged over
-hop-contiguous runs of one label, with the later run yielding where a
-run tail overlaps the next run's head (the earlier tail wins the seam -
-the measured construction; a hypothesis is single-label per frame, so
-an untruncated seam would count twice downstream). Evidence:
-`data/vep-single-track-diarization/eval/` in firstmate's home - DER
-0.02-0.09 against 0.34-1.14 single-label baselines on the captain's
-footage, k estimated correctly on 2- and 3-speaker inputs.
+Default: offline 6-bit FluidAudio Sortformer for speaker turns, with one
+192-d ECAPA identity embedding measured per merged turn. Sortformer supports
+four speaker slots and no cross-recording identity; ECAPA still owns
+persistent voice matching. If Sortformer, its licensed model bundle, or
+CoreML runtime is unavailable, the measured ECAPA VAD/embedding/clustering
+pipeline remains the fallback. Its earlier eval measured DER 0.02-0.09
+against 0.34-1.14 single-label baselines on the captain's footage.
 
 What this module does NOT do, stated rather than tuned around:
 
 - Overlapped speech is attributed to ONE speaker (measured: ties the
   dominant-label default on fully-overlapped frames). Separation needs
   two labels per frame, which this method never claimed.
-- Weights live once per machine (`shared_environment.ecapa_model_dir`,
-  filled by `scripts/install_ecapa.sh`); absence REFUSES with
-  `DiarizationUnavailable` and the caller transcribes single-label with
-  the reason recorded - today's behavior said aloud, never a skip.
+- Sortformer runtime and model live once per machine via
+  `scripts/install_sortformer.sh`; when those are missing, ECAPA remains the
+  fallback. ECAPA weights still live once per machine via
+  `scripts/install_ecapa.sh` and are required for turn identity embeddings.
 
 Owned output shape (for the person-entity task): `diarize_track`
-returns per-cluster turns plus every kept window's 192-d ECAPA
-embedding; `segment_voice_embeddings` reduces those to one embedding
-per transcript segment (mean of member windows, L2-normalized, falling
-back to the cluster centroid). `timeline_transcript` carries it on
+returns per-cluster turns plus 192-d ECAPA embeddings associated with
+each window (legacy fallback) or Sortformer turn. `segment_voice_embeddings`
+reduces matching windows to one embedding per transcript segment, falling
+back to that speaker's centroid where a span does not overlap a measured
+turn embedding. `timeline_transcript` carries it on
 `SpokenSegment.voice_embedding` - a list of 192 floats on disk, None
 where nothing was measured (per-ISO path, single-label path, old
 transcripts). Never derived, never defaulted.
@@ -47,7 +41,10 @@ run anywhere and only the embed path refuses without it.
 from __future__ import annotations
 
 import functools
+import json
 import os
+import subprocess
+import tempfile
 import time
 import wave
 from dataclasses import dataclass
@@ -87,6 +84,9 @@ track is asserted by nobody; a project that has them declares them."""
 
 EMBEDDING_DIM = 192
 """ECAPA embedding width. The person-entity task reads this, not magic."""
+
+DEFAULT_DIARIZATION_IMPLEMENTATION = "sortformer.offline_coreml"
+ECAPA_FALLBACK_IMPLEMENTATION = "ecapa.speechbrain_voxceleb"
 
 DIARIZE_SINGLE_TRACK_DEFAULT = True
 """Whether the single-track path diarizes when eligible and able.
@@ -165,6 +165,13 @@ class Diarization:
     (``estimate_speaker_count``), or None when the count was declared
     rather than estimated. A single voice has no silhouette (the score
     is undefined for one cluster), so it carries none either."""
+
+    implementation_id: str = ECAPA_FALLBACK_IMPLEMENTATION
+    """Implementation that assigned speaker turns."""
+    provenance: list[dict] | None = None
+    """License and output-reuse conditions for turn and embedding producers."""
+    fallback_reason: str | None = None
+    """Why ECAPA produced turns when the Sortformer default was unavailable."""
 
 
 def _read_wav16_mono(path: str) -> tuple[int, np.ndarray]:
@@ -368,6 +375,14 @@ def measurement_identity(device: str,
                 name: _hash_if_present(weights / name)
                 for name in shared_environment.ECAPA_REQUIRED_FILES},
         },
+        "diarization_backend": {
+            "implementation_id": DEFAULT_DIARIZATION_IMPLEMENTATION,
+            "repo": shared_environment.SORTFORMER_REPO,
+            "revision": shared_environment.SORTFORMER_REVISION,
+            "precision": "6-bit palettized offline CoreML",
+            "cli": os.fspath(shared_environment.sortformer_cli()),
+            "model_path": os.fspath(shared_environment.sortformer_model_path()),
+        },
         "device": device,
         "versions": versions,
     }
@@ -466,10 +481,10 @@ def embed_windows(audio: np.ndarray, rate: int, starts: np.ndarray,
     return embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 
 
-def diarize_track(wav_path: str, num_speakers: int | None = None,
-                  model_dir: str | None = None,
-                  checkpoint_path: str | None = None,
-                  device: str | None = None) -> Diarization:
+def _diarize_ecapa(wav_path: str, num_speakers: int | None = None,
+                   model_dir: str | None = None,
+                   checkpoint_path: str | None = None,
+                   device: str | None = None) -> Diarization:
     """Diarize one mixed track. `num_speakers` given skips the k search
     (a declared roster, or eval replication); None estimates it. Raises
     `DiarizationUnavailable` rather than returning an empty result - an
@@ -549,8 +564,172 @@ def diarize_track(wav_path: str, num_speakers: int | None = None,
         k_scores=k_scores)
 
 
+def _license_provenance(implementation_ids: list[str]) -> list[dict]:
+    from library.tools import evidence_license, model_registry
+
+    registry = model_registry.load_registry()
+    records = []
+    for implementation_id in implementation_ids:
+        verdict = evidence_license.implementation_license(
+            implementation_id, registry)
+        implementation = next(row for row in registry["implementations"]
+                              if row["id"] == implementation_id)
+        license_record = implementation["license_evidence"]
+        records.append({
+            "implementation_id": implementation_id,
+            "component_id": verdict["component_id"],
+            "checkpoint": verdict["checkpoint"],
+            "license": license_record.get("license"),
+            "license_status": verdict["approval_status"],
+            "license_sources": [license_record.get("evidence_source")],
+            "conditions": verdict["obligations"],
+            "output_reuse": model_registry.output_reuse_terms(
+                implementation_id, registry),
+        })
+    return records
+
+
+def _diarize_sortformer(wav_path: str, num_speakers: int | None,
+                        model_dir: str | None = None,
+                        checkpoint_path: str | None = None,
+                        device: str | None = None
+                        ) -> Diarization:
+    from library.tools import shared_environment
+
+    if num_speakers is not None and num_speakers > 4:
+        raise DiarizationUnavailable(
+            "Sortformer supports at most four speakers; using ECAPA fallback")
+    from library.tools import model_registry
+    purpose = os.environ.get("REN_WORKLOAD_PURPOSE", "commercial_client")
+    model_registry.route(
+        "audio.diarize", purpose=purpose, mode="quality_first",
+        override=DEFAULT_DIARIZATION_IMPLEMENTATION,
+        hardware={"accelerators": ["ane", "gpu", "cpu"]})
+    cli, model_path = shared_environment.require_sortformer()
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="ren-sortformer-") as temp:
+        output_path = Path(temp) / "diarization.json"
+        command = [os.fspath(cli), "sortformer", os.fspath(wav_path),
+                   "--offline", "--palettized", "--model-path",
+                   os.fspath(model_path), "--output", os.fspath(output_path)]
+        try:
+            subprocess.run(command, check=True, capture_output=True,
+                           text=True, encoding="utf-8")
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, subprocess.SubprocessError, ValueError,
+                json.JSONDecodeError) as exc:
+            raise DiarizationUnavailable(
+                f"offline Sortformer failed: {exc}") from exc
+    raw_segments = payload["segments"]
+    if not isinstance(raw_segments, list):
+        raise DiarizationUnavailable("offline Sortformer returned no segment list")
+    parsed = []
+    for row in raw_segments:
+        speaker = row["speaker"]
+        start = float(row["startTimeSeconds"])
+        end = float(row["endTimeSeconds"])
+        if (not isinstance(speaker, str) or not speaker or not np.isfinite(start)
+                or not np.isfinite(end) or start < 0 or end <= start):
+            raise DiarizationUnavailable(
+                f"offline Sortformer returned an invalid segment: {row!r}")
+        parsed.append((speaker, start, end))
+    if not parsed:
+        raise DiarizationUnavailable("offline Sortformer found no speech segments")
+
+    by_speaker: dict[str, list[tuple[float, float]]] = {}
+    for speaker, start, end in parsed:
+        by_speaker.setdefault(speaker, []).append((start, end))
+    if num_speakers is not None and len(by_speaker) > num_speakers:
+        durations = {speaker: sum(end - start for start, end in turns)
+                     for speaker, turns in by_speaker.items()}
+        keep = set(sorted(durations, key=durations.get, reverse=True)[:num_speakers])
+        by_speaker = {speaker: turns for speaker, turns in by_speaker.items()
+                      if speaker in keep}
+    ordered = sorted(by_speaker, key=lambda speaker: min(
+        start for start, _ in by_speaker[speaker]))
+
+    # One ECAPA embedding is measured at the center of every final
+    # Sortformer turn. These are identity vectors only; ECAPA does not
+    # alter Sortformer's turn boundaries or speaker assignments.
+    turn_rows = []
+    window_starts = []
+    window_labels = []
+    for label_index, speaker in enumerate(ordered):
+        turns = sorted(by_speaker[speaker])
+        merged: list[list[float]] = []
+        for start, end in turns:
+            if merged and start <= merged[-1][1] + 0.03:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        for start, end in merged:
+            turn_rows.append((label_index, start, end))
+            window_starts.append(max(0.0, (start + end - WIN_S) / 2.0))
+            window_labels.append(label_index)
+
+    _, audio = _read_wav16_mono(wav_path)
+    starts = np.asarray(window_starts, dtype=np.float64)
+    if device is None:
+        device = embedding_device()
+    embeddings = _embed_windows_span(audio, starts, model_dir=model_dir,
+                                      checkpoint_path=checkpoint_path,
+                                      device=device)
+    elapsed = time.monotonic() - started
+    clusters = []
+    for index, speaker in enumerate(ordered):
+        members = embeddings[np.asarray(window_labels) == index]
+        centroid = members.mean(axis=0)
+        norm = np.linalg.norm(centroid)
+        if not norm:
+            raise DiarizationUnavailable(
+                f"ECAPA produced a zero identity vector for {speaker}")
+        centroid = centroid / norm
+        cluster_turns = [(round(start, 3), round(end, 3))
+                         for who, start, end in turn_rows if who == index]
+        clusters.append(SpeakerCluster(
+            label=SPEAKER_LABEL_FORMAT.format(index + 1),
+            turns=cluster_turns,
+            centroid=tuple(round(float(value), 6) for value in centroid)))
+    return Diarization(
+        clusters=clusters,
+        window_embeddings=embeddings,
+        window_starts=starts,
+        window_labels=window_labels,
+        speakers_estimated=len(clusters),
+        inference_seconds=round(elapsed, 3),
+        method=("FluidAudio Sortformer offline v2.1 6-bit CoreML turns + "
+                "SpeechBrain ECAPA embeddings at each Sortformer turn"),
+        weights=os.fspath(shared_environment.sortformer_model_path()),
+        device=device,
+        implementation_id=DEFAULT_DIARIZATION_IMPLEMENTATION,
+        provenance=_license_provenance([
+            DEFAULT_DIARIZATION_IMPLEMENTATION, ECAPA_FALLBACK_IMPLEMENTATION]))
+
+
+def diarize_track(wav_path: str, num_speakers: int | None = None,
+                  model_dir: str | None = None,
+                  checkpoint_path: str | None = None,
+                  device: str | None = None) -> Diarization:
+    """Default to offline Sortformer turns and ECAPA turn embeddings.
+
+    Any unavailable/failed Sortformer path falls back to the measured
+    ECAPA diarizer. The refusal reason is preserved in the returned result.
+    """
+    try:
+        return _diarize_sortformer(wav_path, num_speakers, model_dir,
+                                   checkpoint_path, device)
+    except (DiarizationUnavailable, ImportError, ValueError) as exc:
+        fallback = _diarize_ecapa(wav_path, num_speakers, model_dir,
+                                  checkpoint_path, device)
+        fallback.fallback_reason = str(exc)
+        fallback.provenance = _license_provenance(
+            [ECAPA_FALLBACK_IMPLEMENTATION])
+        return fallback
+
+
 def segment_voice_embeddings(segment_spans: list[tuple[float, float]],
-                             diarization: Diarization
+                             diarization: Diarization,
+                             speaker_label: str | None = None
                              ) -> list[tuple[float, ...] | None]:
     """One 192-d voice embedding per segment span. Pure numpy.
 
@@ -561,10 +740,19 @@ def segment_voice_embeddings(segment_spans: list[tuple[float, float]],
     when the diarization carries no clusters at all - never a zero
     vector, which would read as a voice print.
     """
+    target_index = None
+    if speaker_label is not None:
+        try:
+            target_index = int(speaker_label.rsplit("_", 1)[1]) - 1
+        except (ValueError, IndexError):
+            raise DiarizationUnavailable(
+                f"invalid diarization speaker label {speaker_label!r}")
     out = []
     for start, end in segment_spans:
         hits = [index for index, window in enumerate(diarization.window_starts)
-                if window < end and window + WIN_S > start]
+                if window < end and window + WIN_S > start
+                and (target_index is None
+                     or diarization.window_labels[index] == target_index)]
         if hits:
             mean = diarization.window_embeddings[hits].mean(axis=0)
             norm = np.linalg.norm(mean)
@@ -573,7 +761,10 @@ def segment_voice_embeddings(segment_spans: list[tuple[float, float]],
                                  for v in mean / norm))
                 continue
         nearest, nearest_gap = None, None
-        for cluster in diarization.clusters:
+        eligible_clusters = (diarization.clusters[target_index:target_index + 1]
+                             if target_index is not None
+                             else diarization.clusters)
+        for cluster in eligible_clusters:
             for turn_start, turn_end in cluster.turns:
                 gap = max(turn_start - end, start - turn_end, 0.0)
                 if nearest_gap is None or gap < nearest_gap:
@@ -633,6 +824,8 @@ class DiarizationRecord:
     inference_seconds: float | None = None
     weights: str = ""
     device: str = ""
+    provenance: list[dict] | None = None
+    fallback_reason: str | None = None
 
     def as_dict(self) -> dict:
         body = {"path": self.path, "reason": self.reason}
@@ -646,4 +839,8 @@ class DiarizationRecord:
             body["weights"] = self.weights
         if self.device:
             body["device"] = self.device
+        if self.provenance:
+            body["model_provenance"] = self.provenance
+        if self.fallback_reason:
+            body["fallback_reason"] = self.fallback_reason
         return body

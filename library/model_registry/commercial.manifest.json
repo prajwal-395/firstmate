@@ -3,6 +3,7 @@
     "audio.classify_event",
     "audio.detect_event",
     "audio.diarize",
+    "audio.speaker_identity_embedding",
     "speech.align",
     "visual.depth",
     "visual.detect",
@@ -13,7 +14,8 @@
   "implementations": [
     {
       "capabilities": [
-        "audio.diarize"
+        "audio.diarize",
+        "audio.speaker_identity_embedding"
       ],
       "checkpoint": {
         "conversion": null,
@@ -47,6 +49,14 @@
         "upstream_url": "https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "implementations.ecapa.speechbrain_voxceleb.license_evidence",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -63,6 +73,104 @@
         "memory_gb": null,
         "resident_memory_gb": null,
         "runtime_seconds": null
+      }
+    },
+    {
+      "capabilities": [
+        "audio.diarize"
+      ],
+      "checkpoint": {
+        "conversion": "6-bit palettized CoreML offline bundle",
+        "provider": "FluidInference Hugging Face",
+        "runtime": "FluidAudio CLI/CoreML",
+        "version": "FluidInference/diar-streaming-sortformer-coreml@ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; base nvidia/diar_streaming_sortformer_4spk-v2.1@cd03eee90fbec18297ac31b8c21546e596b7f71c",
+        "weights_hash": null
+      },
+      "component_id": "model.sortformer",
+      "editions": [
+        "commercial",
+        "personal"
+      ],
+      "hardware": {
+        "accelerators": [
+          "ane",
+          "gpu",
+          "cpu"
+        ]
+      },
+      "id": "sortformer.offline_coreml",
+      "label": "FluidAudio Sortformer offline v2.1 (6-bit CoreML)",
+      "license_evidence": {
+        "approval_status": "conditional",
+        "evidence_source": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1, https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c, https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE, https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/Documentation/Diarization/Sortformer.md",
+        "exact_version": "HF conversion repo ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; FluidAudio source 82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8; 6-bit palettization generated locally from that published conversion",
+        "license": "CC-BY-4.0 for published CoreML conversion (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source. The locally palettized derivative carries the upstream model terms.",
+        "obligations": [
+          "Attribute FluidInference and NVIDIA, link CC-BY-4.0 and identify the local 6-bit palettization as a change; preserve applicable NVIDIA/FluidAudio notices.",
+          "Redistribute the converted or palettized model only with CC-BY-4.0 attribution and change notices and in compliance with the underlying NVIDIA Open Model License; include Apache-2.0 notices for FluidAudio code if distributed.",
+          "The evaluated 6-bit files were locally generated from the published CoreML conversion and are not individually identified in the Hub repository. Commercial clearance is based on the conversion repo card plus underlying checkpoint terms; preserve lineage and transformation notices if these files are later distributed."
+        ],
+        "primary_evidence": {
+          "artifact": "FluidInference Sortformer CoreML conversion and local 6-bit palettization used in diarization evaluation",
+          "artifact_id": "sortformer_coreml_6bit",
+          "artifact_type": "converted_checkpoint",
+          "attribution": "Attribute FluidInference and NVIDIA, link CC-BY-4.0 and identify the local 6-bit palettization as a change; preserve applicable NVIDIA/FluidAudio notices.",
+          "commercial_use": "Commercial use is permitted under CC-BY-4.0 with attribution and change indication for the model derivative, subject to the NVIDIA Open Model License governing the underlying checkpoint and Apache-2.0 obligations for distributed FluidAudio code.",
+          "conditions": "The evaluated 6-bit files were locally generated from the published CoreML conversion and are not individually identified in the Hub repository. Commercial clearance is based on the conversion repo card plus underlying checkpoint terms; preserve lineage and transformation notices if these files are later distributed.",
+          "copyleft": "No copyleft identified; CC-BY-4.0, NVIDIA custom terms, and Apache-2.0 apply to their respective artifacts.",
+          "evidence_basis": "Publisher model-card metadata and source license files at immutable revisions; local conversion provenance from the benchmark record.",
+          "evidence_quotes": [
+            "license: cc-by-4.0",
+            "base_model: nvidia/diar_streaming_sortformer_4spk-v2.1",
+            "FluidAudio Sortformer documentation: Licensed under NVIDIA Open Model License (no restrictions).",
+            "FluidAudio source LICENSE is Apache License, Version 2.0."
+          ],
+          "evidence_sources": [
+            "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml/tree/ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1",
+            "https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1/tree/cd03eee90fbec18297ac31b8c21546e596b7f71c",
+            "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/LICENSE",
+            "https://github.com/FluidInference/FluidAudio/blob/82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8/Documentation/Diarization/Sortformer.md"
+          ],
+          "exact_revision": "HF conversion repo ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1; FluidAudio source 82eb4c1e0ab67e1c7d8de5092aa42a8f74cbd7b8; 6-bit palettization generated locally from that published conversion",
+          "license": "CC-BY-4.0 for published CoreML conversion (Hub model card); Apache-2.0 for FluidAudio conversion/runtime source. The locally palettized derivative carries the upstream model terms.",
+          "redistribution": "Redistribute the converted or palettized model only with CC-BY-4.0 attribution and change notices and in compliance with the underlying NVIDIA Open Model License; include Apache-2.0 notices for FluidAudio code if distributed.",
+          "retrieved_at": "2026-10-17T03:33:19Z",
+          "review_scope": "Publisher license metadata at immutable conversion revision, underlying checkpoint license, and conversion/runtime source license. The exact local palettization artifact is not a separate publisher file.",
+          "status": "conditional",
+          "thresholds": "No numeric use threshold identified in reviewed terms.",
+          "upstream_url": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml"
+        },
+        "retrieved_at": "2026-10-17",
+        "upstream_url": "https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml"
+      },
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "implementations.sortformer.offline_coreml.license_evidence",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": "Retain FluidInference/NVIDIA attribution, mark the local 6-bit palettization, and satisfy the NVIDIA Open Model License. FluidAudio Apache-2.0 applies when its runtime is distributed.",
+        "review_required": true
+      },
+      "purposes": [
+        "commercial_client",
+        "personal_noncommercial",
+        "permitted_research"
+      ],
+      "qualification": "qualified",
+      "qualification_metrics": {
+        "latency_cold_seconds": 85.55,
+        "latency_warm_seconds": 0.2,
+        "peak_memory_gb": 0.307,
+        "quality": 0.3906
+      },
+      "resources": {
+        "memory_gb": 0.75,
+        "resident_memory_gb": 0.307,
+        "runtime_seconds": 0.2
       }
     },
     {
@@ -129,6 +237,17 @@
         "upstream_url": "https://zenodo.org/records/3987831"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "license_evidence.primary_evidence:panns_weights",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -183,6 +302,17 @@
         "upstream_url": "https://github.com/MontrealCorpusTools/mfa-models"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "implementations.mfa.english_us_arpa.license_evidence",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -304,6 +434,17 @@
         "upstream_url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "license_evidence.primary_evidence:minilm",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -356,6 +497,17 @@
         "upstream_url": "https://huggingface.co/laion/clap-htsat-unfused"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "implementations.laion.clap_htsat_unfused.license_evidence",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -443,6 +595,14 @@
         "upstream_url": "https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "license_evidence.primary_evidence:ast_audio_labels",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -533,6 +693,14 @@
         "upstream_url": "https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "license_evidence.primary_evidence:depth_v2_small",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -624,6 +792,14 @@
         "upstream_url": "https://huggingface.co/microsoft/Florence-2-base"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "license_evidence.primary_evidence:florence2",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -716,6 +892,14 @@
         "upstream_url": "https://huggingface.co/google/owlv2-base-patch16-ensemble"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "license_evidence.primary_evidence:owlv2",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -806,6 +990,14 @@
         "upstream_url": "https://huggingface.co/IDEA-Research/grounding-dino-tiny"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "license_evidence_ref": "license_evidence.primary_evidence:grounding_dino",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",
@@ -905,6 +1097,17 @@
         "upstream_url": "https://huggingface.co/facebook/sam2.1-hiera-small"
       },
       "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "license_evidence_ref": "license_evidence.primary_evidence:sam21",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "review_note": null,
+        "review_required": false
+      },
       "purposes": [
         "commercial_client",
         "personal_noncommercial",

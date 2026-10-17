@@ -382,6 +382,28 @@ note        : the install script already says the VoxCeleb terms
               "govern the weights - check them for the use at hand";
               carried here unchanged.
 
+component-id : model.sortformer
+edition      : public
+component   : FluidAudio Sortformer offline CoreML diarization model
+pin         : FluidInference/diar-streaming-sortformer-coreml
+              revision ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1;
+              NVIDIA checkpoint revision
+              cd03eee90fbec18297ac31b8c21546e596b7f71c
+source      : https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml
+              (CC-BY-4.0 conversion); NVIDIA Open Model License checkpoint;
+              FluidAudio source Apache-2.0
+license     : CC-BY-4.0 (conversion) + NVIDIA Open Model License (checkpoint)
+              + Apache-2.0 (FluidAudio runtime)
+fetched     : downloaded-at-install (pinned repository revision)
+commercial  : ok-with-attribution
+hash-verified: no (pinned Hub commit; bundle presence checked)
+note        : Offline diarization defaults to this 6-bit palettized
+              conversion. Preserve FluidInference/NVIDIA attribution,
+              identify the local palettization change, retain the NVIDIA
+              license, and preserve Apache-2.0 notices when redistributing
+              FluidAudio runtime code. Full evidence is in
+              library/model_registry/license_evidence.json.
+
 component-id : model.panns
 edition      : public
 component   : PANNs Cnn14_DecisionLevelMax checkpoint (327 MB)

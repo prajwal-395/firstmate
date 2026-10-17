@@ -24,9 +24,11 @@ its 512-d ArcFace embedding and nothing else.
   embeds; faces are clustered within one source by cosine >=
   `FACE_MATCH_THRESHOLD`. Never the 384 px M2 thumbnails themselves:
   see `FRAME_SOURCE_M2_TIMES`.
-- Voice tracks: the source's own program-track audio, diarized with the
-  already-landed ECAPA fallback (`single_track_diarization.diarize_track`,
-  PR #1482) - reused as-is, not re-measured here. The same tracks are
+- Voice tracks: the source's own program-track audio, diarized with offline
+  Sortformer by default and ECAPA embeddings per turn for identity; the
+  existing ECAPA diarizer remains the fallback (`single_track_diarization`)
+  - reused as-is, not re-measured here. Model license conditions travel
+  with each voice track. The same tracks are
   written to M1b (`speakers.json`), the diarization lane's reserved slot,
   beside their M3b home.
 - Speech-face links: a face span and a voice turn that overlap in time,
@@ -514,8 +516,9 @@ def measure_voice_tracks(wav_path: str,
     """Per-cluster voice tracks for one source's program-track audio,
     and why there are none when there are none.
 
-    Reuses `single_track_diarization.diarize_track` outright - the DER
-    proof (0.017, PR #1482) is not re-measured here, only consumed.
+    Reuses `single_track_diarization.diarize_track` outright - the current
+    offline Sortformer turns and ECAPA identity embeddings (or ECAPA fallback)
+    are not re-measured here, only consumed.
     Returns `([], reason)` when the ECAPA weights are unreachable or the
     VAD gate keeps nothing to cluster (silence). The reason is recorded
     as `instrument.voice_unavailable_reason`: every geo-podcast source
@@ -528,11 +531,8 @@ def measure_voice_tracks(wav_path: str,
             wav_path, num_speakers=num_speakers, device=device)
     except diarization.DiarizationUnavailable as refused:
         return [], str(refused)
-    # The silhouette of the chosen k is the measurement's own account of
-    # how cleanly the voices separate (MU-08: it becomes the diarization
-    # link confidence in the Project Model). None when the count was
-    # declared or a single voice left nothing to score - an absent score
-    # stays absent, never a default.
+    # ECAPA fallback carries a silhouette when it estimated speaker count;
+    # Sortformer has fixed slots and does not claim a silhouette score.
     k_scores = result.k_scores or {}
     silhouette = k_scores.get(result.speakers_estimated)
     try:
@@ -545,7 +545,8 @@ def measure_voice_tracks(wav_path: str,
         out.append({"track_id": f"voice_{i + 1:03d}",
                     "embedding": list(cluster.centroid),
                     "spans": [list(turn) for turn in cluster.turns],
-                    "silhouette": silhouette})
+                    "silhouette": silhouette,
+                    "model_provenance": result.provenance or []})
     return out, None
 
 
@@ -873,9 +874,17 @@ def build_source_identity(source_file: str,
             "face": ("insightface buffalo_l (ArcFace, 512-d)"
                      if face_unavailable_reason is None else None),
             "face_unavailable_reason": face_unavailable_reason,
-            "voice": ("speechbrain ECAPA (192-d) via "
-                      "single_track_diarization.diarize_track"
-                      if voice_tracks else None),
+            "voice": (
+                "offline Sortformer turns + speechbrain ECAPA "
+                "(192-d identity embeddings)"
+                if voice_tracks and any(
+                    row.get("implementation_id") == "sortformer.offline_coreml"
+                    for row in voice_tracks[0].get("model_provenance", []))
+                else ("speechbrain ECAPA diarization fallback (192-d identity)"
+                      if voice_tracks else None)),
+            "voice_model_provenance": (
+                voice_tracks[0].get("model_provenance", [])
+                if voice_tracks else []),
             "voice_unavailable_reason": voice_unavailable_reason,
             "frame_source": frame_source if face_unavailable_reason is None else None,
             "frame_pixels": frame_pixels,
