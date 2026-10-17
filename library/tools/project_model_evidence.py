@@ -1439,9 +1439,18 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                           producer_version=version)
         stable_id = (f"obs-{digest}-m4-window-"
                      f"{ticks[0]}-{ticks[1]}-empty")
+        empty_payload = {"scenes": []}
+        if (window.get("model_provenance") is not None
+                and window.get("producer_project_id")
+                and window.get("producer_project_root")):
+            empty_payload["model_provenance"] = window["model_provenance"]
+            empty_payload["model_provenance_source"] = {
+                "project_id": window["producer_project_id"],
+                "project_root": window["producer_project_root"],
+            }
         builder.observation(
             digest, "m4", asset_id, clock_id, start, end, "scene",
-            {"scenes": []}, None,
+            empty_payload, None,
             "library.tools.analysis.vision_pipeline_v3", evidence=native,
             observation_id=stable_id)
     if (not scenes and not window_coverage and duration and method_fresh
@@ -1485,15 +1494,31 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
             native = replace(native, freshness=freshness,
                              producer_version=scene_version)
         stable_id = None
+        model_window = next((window for window in window_coverage
+                             if float(scene.get("start", 0)) < float(window["end_s"])
+                             and float(scene.get("end", 0)) > float(window["start_s"])),
+                            None)
+        model_record = (model_window.get("model_provenance")
+                        if model_window
+                        and model_window.get("producer_project_id")
+                        and model_window.get("producer_project_root")
+                        else None)
         if ticks is not None:
             stable_id = (f"obs-{digest}-m4-scene-"
                          f"{ticks[0]}-{ticks[1]}-"
                          f"{hashlib.sha256(json.dumps(scene, sort_keys=True).encode()).hexdigest()[:12]}")
+        scene_payload = {k: scene.get(k) for k in
+                         ("location", "type", "lighting", "notable_features")}
+        if model_record is not None:
+            scene_payload["model_provenance"] = model_record
+            scene_payload["model_provenance_source"] = {
+                    "project_id": model_window["producer_project_id"],
+                    "project_root": model_window["producer_project_root"],
+            }
         builder.observation(
             digest, "m4", asset_id, clock_id,
             start, end, "scene",
-            {k: scene.get(k) for k in
-             ("location", "type", "lighting", "notable_features")},
+            scene_payload,
             None, "library.tools.analysis.vision_pipeline_v3",
             evidence=native, observation_id=stable_id)
     if (method_fresh and boundary_method == sm.M4_BOUNDARY_METHOD

@@ -2102,3 +2102,38 @@ def test_evidence_envelope_preserves_structured_derivation_inputs(tmp_path):
     source_memory.validate_evidence_envelope(envelope)
     assert envelope["preprocessing"] == preprocessing
     assert envelope["sampling_policy"] == sampling_policy
+
+
+def test_m4_window_keeps_model_provenance_and_producing_project(tmp_path):
+    digest = "c" * 64
+    provenance = {
+        "format": "model_evidence_provenance/1",
+        "evidence_ids": [f"m4-window:{digest}:0:10000"],
+        "implementation_id": "fixture.scene_model",
+        "checkpoint_revision": "fixture-rev",
+        "license_context": {}, "workload_purpose": "commercial_client",
+        "output_reuse": {}, "generated_at": "2026-10-17T00:00:00Z",
+    }
+    source_memory.merge_scene_window(
+        digest, "/fixture/source.mp4", start_s=0, end_s=10,
+        scenes=[{"start": 0, "end": 10, "location": "fixture"}],
+        producer_version="fixture-v1", source_digest=digest, measured=True,
+        model_provenance=provenance, producer_project_id="project-a",
+        producer_project_root=str(tmp_path / "project-a"), root=tmp_path,
+    )
+    stored = source_memory.read_scenes(digest, tmp_path)
+    assert stored["window_coverage"][0]["model_provenance"] == provenance
+    assert stored["window_coverage"][0]["producer_project_id"] == "project-a"
+    assert stored["window_coverage"][0]["producer_project_root"] == str(
+        tmp_path / "project-a")
+
+
+def test_m4_window_refuses_incomplete_model_provenance(tmp_path):
+    with pytest.raises(ValueError, match="required contract fields"):
+        source_memory.merge_scene_window(
+            "d" * 64, "/fixture/source.mp4", start_s=0, end_s=1,
+            scenes=[], producer_version="fixture-v1", source_digest="d" * 64,
+            measured=True, model_provenance={"format": "model_evidence_provenance/1"},
+            producer_project_id="project-a", producer_project_root=str(tmp_path),
+            root=tmp_path,
+        )

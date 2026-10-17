@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import resource
 import sys
 import time
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import (
+    model_evidence_provenance,
+    model_registry,
     project_model_evidence,
     project_model_store,
     source_memory,
@@ -17,7 +20,52 @@ from library.tools.query_directed_acquisition import query_with_acquisition
 
 WINDOW_SECONDS = 10.0
 PRODUCER_VERSION = "gemma-4-12b-it-4bit:m4-scene-window-v1"
+MODEL_IMPLEMENTATION_ID = "gemma.vision_4_12b_it_4bit"
 M4_WINDOW_COST_SECONDS = 90.0
+
+
+def _m4_window_evidence_id(digest: str, start_s: float | None,
+                           end_s: float | None) -> str:
+    if start_s is None or end_s is None:
+        return ""
+    return f"m4-window:{digest}:{round(float(start_s) * 1000)}:{round(float(end_s) * 1000)}"
+
+
+def filter_m4_by_reuse_policy(model: dict[str, Any], project: Path, *,
+                              edition: str, purpose: str,
+                              registry: dict[str, Any] | None = None
+                              ) -> dict[str, Any]:
+    """Keep M4 observations only when their producer record permits reuse."""
+    registry = registry or model_registry.load_registry()
+    filtered = copy.deepcopy(model)
+    observations = []
+    audit_path = (project / project_model_store.STORE_DIR /
+                  model_evidence_provenance.AUDIT_FILE)
+    for row in filtered["observations"]:
+        if not row.get("provenance_id", "").endswith("-m4"):
+            observations.append(row)
+            continue
+        payload = row["payload"]
+        record = payload.get("model_provenance")
+        source = payload.get("model_provenance_source")
+        if (not isinstance(record, dict) or not isinstance(source, dict)
+                or not record.get("evidence_ids")):
+            continue
+        try:
+            decision = model_evidence_provenance.reuse_evidence(
+                [{"id": record["evidence_ids"][0]}], [record],
+                source_project_id=source["project_id"],
+                target_project_id=model["id"], edition=edition,
+                purpose=purpose, source_project_root=source["project_root"],
+                target_project_root=project, audit_path=audit_path,
+                registry=registry,
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if decision["reused"]:
+            observations.append(row)
+    filtered["observations"] = observations
+    return filtered
 
 
 def _m4_rows(
@@ -56,6 +104,7 @@ def query_project(
     source_file: str,
     duration_seconds: float,
     max_cost_seconds: float,
+    workload_purpose: str = "commercial_client",
     memory_root: str | Path | None = None,
     window_analyzer: Any = None,
 ) -> dict[str, Any]:
@@ -72,6 +121,11 @@ def query_project(
         )
     model = authoritative_model
     root = Path(memory_root).expanduser() if memory_root else None
+    registry = model_registry.load_registry()
+    target_edition = ("commercial" if workload_purpose == "commercial_client"
+                      else "personal")
+    if workload_purpose not in model_registry.PURPOSES:
+        raise ValueError(f"unknown workload purpose {workload_purpose!r}")
     asset = next(
         (row for row in model["assets"] if row.get("content_digest") == source_digest),
         None,
@@ -91,12 +145,31 @@ def query_project(
             return None
         memory = source_memory.read_scenes(source_digest, root)
         for row in (memory or {}).get("window_coverage", []):
+            evidence_id = _m4_window_evidence_id(
+                source_digest, row.get("start_s"), row.get("end_s"))
+            producer_id = row.get("producer_project_id")
+            producer_root = row.get("producer_project_root")
+            if not producer_id or not producer_root or not row.get("model_provenance"):
+                continue
             if (
                 row.get("status") == "complete"
                 and row.get("source_digest") == source_digest
                 and row.get("start_s") <= start_s
                 and row.get("end_s") >= end_s
             ):
+                reuse = model_evidence_provenance.reuse_evidence(
+                    [{"id": evidence_id}], [row["model_provenance"]],
+                    source_project_id=producer_id,
+                    target_project_id=model["id"],
+                    edition=target_edition, purpose=workload_purpose,
+                    source_project_root=producer_root,
+                    target_project_root=project,
+                    audit_path=(project / project_model_store.STORE_DIR /
+                                model_evidence_provenance.AUDIT_FILE),
+                    registry=registry,
+                )
+                if not reuse["reused"]:
+                    continue
                 return {
                     "sufficient": True,
                     "coverage": "complete",
@@ -119,6 +192,18 @@ def query_project(
                 "peak_rss_gb": 0,
                 "producer_version": PRODUCER_VERSION,
             }
+        generated_provenance = None
+        if window_analyzer is None:
+            generated_provenance = model_evidence_provenance.record_for_generation(
+                [_m4_window_evidence_id(source_digest, start_s, end_s)],
+                MODEL_IMPLEMENTATION_ID, workload_purpose, registry=registry)
+            if generated_provenance["output_reuse"]["reuse_scope"] == "benchmark_only":
+                raise ValueError("benchmark-only model output cannot enter M4 evidence")
+            if generated_provenance["output_reuse"]["class"] == "personal_noncommercial":
+                cache_root = (root or source_memory.memory_root()).resolve()
+                if not cache_root.is_relative_to(project.resolve()):
+                    raise ValueError(
+                        "personal model output requires a project-private Source Memory root")
         if window_analyzer is None:
             source_path = Path(source_file)
             if not source_path.is_file():
@@ -183,6 +268,9 @@ def query_project(
                     producer_version=PRODUCER_VERSION,
                     source_digest=source_digest,
                     measured=True,
+                    model_provenance=generated_provenance,
+                    producer_project_id=model["id"],
+                    producer_project_root=str(project.resolve()),
                     root=root,
                 )
             return {
@@ -224,10 +312,20 @@ def query_project(
             except RuntimeError as exc:
                 if "stale project model revision" not in str(exc) or attempt == 2:
                     raise
-        return project_model_store.load_project_model(project)[1]
+        refreshed = project_model_store.load_project_model(project)[1]
+        if window_analyzer is None:
+            return filter_m4_by_reuse_policy(
+                refreshed, project, edition=target_edition,
+                purpose=workload_purpose, registry=registry)
+        return refreshed
 
+    query_model = model
+    if window_analyzer is None:
+        query_model = filter_m4_by_reuse_policy(
+            model, project, edition=target_edition,
+            purpose=workload_purpose, registry=registry)
     result = query_with_acquisition(
-        model,
+        query_model,
         plan,
         source_digest=source_digest,
         duration_seconds=duration_seconds,

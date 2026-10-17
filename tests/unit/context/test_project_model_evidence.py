@@ -319,6 +319,43 @@ def _migrate(fixture_project):
         memory_root=str(fixture_project["memory"]))
 
 
+def test_model_provenance_is_attached_to_project_model_scene_evidence(
+        fixture_project):
+    from library.tools import source_memory
+
+    scenes_path = fixture_project["memory"] / D1 / "scenes.json"
+    scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
+    model_record = {
+        "format": "model_evidence_provenance/1",
+        "evidence_ids": [f"m4-window:{D1}:0:5000"],
+        "implementation_id": "fixture.scene_model",
+        "checkpoint_revision": "fixture-rev",
+        "license_context": {"approval_status": "approved"},
+        "workload_purpose": "commercial_client",
+        "output_reuse": {"class": "commercial"},
+        "generated_at": "2026-10-17T00:00:00Z",
+    }
+    scenes["instrument"].update({
+        "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+        "boundary_method": source_memory.M4_BOUNDARY_METHOD,
+    })
+    scenes["window_coverage"] = [{
+        "start_s": 0.0, "end_s": 5.0, "status": "complete",
+        "producer_version": "fixture-scene-v1", "source_digest": D1,
+        "model_provenance": model_record,
+        "producer_project_id": "fixture-project",
+        "producer_project_root": str(fixture_project["project"]),
+    }]
+    _write(scenes_path, scenes)
+
+    model, _report = _migrate(fixture_project)
+
+    scene = next(row for row in model["observations"]
+                 if row["provenance_id"] == f"prov-{D1}-m4"
+                 and row["modality"] == "scene")
+    assert scene["payload"]["model_provenance"] == model_record
+
+
 def test_m1_utterance_is_grounded_through_m3b_voice_and_m7_lips(
         fixture_project, monkeypatch):
     from library.tools import footage_analysis

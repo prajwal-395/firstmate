@@ -1,5 +1,10 @@
 """VI-12 acceptance: answered queries do no work; resolvable gaps refine."""
 
+import json
+from pathlib import Path
+
+import pytest
+
 from library.tools.query_directed_acquisition import (
     execute_query_acquisition,
     plan_query_acquisition,
@@ -226,9 +231,6 @@ def test_query_with_acquisition_skips_when_current_answer_is_sufficient():
 
 
 def test_production_m4_acquisition_merges_one_fixture_window_and_requeries(tmp_path):
-    import json
-    from pathlib import Path
-
     from library.tools import (
         evidence_query,
         project_model_acquisition,
@@ -294,6 +296,27 @@ def test_production_m4_acquisition_merges_one_fixture_window_and_requeries(tmp_p
         tmp_path, observations=rows, provenance=provenance,
         expected_revision=revision) == revision
     assert len(project_model_store.load_project_model(tmp_path)[1]["observations"]) == len(updated["observations"])
+
+
+def test_production_m4_refuses_unresolved_model_before_loading_media(tmp_path):
+    from library.tools import evidence_query, project_model_acquisition, project_model_store
+
+    model = json.loads(Path(
+        "tests/fixtures/project_model_e2e/expected-project-model.json"
+    ).read_text(encoding="utf-8"))
+    asset = model["assets"][0]
+    plan = evidence_query.compile_plan([{
+        "predicate": "measurement", "measurement_type": "video.scene_segment",
+    }], scope={"asset_id": asset["id"], "clock_id": "clock-ada",
+               "start_s": 0, "end_s": 2})
+    project_model_store.commit_project_model(
+        tmp_path, model, expected_revision=0, reason="fixture before refused acquisition")
+    with pytest.raises(ValueError, match="producing implementation is not eligible"):
+        project_model_acquisition.query_project(
+            tmp_path, model, plan, source_digest=asset["content_digest"],
+            source_file="/missing/model-must-not-load.mp4",
+            duration_seconds=2, max_cost_seconds=90,
+            memory_root=tmp_path / "memory")
 
 
 def test_production_m4_acquisition_skips_when_answer_is_already_present(tmp_path):

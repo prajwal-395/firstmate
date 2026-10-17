@@ -1216,6 +1216,9 @@ def merge_scene_window(content_digest: str, source_file: str, *,
                        start_s: float, end_s: float, scenes: list,
                        producer_version: str, source_digest: str,
                        measured: bool,
+                       model_provenance: dict | None = None,
+                       producer_project_id: str | None = None,
+                       producer_project_root: str | None = None,
                        root: Optional[Path] = None) -> None:
     """Merge one measured M4 window without replacing source-wide records."""
     path = source_dir(content_digest, root) / SLOT_SCENES
@@ -1250,6 +1253,25 @@ def merge_scene_window(content_digest: str, source_file: str, *,
             "status": "complete" if measured else "incomplete",
             "producer_version": producer_version,
             "source_digest": source_digest}
+    if model_provenance is not None:
+        required_provenance = {
+            "implementation_id", "checkpoint_revision", "license_context",
+            "workload_purpose", "output_reuse", "generated_at",
+        }
+        if (model_provenance.get("format") !=
+                "model_evidence_provenance/1"
+                or not model_provenance.get("evidence_ids")
+                or not required_provenance <= model_provenance.keys()):
+            raise ValueError("M4 model provenance is missing required contract fields")
+        evidence_id = (f"m4-window:{source_digest}:"
+                       f"{round(start_s * 1000)}:{round(end_s * 1000)}")
+        if evidence_id not in model_provenance["evidence_ids"]:
+            raise ValueError("M4 model provenance does not bind this window")
+        item["model_provenance"] = model_provenance
+        if not producer_project_id or not producer_project_root:
+            raise ValueError("model-derived M4 evidence needs its producing project identity")
+        item["producer_project_id"] = producer_project_id
+        item["producer_project_root"] = producer_project_root
     coverage = [row for row in coverage if not (
         row.get("start_s") == start_s and row.get("end_s") == end_s)]
     coverage.append(item)

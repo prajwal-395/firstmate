@@ -52,6 +52,23 @@ def test_research_only_implementations_are_not_client_eligible():
                 implementation, "personal", "permitted_research")
 
 
+def test_output_reuse_terms_are_explicit_and_conservative():
+    registry = model_registry.load_registry()
+    for implementation in registry["implementations"]:
+        terms = implementation["output_reuse"]
+        assert terms["license_evidence_ref"]
+        if terms["class"] in {"research_only", "unknown"}:
+            assert terms["reuse_scope"] == "benchmark_only"
+            assert terms["permitted_editions"] == []
+        elif terms["class"] == "commercial":
+            assert terms["reuse_scope"] == "any_edition"
+            assert terms["permitted_editions"] == ["commercial", "personal"]
+        else:
+            assert terms["class"] == "personal_noncommercial"
+            assert terms["reuse_scope"] == "personal_edition"
+            assert terms["permitted_editions"] == ["personal"]
+
+
 @pytest.mark.parametrize("purpose", [
     "commercial_client", "personal_noncommercial",
 ])

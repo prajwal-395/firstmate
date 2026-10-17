@@ -99,7 +99,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "implementations.ecapa.speechbrain_voxceleb.license_evidence",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "panns.cnn14_decision_max",
@@ -181,7 +189,18 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "license_evidence.primary_evidence:panns_weights",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "mfa.english_us_arpa",
@@ -235,7 +254,18 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "implementations.mfa.english_us_arpa.license_evidence",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "gemma.vision_4_12b_it_4bit",
@@ -331,7 +361,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:gemma4",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "clip.openai_vit_large_patch14",
@@ -375,11 +413,11 @@
           "conditions": "Artifact revision is mutable or not pinned unless exact_revision says otherwise. This is a scout assessment, not legal advice. Check base models, adapters, tokenizer, training data terms, conversion rights, and license-file consistency before packaging. Current Ren loader has no immutable revision; exact_revision is the audit snapshot only, not a runtime pin. library/tools/frame_ranker.py:95; library/tools/analysis/footage_frames.py:164-165.",
           "status": "unresolved",
           "evidence_quotes": [
-            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they\u2019re being deployed within.",
+            "The CLIP model was developed by researchers at OpenAI to learn about what contributes to robustness in computer vision tasks. The model was also developed to test the ability of models to generalize to arbitrary image classification tasks in a zero-shot manner. It was not developed for general model deployment - to deploy models like CLIP, researchers will first need to carefully study their capabilities in relation to the specific context they’re being deployed within.",
             "The model is intended as a research output for research communities. We hope that this model will enable researchers to better understand and explore zero-shot, arbitrary image classification. We also hope it can be used for interdisciplinary studies of the potential impact of such models - the CLIP paper includes a discussion of potential downstream impacts to provide an example for this sort of analysis.",
             "The primary intended users of these models are AI researchers.",
             "We primarily imagine the model will be used by researchers to better understand robustness, generalization, and other capabilities, biases, and constraints of computer vision models.",
-            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP\u2019s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
+            "**Any** deployed use case of the model - whether commercial or not - is currently out of scope. Non-deployed use cases such as image search in a constrained environment, are also not recommended unless there is thorough in-domain testing of the model with a specific, fixed class taxonomy. This is because our safety assessment demonstrated a high need for task specific testing especially given the variability of CLIP’s performance with different class taxonomies. This makes untested and unconstrained deployment of the model in any use case currently potentially harmful."
           ],
           "evidence_sources": [
             "https://huggingface.co/openai/clip-vit-large-patch14/tree/32bd64288804d66eefd0ccbe215aa642df71cc41"
@@ -433,7 +471,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:clip",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "minilm.all_minilm_l6_v2",
@@ -554,7 +600,18 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "license_evidence.primary_evidence:minilm",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "laion.clap_htsat_unfused",
@@ -606,7 +663,18 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "implementations.laion.clap_htsat_unfused.license_evidence",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "audio_flamingo.nvidia_next",
@@ -707,7 +775,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "research_only",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:audio_flamingo_next",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "insightface.buffalo_l",
@@ -787,7 +863,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "research_only",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:insightface_buffalo_l",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "deepfilternet.v0_5_6",
@@ -867,7 +951,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:deepfilternet",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "ast.audioset",
@@ -954,7 +1046,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:ast_audio_labels",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "depth_anything_v2.small",
@@ -1044,7 +1144,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:depth_v2_small",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "florence2.base",
@@ -1135,7 +1243,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:florence2",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "owlv2.base_patch16",
@@ -1227,7 +1343,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:owlv2",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "grounding_dino.tiny",
@@ -1317,7 +1441,15 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "unknown",
+        "permitted_editions": [],
+        "reuse_scope": "benchmark_only",
+        "license_evidence_ref": "license_evidence.primary_evidence:grounding_dino",
+        "review_required": false,
+        "review_note": null
+      }
     },
     {
       "id": "sam2.1_hiera_small",
@@ -1416,7 +1548,18 @@
           "gpu"
         ]
       },
-      "optional_download": true
+      "optional_download": true,
+      "output_reuse": {
+        "class": "commercial",
+        "permitted_editions": [
+          "commercial",
+          "personal"
+        ],
+        "reuse_scope": "any_edition",
+        "license_evidence_ref": "license_evidence.primary_evidence:sam21",
+        "review_required": false,
+        "review_note": null
+      }
     }
   ]
 }

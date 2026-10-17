@@ -19,6 +19,18 @@
     }
   },
   "$defs": {
+    "output_reuse": {
+      "type": "object", "additionalProperties": false,
+      "required": ["class", "permitted_editions", "reuse_scope", "license_evidence_ref", "review_required", "review_note"],
+      "properties": {
+        "class": {"enum": ["commercial", "personal_noncommercial", "research_only", "unknown"]},
+        "permitted_editions": {"type": "array", "items": {"enum": ["commercial", "personal"]}, "uniqueItems": true},
+        "reuse_scope": {"enum": ["any_edition", "personal_edition", "benchmark_only"]},
+        "license_evidence_ref": {"type": "string", "minLength": 1},
+        "review_required": {"type": "boolean"},
+        "review_note": {"type": ["string", "null"]}
+      }
+    },
     "capability": {
       "type": "object", "required": ["id", "description"], "additionalProperties": false,
       "properties": {"id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"}, "description": {"type": "string", "minLength": 1}}
@@ -38,7 +50,7 @@
     },
     "implementation": {
       "type": "object",
-      "required": ["id", "component_id", "label", "capabilities", "checkpoint", "license_evidence", "purposes", "editions", "qualification"],
+      "required": ["id", "component_id", "label", "capabilities", "checkpoint", "license_evidence", "purposes", "editions", "qualification", "output_reuse"],
       "additionalProperties": false,
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]*$"},
@@ -56,6 +68,7 @@
         "resources": {"type": "object", "properties": {"runtime_seconds": {"type": ["number", "null"], "minimum": 0}, "memory_gb": {"type": ["number", "null"], "minimum": 0}, "resident_memory_gb": {"type": ["number", "null"], "minimum": 0}}, "additionalProperties": false},
         "hardware": {"type": "object", "properties": {"accelerators": {"type": "array", "items": {"enum": ["ane", "gpu", "cpu"]}}}, "additionalProperties": false},
         "optional_download": {"type": "boolean"},
+        "output_reuse": {"$ref": "#/$defs/output_reuse"},
         "runtime_env": {"$ref": "#/$defs/runtime_env"},
         "user_license": {"$ref": "#/$defs/user_license"}
       }

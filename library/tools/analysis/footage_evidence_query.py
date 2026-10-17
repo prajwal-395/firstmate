@@ -34,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
         help="hard acquisition cost ceiling (default: one 10s M4 window)",
     )
     parser.add_argument("--memory-root")
+    parser.add_argument(
+        "--purpose",
+        choices=("commercial_client", "personal_noncommercial", "permitted_research"),
+        default="commercial_client",
+        help="workload purpose used to authorize model evidence acquisition",
+    )
     args = parser.parse_args(argv)
 
     from library.tools import evidence_query, project_model_store, source_memory
@@ -42,6 +48,14 @@ def main(argv: list[str] | None = None) -> int:
     project = resolve_project_root(args.project)
     plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     source_revision, model = project_model_store.load_project_model(project)
+    from library.tools import project_model_acquisition, model_registry
+
+    model = project_model_acquisition.filter_m4_by_reuse_policy(
+        model, project,
+        edition=("commercial" if args.purpose == "commercial_client"
+                 else "personal"),
+        purpose=args.purpose, registry=model_registry.load_registry(),
+    )
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan)
         print(
@@ -83,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         source_file=asset["uri"],
         duration_seconds=float(duration),
         max_cost_seconds=args.max_cost_seconds,
+        workload_purpose=args.purpose,
         memory_root=memory_root,
     )
     print(json.dumps(answer, indent=2))
