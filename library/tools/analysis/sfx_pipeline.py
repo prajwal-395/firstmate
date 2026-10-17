@@ -289,15 +289,22 @@ def _clap_candidate_labels():
     return _CLAP_LABELS
 
 def build_index(profiles_dir):
-    from sentence_transformers import SentenceTransformer
     import faiss
-    
+
     print("Building index...")
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    
+    from library.tools.analysis.mlx_minilm import get_mlx_encoder
+    enc = get_mlx_encoder()
+    if enc is not None:
+        model = enc
+        encode_fn = lambda texts: enc.encode(texts)
+    else:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        encode_fn = lambda texts: model.encode(texts, normalize_embeddings=True)
+
     profiles = []
     texts = []
-    
+
     json_files = glob.glob(os.path.join(profiles_dir, "*.json"))
     for jf in json_files:
         if os.path.basename(jf) == "sfx_index.json": continue
@@ -308,46 +315,53 @@ def build_index(profiles_dir):
                 texts.append(data.get("description", ""))
             except Exception as e:
                 print(f"Error loading {jf}: {e}")
-            
+
     if not texts:
         print("No descriptions to index.")
         return
-        
-    embeddings = model.encode(texts, normalize_embeddings=True)
+
+    embeddings = encode_fn(texts)
     dimension = embeddings.shape[1]
-    
+
     index = faiss.IndexFlatIP(dimension)
     index.add(np.array(embeddings))
-    
+
     faiss.write_index(index, os.path.join(profiles_dir, "sfx.faiss"))
-    
+
     for i, prof in enumerate(profiles):
         prof["embedding"] = embeddings[i].tolist()
-        
+
     with open(os.path.join(profiles_dir, "sfx_index.json"), "w") as f:
         json.dump(profiles, f, indent=2)
-        
+
     print("Index built and saved.")
 
 def search_index(query, profiles_dir):
-    from sentence_transformers import SentenceTransformer
     import faiss
-    
+
     index_path = os.path.join(profiles_dir, "sfx.faiss")
     profiles_path = os.path.join(profiles_dir, "sfx_index.json")
-    
+
     if not os.path.exists(index_path) or not os.path.exists(profiles_path):
         print("Index not found.")
         return
-        
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+
+    from library.tools.analysis.mlx_minilm import get_mlx_encoder
+    enc = get_mlx_encoder()
+    if enc is not None:
+        model = enc
+        query_emb = enc.encode([query])
+    else:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        query_emb = model.encode([query], normalize_embeddings=True)
+
     index = faiss.read_index(index_path)
     with open(profiles_path, "r") as f:
         profiles = json.load(f)
-        
-    query_emb = model.encode([query], normalize_embeddings=True)
+
     D, I = index.search(np.array(query_emb), k=5)
-    
+
     print(f"Search results for '{query}':")
     for i in range(len(I[0])):
         idx = I[0][i]

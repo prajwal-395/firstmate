@@ -77,10 +77,15 @@ class SFXIndex:
 
     @property
     def embedder(self):
-        """Lazy-load sentence transformer."""
+        """Lazy-load sentence transformer (MLX first, PyTorch fallback)."""
         if self._embedder is None:
-            from sentence_transformers import SentenceTransformer
-            self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            from library.tools.analysis.mlx_minilm import get_mlx_encoder
+            enc = get_mlx_encoder()
+            if enc is not None:
+                self._embedder = enc
+            else:
+                from sentence_transformers import SentenceTransformer
+                self._embedder = SentenceTransformer("all-MiniLM-L6-v2")
         return self._embedder
 
     def _compact_profile(self, profile, include_embedding=False):
@@ -131,7 +136,11 @@ class SFXIndex:
         if self.faiss_index is None:
             return [{"error": "No FAISS index found. Run sfx_pipeline.py first."}]
 
-        query_emb = self.embedder.encode([query], normalize_embeddings=True)
+        emb = self.embedder
+        if hasattr(emb, "encode") and not hasattr(emb, "encode_query"):
+            query_emb = emb.encode([query])
+        else:
+            query_emb = emb.encode([query], normalize_embeddings=True)
         D, I = self.faiss_index.search(np.array(query_emb), k=min(top_k, len(self.profiles)))
 
         results = []

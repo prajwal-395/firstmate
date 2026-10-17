@@ -103,6 +103,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # The executed measurement: the SAM 2 tracker the step segments
         # each triggered clip with.
         "library/tools/analysis/object_segmentation.py",
+        # The catalog dependency closure includes the shared retrieval encoder.
+        "library/tools/analysis/mlx_minilm.py",
         # The segmenter imports the resident SAM lifecycle shared with runs.
         "library/tools/model_lifecycle.py",
         # Imported by step.py: the content identity a stored matte is
@@ -577,6 +579,8 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_01_scan_project": (
         # The step adapter delegates the measured scan to its capability-owned implementation.
         "library/capabilities/footage/scan.py",
+        # The scan's dependency closure now includes the shared retrieval encoder.
+        "library/tools/analysis/mlx_minilm.py",
         # VI-09 extends the cached temporal-index dependency represented here.
         "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.
@@ -1075,6 +1079,9 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_02_catalog_footage": (
         # The legacy step adapter delegates the catalog measurement here.
         "library/capabilities/footage/catalog.py",
+        # The catalog's retrieval text encoder is shared with footage search;
+        # changes to its model loading and embedding path invalidate catalog output.
+        "library/tools/analysis/mlx_minilm.py",
         # The shared analysis import closure includes the source-separation
         # helper, whose changes must invalidate cached catalog consumers.
         "library/tools/analysis/source_separation.py",
@@ -1589,6 +1596,8 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_03_semantic_analysis": (
         # The legacy step delegates analysis here; code changes alter cached profiles.
         "library/capabilities/semantics/analyse.py",
+        # Its dependency closure includes the shared retrieval encoder.
+        "library/tools/analysis/mlx_minilm.py",
         # VI-09's temporal intervals are joined into the M4 scene read.
         "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.
@@ -2112,6 +2121,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # cached indexes. The shared FFmpeg graph that supplies the
         # per-clip visual measurements moved with it.
         "library/capabilities/temporal/index.py",
+        # Its cached dependency closure includes the shared retrieval encoder.
+        "library/tools/analysis/mlx_minilm.py",
         "library/capabilities/temporal/media_decode.py",
         # FI-14 camera/subject and novelty evidence derived from M2.
         "library/tools/motion_evidence.py",

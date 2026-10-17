@@ -333,9 +333,8 @@ def index_dir_for(project_folder) -> Path:
 def load_embedder():
     """Return ``(encode_fn, backend_name)`` or ``(None, reason)``.
 
-    Tries `sentence-transformers` first so the precedent's exact code path
-    is used where it exists, then plain `transformers` with mean pooling
-    over the same checkpoint, which produces the same vectors.
+    Tries MLX MiniLM first (mlx-community/all-MiniLM-L6-v2-4bit), then
+    sentence-transformers, then plain transformers with mean pooling.
 
     Cached models load offline: each checkpoint is tried with
     ``local_files_only=True`` first, so a warm cache never revalidates
@@ -345,6 +344,20 @@ def load_embedder():
     Shared by footage search and the ML worker so the two never drift.
     """
     first_failure = ""
+
+    try:
+        from library.tools.analysis.mlx_minilm import get_mlx_encoder
+
+        enc = get_mlx_encoder()
+        if enc is not None:
+            def encode(texts):
+                return np.asarray(
+                    enc.encode(list(texts)), dtype="float32"
+                )
+            return encode, "mlx-minilm"
+    except Exception as exc:  # noqa: BLE001
+        first_failure = f"{type(exc).__name__}: {exc}"
+
     try:
         from sentence_transformers import SentenceTransformer
 
@@ -362,7 +375,7 @@ def load_embedder():
             )
 
         return encode, "sentence-transformers"
-    except Exception as exc:  # noqa: BLE001 - import, download or load failure
+    except Exception as exc:  # noqa: BLE001
         first_failure = f"{type(exc).__name__}: {exc}"
 
     try:
@@ -399,9 +412,9 @@ def load_embedder():
 
         return encode, "transformers+mean-pooling"
     except Exception as exc:  # noqa: BLE001
-        return None, (f"no embedder available (sentence-transformers: "
-                      f"{first_failure or 'absent'}; transformers: "
-                      f"{type(exc).__name__}: {exc})")
+        return None, (f"no embedder available (mlx: {first_failure or 'absent'}; "
+                      f"sentence-transformers: {first_failure or 'absent'}; "
+                      f"transformers: {type(exc).__name__}: {exc})")
 
 
 def _st_version_ok(version: str) -> bool:
