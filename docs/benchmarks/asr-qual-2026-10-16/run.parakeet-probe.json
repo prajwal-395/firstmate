@@ -1,0 +1,133 @@
+{
+  "candidate": "parakeet",
+  "revision": "asr-qual-2026-10-16-probe",
+  "windows": [
+    "IMG_1811_0_22"
+  ],
+  "per_window": [
+    {
+      "hypothesis": {
+        "words": [
+          {
+            "text": "Okay,",
+            "start": 14.4,
+            "end": 14.72,
+            "source_start": 14.4,
+            "source_end": 14.72
+          },
+          {
+            "text": "we're",
+            "start": 15.040000000000001,
+            "end": 15.44,
+            "source_start": 15.040000000000001,
+            "source_end": 15.44
+          },
+          {
+            "text": "here,",
+            "start": 15.44,
+            "end": 15.6,
+            "source_start": 15.44,
+            "source_end": 15.6
+          },
+          {
+            "text": "we're",
+            "start": 15.76,
+            "end": 16.080000000000002,
+            "source_start": 15.76,
+            "source_end": 16.080000000000002
+          },
+          {
+            "text": "here.",
+            "start": 16.080000000000002,
+            "end": 16.4,
+            "source_start": 16.080000000000002,
+            "source_end": 16.4
+          },
+          {
+            "text": "Just",
+            "start": 17.04,
+            "end": 17.36,
+            "source_start": 17.04,
+            "source_end": 17.36
+          },
+          {
+            "text": "gotta",
+            "start": 17.36,
+            "end": 17.68,
+            "source_start": 17.36,
+            "source_end": 17.68
+          },
+          {
+            "text": "find",
+            "start": 17.68,
+            "end": 17.84,
+            "source_start": 17.68,
+            "source_end": 17.84
+          },
+          {
+            "text": "a",
+            "start": 17.84,
+            "end": 18.0,
+            "source_start": 17.84,
+            "source_end": 18.0
+          },
+          {
+            "text": "place",
+            "start": 18.0,
+            "end": 18.16,
+            "source_start": 18.0,
+            "source_end": 18.16
+          },
+          {
+            "text": "to",
+            "start": 18.16,
+            "end": 18.400000000000002,
+            "source_start": 18.16,
+            "source_end": 18.400000000000002
+          },
+          {
+            "text": "park",
+            "start": 18.400000000000002,
+            "end": 18.88,
+            "source_start": 18.400000000000002,
+            "source_end": 18.88
+          },
+          {
+            "text": "now.",
+            "start": 18.88,
+            "end": 19.2,
+            "source_start": 18.88,
+            "source_end": 19.2
+          }
+        ],
+        "status": "answered",
+        "source_interval": {
+          "source_id": "IMG_1811",
+          "start_seconds": 0.0,
+          "end_seconds": 22.87,
+          "timebase": "original_source_audio_seconds"
+        }
+      },
+      "model_load_seconds": 33.037619624999934,
+      "cold_infer_seconds": 1.0986959579968243,
+      "cold_seconds": 34.13631558299676,
+      "warm_seconds": 1.1727812079989235,
+      "cold_peak_rss_bytes": 5780439040,
+      "warm_peak_rss_bytes": 5780439040,
+      "split": {
+        "note": "in-process: load and infer share one RSS reading; wall split is cold-vs-warm"
+      },
+      "engine": {
+        "transcriber": "parakeet-nemo",
+        "checkpoint": "parakeet-tdt-0.6b-v3.nemo",
+        "checkpoint_revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+        "model_path": "/tmp/vep-mu-asr/parakeet-tdt-0.6b-v3.nemo",
+        "precision": "float32",
+        "sample_rate": 16000,
+        "duration_seconds": 22.87
+      },
+      "cold_word_count": 13,
+      "warm_word_count": 13
+    }
+  ]
+}

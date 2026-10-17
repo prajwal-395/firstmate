@@ -25,6 +25,14 @@ speaker. Failed and abstained predictions remain visible as their own counts;
 they are not silently discarded. Runtime is divided by the sample's source
 audio duration to report seconds per audio minute.
 
+Punctuation has a separate micro precision/recall/F1 over exact lexical word
+matches. It scores ending comma, period, semicolon, colon, exclamation, and
+question marks; punctuation on inserted, deleted, or substituted words is
+outside this metric, so the report keeps WER and punctuation distinct. If no
+words match exactly, punctuation is `unmeasured` with null scores rather than
+an apparent perfect result. This is a technical transcription metric, not an
+editorial preference for which punctuation to display.
+
 Example invocation after independent labels and a current-path prediction
 exist:
 

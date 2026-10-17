@@ -1,0 +1,267 @@
+{
+  "words": [
+    {
+      "text": "Okay.",
+      "start": 30.70675053536892,
+      "end": 32.57154430925846,
+      "refined": true,
+      "source_start": 30.70675053536892,
+      "source_end": 32.57154430925846
+    },
+    {
+      "text": "I",
+      "start": 32.648429230749606,
+      "end": 32.70423667192459,
+      "refined": true,
+      "source_start": 32.648429230749606,
+      "source_end": 32.70423667192459
+    },
+    {
+      "text": "might",
+      "start": 33.00430433511734,
+      "end": 33.10419830111787,
+      "refined": true,
+      "source_start": 33.00430433511734,
+      "source_end": 33.10419830111787
+    },
+    {
+      "text": "have",
+      "start": 33.06874897927046,
+      "end": 33.31357263803482,
+      "refined": true,
+      "source_start": 33.06874897927046,
+      "source_end": 33.31357263803482
+    },
+    {
+      "text": "to",
+      "start": 33.18,
+      "end": 33.339999999999996,
+      "refined": false,
+      "source_start": 33.18,
+      "source_end": 33.339999999999996
+    },
+    {
+      "text": "just",
+      "start": 33.39587570741772,
+      "end": 33.54760608175397,
+      "refined": true,
+      "source_start": 33.39587570741772,
+      "source_end": 33.54760608175397
+    },
+    {
+      "text": "voice",
+      "start": 33.62846228286624,
+      "end": 33.88190346831083,
+      "refined": true,
+      "source_start": 33.62846228286624,
+      "source_end": 33.88190346831083
+    },
+    {
+      "text": "over",
+      "start": 33.98,
+      "end": 34.14,
+      "refined": false,
+      "source_start": 33.98,
+      "source_end": 34.14
+    },
+    {
+      "text": "this",
+      "start": 34.14,
+      "end": 34.3,
+      "refined": false,
+      "source_start": 34.14,
+      "source_end": 34.3
+    },
+    {
+      "text": "entire",
+      "start": 34.23053456395864,
+      "end": 34.777229667305946,
+      "refined": true,
+      "source_start": 34.23053456395864,
+      "source_end": 34.777229667305946
+    },
+    {
+      "text": "part,",
+      "start": 35.18388633489609,
+      "end": 35.32738046914339,
+      "refined": true,
+      "source_start": 35.18388633489609,
+      "source_end": 35.32738046914339
+    },
+    {
+      "text": "but",
+      "start": 35.42,
+      "end": 35.74,
+      "refined": false,
+      "source_start": 35.42,
+      "source_end": 35.74
+    },
+    {
+      "text": "um",
+      "start": 36.464671728312965,
+      "end": 36.744992905110124,
+      "refined": true,
+      "source_start": 36.464671728312965,
+      "source_end": 36.744992905110124
+    },
+    {
+      "text": "Today",
+      "start": 38.362617270350455,
+      "end": 38.83100127674639,
+      "refined": true,
+      "source_start": 38.362617270350455,
+      "source_end": 38.83100127674639
+    },
+    {
+      "text": "is",
+      "start": 39.52285846352577,
+      "end": 39.558504179120064,
+      "refined": true,
+      "source_start": 39.52285846352577,
+      "source_end": 39.558504179120064
+    },
+    {
+      "text": "what",
+      "start": 41.58,
+      "end": 41.739999999999995,
+      "refined": false,
+      "source_start": 41.58,
+      "source_end": 41.739999999999995
+    },
+    {
+      "text": "even",
+      "start": 42.074691319465636,
+      "end": 42.13350163906813,
+      "refined": true,
+      "source_start": 42.074691319465636,
+      "source_end": 42.13350163906813
+    },
+    {
+      "text": "is",
+      "start": 42.26393568634987,
+      "end": 42.34947707802057,
+      "refined": true,
+      "source_start": 42.26393568634987,
+      "source_end": 42.34947707802057
+    },
+    {
+      "text": "today,",
+      "start": 42.3979335065186,
+      "end": 42.63255280816555,
+      "refined": true,
+      "source_start": 42.3979335065186,
+      "source_end": 42.63255280816555
+    },
+    {
+      "text": "hold",
+      "start": 42.66072210565209,
+      "end": 42.70116455733776,
+      "refined": true,
+      "source_start": 42.66072210565209,
+      "source_end": 42.70116455733776
+    },
+    {
+      "text": "on.",
+      "start": 42.78,
+      "end": 42.94,
+      "refined": false,
+      "source_start": 42.78,
+      "source_end": 42.94
+    },
+    {
+      "text": "I'm",
+      "start": 42.88316402971744,
+      "end": 43.24719283846207,
+      "refined": true,
+      "source_start": 42.88316402971744,
+      "source_end": 43.24719283846207
+    },
+    {
+      "text": "just",
+      "start": 43.29035802364349,
+      "end": 43.406134842745956,
+      "refined": true,
+      "source_start": 43.29035802364349,
+      "source_end": 43.406134842745956
+    },
+    {
+      "text": "gonna",
+      "start": 43.41,
+      "end": 43.65,
+      "refined": false,
+      "source_start": 43.41,
+      "source_end": 43.65
+    },
+    {
+      "text": "stop",
+      "start": 43.49057609736919,
+      "end": 43.87017316497862,
+      "refined": true,
+      "source_start": 43.49057609736919,
+      "source_end": 43.87017316497862
+    },
+    {
+      "text": "right",
+      "start": 43.80198017448186,
+      "end": 43.89676652872562,
+      "refined": true,
+      "source_start": 43.80198017448186,
+      "source_end": 43.89676652872562
+    },
+    {
+      "text": "there.",
+      "start": 43.92734426736831,
+      "end": 43.974697873592376,
+      "refined": true,
+      "source_start": 43.92734426736831,
+      "source_end": 43.974697873592376
+    },
+    {
+      "text": "I'm",
+      "start": 44.61,
+      "end": 44.769999999999996,
+      "refined": false,
+      "source_start": 44.61,
+      "source_end": 44.769999999999996
+    },
+    {
+      "text": "gonna",
+      "start": 44.99620621502399,
+      "end": 45.078725684709845,
+      "refined": true,
+      "source_start": 44.99620621502399,
+      "source_end": 45.078725684709845
+    },
+    {
+      "text": "stop",
+      "start": 45.109259190186854,
+      "end": 45.332850914299485,
+      "refined": true,
+      "source_start": 45.109259190186854,
+      "source_end": 45.332850914299485
+    },
+    {
+      "text": "right",
+      "start": 45.29745173066854,
+      "end": 45.44493276774883,
+      "refined": true,
+      "source_start": 45.29745173066854,
+      "source_end": 45.44493276774883
+    },
+    {
+      "text": "there",
+      "start": 45.65,
+      "end": 45.9416875,
+      "refined": false,
+      "source_start": 45.65,
+      "source_end": 45.9416875
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1814",
+    "start_seconds": 0.0,
+    "end_seconds": 45.943333,
+    "timebase": "original_source_audio_seconds"
+  }
+}

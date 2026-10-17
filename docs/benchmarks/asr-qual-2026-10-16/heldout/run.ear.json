@@ -1,0 +1,68 @@
+{
+  "candidate": "ear",
+  "revision": "asr-qual-2026-10-17-heldout-r1",
+  "windows": [
+    "LCATL0011_10_35",
+    "LC4930_10_35",
+    "IMG_1818_0_30",
+    "IMG_1820_0_30"
+  ],
+  "per_window": [
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9951151632332568
+      },
+      "cold_seconds": 0.19961604100535624,
+      "warm_seconds": 0.166916542002582,
+      "cold_peak_rss_bytes": 1796915200,
+      "warm_peak_rss_bytes": 1796915200,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9951151632332568
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9860241113593317
+      },
+      "cold_seconds": 0.1636452919919975,
+      "warm_seconds": 0.16255512500356417,
+      "cold_peak_rss_bytes": 1796915200,
+      "warm_peak_rss_bytes": 1796915200,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9860241113593317
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.992704509946936
+      },
+      "cold_seconds": 0.17632720799883828,
+      "warm_seconds": 0.17233529100485612,
+      "cold_peak_rss_bytes": 1796915200,
+      "warm_peak_rss_bytes": 1796915200,
+      "cold": {
+        "language": "en",
+        "confidence": 0.992704509946936
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9903809804699117
+      },
+      "cold_seconds": 0.16849354100122582,
+      "warm_seconds": 0.16837820899672806,
+      "cold_peak_rss_bytes": 1796915200,
+      "warm_peak_rss_bytes": 1796915200,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9903809804699117
+      }
+    }
+  ]
+}

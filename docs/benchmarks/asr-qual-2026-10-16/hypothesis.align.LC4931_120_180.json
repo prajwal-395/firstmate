@@ -1,0 +1,1355 @@
+{
+  "words": [
+    {
+      "text": "Let",
+      "start": 0.5765432429313659,
+      "end": 0.6310193717479706,
+      "refined": true,
+      "source_start": 120.57654324293136,
+      "source_end": 120.63101937174797
+    },
+    {
+      "text": "me",
+      "start": 0.6584964126348496,
+      "end": 0.7321738946437836,
+      "refined": true,
+      "source_start": 120.65849641263485,
+      "source_end": 120.73217389464378
+    },
+    {
+      "text": "do",
+      "start": 0.7560306704044342,
+      "end": 0.8123166346549988,
+      "refined": true,
+      "source_start": 120.75603067040443,
+      "source_end": 120.812316634655
+    },
+    {
+      "text": "that,",
+      "start": 0.8406732165813446,
+      "end": 1.0567984998226165,
+      "refined": true,
+      "source_start": 120.84067321658135,
+      "source_end": 121.05679849982262
+    },
+    {
+      "text": "so",
+      "start": 1.0954067975282669,
+      "end": 1.2925580522418023,
+      "refined": true,
+      "source_start": 121.09540679752827,
+      "source_end": 121.2925580522418
+    },
+    {
+      "text": "I'll",
+      "start": 1.36,
+      "end": 1.52,
+      "refined": false,
+      "source_start": 121.36,
+      "source_end": 121.52
+    },
+    {
+      "text": "I'll",
+      "start": 1.5773843643069267,
+      "end": 1.7210711392760276,
+      "refined": true,
+      "source_start": 121.57738436430692,
+      "source_end": 121.72107113927603
+    },
+    {
+      "text": "I'm",
+      "start": 1.7891256308555603,
+      "end": 1.903604323118925,
+      "refined": true,
+      "source_start": 121.78912563085557,
+      "source_end": 121.90360432311893
+    },
+    {
+      "text": "gonna",
+      "start": 1.9330085442215204,
+      "end": 2.016605677008629,
+      "refined": true,
+      "source_start": 121.93300854422152,
+      "source_end": 122.01660567700863
+    },
+    {
+      "text": "ask",
+      "start": 2.093513228856027,
+      "end": 2.3211949744820597,
+      "refined": true,
+      "source_start": 122.09351322885603,
+      "source_end": 122.32119497448205
+    },
+    {
+      "text": "you",
+      "start": 2.3674379640817644,
+      "end": 2.3944718834757803,
+      "refined": true,
+      "source_start": 122.36743796408176,
+      "source_end": 122.39447188347577
+    },
+    {
+      "text": "the",
+      "start": 2.4200537648797034,
+      "end": 2.458996219187975,
+      "refined": true,
+      "source_start": 122.4200537648797,
+      "source_end": 122.45899621918798
+    },
+    {
+      "text": "question.",
+      "start": 2.4,
+      "end": 2.64,
+      "refined": false,
+      "source_start": 122.4,
+      "source_end": 122.64
+    },
+    {
+      "text": "Okay,",
+      "start": 2.6880974128842356,
+      "end": 2.921662204861641,
+      "refined": true,
+      "source_start": 122.68809741288423,
+      "source_end": 122.92166220486165
+    },
+    {
+      "text": "give",
+      "start": 2.9654180341959,
+      "end": 3.0350220024585726,
+      "refined": true,
+      "source_start": 122.9654180341959,
+      "source_end": 123.03502200245858
+    },
+    {
+      "text": "me",
+      "start": 3.2,
+      "end": 3.28,
+      "refined": false,
+      "source_start": 123.2,
+      "source_end": 123.28
+    },
+    {
+      "text": "one",
+      "start": 3.196359730064869,
+      "end": 3.3399850803613664,
+      "refined": true,
+      "source_start": 123.19635973006487,
+      "source_end": 123.33998508036137
+    },
+    {
+      "text": "second",
+      "start": 3.372054065167904,
+      "end": 3.7158794462680818,
+      "refined": true,
+      "source_start": 123.3720540651679,
+      "source_end": 123.71587944626808
+    },
+    {
+      "text": "then",
+      "start": 3.7600000000000002,
+      "end": 3.84,
+      "refined": false,
+      "source_start": 123.76,
+      "source_end": 123.84
+    },
+    {
+      "text": "yeah.",
+      "start": 3.8553730845451355,
+      "end": 4.030353918075561,
+      "refined": true,
+      "source_start": 123.85537308454514,
+      "source_end": 124.03035391807556
+    },
+    {
+      "text": "Like",
+      "start": 4.9111413371562955,
+      "end": 5.076431279182434,
+      "refined": true,
+      "source_start": 124.9111413371563,
+      "source_end": 125.07643127918243
+    },
+    {
+      "text": "I'll",
+      "start": 5.079453988969326,
+      "end": 5.145467207655311,
+      "refined": true,
+      "source_start": 125.07945398896932,
+      "source_end": 125.14546720765532
+    },
+    {
+      "text": "tell",
+      "start": 5.156719899624586,
+      "end": 5.306490937918425,
+      "refined": true,
+      "source_start": 125.15671989962459,
+      "source_end": 125.30649093791843
+    },
+    {
+      "text": "you",
+      "start": 5.3622461247444155,
+      "end": 5.459051587209106,
+      "refined": true,
+      "source_start": 125.36224612474442,
+      "source_end": 125.4590515872091
+    },
+    {
+      "text": "okay,",
+      "start": 5.499738272726536,
+      "end": 5.728614589422941,
+      "refined": true,
+      "source_start": 125.49973827272653,
+      "source_end": 125.72861458942295
+    },
+    {
+      "text": "just",
+      "start": 5.760902307394426,
+      "end": 5.929793497622013,
+      "refined": true,
+      "source_start": 125.76090230739443,
+      "source_end": 125.92979349762201
+    },
+    {
+      "text": "keep",
+      "start": 5.9535444547235965,
+      "end": 6.082636160701513,
+      "refined": true,
+      "source_start": 125.9535444547236,
+      "source_end": 126.08263616070151
+    },
+    {
+      "text": "pushing",
+      "start": 6.111523764133453,
+      "end": 6.427237113565207,
+      "refined": true,
+      "source_start": 126.11152376413345,
+      "source_end": 126.42723711356521
+    },
+    {
+      "text": "your",
+      "start": 6.398968416824937,
+      "end": 6.413952614665032,
+      "refined": true,
+      "source_start": 126.39896841682494,
+      "source_end": 126.41395261466504
+    },
+    {
+      "text": "hands",
+      "start": 6.445401444584132,
+      "end": 6.643253126442432,
+      "refined": true,
+      "source_start": 126.44540144458414,
+      "source_end": 126.64325312644243
+    },
+    {
+      "text": "farther",
+      "start": 6.684522410184145,
+      "end": 6.952324806749821,
+      "refined": true,
+      "source_start": 126.68452241018414,
+      "source_end": 126.95232480674981
+    },
+    {
+      "text": "out",
+      "start": 7.009366474151611,
+      "end": 7.116550766825676,
+      "refined": true,
+      "source_start": 127.0093664741516,
+      "source_end": 127.11655076682568
+    },
+    {
+      "text": "and",
+      "start": 7.12,
+      "end": 7.28,
+      "refined": false,
+      "source_start": 127.12,
+      "source_end": 127.28
+    },
+    {
+      "text": "I'll",
+      "start": 7.207822381258011,
+      "end": 7.280311080217362,
+      "refined": true,
+      "source_start": 127.20782238125801,
+      "source_end": 127.28031108021736
+    },
+    {
+      "text": "tell",
+      "start": 7.307324903607369,
+      "end": 7.461351197659969,
+      "refined": true,
+      "source_start": 127.30732490360737,
+      "source_end": 127.46135119765997
+    },
+    {
+      "text": "you",
+      "start": 7.481603753268719,
+      "end": 7.571327127814293,
+      "refined": true,
+      "source_start": 127.48160375326871,
+      "source_end": 127.5713271278143
+    },
+    {
+      "text": "how",
+      "start": 7.6000338944792745,
+      "end": 7.7005302572250365,
+      "refined": true,
+      "source_start": 127.60003389447928,
+      "source_end": 127.70053025722504
+    },
+    {
+      "text": "far",
+      "start": 7.7479117998480795,
+      "end": 7.896609641611576,
+      "refined": true,
+      "source_start": 127.74791179984808,
+      "source_end": 127.89660964161158
+    },
+    {
+      "text": "you",
+      "start": 7.924301914870739,
+      "end": 8.09965286180377,
+      "refined": true,
+      "source_start": 127.92430191487074,
+      "source_end": 128.09965286180378
+    },
+    {
+      "text": "can,",
+      "start": 8.034106094241142,
+      "end": 8.317075537145138,
+      "refined": true,
+      "source_start": 128.03410609424114,
+      "source_end": 128.31707553714514
+    },
+    {
+      "text": "like",
+      "start": 8.46682513654232,
+      "end": 8.604198330491782,
+      "refined": true,
+      "source_start": 128.46682513654233,
+      "source_end": 128.60419833049178
+    },
+    {
+      "text": "stay",
+      "start": 8.645067757796497,
+      "end": 8.822250683903695,
+      "refined": true,
+      "source_start": 128.64506775779648,
+      "source_end": 128.8222506839037
+    },
+    {
+      "text": "with",
+      "start": 8.84853629499674,
+      "end": 8.96856066673994,
+      "refined": true,
+      "source_start": 128.84853629499673,
+      "source_end": 128.96856066673993
+    },
+    {
+      "text": "him.",
+      "start": 8.997607422024013,
+      "end": 9.159729903936386,
+      "refined": true,
+      "source_start": 128.997607422024,
+      "source_end": 129.15972990393638
+    },
+    {
+      "text": "A",
+      "start": 9.6,
+      "end": 9.68,
+      "refined": false,
+      "source_start": 129.6,
+      "source_end": 129.68
+    },
+    {
+      "text": "little",
+      "start": 9.857115142345428,
+      "end": 9.988986116051674,
+      "refined": true,
+      "source_start": 129.85711514234544,
+      "source_end": 129.98898611605168
+    },
+    {
+      "text": "bit",
+      "start": 9.74937715023756,
+      "end": 9.998271753662266,
+      "refined": true,
+      "source_start": 129.74937715023756,
+      "source_end": 129.99827175366227
+    },
+    {
+      "text": "farther",
+      "start": 10.080595418810844,
+      "end": 10.281471856832503,
+      "refined": true,
+      "source_start": 130.08059541881084,
+      "source_end": 130.2814718568325
+    },
+    {
+      "text": "back.",
+      "start": 10.239730534553528,
+      "end": 11.325944999456405,
+      "refined": true,
+      "source_start": 130.23973053455353,
+      "source_end": 131.3259449994564
+    },
+    {
+      "text": "A",
+      "start": 11.76,
+      "end": 11.92,
+      "refined": false,
+      "source_start": 131.76,
+      "source_end": 131.92
+    },
+    {
+      "text": "little",
+      "start": 12.080866126418114,
+      "end": 12.166748510599136,
+      "refined": true,
+      "source_start": 132.0808661264181,
+      "source_end": 132.16674851059915
+    },
+    {
+      "text": "bit",
+      "start": 12.08,
+      "end": 12.32,
+      "refined": false,
+      "source_start": 132.08,
+      "source_end": 132.32
+    },
+    {
+      "text": "more",
+      "start": 12.275227695405484,
+      "end": 12.449626033604146,
+      "refined": true,
+      "source_start": 132.27522769540548,
+      "source_end": 132.44962603360415
+    },
+    {
+      "text": "out.",
+      "start": 12.458950174450875,
+      "end": 12.616383305788041,
+      "refined": true,
+      "source_start": 132.45895017445088,
+      "source_end": 132.61638330578805
+    },
+    {
+      "text": "No",
+      "start": 13.127551964521409,
+      "end": 13.193290549218654,
+      "refined": true,
+      "source_start": 133.12755196452142,
+      "source_end": 133.19329054921866
+    },
+    {
+      "text": "out.",
+      "start": 13.336339021772147,
+      "end": 13.662186155468225,
+      "refined": true,
+      "source_start": 133.33633902177215,
+      "source_end": 133.66218615546822
+    },
+    {
+      "text": "Like",
+      "start": 13.572359396517276,
+      "end": 13.74755101673305,
+      "refined": true,
+      "source_start": 133.57235939651727,
+      "source_end": 133.74755101673304
+    },
+    {
+      "text": "I",
+      "start": 13.811700821071863,
+      "end": 13.832818603217602,
+      "refined": true,
+      "source_start": 133.81170082107187,
+      "source_end": 133.8328186032176
+    },
+    {
+      "text": "that's",
+      "start": 14.32798734664917,
+      "end": 14.566807250976563,
+      "refined": true,
+      "source_start": 134.32798734664917,
+      "source_end": 134.56680725097655
+    },
+    {
+      "text": "the",
+      "start": 14.569141570031643,
+      "end": 14.693030831813813,
+      "refined": true,
+      "source_start": 134.56914157003163,
+      "source_end": 134.69303083181381
+    },
+    {
+      "text": "limit.",
+      "start": 14.776844871640206,
+      "end": 14.826009309887887,
+      "refined": true,
+      "source_start": 134.7768448716402,
+      "source_end": 134.8260093098879
+    },
+    {
+      "text": "Okay.",
+      "start": 15.357412354946135,
+      "end": 15.46167964363098,
+      "refined": true,
+      "source_start": 135.35741235494612,
+      "source_end": 135.461679643631
+    },
+    {
+      "text": "Right",
+      "start": 15.79886116415262,
+      "end": 15.925174372732638,
+      "refined": true,
+      "source_start": 135.7988611641526,
+      "source_end": 135.92517437273264
+    },
+    {
+      "text": "here.",
+      "start": 15.947647632360457,
+      "end": 16.069247554779054,
+      "refined": true,
+      "source_start": 135.94764763236046,
+      "source_end": 136.06924755477905
+    },
+    {
+      "text": "Okay.",
+      "start": 16.369999999999997,
+      "end": 16.679937499999998,
+      "refined": false,
+      "source_start": 136.37,
+      "source_end": 136.6799375
+    },
+    {
+      "text": "Well",
+      "start": 16.903032739162445,
+      "end": 17.038575493097305,
+      "refined": true,
+      "source_start": 136.90303273916246,
+      "source_end": 137.0385754930973
+    },
+    {
+      "text": "this",
+      "start": 17.075264366567133,
+      "end": 17.190368454903364,
+      "refined": true,
+      "source_start": 137.07526436656713,
+      "source_end": 137.19036845490336
+    },
+    {
+      "text": "makes",
+      "start": 17.224986681714654,
+      "end": 17.597572630047797,
+      "refined": true,
+      "source_start": 137.22498668171465,
+      "source_end": 137.5975726300478
+    },
+    {
+      "text": "sense.",
+      "start": 17.49,
+      "end": 17.89,
+      "refined": false,
+      "source_start": 137.49,
+      "source_end": 137.89
+    },
+    {
+      "text": "Okay.",
+      "start": 17.89,
+      "end": 18.36,
+      "refined": false,
+      "source_start": 137.89,
+      "source_end": 138.36
+    },
+    {
+      "text": "Um",
+      "start": 18.6087947589159,
+      "end": 18.671638928949832,
+      "refined": true,
+      "source_start": 138.6087947589159,
+      "source_end": 138.67163892894985
+    },
+    {
+      "text": "one",
+      "start": 19.471426272541283,
+      "end": 19.560430986508727,
+      "refined": true,
+      "source_start": 139.4714262725413,
+      "source_end": 139.56043098650872
+    },
+    {
+      "text": "second.",
+      "start": 19.454057225584982,
+      "end": 19.903948618412016,
+      "refined": true,
+      "source_start": 139.454057225585,
+      "source_end": 139.90394861841202
+    },
+    {
+      "text": "Yeah.",
+      "start": 19.991224113106725,
+      "end": 20.238115514755247,
+      "refined": true,
+      "source_start": 139.99122411310674,
+      "source_end": 140.23811551475524
+    },
+    {
+      "text": "Ready?",
+      "start": 21.42660384058952,
+      "end": 21.628687859773635,
+      "refined": true,
+      "source_start": 141.4266038405895,
+      "source_end": 141.62868785977363
+    },
+    {
+      "text": "Oh",
+      "start": 22.145983920693396,
+      "end": 22.258916418105365,
+      "refined": true,
+      "source_start": 142.1459839206934,
+      "source_end": 142.25891641810537
+    },
+    {
+      "text": "not",
+      "start": 22.308917152658104,
+      "end": 22.58486885458231,
+      "refined": true,
+      "source_start": 142.3089171526581,
+      "source_end": 142.5848688545823
+    },
+    {
+      "text": "yet.",
+      "start": 22.473534880876542,
+      "end": 22.774170922636984,
+      "refined": true,
+      "source_start": 142.47353488087654,
+      "source_end": 142.77417092263698
+    },
+    {
+      "text": "Um",
+      "start": 23.239868810400367,
+      "end": 23.43441077828407,
+      "refined": true,
+      "source_start": 143.23986881040037,
+      "source_end": 143.43441077828408
+    },
+    {
+      "text": "Okay.",
+      "start": 32.111282163262366,
+      "end": 32.21121889892965,
+      "refined": true,
+      "source_start": 152.11128216326236,
+      "source_end": 152.21121889892964
+    },
+    {
+      "text": "All",
+      "start": 33.119840905070305,
+      "end": 33.27179286047816,
+      "refined": true,
+      "source_start": 153.1198409050703,
+      "source_end": 153.27179286047817
+    },
+    {
+      "text": "right.",
+      "start": 33.239999999999995,
+      "end": 33.64,
+      "refined": false,
+      "source_start": 153.24,
+      "source_end": 153.64
+    },
+    {
+      "text": "Give",
+      "start": 35.54913999676704,
+      "end": 35.662041061893106,
+      "refined": true,
+      "source_start": 155.54913999676705,
+      "source_end": 155.6620410618931
+    },
+    {
+      "text": "me",
+      "start": 35.689101661890746,
+      "end": 35.766038599610326,
+      "refined": true,
+      "source_start": 155.68910166189073,
+      "source_end": 155.76603859961034
+    },
+    {
+      "text": "an",
+      "start": 35.820750049501655,
+      "end": 35.82313678735495,
+      "refined": true,
+      "source_start": 155.82075004950167,
+      "source_end": 155.82313678735494
+    },
+    {
+      "text": "example",
+      "start": 35.87022193431854,
+      "end": 36.45559798419475,
+      "refined": true,
+      "source_start": 155.87022193431855,
+      "source_end": 156.45559798419475
+    },
+    {
+      "text": "of",
+      "start": 36.48515759274363,
+      "end": 36.58818310970068,
+      "refined": true,
+      "source_start": 156.48515759274363,
+      "source_end": 156.58818310970068
+    },
+    {
+      "text": "that",
+      "start": 36.63316432237625,
+      "end": 36.82248175557703,
+      "refined": true,
+      "source_start": 156.63316432237625,
+      "source_end": 156.82248175557703
+    },
+    {
+      "text": "difference",
+      "start": 36.868968963772055,
+      "end": 37.314245232284065,
+      "refined": true,
+      "source_start": 156.86896896377206,
+      "source_end": 157.31424523228407
+    },
+    {
+      "text": "that",
+      "start": 37.419455220699305,
+      "end": 37.44650367423892,
+      "refined": true,
+      "source_start": 157.41945522069932,
+      "source_end": 157.44650367423893
+    },
+    {
+      "text": "you're",
+      "start": 37.473986031115054,
+      "end": 37.56460027337074,
+      "refined": true,
+      "source_start": 157.47398603111506,
+      "source_end": 157.56460027337073
+    },
+    {
+      "text": "seeing.",
+      "start": 37.60546011418104,
+      "end": 37.913280568122865,
+      "refined": true,
+      "source_start": 157.60546011418103,
+      "source_end": 157.91328056812287
+    },
+    {
+      "text": "Yeah.",
+      "start": 38.3821490599215,
+      "end": 38.60703865288757,
+      "refined": true,
+      "source_start": 158.38214905992152,
+      "source_end": 158.60703865288758
+    },
+    {
+      "text": "So",
+      "start": 38.704452751502394,
+      "end": 38.904541973173615,
+      "refined": true,
+      "source_start": 158.7044527515024,
+      "source_end": 158.90454197317362
+    },
+    {
+      "text": "last",
+      "start": 38.949204286634924,
+      "end": 39.19747997999191,
+      "refined": true,
+      "source_start": 158.94920428663494,
+      "source_end": 159.1974799799919
+    },
+    {
+      "text": "week",
+      "start": 39.23289305150509,
+      "end": 39.35048739001155,
+      "refined": true,
+      "source_start": 159.23289305150507,
+      "source_end": 159.35048739001155
+    },
+    {
+      "text": "we",
+      "start": 39.32,
+      "end": 39.48,
+      "refined": false,
+      "source_start": 159.32,
+      "source_end": 159.48
+    },
+    {
+      "text": "ran",
+      "start": 39.4551647002995,
+      "end": 39.701743009760975,
+      "refined": true,
+      "source_start": 159.4551647002995,
+      "source_end": 159.70174300976097
+    },
+    {
+      "text": "an",
+      "start": 39.680089456290006,
+      "end": 39.74803431302309,
+      "refined": true,
+      "source_start": 159.68008945629,
+      "source_end": 159.74803431302308
+    },
+    {
+      "text": "audit",
+      "start": 40.00504088878631,
+      "end": 40.23368362590671,
+      "refined": true,
+      "source_start": 160.0050408887863,
+      "source_end": 160.2336836259067
+    },
+    {
+      "text": "on",
+      "start": 40.28,
+      "end": 40.4,
+      "refined": false,
+      "source_start": 160.28,
+      "source_end": 160.4
+    },
+    {
+      "text": "a",
+      "start": 40.36243780195713,
+      "end": 40.402368029952044,
+      "refined": true,
+      "source_start": 160.36243780195713,
+      "source_end": 160.40236802995204
+    },
+    {
+      "text": "client",
+      "start": 40.43581338822841,
+      "end": 40.90574444293603,
+      "refined": true,
+      "source_start": 160.4358133882284,
+      "source_end": 160.90574444293603
+    },
+    {
+      "text": "and",
+      "start": 41.177738668248054,
+      "end": 41.50043253004551,
+      "refined": true,
+      "source_start": 161.17773866824805,
+      "source_end": 161.50043253004552
+    },
+    {
+      "text": "their",
+      "start": 41.53255566358566,
+      "end": 41.688939906060696,
+      "refined": true,
+      "source_start": 161.53255566358567,
+      "source_end": 161.68893990606068
+    },
+    {
+      "text": "team,",
+      "start": 41.74197963565588,
+      "end": 42.12523839712143,
+      "refined": true,
+      "source_start": 161.74197963565587,
+      "source_end": 162.12523839712142
+    },
+    {
+      "text": "their",
+      "start": 42.158809930980205,
+      "end": 42.308794249594214,
+      "refined": true,
+      "source_start": 162.1588099309802,
+      "source_end": 162.3087942495942
+    },
+    {
+      "text": "SEO",
+      "start": 42.34873699843884,
+      "end": 42.646477619744836,
+      "refined": true,
+      "source_start": 162.34873699843882,
+      "source_end": 162.64647761974484
+    },
+    {
+      "text": "team,",
+      "start": 42.67943037290359,
+      "end": 42.9026535563916,
+      "refined": true,
+      "source_start": 162.6794303729036,
+      "source_end": 162.9026535563916
+    },
+    {
+      "text": "had",
+      "start": 42.94305918931961,
+      "end": 43.0545383951813,
+      "refined": true,
+      "source_start": 162.94305918931963,
+      "source_end": 163.05453839518128
+    },
+    {
+      "text": "stuffed",
+      "start": 43.08888058636337,
+      "end": 43.233184113800526,
+      "refined": true,
+      "source_start": 163.08888058636336,
+      "source_end": 163.23318411380052
+    },
+    {
+      "text": "all",
+      "start": 43.594587633013724,
+      "end": 43.67762711405754,
+      "refined": true,
+      "source_start": 163.59458763301373,
+      "source_end": 163.67762711405754
+    },
+    {
+      "text": "their",
+      "start": 43.80185793101788,
+      "end": 43.909286559820174,
+      "refined": true,
+      "source_start": 163.80185793101788,
+      "source_end": 163.90928655982017
+    },
+    {
+      "text": "keywords",
+      "start": 43.954449103474616,
+      "end": 44.01634596556425,
+      "refined": true,
+      "source_start": 163.95444910347462,
+      "source_end": 164.01634596556426
+    },
+    {
+      "text": "um",
+      "start": 44.72470950722694,
+      "end": 44.83119022292644,
+      "refined": true,
+      "source_start": 164.72470950722695,
+      "source_end": 164.83119022292644
+    },
+    {
+      "text": "with",
+      "start": 44.859239488765596,
+      "end": 45.08045216107368,
+      "refined": true,
+      "source_start": 164.85923948876558,
+      "source_end": 165.08045216107368
+    },
+    {
+      "text": "H",
+      "start": 45.07,
+      "end": 45.23,
+      "refined": false,
+      "source_start": 165.07,
+      "source_end": 165.23
+    },
+    {
+      "text": "one",
+      "start": 45.517048330307006,
+      "end": 45.54745357960462,
+      "refined": true,
+      "source_start": 165.517048330307,
+      "source_end": 165.54745357960462
+    },
+    {
+      "text": "tags.",
+      "start": 45.57753699362278,
+      "end": 46.05897508025169,
+      "refined": true,
+      "source_start": 165.57753699362277,
+      "source_end": 166.05897508025168
+    },
+    {
+      "text": "Um",
+      "start": 46.519678631089626,
+      "end": 46.89919604831934,
+      "refined": true,
+      "source_start": 166.51967863108962,
+      "source_end": 166.89919604831934
+    },
+    {
+      "text": "wait,",
+      "start": 47.98888424515724,
+      "end": 48.12887170791626,
+      "refined": true,
+      "source_start": 167.98888424515724,
+      "source_end": 168.12887170791626
+    },
+    {
+      "text": "sorry,",
+      "start": 48.199725075364114,
+      "end": 48.21463695585727,
+      "refined": true,
+      "source_start": 168.1997250753641,
+      "source_end": 168.21463695585726
+    },
+    {
+      "text": "I",
+      "start": 48.25610297311097,
+      "end": 48.37847135066986,
+      "refined": true,
+      "source_start": 168.25610297311096,
+      "source_end": 168.37847135066986
+    },
+    {
+      "text": "messed",
+      "start": 48.42375777512789,
+      "end": 48.629847958832976,
+      "refined": true,
+      "source_start": 168.42375777512788,
+      "source_end": 168.62984795883298
+    },
+    {
+      "text": "that",
+      "start": 48.6563516074419,
+      "end": 48.77707698762417,
+      "refined": true,
+      "source_start": 168.6563516074419,
+      "source_end": 168.77707698762418
+    },
+    {
+      "text": "up.",
+      "start": 48.83561855375767,
+      "end": 48.91209814077243,
+      "refined": true,
+      "source_start": 168.83561855375768,
+      "source_end": 168.91209814077243
+    },
+    {
+      "text": "I",
+      "start": 48.91,
+      "end": 48.989937499999996,
+      "refined": false,
+      "source_start": 168.91,
+      "source_end": 168.9899375
+    },
+    {
+      "text": "was",
+      "start": 48.91935367673635,
+      "end": 49.106471124738455,
+      "refined": true,
+      "source_start": 168.91935367673636,
+      "source_end": 169.10647112473845
+    },
+    {
+      "text": "supposed",
+      "start": 49.14343237102032,
+      "end": 49.33651887953281,
+      "refined": true,
+      "source_start": 169.1434323710203,
+      "source_end": 169.3365188795328
+    },
+    {
+      "text": "to",
+      "start": 49.31,
+      "end": 49.39,
+      "refined": false,
+      "source_start": 169.31,
+      "source_end": 169.39
+    },
+    {
+      "text": "H",
+      "start": 49.47,
+      "end": 49.53,
+      "refined": false,
+      "source_start": 169.47,
+      "source_end": 169.53
+    },
+    {
+      "text": "one",
+      "start": 49.62599192757159,
+      "end": 49.70082888290286,
+      "refined": true,
+      "source_start": 169.6259919275716,
+      "source_end": 169.70082888290287
+    },
+    {
+      "text": "tags",
+      "start": 49.736437183767556,
+      "end": 49.97627964131534,
+      "refined": true,
+      "source_start": 169.73643718376755,
+      "source_end": 169.97627964131533
+    },
+    {
+      "text": "with",
+      "start": 50.03,
+      "end": 50.11,
+      "refined": false,
+      "source_start": 170.03,
+      "source_end": 170.11
+    },
+    {
+      "text": "keywords.",
+      "start": 50.06363916829228,
+      "end": 50.27760949015617,
+      "refined": true,
+      "source_start": 170.0636391682923,
+      "source_end": 170.27760949015618
+    },
+    {
+      "text": "Instead",
+      "start": 50.75201609551907,
+      "end": 51.04196106806397,
+      "refined": true,
+      "source_start": 170.75201609551908,
+      "source_end": 171.04196106806398
+    },
+    {
+      "text": "of",
+      "start": 50.989999999999995,
+      "end": 51.07,
+      "refined": false,
+      "source_start": 170.99,
+      "source_end": 171.07
+    },
+    {
+      "text": "saying",
+      "start": 50.99525455534458,
+      "end": 51.20724815830588,
+      "refined": true,
+      "source_start": 170.9952545553446,
+      "source_end": 171.20724815830587
+    },
+    {
+      "text": "like",
+      "start": 51.26816527679563,
+      "end": 51.412576631978155,
+      "refined": true,
+      "source_start": 171.26816527679563,
+      "source_end": 171.41257663197814
+    },
+    {
+      "text": "yeah",
+      "start": 51.552602627575396,
+      "end": 51.62240424716845,
+      "refined": true,
+      "source_start": 171.5526026275754,
+      "source_end": 171.62240424716845
+    },
+    {
+      "text": "I",
+      "start": 51.67722073853016,
+      "end": 51.70932024806738,
+      "refined": true,
+      "source_start": 171.67722073853017,
+      "source_end": 171.70932024806737
+    },
+    {
+      "text": "messed",
+      "start": 51.74874585956335,
+      "end": 51.96266119807959,
+      "refined": true,
+      "source_start": 171.74874585956334,
+      "source_end": 171.9626611980796
+    },
+    {
+      "text": "that",
+      "start": 52.06950824588537,
+      "end": 52.10505695134401,
+      "refined": true,
+      "source_start": 172.06950824588537,
+      "source_end": 172.105056951344
+    },
+    {
+      "text": "up,",
+      "start": 52.1104268977046,
+      "end": 52.246502740681166,
+      "refined": true,
+      "source_start": 172.1104268977046,
+      "source_end": 172.24650274068117
+    },
+    {
+      "text": "just",
+      "start": 52.291158171743156,
+      "end": 52.503637124001976,
+      "refined": true,
+      "source_start": 172.29115817174315,
+      "source_end": 172.50363712400198
+    },
+    {
+      "text": "run",
+      "start": 52.58957213012385,
+      "end": 52.79480221301317,
+      "refined": true,
+      "source_start": 172.58957213012386,
+      "source_end": 172.79480221301316
+    },
+    {
+      "text": "it",
+      "start": 52.8288350123167,
+      "end": 52.893958007693286,
+      "refined": true,
+      "source_start": 172.8288350123167,
+      "source_end": 172.8939580076933
+    },
+    {
+      "text": "back.",
+      "start": 52.836660092473025,
+      "end": 53.13743810296059,
+      "refined": true,
+      "source_start": 172.83666009247304,
+      "source_end": 173.13743810296057
+    },
+    {
+      "text": "I",
+      "start": 53.38245049851015,
+      "end": 53.461787196993825,
+      "refined": true,
+      "source_start": 173.38245049851014,
+      "source_end": 173.46178719699384
+    },
+    {
+      "text": "can?",
+      "start": 53.47370642721653,
+      "end": 53.74627768309414,
+      "refined": true,
+      "source_start": 173.47370642721654,
+      "source_end": 173.74627768309415
+    },
+    {
+      "text": "Yeah",
+      "start": 54.04351517260075,
+      "end": 54.16915895655751,
+      "refined": true,
+      "source_start": 174.04351517260073,
+      "source_end": 174.1691589565575
+    },
+    {
+      "text": "I",
+      "start": 54.22115972682833,
+      "end": 54.3034336618483,
+      "refined": true,
+      "source_start": 174.22115972682832,
+      "source_end": 174.30343366184832
+    },
+    {
+      "text": "mean",
+      "start": 54.395505177229644,
+      "end": 54.61488288104534,
+      "refined": true,
+      "source_start": 174.39550517722964,
+      "source_end": 174.61488288104533
+    },
+    {
+      "text": "we",
+      "start": 54.589999999999996,
+      "end": 54.75,
+      "refined": false,
+      "source_start": 174.59,
+      "source_end": 174.75
+    },
+    {
+      "text": "can",
+      "start": 54.654273979365826,
+      "end": 54.82271408608183,
+      "refined": true,
+      "source_start": 174.65427397936583,
+      "source_end": 174.82271408608182
+    },
+    {
+      "text": "cut",
+      "start": 54.94010291427374,
+      "end": 55.031385576128955,
+      "refined": true,
+      "source_start": 174.94010291427372,
+      "source_end": 175.03138557612897
+    },
+    {
+      "text": "it",
+      "start": 55.01329475805163,
+      "end": 55.10461904630065,
+      "refined": true,
+      "source_start": 175.01329475805164,
+      "source_end": 175.10461904630066
+    },
+    {
+      "text": "in",
+      "start": 55.08273419141769,
+      "end": 55.21989594161511,
+      "refined": true,
+      "source_start": 175.0827341914177,
+      "source_end": 175.2198959416151
+    },
+    {
+      "text": "post.",
+      "start": 55.164968398809435,
+      "end": 55.64104522589594,
+      "refined": true,
+      "source_start": 175.16496839880944,
+      "source_end": 175.64104522589594
+    },
+    {
+      "text": "That's",
+      "start": 55.629999999999995,
+      "end": 55.79,
+      "refined": false,
+      "source_start": 175.63,
+      "source_end": 175.79
+    },
+    {
+      "text": "the",
+      "start": 55.59777633190155,
+      "end": 55.71435041248798,
+      "refined": true,
+      "source_start": 175.59777633190154,
+      "source_end": 175.714350412488
+    },
+    {
+      "text": "point.",
+      "start": 55.73379499733448,
+      "end": 56.024985194802284,
+      "refined": true,
+      "source_start": 175.73379499733448,
+      "source_end": 176.0249851948023
+    },
+    {
+      "text": "If",
+      "start": 56.097060252577066,
+      "end": 56.11712566435337,
+      "refined": true,
+      "source_start": 176.09706025257708,
+      "source_end": 176.11712566435335
+    },
+    {
+      "text": "you",
+      "start": 56.1410862994194,
+      "end": 56.27880763113499,
+      "refined": true,
+      "source_start": 176.14108629941938,
+      "source_end": 176.27880763113498
+    },
+    {
+      "text": "mess",
+      "start": 56.31189070865512,
+      "end": 56.54776618644595,
+      "refined": true,
+      "source_start": 176.3118907086551,
+      "source_end": 176.54776618644595
+    },
+    {
+      "text": "up,",
+      "start": 56.604008546173574,
+      "end": 56.79375821888446,
+      "refined": true,
+      "source_start": 176.6040085461736,
+      "source_end": 176.79375821888448
+    },
+    {
+      "text": "just",
+      "start": 56.857456361651415,
+      "end": 57.07599381864071,
+      "refined": true,
+      "source_start": 176.85745636165143,
+      "source_end": 177.0759938186407
+    },
+    {
+      "text": "Okay.",
+      "start": 59.27986719816923,
+      "end": 59.5168541547805,
+      "refined": true,
+      "source_start": 179.27986719816923,
+      "source_end": 179.5168541547805
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "LC4931",
+    "start_seconds": 120.0,
+    "end_seconds": 180.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

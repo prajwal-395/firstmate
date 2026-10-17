@@ -1,0 +1,72 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "asr-qual-2026-10-16-r2",
+  "version": {
+    "id": "mfa",
+    "role": "baseline",
+    "models": {
+      "mfa": "montreal-forced-aligner 3.4.2",
+      "mfa_acoustic": "english_us_arpa vv3.0.0",
+      "mfa_dictionary": "english_us_arpa vv3.0.0",
+      "mfa_g2p": "english_us_arpa vv2.0.0a"
+    }
+  },
+  "modality": "speech_alignment",
+  "split": "calibration",
+  "metrics": {
+    "cold_latency_mean_seconds": {
+      "value": 73.22079287519992,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, first invocation"
+    },
+    "warm_latency_mean_seconds": {
+      "value": 82.90656730780006,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, second invocation"
+    },
+    "cold_peak_rss_max_bytes": {
+      "value": 1583775744,
+      "unit": "bytes",
+      "dimension": "memory",
+      "method": "getrusage high-water at end of invocation, max over windows; children for subprocess runtimes, self for in-process; each candidate runs in its own process so the max is its own peak"
+    },
+    "seconds_per_audio_minute_warm": {
+      "value": 99.96236894724616,
+      "unit": "seconds_per_audio_minute",
+      "dimension": "cost",
+      "method": "summed warm wall time divided by summed window audio"
+    }
+  },
+  "evidence": [
+    {
+      "id": "editorial-eval-corpus",
+      "path": "../2026-10-15-editorial-eval-corpus.json",
+      "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8"
+    },
+    {
+      "id": "window:IMG_1811_0_22",
+      "sha256": "987ebe786c49f8500727ae5b5981b124897de229a29d3535aaf9a3e37381bc02"
+    },
+    {
+      "id": "window:IMG_1814_0_45",
+      "sha256": "13cb6f4ae3861913353545df9c679b7e08d13aadabc0983d78b4a9a650a6a8b3"
+    },
+    {
+      "id": "window:IMG_1816_0_60",
+      "sha256": "6a7dcbaae61f6ee5aaec318cb05172b06c1e30441114976ec4f779e94173567d"
+    },
+    {
+      "id": "window:LC4931_120_180",
+      "sha256": "c3b76eded7b9699638e9431e73e61e206258146662f0fd753a7b6759242dfcf1"
+    },
+    {
+      "id": "window:LCATL0012_60_120",
+      "sha256": "6dcdb0d3fb7d9bac483967bba573f7b3557720aca0180e7e435e112e81f1d3de"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

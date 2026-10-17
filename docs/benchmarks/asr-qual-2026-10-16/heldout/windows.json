@@ -1,0 +1,50 @@
+[
+  {
+    "window_id": "LCATL0011_10_35",
+    "source_id": "LCATL0011",
+    "split": "held_out",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0011.MXF",
+    "source_sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+    "start_seconds": 10.0,
+    "end_seconds": 35.0,
+    "wav_path": "/tmp/vep-mu-asr/heldout-windows/LCATL0011_10_35.wav",
+    "wav_sha256": "d411cf285cbcd059a53915ccff3e5310338b3cb780ae6e5faa26d02505e690e1",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "LC4930_10_35",
+    "source_id": "LC4930",
+    "split": "held_out",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4930.MXF",
+    "source_sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+    "start_seconds": 10.0,
+    "end_seconds": 35.0,
+    "wav_path": "/tmp/vep-mu-asr/heldout-windows/LC4930_10_35.wav",
+    "wav_sha256": "ed846cd0ca90c98d8561df3ef9cec87591fbcec49eb1cc840784a91857dec165",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1818_0_30",
+    "source_id": "IMG_1818",
+    "split": "held_out",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1818.MOV",
+    "source_sha256": "848f587ca79321d348279912ae462624170eba221284b438c707fe51b98d5cf2",
+    "start_seconds": 0.0,
+    "end_seconds": 30.0,
+    "wav_path": "/tmp/vep-mu-asr/heldout-windows/IMG_1818_0_30.wav",
+    "wav_sha256": "967a6c3545bdce429ca462b5ad06999686b815e22dcbcdc15f91e6190e284f71",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1820_0_30",
+    "source_id": "IMG_1820",
+    "split": "held_out",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1820.MOV",
+    "source_sha256": "84a38f61d47cd1f80e5cfd30d4896775fabcf93ff443adde11ed978b412997be",
+    "start_seconds": 0.0,
+    "end_seconds": 30.0,
+    "wav_path": "/tmp/vep-mu-asr/heldout-windows/IMG_1820_0_30.wav",
+    "wav_sha256": "d1ad00a9e3007da01c267ec5bdd78bc10be13ac51c723a22cb8e5defa33bb6d5",
+    "detected_language": "en"
+  }
+]

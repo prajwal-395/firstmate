@@ -41,8 +41,12 @@ def _payload():
 
 def test_only_one_module_names_the_vendor():
     """A key name or a subcommand is the seam; two spellings of it is two
-    files to change. BOTH subcommands: `voz` writes the words and `ear`
-    names the language the hybrid pass needs."""
+    files to change. `voz` writes the words and `ear` names the language
+    the hybrid pass needs; `uhm` names the filler spans the editorial
+    pass needs, and it is policed by DEFINITION, not by literal: `uhm`
+    is also an English filler word in `retake_scan.FILLERS`, so a quoted
+    literal would false-positive there. The vendor fact - which literal
+    runs the detector - still lives in exactly one module."""
     vendor_only = ("durationSec", "processingSec", "loadSec")
     offenders = []
     for path in sorted(REPO_ROOT.rglob("*.py")):
@@ -55,8 +59,10 @@ def test_only_one_module_names_the_vendor():
         if relative.startswith("library/"):
             offenders += [(relative, key) for key in vendor_only
                           if key in body]
+            if "UHM_SUBCOMMAND =" in body:
+                offenders.append((relative, "UHM_SUBCOMMAND definition"))
         for subcommand in (heard_speech.SUBCOMMAND,
-                           heard_speech.EAR_SUBCOMMAND):
+                            heard_speech.EAR_SUBCOMMAND):
             if f'"{subcommand}"' in body or f"'{subcommand}'" in body:
                 offenders.append((relative, subcommand))
     assert offenders == [], (

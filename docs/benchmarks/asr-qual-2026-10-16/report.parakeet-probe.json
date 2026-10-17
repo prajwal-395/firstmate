@@ -1,0 +1,61 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "asr-qual-2026-10-16-probe",
+  "version": {
+    "id": "parakeet-tdt-0.6b-v3-original",
+    "role": "candidate",
+    "models": {
+      "parakeet": "nvidia/parakeet-tdt-0.6b-v3 @ 541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+      "parakeet_runtime": "nemo",
+      "parakeet_precision": "float32"
+    }
+  },
+  "modality": "speech_transcription",
+  "split": "calibration",
+  "metrics": {
+    "cold_latency_mean_seconds": {
+      "value": 34.13631558299676,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "single first window: checkpoint load plus first inference"
+    },
+    "warm_latency_mean_seconds": {
+      "value": 1.1727812079989235,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, second invocation"
+    },
+    "cold_peak_rss_max_bytes": {
+      "value": 5780439040,
+      "unit": "bytes",
+      "dimension": "memory",
+      "method": "getrusage high-water at end of invocation, max over windows; children for subprocess runtimes, self for in-process; each candidate runs in its own process so the max is its own peak"
+    },
+    "seconds_per_audio_minute_warm": {
+      "value": 3.0768199597698036,
+      "unit": "seconds_per_audio_minute",
+      "dimension": "cost",
+      "method": "summed warm wall time divided by summed window audio"
+    },
+    "model_load_seconds": {
+      "value": 33.037619624999934,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "single perf_counter around NeMo restore_from in this process"
+    }
+  },
+  "evidence": [
+    {
+      "id": "editorial-eval-corpus",
+      "path": "../2026-10-15-editorial-eval-corpus.json",
+      "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8"
+    },
+    {
+      "id": "window:IMG_1811_0_22",
+      "sha256": "987ebe786c49f8500727ae5b5981b124897de229a29d3535aaf9a3e37381bc02"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

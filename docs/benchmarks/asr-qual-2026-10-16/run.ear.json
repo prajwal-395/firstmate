@@ -1,0 +1,83 @@
+{
+  "candidate": "ear",
+  "revision": "asr-qual-2026-10-16-r2",
+  "windows": [
+    "IMG_1811_0_22",
+    "IMG_1814_0_45",
+    "IMG_1816_0_60",
+    "LC4931_120_180",
+    "LCATL0012_60_120"
+  ],
+  "per_window": [
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9740515541876708
+      },
+      "cold_seconds": 0.42902237499993134,
+      "warm_seconds": 0.4572299999999814,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9740515541876708
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.5436648085605187
+      },
+      "cold_seconds": 0.3105468329999894,
+      "warm_seconds": 0.28176250000024083,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744,
+      "cold": {
+        "language": "en",
+        "confidence": 0.5436648085605187
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9920575158113586
+      },
+      "cold_seconds": 1.9816075420003472,
+      "warm_seconds": 0.7663192909999452,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9920575158113586
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.9966106086748564
+      },
+      "cold_seconds": 0.9084527909999451,
+      "warm_seconds": 1.0096973330000765,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744,
+      "cold": {
+        "language": "en",
+        "confidence": 0.9966106086748564
+      }
+    },
+    {
+      "language": {
+        "language": "en",
+        "confidence": 0.993783593977963
+      },
+      "cold_seconds": 0.8320557920001193,
+      "warm_seconds": 1.3740144999997028,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744,
+      "cold": {
+        "language": "en",
+        "confidence": 0.993783593977963
+      }
+    }
+  ]
+}

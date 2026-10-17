@@ -1,0 +1,102 @@
+{
+  "words": [
+    {
+      "text": "Okay,",
+      "start": 14.4,
+      "end": 14.72,
+      "source_start": 14.4,
+      "source_end": 14.72
+    },
+    {
+      "text": "we're",
+      "start": 15.040000000000001,
+      "end": 15.44,
+      "source_start": 15.040000000000001,
+      "source_end": 15.44
+    },
+    {
+      "text": "here,",
+      "start": 15.44,
+      "end": 15.6,
+      "source_start": 15.44,
+      "source_end": 15.6
+    },
+    {
+      "text": "we're",
+      "start": 15.76,
+      "end": 16.080000000000002,
+      "source_start": 15.76,
+      "source_end": 16.080000000000002
+    },
+    {
+      "text": "here.",
+      "start": 16.080000000000002,
+      "end": 16.4,
+      "source_start": 16.080000000000002,
+      "source_end": 16.4
+    },
+    {
+      "text": "Just",
+      "start": 17.04,
+      "end": 17.36,
+      "source_start": 17.04,
+      "source_end": 17.36
+    },
+    {
+      "text": "gotta",
+      "start": 17.36,
+      "end": 17.68,
+      "source_start": 17.36,
+      "source_end": 17.68
+    },
+    {
+      "text": "find",
+      "start": 17.68,
+      "end": 17.84,
+      "source_start": 17.68,
+      "source_end": 17.84
+    },
+    {
+      "text": "a",
+      "start": 17.84,
+      "end": 18.0,
+      "source_start": 17.84,
+      "source_end": 18.0
+    },
+    {
+      "text": "place",
+      "start": 18.0,
+      "end": 18.16,
+      "source_start": 18.0,
+      "source_end": 18.16
+    },
+    {
+      "text": "to",
+      "start": 18.16,
+      "end": 18.400000000000002,
+      "source_start": 18.16,
+      "source_end": 18.400000000000002
+    },
+    {
+      "text": "park",
+      "start": 18.400000000000002,
+      "end": 18.88,
+      "source_start": 18.400000000000002,
+      "source_end": 18.88
+    },
+    {
+      "text": "now.",
+      "start": 18.88,
+      "end": 19.2,
+      "source_start": 18.88,
+      "source_end": 19.2
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1811",
+    "start_seconds": 0.0,
+    "end_seconds": 22.87,
+    "timebase": "original_source_audio_seconds"
+  }
+}

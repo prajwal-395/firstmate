@@ -1,0 +1,77 @@
+{
+  "candidate": "uhm",
+  "revision": "asr-qual-2026-10-16-r2",
+  "windows": [
+    "IMG_1811_0_22",
+    "IMG_1814_0_45",
+    "IMG_1816_0_60",
+    "LC4931_120_180",
+    "LCATL0012_60_120"
+  ],
+  "per_window": [
+    {
+      "events": [],
+      "event_count": 0,
+      "cold_event_count": 0,
+      "cold_seconds": 3.164146915999936,
+      "warm_seconds": 3.529978250000113,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744
+    },
+    {
+      "events": [],
+      "event_count": 0,
+      "cold_event_count": 0,
+      "cold_seconds": 1.3899913329996707,
+      "warm_seconds": 1.347678832999918,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744
+    },
+    {
+      "events": [],
+      "event_count": 0,
+      "cold_event_count": 0,
+      "cold_seconds": 1.4831260420000945,
+      "warm_seconds": 2.023936957999922,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744
+    },
+    {
+      "events": [
+        {
+          "type": "um",
+          "start": 18.38,
+          "end": 19.080000000000002,
+          "confidence": 0.8024806380271912,
+          "source_start": 138.38,
+          "source_end": 139.08,
+          "source_id": "LC4931"
+        },
+        {
+          "type": "um",
+          "start": 46.4,
+          "end": 47.68,
+          "confidence": 0.8364288806915283,
+          "source_start": 166.4,
+          "source_end": 167.68,
+          "source_id": "LC4931"
+        }
+      ],
+      "event_count": 2,
+      "cold_event_count": 2,
+      "cold_seconds": 3.0517837910001617,
+      "warm_seconds": 5.1946393749999515,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744
+    },
+    {
+      "events": [],
+      "event_count": 0,
+      "cold_event_count": 0,
+      "cold_seconds": 4.055120499999703,
+      "warm_seconds": 4.0023598329999,
+      "cold_peak_rss_bytes": 1583775744,
+      "warm_peak_rss_bytes": 1583775744
+    }
+  ]
+}

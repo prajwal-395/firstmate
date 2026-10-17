@@ -1,0 +1,67 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "asr-qual-2026-10-17-heldout-r1",
+  "version": {
+    "id": "voz",
+    "role": "baseline",
+    "models": {
+      "voz": "desert-ant-labs/voz v0.1.0",
+      "voz_cli": "0.1.1 (desert-ant-core 3.1.0)"
+    }
+  },
+  "modality": "speech_transcription",
+  "split": "held_out",
+  "metrics": {
+    "cold_latency_mean_seconds": {
+      "value": 9.597681969000405,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, first invocation"
+    },
+    "warm_latency_mean_seconds": {
+      "value": 12.250906291752472,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, second invocation"
+    },
+    "cold_peak_rss_max_bytes": {
+      "value": 77807616,
+      "unit": "bytes",
+      "dimension": "memory",
+      "method": "getrusage high-water at end of invocation, max over windows; children for subprocess runtimes, self for in-process; each candidate runs in its own process so the max is its own peak"
+    },
+    "seconds_per_audio_minute_warm": {
+      "value": 26.729250091096304,
+      "unit": "seconds_per_audio_minute",
+      "dimension": "cost",
+      "method": "summed warm wall time divided by summed window audio"
+    }
+  },
+  "evidence": [
+    {
+      "id": "editorial-eval-corpus",
+      "path": "../../2026-10-15-editorial-eval-corpus.json",
+      "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8"
+    },
+    {
+      "id": "window:LCATL0011_10_35",
+      "sha256": "d411cf285cbcd059a53915ccff3e5310338b3cb780ae6e5faa26d02505e690e1"
+    },
+    {
+      "id": "window:LC4930_10_35",
+      "sha256": "ed846cd0ca90c98d8561df3ef9cec87591fbcec49eb1cc840784a91857dec165"
+    },
+    {
+      "id": "window:IMG_1818_0_30",
+      "sha256": "967a6c3545bdce429ca462b5ad06999686b815e22dcbcdc15f91e6190e284f71"
+    },
+    {
+      "id": "window:IMG_1820_0_30",
+      "sha256": "d1ad00a9e3007da01c267ec5bdd78bc10be13ac51c723a22cb8e5defa33bb6d5"
+    }
+  ],
+  "selection_basis": [
+    "frozen_calibration_settings",
+    "single_requested_held_out_report"
+  ]
+}

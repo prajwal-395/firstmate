@@ -1,0 +1,14 @@
+{
+  "model": "nvidia/parakeet-tdt-0.6b-v3",
+  "revision": "541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+  "filename": "parakeet-tdt-0.6b-v3.nemo",
+  "size_bytes": 2509332480,
+  "sha256": "3cbdc85877e668ca7b82d0d56770eb1fac76691f55d6b97545e8d61ca588d10d",
+  "path": "/tmp/vep-mu-asr/parakeet-tdt-0.6b-v3.nemo",
+  "license": "CC BY 4.0",
+  "precision": "float32",
+  "downloaded_for": "memory probe + ASR qualification",
+  "will_delete_after_benchmark": true,
+  "deleted_after_benchmark": true,
+  "path_after_benchmark": "removed"
+}

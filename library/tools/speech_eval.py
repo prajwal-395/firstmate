@@ -13,13 +13,33 @@ import json
 import math
 import string
 import unicodedata
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 
 def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", str(text)).casefold()
     return "".join(ch for ch in text if ch not in string.punctuation).strip()
+
+
+_SCORABLE_PUNCTUATION = frozenset(",.;:!?")
+
+
+def _trailing_punctuation(text: str) -> str:
+    """Return ending punctuation marks, ignoring closing quotes/brackets."""
+    value = unicodedata.normalize("NFKC", str(text)).rstrip()
+    marks = []
+    while value:
+        char = value[-1]
+        if char in "'\"”’)]}":
+            value = value[:-1]
+            continue
+        if char in _SCORABLE_PUNCTUATION:
+            marks.append(char)
+            value = value[:-1]
+            continue
+        break
+    return "".join(reversed(marks))
 
 
 def _edit_alignment(reference: list[str], hypothesis: list[str]) -> list[tuple[str, int | None, int | None]]:
@@ -85,10 +105,21 @@ def score(reference: dict, hypothesis: dict, *, split: str, condition: str,
     cer = char_errors / len(ref_chars) if ref_chars else None
 
     start_errors, end_errors, speaker_total, speaker_correct = [], [], 0, 0
+    punctuation_tp = punctuation_fp = punctuation_fn = punctuation_tokens = 0
     for op, ri, hi in alignment:
         if op != "match":
             continue
         ref, hyp = ref_words[ri], hyp_words[hi]
+        reference_marks = _trailing_punctuation(ref["text"])
+        hypothesis_marks = _trailing_punctuation(hyp["text"])
+        punctuation_tokens += 1
+        reference_counts = Counter(reference_marks)
+        hypothesis_counts = Counter(hypothesis_marks)
+        common = sum(min(reference_counts[mark], hypothesis_counts[mark])
+                     for mark in _SCORABLE_PUNCTUATION)
+        punctuation_tp += common
+        punctuation_fp += len(hypothesis_marks) - common
+        punctuation_fn += len(reference_marks) - common
         if all(key in ref and key in hyp for key in ("start", "end")):
             start_errors.append(abs(float(hyp["start"]) - float(ref["start"])) * 1000)
             end_errors.append(abs(float(hyp["end"]) - float(ref["end"])) * 1000)
@@ -97,6 +128,20 @@ def score(reference: dict, hypothesis: dict, *, split: str, condition: str,
             speaker_correct += ref["speaker"] == hyp.get("speaker")
 
     state = hypothesis.get("status", "answered")
+    punctuation_denominator = 2 * punctuation_tp + punctuation_fp + punctuation_fn
+    punctuation = {
+        "status": "measured" if punctuation_tokens else "unmeasured",
+        "scored_tokens": punctuation_tokens,
+        "true_positives": punctuation_tp,
+        "false_positives": punctuation_fp,
+        "false_negatives": punctuation_fn,
+        "precision": (punctuation_tp / (punctuation_tp + punctuation_fp)
+                      if punctuation_tp + punctuation_fp else None),
+        "recall": (punctuation_tp / (punctuation_tp + punctuation_fn)
+                   if punctuation_tp + punctuation_fn else None),
+        "f1": (2 * punctuation_tp / punctuation_denominator
+               if punctuation_denominator else None),
+    }
     return {
         "sample_id": reference["sample_id"], "split": split,
         "condition": condition, "status": state,
@@ -106,6 +151,7 @@ def score(reference: dict, hypothesis: dict, *, split: str, condition: str,
         "reference_characters": len(ref_chars),
         "substitutions": substitutions, "deletions": deletions,
         "insertions": insertions,
+        "punctuation": punctuation,
         "boundary": {
             "status": "measured" if start_errors else "unmeasured",
             "matched_words": len(start_errors),
@@ -148,6 +194,11 @@ def score_batch(samples: list[dict], cost_measurements: list[dict] | None = None
                      for row in rows)
         character_errors = sum(row["character_errors"] for row in rows)
         reference_characters = sum(row["reference_characters"] for row in rows)
+        punctuation_tp = sum(row["punctuation"]["true_positives"] for row in rows)
+        punctuation_fp = sum(row["punctuation"]["false_positives"] for row in rows)
+        punctuation_fn = sum(row["punctuation"]["false_negatives"] for row in rows)
+        punctuation_tokens = sum(row["punctuation"]["scored_tokens"] for row in rows)
+        punctuation_denominator = 2 * punctuation_tp + punctuation_fp + punctuation_fn
         audio_seconds = sum(row["cost"]["audio_seconds"] for row in rows)
         measured_costs = [row["cost"]["elapsed_seconds"] for row in rows
                           if row["cost"]["elapsed_seconds"] is not None]
@@ -161,6 +212,19 @@ def score_batch(samples: list[dict], cost_measurements: list[dict] | None = None
             "reference_characters": reference_characters,
             "cer": (character_errors / reference_characters
                     if reference_characters else None),
+            "punctuation": {
+                "status": "measured" if punctuation_tokens else "unmeasured",
+                "scored_tokens": punctuation_tokens,
+                "true_positives": punctuation_tp,
+                "false_positives": punctuation_fp,
+                "false_negatives": punctuation_fn,
+                "precision": (punctuation_tp / (punctuation_tp + punctuation_fp)
+                              if punctuation_tp + punctuation_fp else None),
+                "recall": (punctuation_tp / (punctuation_tp + punctuation_fn)
+                          if punctuation_tp + punctuation_fn else None),
+                "f1": (2 * punctuation_tp / punctuation_denominator
+                       if punctuation_denominator else None),
+            },
             "boundary_status": "unmeasured" if all(
                 row["boundary"]["status"] == "unmeasured" for row in rows
             ) else "see per-sample rows",

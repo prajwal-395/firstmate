@@ -88,6 +88,17 @@ so the only way to ask the question is to ask this. Measured 0.22s per
 file, and it reads an mp4 directly.
 """
 
+UHM_SUBCOMMAND = "uhm"
+"""Its filler-word detector. `da uhm <file> --json --quiet` is the call.
+
+A THIRD subcommand: audio-grounded filler spans (`um`, `uh`, `hmm` and
+friends) with start/end seconds and a confidence each, independent of
+what any transcriber heard. That independence is the point - a filler
+the ASR normalized away is still a timed speech event an editing policy
+can see. Measured on this machine's own podcast audio; an empty `fillers`
+list over a spoken file is a measured absence, not a refusal.
+"""
+
 FLAGS = ("--json", "--quiet")
 
 VERSION_FLAG = "--version"
@@ -109,6 +120,14 @@ PROCESS_KEY = "processingSec"
 #: `da ear --json`'s own keys.
 LANGUAGE_KEY = "language"
 LANGUAGE_CONFIDENCE_KEY = "confidence"
+
+#: `da uhm --json`'s own keys. Its per-filler `durationSec` and
+#: `confidence` reuse the spellings above; only the list and the filler
+#: type are new key names, mapped once here all the same.
+FILLERS_KEY = "fillers"
+FILLER_TYPE_KEY = "type"
+FILLER_START_KEY = "start"
+FILLER_END_KEY = "end"
 
 TIMEOUT_SECONDS = 600
 """Generous by two orders of magnitude.
@@ -167,6 +186,42 @@ class HeardLanguage:
 
     def as_dict(self) -> Dict[str, Any]:
         return {"language": self.language, "confidence": self.confidence}
+
+
+@dataclass(frozen=True)
+class HeardFiller:
+    """One filler span the detector heard, in the file's own timebase.
+
+    `filler_type` is the detector's verbatim label (`um`, `uh`, `hmm`,
+    ...), never normalized here: the mapping onto the pipeline's own
+    filler vocabulary belongs to the consumer, not the containment.
+    """
+
+    filler_type: str
+    start: float
+    end: float
+    confidence: Optional[float] = None
+
+
+@dataclass
+class HeardFillers:
+    """Everything one filler detection pass over one file says."""
+
+    events: List[HeardFiller] = field(default_factory=list)
+    duration_seconds: Optional[float] = None
+    engine: Dict[str, Any] = field(default_factory=dict)
+    media_path: str = ""
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "media_path": self.media_path,
+            "engine": dict(self.engine),
+            "duration_seconds": self.duration_seconds,
+            "event_count": len(self.events),
+            "events": [{"type": e.filler_type, "start": e.start,
+                        "end": e.end, "confidence": e.confidence}
+                       for e in self.events],
+        }
 
 
 @dataclass
@@ -474,3 +529,93 @@ def read_language_payload(payload: Any) -> HeardLanguage:
     except (TypeError, ValueError):
         confidence = None
     return HeardLanguage(language=language, confidence=confidence)
+
+
+def detect_fillers(media_path: str,
+                   timeout: float = TIMEOUT_SECONDS) -> HeardFillers:
+    """Hear the filler words in `media_path`. The call reaching `da uhm`.
+
+    Reads audio or video directly - no ffmpeg pre-step - and returns
+    spans in the file's own timebase. An empty event list is a measured
+    absence: the detector answered and heard no fillers. Anything where
+    the detector did not answer raises `TranscriberUnavailable`, the
+    same refusal the transcript path raises, so a caller can never read
+    "no fillers" off a pass that never listened.
+    """
+    binary = executable()
+    if not binary:
+        raise TranscriberUnavailable(available()[1])
+    if not media_path or not os.path.isfile(media_path):
+        raise TranscriberUnavailable(
+            f"there is no file at {media_path!r} to listen to.")
+    try:
+        out = perf_ledger.run("filler_detect", [binary, UHM_SUBCOMMAND, media_path, *FLAGS],
+                              fields={"backend": BINARY},
+                              capture_output=True, encoding="utf-8",
+                              check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as expired:
+        raise TranscriberUnavailable(
+            f"{BINARY} {UHM_SUBCOMMAND} did not finish within {timeout}s "
+            f"on {os.path.basename(media_path)}") from expired
+    except OSError as failed:
+        raise TranscriberUnavailable(
+            f"{BINARY} {UHM_SUBCOMMAND} could not be run: {failed}") from failed
+    if out.returncode != 0:
+        raise TranscriberUnavailable(
+            f"{BINARY} {UHM_SUBCOMMAND} exited {out.returncode}: "
+            f"{(out.stderr or out.stdout or '').strip()[:400]}")
+    try:
+        payload = json.loads(out.stdout or "")
+    except ValueError as unreadable:
+        raise TranscriberUnavailable(
+            f"{BINARY} {UHM_SUBCOMMAND} wrote something that is not JSON: "
+            f"{unreadable}") from unreadable
+    return read_filler_payload(payload, media_path)
+
+
+def read_filler_payload(payload: Any, media_path: str = "") -> HeardFillers:
+    """Map the detector's JSON onto `HeardFillers`.
+
+    A filler with no usable timing is dropped rather than guessed, the
+    same rule `read_payload` applies to words. The type label is kept
+    verbatim; normalizing it is the consumer's job.
+    """
+    if not isinstance(payload, dict):
+        raise TranscriberUnavailable(
+            f"{BINARY} {UHM_SUBCOMMAND} wrote {type(payload).__name__}, "
+            f"not an object")
+    events: List[HeardFiller] = []
+    for row in payload.get(FILLERS_KEY) or []:
+        if not isinstance(row, dict):
+            continue
+        filler_type = str(row.get(FILLER_TYPE_KEY) or "").strip()
+        if not filler_type:
+            continue
+        try:
+            start = float(row.get(FILLER_START_KEY))
+            end = float(row.get(FILLER_END_KEY))
+        except (TypeError, ValueError):
+            continue
+        if not (end > start):
+            continue
+        try:
+            confidence = float(row.get(LANGUAGE_CONFIDENCE_KEY))
+        except (TypeError, ValueError):
+            confidence = None
+        events.append(HeardFiller(filler_type=filler_type, start=start,
+                                  end=end, confidence=confidence))
+    events.sort(key=lambda e: (e.start, e.end))
+    try:
+        duration_seconds = float(payload.get(DURATION_KEY))
+    except (TypeError, ValueError):
+        duration_seconds = None
+    return HeardFillers(
+        events=events,
+        duration_seconds=duration_seconds,
+        engine={
+            "transcriber": BINARY,
+            "subcommand": UHM_SUBCOMMAND,
+            "version": version(),
+        },
+        media_path=media_path,
+    )

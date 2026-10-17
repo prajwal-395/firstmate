@@ -1,0 +1,802 @@
+{
+  "schema_version": "asr_candidate_scorecards/1",
+  "as_of": "2026-10-17",
+  "hardware_target": "Apple Silicon, 24 GB unified memory",
+  "evaluation_corpus": "Cleared GEO podcast and Apple 001 originals only; five calibration windows; held-out untouched",
+  "label_status": "Agent labels from one audio-capable Gemini family are scored as provisional word sequences; the Anthropic second pass was transcript-assisted and did not independently transcribe text. Calibration and the single held-out report have provisional WER/filler results. Independent text agreement is unavailable; punctuation and all reference-time metrics are not scored.",
+  "condition_coverage": {
+    "clean_speech": "candidate labels pending",
+    "naturally_noisy_speech": "not represented by labeled source material in the permitted corpus; do not claim coverage",
+    "multilingual_speech": "not confirmed in the sampled windows; all five Ear outputs were en; other language performance unmeasured",
+    "overlapping_speech": "agent labels pending; do not claim coverage"
+  },
+  "selection_basis": [
+    "calibration frozen 2026-10-17 before held-out evaluation",
+    "retain Voz and MFA baselines; no candidate adoption or default change",
+    "held-out is for the one requested report only"
+  ],
+  "candidates": [
+    {
+      "id": "voz",
+      "role": "baseline",
+      "implementation": "Existing contained Desert Ant Voz transcription path",
+      "checkpoint": "desert-ant-labs/voz v0.1.0; publisher tag resolves to 8e7ab8ca342c6bb00f9347a25e53fe44543b2a40",
+      "runtime": "da CLI 0.1.1; desert-ant-core 3.1.0; Apple Core ML",
+      "precision": "Compiled Core ML; cached metadata reports FP16 model and I/O precision",
+      "quality": {
+        "wer": "unmeasured_pending_agent_labels",
+        "cer": "unmeasured_pending_agent_labels",
+        "punctuation_precision_recall_f1": "unmeasured_pending_agent_labels",
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "Desert Ant Labs Source-Available License 1.0, conditional; commercial threshold and redistribution terms remain unresolved in Ren license evidence. Underlying Parakeet weights are CC BY 4.0.",
+      "license_evidence": [
+        "https://huggingface.co/desert-ant-labs/voz",
+        "https://license.desertant.com/1.0"
+      ],
+      "quality_metrics": {
+        "wer": "unmeasured_pending_agent_labels",
+        "cer": "unmeasured_pending_agent_labels",
+        "punctuation_precision_recall_f1": "unmeasured_pending_agent_labels",
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 5.244871975000069,
+        "warm": 4.267636566600004,
+        "seconds_per_audio_minute_warm": 5.145588279145802,
+        "cold_method": "perf_counter around the candidate call, first invocation",
+        "warm_method": "perf_counter around the candidate call, second invocation"
+      },
+      "peak_memory": {
+        "value": 84017152,
+        "unit": "bytes",
+        "method": "standalone candidate process high-water RSS; physical footprint was not recorded for this pre-existing r2 run"
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "cold_seconds": 5.244871975000069,
+          "warm_seconds": 4.267636566600004,
+          "seconds_per_audio_minute_warm": 5.145588279145802
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.voz.json",
+      "adoption_decision": "retain baseline",
+      "provisional_quality_evidence": {
+        "IMG_1814_source_15_45_text_only": {
+          "wer": 0.1,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "reference_words": 30,
+          "hypothesis_words": 32,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference": "single provisional Gemini agent-label sequence, scored from text sequence only",
+          "limitation": "not independent gold; transcript-assisted timing check; punctuation and timing unscored"
+        }
+      },
+      "held_out_text_quality": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation",
+        "per_sample": {
+          "LCATL0011": {
+            "reference_words": 91,
+            "hypothesis_words": 90,
+            "substitutions": 7,
+            "deletions": 1,
+            "insertions": 0,
+            "wer": 0.08791208791208792,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 0,
+            "matched_fillers": 0,
+            "filler_precision": null,
+            "filler_recall": 0.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "LC4930": {
+            "reference_words": 72,
+            "hypothesis_words": 60,
+            "substitutions": 5,
+            "deletions": 12,
+            "insertions": 0,
+            "wer": 0.2361111111111111,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 1,
+            "matched_fillers": 1,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1818": {
+            "reference_words": 100,
+            "hypothesis_words": 102,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.03,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1820": {
+            "reference_words": 61,
+            "hypothesis_words": 63,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.04918032786885246,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          }
+        },
+        "reference_status": "provisional_agent_word_sequence_not_independent_gold",
+        "source_report": "heldout/quality.asr.json"
+      }
+    },
+    {
+      "id": "mfa",
+      "role": "baseline",
+      "implementation": "Existing Montreal Forced Aligner placement path over Voz transcript",
+      "checkpoint": "english_us_arpa acoustic + dictionary v3.0.0; G2P v2.0.0a",
+      "runtime": "Montreal Forced Aligner 3.4.2 in isolated shared micromamba environment",
+      "precision": "Not applicable / not reported",
+      "quality": {
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels",
+        "p95_boundary_error_ms": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "Montreal Forced Aligner software MIT; English US ARPA acoustic/dictionary/G2P artifacts CC BY 4.0.",
+      "license_evidence": [
+        "docs/DOWNLOAD_INVENTORY.md",
+        "library/model_registry/license_evidence.json"
+      ],
+      "quality_metrics": {
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels",
+        "p95_boundary_error_ms": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 73.22079287519992,
+        "warm": 82.90656730780006,
+        "seconds_per_audio_minute_warm": 99.96236894724616,
+        "cold_method": "perf_counter around the candidate call, first invocation",
+        "warm_method": "perf_counter around the candidate call, second invocation"
+      },
+      "peak_memory": {
+        "value": 1583775744,
+        "unit": "bytes",
+        "method": "standalone candidate process high-water RSS; physical footprint was not recorded for this pre-existing r2 run"
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "cold_seconds": 73.22079287519992,
+          "warm_seconds": 82.90656730780006,
+          "seconds_per_audio_minute_warm": 99.96236894724616
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.mfa.json",
+      "adoption_decision": "retain baseline",
+      "provisional_quality_evidence": {
+        "IMG_1814_source_15_45_text_only": {
+          "wer": 0.1,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "reference_words": 30,
+          "hypothesis_words": 32,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference": "single provisional Gemini agent-label sequence, scored from text sequence only",
+          "limitation": "not independent gold; transcript-assisted timing check; punctuation and timing unscored"
+        }
+      },
+      "held_out_text_quality": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation",
+        "per_sample": {
+          "LCATL0011": {
+            "reference_words": 91,
+            "hypothesis_words": 90,
+            "substitutions": 7,
+            "deletions": 1,
+            "insertions": 0,
+            "wer": 0.08791208791208792,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 0,
+            "matched_fillers": 0,
+            "filler_precision": null,
+            "filler_recall": 0.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "LC4930": {
+            "reference_words": 72,
+            "hypothesis_words": 60,
+            "substitutions": 5,
+            "deletions": 12,
+            "insertions": 0,
+            "wer": 0.2361111111111111,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 1,
+            "matched_fillers": 1,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1818": {
+            "reference_words": 100,
+            "hypothesis_words": 102,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.03,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1820": {
+            "reference_words": 61,
+            "hypothesis_words": 63,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.04918032786885246,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          }
+        },
+        "reference_status": "provisional_agent_word_sequence_not_independent_gold",
+        "source_report": "heldout/quality.asr.json"
+      }
+    },
+    {
+      "id": "nvidia-parakeet-tdt-0.6b-v3-original",
+      "role": "candidate",
+      "implementation": "Original NVIDIA Parakeet TDT 0.6B v3 through independent NeMo runtime; same base weights as Voz, not an independent trained model",
+      "checkpoint": "nvidia/parakeet-tdt-0.6b-v3 @ 541d1f99c6b0c3cd0b11a95167540bb8edefd82b; publisher .nemo file, downloaded 2,509,332,480 bytes, SHA-256 3cbdc85877e668ca7b82d0d56770eb1fac76691f55d6b97545e8d61ca588d10d; downloaded to /tmp/vep-mu-asr/parakeet-tdt-0.6b-v3.nemo then deleted after benchmark",
+      "runtime": "NeMo 3.0.0 in scratch Python 3.12 environment; PyTorch 2.14.1; no MLX runtime in that environment",
+      "precision": "Full precision F32 per the under-1.5B candidate rule",
+      "quality": {
+        "wer": "unmeasured_pending_agent_labels",
+        "cer": "unmeasured_pending_agent_labels",
+        "punctuation_precision_recall_f1": "unmeasured_pending_agent_labels",
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "CC BY 4.0; NVIDIA declares commercial and noncommercial use, subject to attribution. Ren registry currently classifies the checkpoint conditional for distribution review.",
+      "license_evidence": [
+        "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/tree/541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+        "library/model_registry/license_evidence.json"
+      ],
+      "quality_metrics": {
+        "wer": "unmeasured_pending_agent_labels",
+        "cer": "unmeasured_pending_agent_labels",
+        "punctuation_precision_recall_f1": "unmeasured_pending_agent_labels",
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 34.13631558299676,
+        "warm": 1.7180019582010573,
+        "seconds_per_audio_minute_warm": 2.0714347629446257,
+        "cold_method": "first NeMo process and checkpoint load after download; filesystem page cache may have been warm",
+        "warm_method": "mean second inference call per window over the five-window calibration run",
+        "full_run_process_cold_filesystem_warm": 12.151920083000732,
+        "model_load_seconds": 33.037619624999934
+      },
+      "peak_memory": {
+        "value": 5698347860,
+        "unit": "bytes",
+        "method": "Ren scheduler process-tree phys_footprint; small-window probe and full calibration run were both below reservation",
+        "physical_footprint_gib": 5.307
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "model_load_seconds": 33.037619624999934,
+          "first_window_inference_seconds": 1.0986959579968243,
+          "full_run_process_cold_filesystem_warm_seconds": 0.9615958330032299,
+          "warm_seconds_mean_per_window": 1.7180019582010573,
+          "seconds_per_audio_minute_warm": 2.0714347629446257
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.parakeet.json",
+      "adoption_decision": "research-only",
+      "provisional_quality_evidence": {
+        "IMG_1814_source_15_45_text_only": {
+          "wer": 0.1,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "reference_words": 30,
+          "hypothesis_words": 32,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference": "single provisional Gemini agent-label sequence, scored from text sequence only",
+          "limitation": "not independent gold; transcript-assisted timing check; punctuation and timing unscored"
+        }
+      },
+      "held_out_text_quality": {
+        "reference_words": 324,
+        "substitutions": 10,
+        "deletions": 61,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.23148148148148148,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation",
+        "per_sample": {
+          "LCATL0011": {
+            "reference_words": 91,
+            "hypothesis_words": 44,
+            "substitutions": 5,
+            "deletions": 48,
+            "insertions": 1,
+            "wer": 0.5934065934065934,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 0,
+            "matched_fillers": 0,
+            "filler_precision": null,
+            "filler_recall": 0.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "LC4930": {
+            "reference_words": 72,
+            "hypothesis_words": 60,
+            "substitutions": 3,
+            "deletions": 12,
+            "insertions": 0,
+            "wer": 0.20833333333333334,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 1,
+            "matched_fillers": 1,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1818": {
+            "reference_words": 100,
+            "hypothesis_words": 101,
+            "substitutions": 1,
+            "deletions": 1,
+            "insertions": 2,
+            "wer": 0.04,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1820": {
+            "reference_words": 61,
+            "hypothesis_words": 62,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 1,
+            "wer": 0.03278688524590164,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          }
+        },
+        "reference_status": "provisional_agent_word_sequence_not_independent_gold",
+        "source_report": "heldout/quality.asr.json"
+      }
+    },
+    {
+      "id": "desert-ant-align",
+      "role": "candidate",
+      "implementation": "Desert Ant Align boundary refinement of the same Voz words supplied to MFA",
+      "checkpoint": "desert-ant-labs/align v1.1.0 @ cad8bbf8cbb2f461c04855402a54ff461496f6fc; SDK reported 3.6.0 and downloaded=true",
+      "runtime": "Node.js 26.11.1 with @desert-ant-labs/align 3.6.0 package, installed in /tmp scratch; package model uses SDK-managed cache",
+      "precision": "Not reported by SDK for this run",
+      "quality": {
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels",
+        "p95_boundary_error_ms": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale.",
+      "license_evidence": [
+        "https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md",
+        "https://license.desertant.com/1.0"
+      ],
+      "quality_metrics": {
+        "word_start_mae_ms": "unmeasured_pending_agent_labels",
+        "word_end_mae_ms": "unmeasured_pending_agent_labels",
+        "p95_boundary_error_ms": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 2.204684408599951,
+        "warm": 2.061941141800071,
+        "seconds_per_audio_minute_warm": 2.486130204847267,
+        "cold_method": "perf_counter around the candidate call, first invocation",
+        "warm_method": "perf_counter around the candidate call, second invocation"
+      },
+      "peak_memory": {
+        "value": 136282112,
+        "unit": "bytes",
+        "method": "standalone candidate process high-water RSS; physical footprint was not recorded for this pre-existing r2 run"
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "cold_seconds": 2.204684408599951,
+          "warm_seconds": 2.061941141800071,
+          "seconds_per_audio_minute_warm": 2.486130204847267
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.align.json",
+      "adoption_decision": "research-only",
+      "provisional_quality_evidence": {
+        "IMG_1814_source_15_45_text_only": {
+          "wer": 0.1,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "reference_words": 30,
+          "hypothesis_words": 32,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference": "single provisional Gemini agent-label sequence, scored from text sequence only",
+          "limitation": "not independent gold; transcript-assisted timing check; punctuation and timing unscored"
+        }
+      },
+      "held_out_text_quality": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation",
+        "per_sample": {
+          "LCATL0011": {
+            "reference_words": 91,
+            "hypothesis_words": 90,
+            "substitutions": 7,
+            "deletions": 1,
+            "insertions": 0,
+            "wer": 0.08791208791208792,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 0,
+            "matched_fillers": 0,
+            "filler_precision": null,
+            "filler_recall": 0.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "LC4930": {
+            "reference_words": 72,
+            "hypothesis_words": 60,
+            "substitutions": 5,
+            "deletions": 12,
+            "insertions": 0,
+            "wer": 0.2361111111111111,
+            "reference_fillers": 1,
+            "hypothesis_fillers": 1,
+            "matched_fillers": 1,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1818": {
+            "reference_words": 100,
+            "hypothesis_words": 102,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.03,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          },
+          "IMG_1820": {
+            "reference_words": 61,
+            "hypothesis_words": 63,
+            "substitutions": 1,
+            "deletions": 0,
+            "insertions": 2,
+            "wer": 0.04918032786885246,
+            "reference_fillers": 2,
+            "hypothesis_fillers": 2,
+            "matched_fillers": 2,
+            "filler_precision": 1.0,
+            "filler_recall": 1.0,
+            "reference_punctuation_tokens": 0,
+            "punctuation_scored_matches": 0,
+            "punctuation_exact": null
+          }
+        },
+        "reference_status": "provisional_agent_word_sequence_not_independent_gold",
+        "source_report": "heldout/quality.asr.json"
+      }
+    },
+    {
+      "id": "desert-ant-ear-v0.1.0",
+      "role": "candidate",
+      "implementation": "Desert Ant Ear language identification before ASR",
+      "checkpoint": "desert-ant-labs/ear v0.1.0 @ a5a2a6ef1241a53ab4404f9a9e7ccb092d2b7c47; cached before lane",
+      "runtime": "da CLI 0.1.1; desert-ant-core 3.1.0; Apple Core ML",
+      "precision": "Compiled model precision not reported in this run",
+      "quality": {
+        "language_accuracy": "unmeasured_pending_agent_labels",
+        "unsupported_language_abstention": "unmeasured_pending_agent_labels",
+        "confidence_calibration": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale.",
+      "license_evidence": [
+        "https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/ear.md",
+        "https://license.desertant.com/1.0"
+      ],
+      "quality_metrics": {
+        "language_accuracy": "unmeasured_pending_agent_labels",
+        "unsupported_language_abstention": "unmeasured_pending_agent_labels",
+        "confidence_calibration": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 0.8923370666000665,
+        "warm": 0.7778047247999893,
+        "seconds_per_audio_minute_warm": 0.9378171765417282,
+        "cold_method": "perf_counter around the candidate call, first invocation",
+        "warm_method": "perf_counter around the candidate call, second invocation"
+      },
+      "peak_memory": {
+        "value": 1583775744,
+        "unit": "bytes",
+        "method": "standalone candidate process high-water RSS; physical footprint was not recorded for this pre-existing r2 run"
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "cold_seconds": 0.8923370666000665,
+          "warm_seconds": 0.7778047247999893,
+          "seconds_per_audio_minute_warm": 0.9378171765417282
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.ear.json",
+      "adoption_decision": "research-only",
+      "held_out_text_quality": {},
+      "held_out_language_id_observations": {
+        "LCATL0011": {
+          "language": "en",
+          "confidence": 0.9951151632332568
+        },
+        "LC4930": {
+          "language": "en",
+          "confidence": 0.9860241113593317
+        },
+        "IMG_1818": {
+          "language": "en",
+          "confidence": 0.992704509946936
+        },
+        "IMG_1820": {
+          "language": "en",
+          "confidence": 0.9903809804699117
+        }
+      },
+      "held_out_language_accuracy": "not_scored_no_independent_language_reference"
+    },
+    {
+      "id": "desert-ant-uhm",
+      "role": "candidate",
+      "implementation": "Desert Ant Uhm audio-grounded filler detector; output remains an observation and has no deletion path",
+      "checkpoint": "desert-ant-labs/uhm @ 612592c10ad7b2a51f3237725448a1aad212480b",
+      "runtime": "da CLI 0.1.1; desert-ant-core 3.1.0; Apple Core ML",
+      "precision": "Not reported by CLI for this run",
+      "quality": {
+        "event_precision": "unmeasured_pending_agent_labels",
+        "event_recall": "unmeasured_pending_agent_labels",
+        "boundary_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale.",
+      "license_evidence": [
+        "https://desertant.com/audio/",
+        "https://license.desertant.com/1.0"
+      ],
+      "quality_metrics": {
+        "event_precision": "unmeasured_pending_agent_labels",
+        "event_recall": "unmeasured_pending_agent_labels",
+        "boundary_mae_ms": "unmeasured_pending_agent_labels"
+      },
+      "latency_seconds": {
+        "cold": 2.628833716399913,
+        "warm": 3.219718649799961,
+        "seconds_per_audio_minute_warm": 3.8820893691415974,
+        "cold_method": "perf_counter around the candidate call, first invocation",
+        "warm_method": "perf_counter around the candidate call, second invocation"
+      },
+      "peak_memory": {
+        "value": 1583775744,
+        "unit": "bytes",
+        "method": "standalone candidate process high-water RSS; physical footprint was not recorded for this pre-existing r2 run"
+      },
+      "runtime_split_seconds": {
+        "decode": {
+          "seconds": null,
+          "status": "not separated; WAV extraction was outside candidate invocation"
+        },
+        "infer": {
+          "cold_seconds": 2.628833716399913,
+          "warm_seconds": 3.219718649799961,
+          "seconds_per_audio_minute_warm": 3.8820893691415974
+        },
+        "serialize": {
+          "seconds": null,
+          "status": "JSON serialization and file writes were not timed"
+        }
+      },
+      "source_report": "report.uhm.json",
+      "adoption_decision": "research-only",
+      "held_out_text_quality": {},
+      "held_out_event_quality": "not_scored; timing-based event matching prohibited by unreliable reference timing; instruction scores fillers from word sequences only"
+    }
+  ],
+  "provisional_text_only_label_check": {
+    "reference": "Gemini agent label calib-apple-1814, IMG_1814 source seconds 15-45; 30 words; transcript-assisted timing check disclosed in /Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-labels-audio-check/report.md",
+    "independence": "One audio-capable label family plus transcript-assisted Anthropic check; no independent text agreement can be calculated.",
+    "sequence_metrics": {
+      "reference_words": 30,
+      "hypothesis_words": 32,
+      "wer": 0.1,
+      "substitutions": 1,
+      "deletions": 0,
+      "insertions": 2,
+      "filler_reference_count": 1,
+      "filler_matched_count": 1,
+      "filler_precision": 1.0,
+      "filler_recall": 1.0,
+      "candidates": [
+        "voz",
+        "nvidia-parakeet-tdt-0.6b-v3-original",
+        "mfa",
+        "desert-ant-align"
+      ]
+    },
+    "punctuation": "not_scored; reference word sequence has no punctuation",
+    "timing_metrics": "not_scored; reference timing unreliable in 7 of 8 samples",
+    "held_out": "reported once after calibration freeze; see heldout/quality.asr.json"
+  },
+  "calibration_freeze": {
+    "date": "2026-10-17",
+    "decision": "Retain Voz transcription and MFA alignment baselines; no default changes and no candidate adoption.",
+    "text_scoring": "Case-insensitive lexical word-sequence Levenshtein WER; filler-token precision/recall over {uh, um, erm, er, mm, mhm, hmm}.",
+    "punctuation": "Score only when reference word sequence includes punctuation; otherwise not scored.",
+    "timing": "Not scored because reference timings are unreliable.",
+    "basis": "Calibration only; one matched provisional text reference interval. No held-out values inspected when frozen."
+  },
+  "held_out_report": {
+    "status": "reported_once",
+    "path": "heldout/quality.asr.json",
+    "run_revision": "asr-qual-2026-10-17-heldout-r1",
+    "audio_seconds": 110.0,
+    "reference_words": 324,
+    "WER_not_promoted_as_gold": true,
+    "timing_metrics": "not_scored_unreliable_reference_timing",
+    "punctuation_metrics": "not_scored_reference_contains_no_punctuation"
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "words": [
+    {
+      "text": "Okay,",
+      "start": 14.590207631587981,
+      "end": 15.052431535124779,
+      "refined": true,
+      "source_start": 14.590207631587981,
+      "source_end": 15.052431535124779
+    },
+    {
+      "text": "we're",
+      "start": 15.185046639442444,
+      "end": 15.409420786201952,
+      "refined": true,
+      "source_start": 15.185046639442444,
+      "source_end": 15.409420786201952
+    },
+    {
+      "text": "here,",
+      "start": 15.416941998302935,
+      "end": 15.638405870199204,
+      "refined": true,
+      "source_start": 15.416941998302935,
+      "source_end": 15.638405870199204
+    },
+    {
+      "text": "we're",
+      "start": 15.698673065304757,
+      "end": 15.840292385816575,
+      "refined": true,
+      "source_start": 15.698673065304757,
+      "source_end": 15.840292385816575
+    },
+    {
+      "text": "here.",
+      "start": 15.880437544584275,
+      "end": 16.817179510593412,
+      "refined": true,
+      "source_start": 15.880437544584275,
+      "source_end": 16.817179510593412
+    },
+    {
+      "text": "Just",
+      "start": 17.416198948621748,
+      "end": 17.43571067214012,
+      "refined": true,
+      "source_start": 17.416198948621748,
+      "source_end": 17.43571067214012
+    },
+    {
+      "text": "gotta",
+      "start": 17.462030093967915,
+      "end": 17.570548936128617,
+      "refined": true,
+      "source_start": 17.462030093967915,
+      "source_end": 17.570548936128617
+    },
+    {
+      "text": "find",
+      "start": 17.655474932026117,
+      "end": 17.847164393007755,
+      "refined": true,
+      "source_start": 17.655474932026117,
+      "source_end": 17.847164393007755
+    },
+    {
+      "text": "a",
+      "start": 17.81,
+      "end": 17.97,
+      "refined": false,
+      "source_start": 17.81,
+      "source_end": 17.97
+    },
+    {
+      "text": "place",
+      "start": 17.936398026794194,
+      "end": 18.04735626757145,
+      "refined": true,
+      "source_start": 17.936398026794194,
+      "source_end": 18.04735626757145
+    },
+    {
+      "text": "to",
+      "start": 18.063937348425387,
+      "end": 18.134738053083417,
+      "refined": true,
+      "source_start": 18.063937348425387,
+      "source_end": 18.134738053083417
+    },
+    {
+      "text": "park",
+      "start": 18.184949989318845,
+      "end": 18.667612903118133,
+      "refined": true,
+      "source_start": 18.184949989318845,
+      "source_end": 18.667612903118133
+    },
+    {
+      "text": "now",
+      "start": 18.677775346040725,
+      "end": 19.328195549547672,
+      "refined": true,
+      "source_start": 18.677775346040725,
+      "source_end": 19.328195549547672
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1811",
+    "start_seconds": 0.0,
+    "end_seconds": 22.87,
+    "timebase": "original_source_audio_seconds"
+  }
+}

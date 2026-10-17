@@ -1,0 +1,1187 @@
+{
+  "words": [
+    {
+      "word": "Let",
+      "start": 0.72,
+      "end": 0.76,
+      "source_start": 120.72,
+      "source_end": 120.76
+    },
+    {
+      "word": "me",
+      "start": 0.76,
+      "end": 0.82,
+      "source_start": 120.76,
+      "source_end": 120.82
+    },
+    {
+      "word": "do",
+      "start": 0.82,
+      "end": 0.88,
+      "source_start": 120.82,
+      "source_end": 120.88
+    },
+    {
+      "word": "that,",
+      "start": 0.88,
+      "end": 1.06,
+      "source_start": 120.88,
+      "source_end": 121.06
+    },
+    {
+      "word": "so",
+      "start": 1.06,
+      "end": 1.45,
+      "source_start": 121.06,
+      "source_end": 121.45
+    },
+    {
+      "word": "I'll",
+      "start": 1.5499999999999998,
+      "end": 1.73,
+      "source_start": 121.55,
+      "source_end": 121.73
+    },
+    {
+      "word": "I'll",
+      "start": 1.73,
+      "end": 1.83,
+      "source_start": 121.73,
+      "source_end": 121.83
+    },
+    {
+      "word": "I'm",
+      "start": 1.83,
+      "end": 1.9,
+      "source_start": 121.83,
+      "source_end": 121.9
+    },
+    {
+      "word": "gonna",
+      "start": 1.9,
+      "end": 2.02,
+      "source_start": 121.9,
+      "source_end": 122.02
+    },
+    {
+      "word": "ask",
+      "start": 2.02,
+      "end": 2.36,
+      "source_start": 122.02,
+      "source_end": 122.36
+    },
+    {
+      "word": "you",
+      "start": 2.36,
+      "end": 2.42,
+      "source_start": 122.36,
+      "source_end": 122.42
+    },
+    {
+      "word": "the",
+      "start": 2.42,
+      "end": 2.48,
+      "source_start": 122.42,
+      "source_end": 122.48
+    },
+    {
+      "word": "question.",
+      "start": 2.48,
+      "end": 2.7299999999999995,
+      "source_start": 122.48,
+      "source_end": 122.73
+    },
+    {
+      "word": "Okay,",
+      "start": 2.7299999999999995,
+      "end": 2.92,
+      "source_start": 122.73,
+      "source_end": 122.92
+    },
+    {
+      "word": "give",
+      "start": 2.92,
+      "end": 3.09,
+      "source_start": 122.92,
+      "source_end": 123.09
+    },
+    {
+      "word": "me",
+      "start": 3.09,
+      "end": 3.17,
+      "source_start": 123.09,
+      "source_end": 123.17
+    },
+    {
+      "word": "one",
+      "start": 3.17,
+      "end": 3.3499999999999996,
+      "source_start": 123.17,
+      "source_end": 123.35
+    },
+    {
+      "word": "second",
+      "start": 3.3499999999999996,
+      "end": 3.7,
+      "source_start": 123.35,
+      "source_end": 123.7
+    },
+    {
+      "word": "then",
+      "start": 3.7,
+      "end": 3.9000000000000004,
+      "source_start": 123.7,
+      "source_end": 123.9
+    },
+    {
+      "word": "yeah.",
+      "start": 3.9000000000000004,
+      "end": 4.06,
+      "source_start": 123.9,
+      "source_end": 124.06
+    },
+    {
+      "word": "Like",
+      "start": 4.92,
+      "end": 5.08,
+      "source_start": 124.92,
+      "source_end": 125.08
+    },
+    {
+      "word": "I'll",
+      "start": 5.08,
+      "end": 5.1899999999999995,
+      "source_start": 125.08,
+      "source_end": 125.19
+    },
+    {
+      "word": "tell",
+      "start": 5.1899999999999995,
+      "end": 5.3999999999999995,
+      "source_start": 125.19,
+      "source_end": 125.4
+    },
+    {
+      "word": "you",
+      "start": 5.3999999999999995,
+      "end": 5.47,
+      "source_start": 125.4,
+      "source_end": 125.47
+    },
+    {
+      "word": "okay,",
+      "start": 5.47,
+      "end": 5.76,
+      "source_start": 125.47,
+      "source_end": 125.76
+    },
+    {
+      "word": "just",
+      "start": 5.79,
+      "end": 5.95,
+      "source_start": 125.79,
+      "source_end": 125.95
+    },
+    {
+      "word": "keep",
+      "start": 5.95,
+      "end": 6.109999999999999,
+      "source_start": 125.95,
+      "source_end": 126.11
+    },
+    {
+      "word": "pushing",
+      "start": 6.109999999999999,
+      "end": 6.359999999999999,
+      "source_start": 126.11,
+      "source_end": 126.36
+    },
+    {
+      "word": "your",
+      "start": 6.359999999999999,
+      "end": 6.45,
+      "source_start": 126.36,
+      "source_end": 126.45
+    },
+    {
+      "word": "hands",
+      "start": 6.45,
+      "end": 6.6499999999999995,
+      "source_start": 126.45,
+      "source_end": 126.65
+    },
+    {
+      "word": "farther",
+      "start": 6.6499999999999995,
+      "end": 7.01,
+      "source_start": 126.65,
+      "source_end": 127.01
+    },
+    {
+      "word": "out",
+      "start": 7.01,
+      "end": 7.13,
+      "source_start": 127.01,
+      "source_end": 127.13
+    },
+    {
+      "word": "and",
+      "start": 7.13,
+      "end": 7.22,
+      "source_start": 127.13,
+      "source_end": 127.22
+    },
+    {
+      "word": "I'll",
+      "start": 7.22,
+      "end": 7.31,
+      "source_start": 127.22,
+      "source_end": 127.31
+    },
+    {
+      "word": "tell",
+      "start": 7.31,
+      "end": 7.45,
+      "source_start": 127.31,
+      "source_end": 127.45
+    },
+    {
+      "word": "you",
+      "start": 7.45,
+      "end": 7.569999999999999,
+      "source_start": 127.45,
+      "source_end": 127.57
+    },
+    {
+      "word": "how",
+      "start": 7.569999999999999,
+      "end": 7.72,
+      "source_start": 127.57,
+      "source_end": 127.72
+    },
+    {
+      "word": "far",
+      "start": 7.72,
+      "end": 7.8999999999999995,
+      "source_start": 127.72,
+      "source_end": 127.9
+    },
+    {
+      "word": "you",
+      "start": 7.8999999999999995,
+      "end": 8.03,
+      "source_start": 127.9,
+      "source_end": 128.03
+    },
+    {
+      "word": "can,",
+      "start": 8.03,
+      "end": 8.24,
+      "source_start": 128.03,
+      "source_end": 128.24
+    },
+    {
+      "word": "like",
+      "start": 8.47,
+      "end": 8.620000000000001,
+      "source_start": 128.47,
+      "source_end": 128.62
+    },
+    {
+      "word": "stay",
+      "start": 8.620000000000001,
+      "end": 8.850000000000001,
+      "source_start": 128.62,
+      "source_end": 128.85
+    },
+    {
+      "word": "with",
+      "start": 8.850000000000001,
+      "end": 8.99,
+      "source_start": 128.85,
+      "source_end": 128.99
+    },
+    {
+      "word": "him.",
+      "start": 8.99,
+      "end": 9.16,
+      "source_start": 128.99,
+      "source_end": 129.16
+    },
+    {
+      "word": "A",
+      "start": 9.75,
+      "end": 9.780000000000001,
+      "source_start": 129.75,
+      "source_end": 129.78
+    },
+    {
+      "word": "little",
+      "start": 9.780000000000001,
+      "end": 9.930000000000001,
+      "source_start": 129.78,
+      "source_end": 129.93
+    },
+    {
+      "word": "bit",
+      "start": 9.930000000000001,
+      "end": 10.020000000000001,
+      "source_start": 129.93,
+      "source_end": 130.02
+    },
+    {
+      "word": "farther",
+      "start": 10.020000000000001,
+      "end": 10.23,
+      "source_start": 130.02,
+      "source_end": 130.23
+    },
+    {
+      "word": "back.",
+      "start": 10.23,
+      "end": 10.47,
+      "source_start": 130.23,
+      "source_end": 130.47
+    },
+    {
+      "word": "A",
+      "start": 12.06,
+      "end": 12.09,
+      "source_start": 132.06,
+      "source_end": 132.09
+    },
+    {
+      "word": "little",
+      "start": 12.09,
+      "end": 12.26,
+      "source_start": 132.09,
+      "source_end": 132.26
+    },
+    {
+      "word": "bit",
+      "start": 12.26,
+      "end": 12.32,
+      "source_start": 132.26,
+      "source_end": 132.32
+    },
+    {
+      "word": "more",
+      "start": 12.32,
+      "end": 12.440000000000001,
+      "source_start": 132.32,
+      "source_end": 132.44
+    },
+    {
+      "word": "out.",
+      "start": 12.440000000000001,
+      "end": 12.610000000000001,
+      "source_start": 132.44,
+      "source_end": 132.61
+    },
+    {
+      "word": "No",
+      "start": 13.110000000000001,
+      "end": 13.290000000000001,
+      "source_start": 133.11,
+      "source_end": 133.29
+    },
+    {
+      "word": "out.",
+      "start": 13.290000000000001,
+      "end": 13.59,
+      "source_start": 133.29,
+      "source_end": 133.59
+    },
+    {
+      "word": "Like",
+      "start": 13.59,
+      "end": 13.81,
+      "source_start": 133.59,
+      "source_end": 133.81
+    },
+    {
+      "word": "I",
+      "start": 13.81,
+      "end": 13.9,
+      "source_start": 133.81,
+      "source_end": 133.9
+    },
+    {
+      "word": "that's",
+      "start": 14.32,
+      "end": 14.58,
+      "source_start": 134.32,
+      "source_end": 134.58
+    },
+    {
+      "word": "the",
+      "start": 14.58,
+      "end": 14.65,
+      "source_start": 134.58,
+      "source_end": 134.65
+    },
+    {
+      "word": "limit.",
+      "start": 14.65,
+      "end": 14.9,
+      "source_start": 134.65,
+      "source_end": 134.9
+    },
+    {
+      "word": "Okay.",
+      "start": 15.39,
+      "end": 15.58,
+      "source_start": 135.39,
+      "source_end": 135.58
+    },
+    {
+      "word": "Right",
+      "start": 15.790000000000001,
+      "end": 15.92,
+      "source_start": 135.79,
+      "source_end": 135.92
+    },
+    {
+      "word": "here.",
+      "start": 15.92,
+      "end": 16.09,
+      "source_start": 135.92,
+      "source_end": 136.09
+    },
+    {
+      "word": "Okay.",
+      "start": 16.54,
+      "end": 16.74,
+      "source_start": 136.54,
+      "source_end": 136.74
+    },
+    {
+      "word": "Well",
+      "start": 16.89,
+      "end": 17.049999999999997,
+      "source_start": 136.89,
+      "source_end": 137.05
+    },
+    {
+      "word": "this",
+      "start": 17.049999999999997,
+      "end": 17.22,
+      "source_start": 137.05,
+      "source_end": 137.22
+    },
+    {
+      "word": "makes",
+      "start": 17.22,
+      "end": 17.38,
+      "source_start": 137.22,
+      "source_end": 137.38
+    },
+    {
+      "word": "sense.",
+      "start": 17.38,
+      "end": 17.660000999999998,
+      "source_start": 137.38,
+      "source_end": 137.660001
+    },
+    {
+      "word": "Okay.",
+      "start": 17.830001,
+      "end": 18.090000999999997,
+      "source_start": 137.830001,
+      "source_end": 138.090001
+    },
+    {
+      "word": "Um",
+      "start": 18.459999999999997,
+      "end": 18.859999,
+      "source_start": 138.46,
+      "source_end": 138.859999
+    },
+    {
+      "word": "one",
+      "start": 18.859999,
+      "end": 19.580001,
+      "source_start": 138.859999,
+      "source_end": 139.580001
+    },
+    {
+      "word": "second.",
+      "start": 19.580001,
+      "end": 19.920001,
+      "source_start": 139.580001,
+      "source_end": 139.920001
+    },
+    {
+      "word": "Yeah.",
+      "start": 19.97,
+      "end": 20.22,
+      "source_start": 139.97,
+      "source_end": 140.22
+    },
+    {
+      "word": "Ready?",
+      "start": 21.38,
+      "end": 21.660000999999998,
+      "source_start": 141.38,
+      "source_end": 141.660001
+    },
+    {
+      "word": "Oh",
+      "start": 22.13,
+      "end": 22.24,
+      "source_start": 142.13,
+      "source_end": 142.24
+    },
+    {
+      "word": "not",
+      "start": 22.24,
+      "end": 22.799999999999997,
+      "source_start": 142.24,
+      "source_end": 142.8
+    },
+    {
+      "word": "yet.",
+      "start": 22.799999999999997,
+      "end": 23.049999999999997,
+      "source_start": 142.8,
+      "source_end": 143.05
+    },
+    {
+      "word": "Um",
+      "start": 23.2,
+      "end": 23.57,
+      "source_start": 143.2,
+      "source_end": 143.57
+    },
+    {
+      "word": "Okay.",
+      "start": 32.090001,
+      "end": 32.260001,
+      "source_start": 152.090001,
+      "source_end": 152.260001
+    },
+    {
+      "word": "All",
+      "start": 33.100001,
+      "end": 33.159999,
+      "source_start": 153.100001,
+      "source_end": 153.159999
+    },
+    {
+      "word": "right.",
+      "start": 33.159999,
+      "end": 33.29,
+      "source_start": 153.159999,
+      "source_end": 153.29
+    },
+    {
+      "word": "Give",
+      "start": 35.54,
+      "end": 35.670001,
+      "source_start": 155.54,
+      "source_end": 155.670001
+    },
+    {
+      "word": "me",
+      "start": 35.670001,
+      "end": 35.74,
+      "source_start": 155.670001,
+      "source_end": 155.74
+    },
+    {
+      "word": "an",
+      "start": 35.74,
+      "end": 35.819998,
+      "source_start": 155.74,
+      "source_end": 155.819998
+    },
+    {
+      "word": "example",
+      "start": 35.819998,
+      "end": 36.510000999999995,
+      "source_start": 155.819998,
+      "source_end": 156.510001
+    },
+    {
+      "word": "of",
+      "start": 36.510000999999995,
+      "end": 36.620002,
+      "source_start": 156.510001,
+      "source_end": 156.620002
+    },
+    {
+      "word": "that",
+      "start": 36.620002,
+      "end": 36.870002,
+      "source_start": 156.620002,
+      "source_end": 156.870002
+    },
+    {
+      "word": "difference",
+      "start": 36.870002,
+      "end": 37.319998,
+      "source_start": 156.870002,
+      "source_end": 157.319998
+    },
+    {
+      "word": "that",
+      "start": 37.319998,
+      "end": 37.479998,
+      "source_start": 157.319998,
+      "source_end": 157.479998
+    },
+    {
+      "word": "you're",
+      "start": 37.479998,
+      "end": 37.569998,
+      "source_start": 157.479998,
+      "source_end": 157.569998
+    },
+    {
+      "word": "seeing.",
+      "start": 37.569998,
+      "end": 37.940001,
+      "source_start": 157.569998,
+      "source_end": 157.940001
+    },
+    {
+      "word": "Yeah.",
+      "start": 38.379999999999995,
+      "end": 38.639998,
+      "source_start": 158.38,
+      "source_end": 158.639998
+    },
+    {
+      "word": "So",
+      "start": 38.639998,
+      "end": 38.940001,
+      "source_start": 158.639998,
+      "source_end": 158.940001
+    },
+    {
+      "word": "last",
+      "start": 38.940001,
+      "end": 39.22,
+      "source_start": 158.940001,
+      "source_end": 159.22
+    },
+    {
+      "word": "week",
+      "start": 39.22,
+      "end": 39.370002,
+      "source_start": 159.22,
+      "source_end": 159.370002
+    },
+    {
+      "word": "we",
+      "start": 39.370002,
+      "end": 39.440001,
+      "source_start": 159.370002,
+      "source_end": 159.440001
+    },
+    {
+      "word": "ran",
+      "start": 39.440001,
+      "end": 39.65,
+      "source_start": 159.440001,
+      "source_end": 159.65
+    },
+    {
+      "word": "an",
+      "start": 39.65,
+      "end": 39.81,
+      "source_start": 159.65,
+      "source_end": 159.81
+    },
+    {
+      "word": "audit",
+      "start": 39.960001999999996,
+      "end": 40.229998,
+      "source_start": 159.960002,
+      "source_end": 160.229998
+    },
+    {
+      "word": "on",
+      "start": 40.229998,
+      "end": 40.350001,
+      "source_start": 160.229998,
+      "source_end": 160.350001
+    },
+    {
+      "word": "a",
+      "start": 40.350001,
+      "end": 40.389998,
+      "source_start": 160.350001,
+      "source_end": 160.389998
+    },
+    {
+      "word": "client",
+      "start": 40.389998,
+      "end": 41.159999,
+      "source_start": 160.389998,
+      "source_end": 161.159999
+    },
+    {
+      "word": "and",
+      "start": 41.159999,
+      "end": 41.550002,
+      "source_start": 161.159999,
+      "source_end": 161.550002
+    },
+    {
+      "word": "their",
+      "start": 41.550002,
+      "end": 41.699999999999996,
+      "source_start": 161.550002,
+      "source_end": 161.7
+    },
+    {
+      "word": "team,",
+      "start": 41.699999999999996,
+      "end": 42.15,
+      "source_start": 161.7,
+      "source_end": 162.15
+    },
+    {
+      "word": "their",
+      "start": 42.15,
+      "end": 42.249998999999995,
+      "source_start": 162.15,
+      "source_end": 162.249999
+    },
+    {
+      "word": "SEO",
+      "start": 42.249998999999995,
+      "end": 42.629999999999995,
+      "source_start": 162.249999,
+      "source_end": 162.63
+    },
+    {
+      "word": "team,",
+      "start": 42.629999999999995,
+      "end": 42.889998,
+      "source_start": 162.63,
+      "source_end": 162.889998
+    },
+    {
+      "word": "had",
+      "start": 42.889998,
+      "end": 43.069998,
+      "source_start": 162.889998,
+      "source_end": 163.069998
+    },
+    {
+      "word": "stuffed",
+      "start": 43.069998,
+      "end": 43.440001,
+      "source_start": 163.069998,
+      "source_end": 163.440001
+    },
+    {
+      "word": "all",
+      "start": 43.54,
+      "end": 43.769999,
+      "source_start": 163.54,
+      "source_end": 163.76999899999998
+    },
+    {
+      "word": "their",
+      "start": 43.769999,
+      "end": 43.9,
+      "source_start": 163.76999899999998,
+      "source_end": 163.9
+    },
+    {
+      "word": "keywords",
+      "start": 43.9,
+      "end": 44.690001,
+      "source_start": 163.9,
+      "source_end": 164.690001
+    },
+    {
+      "word": "um",
+      "start": 44.690001,
+      "end": 44.850001,
+      "source_start": 164.690001,
+      "source_end": 164.850001
+    },
+    {
+      "word": "with",
+      "start": 44.850001,
+      "end": 45.15,
+      "source_start": 164.850001,
+      "source_end": 165.15
+    },
+    {
+      "word": "H",
+      "start": 45.229998,
+      "end": 45.429999,
+      "source_start": 165.229998,
+      "source_end": 165.429999
+    },
+    {
+      "word": "one",
+      "start": 45.429999,
+      "end": 45.56,
+      "source_start": 165.429999,
+      "source_end": 165.56
+    },
+    {
+      "word": "tags.",
+      "start": 45.56,
+      "end": 46.080000999999996,
+      "source_start": 165.56,
+      "source_end": 166.08000099999998
+    },
+    {
+      "word": "Um",
+      "start": 46.449999999999996,
+      "end": 47.030001,
+      "source_start": 166.45,
+      "source_end": 167.030001
+    },
+    {
+      "word": "wait,",
+      "start": 47.97,
+      "end": 48.159999,
+      "source_start": 167.97,
+      "source_end": 168.159999
+    },
+    {
+      "word": "sorry,",
+      "start": 48.159999,
+      "end": 48.350001,
+      "source_start": 168.159999,
+      "source_end": 168.350001
+    },
+    {
+      "word": "I",
+      "start": 48.350001,
+      "end": 48.389998,
+      "source_start": 168.350001,
+      "source_end": 168.389998
+    },
+    {
+      "word": "messed",
+      "start": 48.389998,
+      "end": 48.65,
+      "source_start": 168.389998,
+      "source_end": 168.65
+    },
+    {
+      "word": "that",
+      "start": 48.65,
+      "end": 48.780001,
+      "source_start": 168.65,
+      "source_end": 168.780001
+    },
+    {
+      "word": "up.",
+      "start": 48.780001,
+      "end": 48.979998,
+      "source_start": 168.780001,
+      "source_end": 168.979998
+    },
+    {
+      "word": "I",
+      "start": 48.979998,
+      "end": 49.04,
+      "source_start": 168.979998,
+      "source_end": 169.04
+    },
+    {
+      "word": "was",
+      "start": 49.04,
+      "end": 49.129999999999995,
+      "source_start": 169.04,
+      "source_end": 169.13
+    },
+    {
+      "word": "supposed",
+      "start": 49.129999999999995,
+      "end": 49.339999,
+      "source_start": 169.13,
+      "source_end": 169.339999
+    },
+    {
+      "word": "to",
+      "start": 49.339999,
+      "end": 49.460001999999996,
+      "source_start": 169.339999,
+      "source_end": 169.460002
+    },
+    {
+      "word": "H",
+      "start": 49.460001999999996,
+      "end": 49.600001,
+      "source_start": 169.460002,
+      "source_end": 169.600001
+    },
+    {
+      "word": "one",
+      "start": 49.600001,
+      "end": 49.710001999999996,
+      "source_start": 169.600001,
+      "source_end": 169.710002
+    },
+    {
+      "word": "tags",
+      "start": 49.710001999999996,
+      "end": 49.99,
+      "source_start": 169.710002,
+      "source_end": 169.99
+    },
+    {
+      "word": "with",
+      "start": 49.99,
+      "end": 50.080000999999996,
+      "source_start": 169.99,
+      "source_end": 170.08000099999998
+    },
+    {
+      "word": "keywords.",
+      "start": 50.080000999999996,
+      "end": 50.47,
+      "source_start": 170.08000099999998,
+      "source_end": 170.47
+    },
+    {
+      "word": "Instead",
+      "start": 50.699999999999996,
+      "end": 50.9,
+      "source_start": 170.7,
+      "source_end": 170.9
+    },
+    {
+      "word": "of",
+      "start": 50.9,
+      "end": 50.999998999999995,
+      "source_start": 170.9,
+      "source_end": 170.999999
+    },
+    {
+      "word": "saying",
+      "start": 50.999998999999995,
+      "end": 51.24,
+      "source_start": 170.999999,
+      "source_end": 171.24
+    },
+    {
+      "word": "like",
+      "start": 51.24,
+      "end": 51.440001,
+      "source_start": 171.24,
+      "source_end": 171.440001
+    },
+    {
+      "word": "yeah",
+      "start": 51.550002,
+      "end": 51.679999,
+      "source_start": 171.550002,
+      "source_end": 171.679999
+    },
+    {
+      "word": "I",
+      "start": 51.679999,
+      "end": 51.74,
+      "source_start": 171.679999,
+      "source_end": 171.74
+    },
+    {
+      "word": "messed",
+      "start": 51.74,
+      "end": 51.979998,
+      "source_start": 171.74,
+      "source_end": 171.979998
+    },
+    {
+      "word": "that",
+      "start": 51.979998,
+      "end": 52.089999,
+      "source_start": 171.979998,
+      "source_end": 172.089999
+    },
+    {
+      "word": "up,",
+      "start": 52.089999,
+      "end": 52.29,
+      "source_start": 172.089999,
+      "source_end": 172.29
+    },
+    {
+      "word": "just",
+      "start": 52.29,
+      "end": 52.550002,
+      "source_start": 172.29,
+      "source_end": 172.550002
+    },
+    {
+      "word": "run",
+      "start": 52.620002,
+      "end": 52.81,
+      "source_start": 172.620002,
+      "source_end": 172.81
+    },
+    {
+      "word": "it",
+      "start": 52.81,
+      "end": 52.97,
+      "source_start": 172.81,
+      "source_end": 172.97
+    },
+    {
+      "word": "back.",
+      "start": 52.97,
+      "end": 53.120002,
+      "source_start": 172.97,
+      "source_end": 173.120002
+    },
+    {
+      "word": "I",
+      "start": 53.350001,
+      "end": 53.449999999999996,
+      "source_start": 173.350001,
+      "source_end": 173.45
+    },
+    {
+      "word": "can?",
+      "start": 53.449999999999996,
+      "end": 53.780001,
+      "source_start": 173.45,
+      "source_end": 173.780001
+    },
+    {
+      "word": "Yeah",
+      "start": 54.030001,
+      "end": 54.319998,
+      "source_start": 174.030001,
+      "source_end": 174.319998
+    },
+    {
+      "word": "I",
+      "start": 54.359999,
+      "end": 54.4,
+      "source_start": 174.35999900000002,
+      "source_end": 174.4
+    },
+    {
+      "word": "mean",
+      "start": 54.4,
+      "end": 54.710001999999996,
+      "source_start": 174.4,
+      "source_end": 174.710002
+    },
+    {
+      "word": "we",
+      "start": 54.749998999999995,
+      "end": 54.859999,
+      "source_start": 174.749999,
+      "source_end": 174.85999900000002
+    },
+    {
+      "word": "can",
+      "start": 54.859999,
+      "end": 54.960001999999996,
+      "source_start": 174.85999900000002,
+      "source_end": 174.960002
+    },
+    {
+      "word": "cut",
+      "start": 54.960001999999996,
+      "end": 55.129999999999995,
+      "source_start": 174.960002,
+      "source_end": 175.13
+    },
+    {
+      "word": "it",
+      "start": 55.129999999999995,
+      "end": 55.190001,
+      "source_start": 175.13,
+      "source_end": 175.190001
+    },
+    {
+      "word": "in",
+      "start": 55.190001,
+      "end": 55.260000999999995,
+      "source_start": 175.190001,
+      "source_end": 175.260001
+    },
+    {
+      "word": "post.",
+      "start": 55.260000999999995,
+      "end": 55.49,
+      "source_start": 175.260001,
+      "source_end": 175.49
+    },
+    {
+      "word": "That's",
+      "start": 55.49,
+      "end": 55.639998,
+      "source_start": 175.49,
+      "source_end": 175.639998
+    },
+    {
+      "word": "the",
+      "start": 55.639998,
+      "end": 55.710001999999996,
+      "source_start": 175.639998,
+      "source_end": 175.710002
+    },
+    {
+      "word": "point.",
+      "start": 55.710001999999996,
+      "end": 56.010000999999995,
+      "source_start": 175.710002,
+      "source_end": 176.010001
+    },
+    {
+      "word": "If",
+      "start": 56.04,
+      "end": 56.210001999999996,
+      "source_start": 176.04,
+      "source_end": 176.210002
+    },
+    {
+      "word": "you",
+      "start": 56.210001999999996,
+      "end": 56.280001,
+      "source_start": 176.210002,
+      "source_end": 176.280001
+    },
+    {
+      "word": "mess",
+      "start": 56.280001,
+      "end": 56.569998,
+      "source_start": 176.280001,
+      "source_end": 176.569998
+    },
+    {
+      "word": "up,",
+      "start": 56.569998,
+      "end": 56.839999,
+      "source_start": 176.569998,
+      "source_end": 176.839999
+    },
+    {
+      "word": "just",
+      "start": 56.839999,
+      "end": 57.109999,
+      "source_start": 176.839999,
+      "source_end": 177.10999900000002
+    },
+    {
+      "word": "Okay.",
+      "start": 57.729998,
+      "end": 58.65,
+      "source_start": 177.729998,
+      "source_end": 178.65
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "LC4931",
+    "start_seconds": 120.0,
+    "end_seconds": 180.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

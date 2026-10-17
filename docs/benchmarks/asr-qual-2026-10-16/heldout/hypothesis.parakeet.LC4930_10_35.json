@@ -1,0 +1,431 @@
+{
+  "words": [
+    {
+      "text": "Cool.",
+      "start": 4.24,
+      "end": 4.88,
+      "source_start": 14.24,
+      "source_end": 14.879999999999999
+    },
+    {
+      "text": "Well",
+      "start": 8.0,
+      "end": 8.32,
+      "source_start": 18.0,
+      "source_end": 18.32
+    },
+    {
+      "text": "this",
+      "start": 8.4,
+      "end": 8.56,
+      "source_start": 18.4,
+      "source_end": 18.560000000000002
+    },
+    {
+      "text": "is",
+      "start": 8.56,
+      "end": 8.72,
+      "source_start": 18.560000000000002,
+      "source_end": 18.72
+    },
+    {
+      "text": "redundant.",
+      "start": 8.72,
+      "end": 9.200000000000001,
+      "source_start": 18.72,
+      "source_end": 19.200000000000003
+    },
+    {
+      "text": "It",
+      "start": 9.28,
+      "end": 9.44,
+      "source_start": 19.28,
+      "source_end": 19.439999999999998
+    },
+    {
+      "text": "actually",
+      "start": 9.44,
+      "end": 9.68,
+      "source_start": 19.439999999999998,
+      "source_end": 19.68
+    },
+    {
+      "text": "says",
+      "start": 9.68,
+      "end": 9.92,
+      "source_start": 19.68,
+      "source_end": 19.92
+    },
+    {
+      "text": "if",
+      "start": 10.0,
+      "end": 10.08,
+      "source_start": 20.0,
+      "source_end": 20.08
+    },
+    {
+      "text": "you're",
+      "start": 10.08,
+      "end": 10.32,
+      "source_start": 20.08,
+      "source_end": 20.32
+    },
+    {
+      "text": "the",
+      "start": 10.32,
+      "end": 10.4,
+      "source_start": 20.32,
+      "source_end": 20.4
+    },
+    {
+      "text": "head",
+      "start": 10.4,
+      "end": 10.64,
+      "source_start": 20.4,
+      "source_end": 20.64
+    },
+    {
+      "text": "of",
+      "start": 10.64,
+      "end": 10.88,
+      "source_start": 20.64,
+      "source_end": 20.880000000000003
+    },
+    {
+      "text": "marketing",
+      "start": 10.88,
+      "end": 11.28,
+      "source_start": 20.880000000000003,
+      "source_end": 21.28
+    },
+    {
+      "text": "at",
+      "start": 11.28,
+      "end": 11.52,
+      "source_start": 21.28,
+      "source_end": 21.52
+    },
+    {
+      "text": "a",
+      "start": 11.52,
+      "end": 11.68,
+      "source_start": 21.52,
+      "source_end": 21.68
+    },
+    {
+      "text": "mid-sized",
+      "start": 11.68,
+      "end": 12.24,
+      "source_start": 21.68,
+      "source_end": 22.240000000000002
+    },
+    {
+      "text": "company",
+      "start": 12.24,
+      "end": 12.64,
+      "source_start": 22.240000000000002,
+      "source_end": 22.64
+    },
+    {
+      "text": "and",
+      "start": 12.64,
+      "end": 12.8,
+      "source_start": 22.64,
+      "source_end": 22.8
+    },
+    {
+      "text": "you've",
+      "start": 12.8,
+      "end": 13.040000000000001,
+      "source_start": 22.8,
+      "source_end": 23.04
+    },
+    {
+      "text": "got",
+      "start": 13.040000000000001,
+      "end": 13.200000000000001,
+      "source_start": 23.04,
+      "source_end": 23.200000000000003
+    },
+    {
+      "text": "your",
+      "start": 13.200000000000001,
+      "end": 13.36,
+      "source_start": 23.200000000000003,
+      "source_end": 23.36
+    },
+    {
+      "text": "CMO",
+      "start": 13.36,
+      "end": 13.92,
+      "source_start": 23.36,
+      "source_end": 23.92
+    },
+    {
+      "text": "asking",
+      "start": 13.92,
+      "end": 14.32,
+      "source_start": 23.92,
+      "source_end": 24.32
+    },
+    {
+      "text": "you",
+      "start": 14.32,
+      "end": 14.56,
+      "source_start": 24.32,
+      "source_end": 24.560000000000002
+    },
+    {
+      "text": "about",
+      "start": 14.56,
+      "end": 14.8,
+      "source_start": 24.560000000000002,
+      "source_end": 24.8
+    },
+    {
+      "text": "G",
+      "start": 14.8,
+      "end": 14.96,
+      "source_start": 24.8,
+      "source_end": 24.96
+    },
+    {
+      "text": "GEO,",
+      "start": 15.280000000000001,
+      "end": 15.76,
+      "source_start": 25.28,
+      "source_end": 25.759999999999998
+    },
+    {
+      "text": "the",
+      "start": 16.080000000000002,
+      "end": 16.240000000000002,
+      "source_start": 26.080000000000002,
+      "source_end": 26.240000000000002
+    },
+    {
+      "text": "CMO",
+      "start": 16.240000000000002,
+      "end": 16.72,
+      "source_start": 26.240000000000002,
+      "source_end": 26.72
+    },
+    {
+      "text": "is",
+      "start": 16.72,
+      "end": 16.88,
+      "source_start": 26.72,
+      "source_end": 26.88
+    },
+    {
+      "text": "a",
+      "start": 16.88,
+      "end": 17.04,
+      "source_start": 26.88,
+      "source_end": 27.04
+    },
+    {
+      "text": "chief",
+      "start": 17.04,
+      "end": 17.36,
+      "source_start": 27.04,
+      "source_end": 27.36
+    },
+    {
+      "text": "marketing",
+      "start": 17.36,
+      "end": 17.76,
+      "source_start": 27.36,
+      "source_end": 27.76
+    },
+    {
+      "text": "officer,",
+      "start": 17.76,
+      "end": 18.080000000000002,
+      "source_start": 27.76,
+      "source_end": 28.080000000000002
+    },
+    {
+      "text": "so",
+      "start": 18.240000000000002,
+      "end": 18.400000000000002,
+      "source_start": 28.240000000000002,
+      "source_end": 28.400000000000002
+    },
+    {
+      "text": "they're",
+      "start": 18.400000000000002,
+      "end": 18.64,
+      "source_start": 28.400000000000002,
+      "source_end": 28.64
+    },
+    {
+      "text": "already",
+      "start": 18.64,
+      "end": 18.88,
+      "source_start": 28.64,
+      "source_end": 28.88
+    },
+    {
+      "text": "the",
+      "start": 18.88,
+      "end": 19.04,
+      "source_start": 28.88,
+      "source_end": 29.04
+    },
+    {
+      "text": "head",
+      "start": 19.04,
+      "end": 19.2,
+      "source_start": 29.04,
+      "source_end": 29.2
+    },
+    {
+      "text": "of",
+      "start": 19.2,
+      "end": 19.36,
+      "source_start": 29.2,
+      "source_end": 29.36
+    },
+    {
+      "text": "marketing.",
+      "start": 19.36,
+      "end": 19.76,
+      "source_start": 29.36,
+      "source_end": 29.76
+    },
+    {
+      "text": "Oh",
+      "start": 20.080000000000002,
+      "end": 20.240000000000002,
+      "source_start": 30.080000000000002,
+      "source_end": 30.240000000000002
+    },
+    {
+      "text": "you",
+      "start": 20.32,
+      "end": 20.48,
+      "source_start": 30.32,
+      "source_end": 30.48
+    },
+    {
+      "text": "could",
+      "start": 20.48,
+      "end": 20.56,
+      "source_start": 30.48,
+      "source_end": 30.56
+    },
+    {
+      "text": "use",
+      "start": 20.56,
+      "end": 20.72,
+      "source_start": 30.56,
+      "source_end": 30.72
+    },
+    {
+      "text": "or",
+      "start": 20.88,
+      "end": 21.04,
+      "source_start": 30.88,
+      "source_end": 31.04
+    },
+    {
+      "text": "instead",
+      "start": 21.28,
+      "end": 21.52,
+      "source_start": 31.28,
+      "source_end": 31.52
+    },
+    {
+      "text": "of",
+      "start": 21.52,
+      "end": 21.6,
+      "source_start": 31.52,
+      "source_end": 31.6
+    },
+    {
+      "text": "M.",
+      "start": 21.6,
+      "end": 21.68,
+      "source_start": 31.6,
+      "source_end": 31.68
+    },
+    {
+      "text": "Yeah.",
+      "start": 22.0,
+      "end": 22.080000000000002,
+      "source_start": 32.0,
+      "source_end": 32.08
+    },
+    {
+      "text": "So",
+      "start": 22.16,
+      "end": 22.240000000000002,
+      "source_start": 32.16,
+      "source_end": 32.24
+    },
+    {
+      "text": "You",
+      "start": 22.48,
+      "end": 22.56,
+      "source_start": 32.480000000000004,
+      "source_end": 32.56
+    },
+    {
+      "text": "can",
+      "start": 22.56,
+      "end": 22.64,
+      "source_start": 32.56,
+      "source_end": 32.64
+    },
+    {
+      "text": "yeah,",
+      "start": 22.72,
+      "end": 22.96,
+      "source_start": 32.72,
+      "source_end": 32.96
+    },
+    {
+      "text": "you",
+      "start": 23.04,
+      "end": 23.12,
+      "source_start": 33.04,
+      "source_end": 33.120000000000005
+    },
+    {
+      "text": "can",
+      "start": 23.12,
+      "end": 23.2,
+      "source_start": 33.120000000000005,
+      "source_end": 33.2
+    },
+    {
+      "text": "just",
+      "start": 23.2,
+      "end": 23.36,
+      "source_start": 33.2,
+      "source_end": 33.36
+    },
+    {
+      "text": "no.",
+      "start": 23.52,
+      "end": 23.68,
+      "source_start": 33.519999999999996,
+      "source_end": 33.68
+    },
+    {
+      "text": "Um",
+      "start": 24.240000000000002,
+      "end": 24.560000000000002,
+      "source_start": 34.24,
+      "source_end": 34.56
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "LC4930",
+    "start_seconds": 10.0,
+    "end_seconds": 35.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

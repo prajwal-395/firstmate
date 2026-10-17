@@ -1,0 +1,431 @@
+{
+  "words": [
+    {
+      "word": "Cool.",
+      "start": 4.43,
+      "end": 4.7,
+      "source_start": 14.43,
+      "source_end": 14.7
+    },
+    {
+      "word": "Well,",
+      "start": 8.4,
+      "end": 8.5,
+      "source_start": 18.4,
+      "source_end": 18.5
+    },
+    {
+      "word": "this",
+      "start": 8.5,
+      "end": 8.67,
+      "source_start": 18.5,
+      "source_end": 18.67
+    },
+    {
+      "word": "is",
+      "start": 8.67,
+      "end": 8.84,
+      "source_start": 18.67,
+      "source_end": 18.84
+    },
+    {
+      "word": "redundant.",
+      "start": 8.84,
+      "end": 9.29,
+      "source_start": 18.84,
+      "source_end": 19.29
+    },
+    {
+      "word": "Actually,",
+      "start": 9.29,
+      "end": 9.82,
+      "source_start": 19.29,
+      "source_end": 19.82
+    },
+    {
+      "word": "it",
+      "start": 9.82,
+      "end": 9.86,
+      "source_start": 19.82,
+      "source_end": 19.86
+    },
+    {
+      "word": "says",
+      "start": 9.86,
+      "end": 9.96,
+      "source_start": 19.86,
+      "source_end": 19.96
+    },
+    {
+      "word": "if",
+      "start": 9.96,
+      "end": 10.02,
+      "source_start": 19.96,
+      "source_end": 20.02
+    },
+    {
+      "word": "you're",
+      "start": 10.02,
+      "end": 10.18,
+      "source_start": 20.02,
+      "source_end": 20.18
+    },
+    {
+      "word": "the",
+      "start": 10.18,
+      "end": 10.280000000000001,
+      "source_start": 20.18,
+      "source_end": 20.28
+    },
+    {
+      "word": "head",
+      "start": 10.280000000000001,
+      "end": 10.56,
+      "source_start": 20.28,
+      "source_end": 20.560000000000002
+    },
+    {
+      "word": "of",
+      "start": 10.56,
+      "end": 10.75,
+      "source_start": 20.560000000000002,
+      "source_end": 20.75
+    },
+    {
+      "word": "marketing",
+      "start": 10.75,
+      "end": 11.39,
+      "source_start": 20.75,
+      "source_end": 21.39
+    },
+    {
+      "word": "at",
+      "start": 11.39,
+      "end": 11.54,
+      "source_start": 21.39,
+      "source_end": 21.54
+    },
+    {
+      "word": "a",
+      "start": 11.54,
+      "end": 11.61,
+      "source_start": 21.54,
+      "source_end": 21.61
+    },
+    {
+      "word": "mid-sized",
+      "start": 11.61,
+      "end": 12.219999999999999,
+      "source_start": 21.61,
+      "source_end": 22.22
+    },
+    {
+      "word": "company",
+      "start": 12.219999999999999,
+      "end": 12.65,
+      "source_start": 22.22,
+      "source_end": 22.65
+    },
+    {
+      "word": "and",
+      "start": 12.65,
+      "end": 12.8,
+      "source_start": 22.65,
+      "source_end": 22.8
+    },
+    {
+      "word": "you've",
+      "start": 12.8,
+      "end": 12.94,
+      "source_start": 22.8,
+      "source_end": 22.939999999999998
+    },
+    {
+      "word": "got",
+      "start": 12.94,
+      "end": 13.18,
+      "source_start": 22.939999999999998,
+      "source_end": 23.18
+    },
+    {
+      "word": "your",
+      "start": 13.18,
+      "end": 13.28,
+      "source_start": 23.18,
+      "source_end": 23.28
+    },
+    {
+      "word": "CMO",
+      "start": 13.28,
+      "end": 13.83,
+      "source_start": 23.28,
+      "source_end": 23.83
+    },
+    {
+      "word": "asking",
+      "start": 13.83,
+      "end": 14.31,
+      "source_start": 23.83,
+      "source_end": 24.310000000000002
+    },
+    {
+      "word": "you",
+      "start": 14.31,
+      "end": 14.44,
+      "source_start": 24.310000000000002,
+      "source_end": 24.439999999999998
+    },
+    {
+      "word": "about",
+      "start": 14.44,
+      "end": 14.8,
+      "source_start": 24.439999999999998,
+      "source_end": 24.8
+    },
+    {
+      "word": "G",
+      "start": 14.8,
+      "end": 15.17,
+      "source_start": 24.8,
+      "source_end": 25.17
+    },
+    {
+      "word": "GEO.",
+      "start": 15.34,
+      "end": 15.98,
+      "source_start": 25.34,
+      "source_end": 25.98
+    },
+    {
+      "word": "The",
+      "start": 16.009999999999998,
+      "end": 16.1,
+      "source_start": 26.009999999999998,
+      "source_end": 26.1
+    },
+    {
+      "word": "CMO",
+      "start": 16.1,
+      "end": 16.810000000000002,
+      "source_start": 26.1,
+      "source_end": 26.810000000000002
+    },
+    {
+      "word": "is",
+      "start": 16.810000000000002,
+      "end": 16.990000000000002,
+      "source_start": 26.810000000000002,
+      "source_end": 26.990000000000002
+    },
+    {
+      "word": "a",
+      "start": 16.990000000000002,
+      "end": 17.03,
+      "source_start": 26.990000000000002,
+      "source_end": 27.03
+    },
+    {
+      "word": "chief",
+      "start": 17.03,
+      "end": 17.36,
+      "source_start": 27.03,
+      "source_end": 27.36
+    },
+    {
+      "word": "marketing",
+      "start": 17.36,
+      "end": 17.77,
+      "source_start": 27.36,
+      "source_end": 27.77
+    },
+    {
+      "word": "officer,",
+      "start": 17.77,
+      "end": 18.16,
+      "source_start": 27.77,
+      "source_end": 28.16
+    },
+    {
+      "word": "so",
+      "start": 18.16,
+      "end": 18.310000000000002,
+      "source_start": 28.16,
+      "source_end": 28.310000000000002
+    },
+    {
+      "word": "they're",
+      "start": 18.310000000000002,
+      "end": 18.560000000000002,
+      "source_start": 28.310000000000002,
+      "source_end": 28.560000000000002
+    },
+    {
+      "word": "already",
+      "start": 18.560000000000002,
+      "end": 18.84,
+      "source_start": 28.560000000000002,
+      "source_end": 28.84
+    },
+    {
+      "word": "the",
+      "start": 18.84,
+      "end": 18.95,
+      "source_start": 28.84,
+      "source_end": 28.95
+    },
+    {
+      "word": "head",
+      "start": 18.95,
+      "end": 19.14,
+      "source_start": 28.95,
+      "source_end": 29.14
+    },
+    {
+      "word": "of",
+      "start": 19.14,
+      "end": 19.27,
+      "source_start": 29.14,
+      "source_end": 29.27
+    },
+    {
+      "word": "marketing.",
+      "start": 19.27,
+      "end": 19.65,
+      "source_start": 29.27,
+      "source_end": 29.65
+    },
+    {
+      "word": "Oh,",
+      "start": 20.28,
+      "end": 20.389999000000003,
+      "source_start": 30.28,
+      "source_end": 30.389999000000003
+    },
+    {
+      "word": "you",
+      "start": 20.389999000000003,
+      "end": 20.490000000000002,
+      "source_start": 30.389999000000003,
+      "source_end": 30.490000000000002
+    },
+    {
+      "word": "could",
+      "start": 20.490000000000002,
+      "end": 20.6,
+      "source_start": 30.490000000000002,
+      "source_end": 30.6
+    },
+    {
+      "word": "use",
+      "start": 20.6,
+      "end": 20.85,
+      "source_start": 30.6,
+      "source_end": 30.85
+    },
+    {
+      "word": "OR",
+      "start": 20.85,
+      "end": 21.259999999999998,
+      "source_start": 30.85,
+      "source_end": 31.259999999999998
+    },
+    {
+      "word": "instead",
+      "start": 21.43,
+      "end": 21.639999000000003,
+      "source_start": 31.43,
+      "source_end": 31.639999000000003
+    },
+    {
+      "word": "of",
+      "start": 21.639999000000003,
+      "end": 21.700001,
+      "source_start": 31.639999000000003,
+      "source_end": 31.700001
+    },
+    {
+      "word": "N.",
+      "start": 21.700001,
+      "end": 21.860000999999997,
+      "source_start": 31.700001,
+      "source_end": 31.860000999999997
+    },
+    {
+      "word": "Yeah.",
+      "start": 21.860000999999997,
+      "end": 22.08,
+      "source_start": 31.860000999999997,
+      "source_end": 32.08
+    },
+    {
+      "word": "So",
+      "start": 22.15,
+      "end": 22.43,
+      "source_start": 32.15,
+      "source_end": 32.43
+    },
+    {
+      "word": "you",
+      "start": 22.43,
+      "end": 22.520001,
+      "source_start": 32.43,
+      "source_end": 32.520001
+    },
+    {
+      "word": "can,",
+      "start": 22.520001,
+      "end": 22.709999000000003,
+      "source_start": 32.520001,
+      "source_end": 32.709999
+    },
+    {
+      "word": "yeah,",
+      "start": 22.709999000000003,
+      "end": 22.879998999999998,
+      "source_start": 32.709999,
+      "source_end": 32.879999
+    },
+    {
+      "word": "you",
+      "start": 22.879998999999998,
+      "end": 22.990000000000002,
+      "source_start": 32.879999,
+      "source_end": 32.99
+    },
+    {
+      "word": "can",
+      "start": 22.990000000000002,
+      "end": 23.190001000000002,
+      "source_start": 32.99,
+      "source_end": 33.190001
+    },
+    {
+      "word": "just",
+      "start": 23.190001000000002,
+      "end": 23.33,
+      "source_start": 33.190001,
+      "source_end": 33.33
+    },
+    {
+      "word": "no.",
+      "start": 23.450001,
+      "end": 23.629998999999998,
+      "source_start": 33.450001,
+      "source_end": 33.629999
+    },
+    {
+      "word": "Um",
+      "start": 24.200001,
+      "end": 24.58,
+      "source_start": 34.200001,
+      "source_end": 34.58
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "LC4930",
+    "start_seconds": 10.0,
+    "end_seconds": 35.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

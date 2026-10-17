@@ -1,0 +1,235 @@
+{
+  "words": [
+    {
+      "text": "Okay.",
+      "start": 30.400000000000002,
+      "end": 30.72,
+      "source_start": 30.400000000000002,
+      "source_end": 30.72
+    },
+    {
+      "text": "I",
+      "start": 32.56,
+      "end": 32.8,
+      "source_start": 32.56,
+      "source_end": 32.8
+    },
+    {
+      "text": "might",
+      "start": 32.8,
+      "end": 33.12,
+      "source_start": 32.8,
+      "source_end": 33.12
+    },
+    {
+      "text": "have",
+      "start": 33.12,
+      "end": 33.2,
+      "source_start": 33.12,
+      "source_end": 33.2
+    },
+    {
+      "text": "to",
+      "start": 33.2,
+      "end": 33.36,
+      "source_start": 33.2,
+      "source_end": 33.36
+    },
+    {
+      "text": "just",
+      "start": 33.36,
+      "end": 33.6,
+      "source_start": 33.36,
+      "source_end": 33.6
+    },
+    {
+      "text": "voice",
+      "start": 33.6,
+      "end": 34.0,
+      "source_start": 33.6,
+      "source_end": 34.0
+    },
+    {
+      "text": "over",
+      "start": 34.0,
+      "end": 34.160000000000004,
+      "source_start": 34.0,
+      "source_end": 34.160000000000004
+    },
+    {
+      "text": "this",
+      "start": 34.160000000000004,
+      "end": 34.32,
+      "source_start": 34.160000000000004,
+      "source_end": 34.32
+    },
+    {
+      "text": "entire",
+      "start": 34.32,
+      "end": 34.88,
+      "source_start": 34.32,
+      "source_end": 34.88
+    },
+    {
+      "text": "part,",
+      "start": 34.88,
+      "end": 35.12,
+      "source_start": 34.88,
+      "source_end": 35.12
+    },
+    {
+      "text": "but",
+      "start": 35.44,
+      "end": 35.76,
+      "source_start": 35.44,
+      "source_end": 35.76
+    },
+    {
+      "text": "um",
+      "start": 36.4,
+      "end": 36.72,
+      "source_start": 36.4,
+      "source_end": 36.72
+    },
+    {
+      "text": "today",
+      "start": 38.24,
+      "end": 38.88,
+      "source_start": 38.24,
+      "source_end": 38.88
+    },
+    {
+      "text": "is",
+      "start": 39.2,
+      "end": 39.52,
+      "source_start": 39.2,
+      "source_end": 39.52
+    },
+    {
+      "text": "what",
+      "start": 41.52,
+      "end": 41.76,
+      "source_start": 41.52,
+      "source_end": 41.76
+    },
+    {
+      "text": "even",
+      "start": 41.92,
+      "end": 42.0,
+      "source_start": 41.92,
+      "source_end": 42.0
+    },
+    {
+      "text": "is",
+      "start": 42.24,
+      "end": 42.32,
+      "source_start": 42.24,
+      "source_end": 42.32
+    },
+    {
+      "text": "today.",
+      "start": 42.480000000000004,
+      "end": 42.64,
+      "source_start": 42.480000000000004,
+      "source_end": 42.64
+    },
+    {
+      "text": "Hold",
+      "start": 42.72,
+      "end": 42.800000000000004,
+      "source_start": 42.72,
+      "source_end": 42.800000000000004
+    },
+    {
+      "text": "on,",
+      "start": 42.88,
+      "end": 43.04,
+      "source_start": 42.88,
+      "source_end": 43.04
+    },
+    {
+      "text": "I'm",
+      "start": 43.12,
+      "end": 43.28,
+      "source_start": 43.12,
+      "source_end": 43.28
+    },
+    {
+      "text": "just",
+      "start": 43.28,
+      "end": 43.44,
+      "source_start": 43.28,
+      "source_end": 43.44
+    },
+    {
+      "text": "gonna",
+      "start": 43.44,
+      "end": 43.6,
+      "source_start": 43.44,
+      "source_end": 43.6
+    },
+    {
+      "text": "stop",
+      "start": 43.6,
+      "end": 43.84,
+      "source_start": 43.6,
+      "source_end": 43.84
+    },
+    {
+      "text": "right",
+      "start": 43.84,
+      "end": 44.08,
+      "source_start": 43.84,
+      "source_end": 44.08
+    },
+    {
+      "text": "there.",
+      "start": 44.08,
+      "end": 44.4,
+      "source_start": 44.08,
+      "source_end": 44.4
+    },
+    {
+      "text": "I'm",
+      "start": 44.64,
+      "end": 44.88,
+      "source_start": 44.64,
+      "source_end": 44.88
+    },
+    {
+      "text": "gonna",
+      "start": 44.88,
+      "end": 45.12,
+      "source_start": 44.88,
+      "source_end": 45.12
+    },
+    {
+      "text": "stop",
+      "start": 45.12,
+      "end": 45.36,
+      "source_start": 45.12,
+      "source_end": 45.36
+    },
+    {
+      "text": "right",
+      "start": 45.36,
+      "end": 45.52,
+      "source_start": 45.36,
+      "source_end": 45.52
+    },
+    {
+      "text": "there.",
+      "start": 45.52,
+      "end": 45.76,
+      "source_start": 45.52,
+      "source_end": 45.76
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1814",
+    "start_seconds": 0.0,
+    "end_seconds": 45.943333,
+    "timebase": "original_source_audio_seconds"
+  }
+}

@@ -1,0 +1,52 @@
+[
+  {
+    "window_id": "IMG_1811_0_22",
+    "source_id": "IMG_1811",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "source_sha256": "ba6ae9fea8ed3ae09424239937046cb0b7a08013c2d4b82eaa3ff9005789d86b",
+    "start_seconds": 0.0,
+    "end_seconds": 22.87,
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1814_0_45",
+    "source_id": "IMG_1814",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+    "source_sha256": "2421eaa7470d2f84c119108cf06a49d9b6069c8331b75bc890e67003aecdb377",
+    "start_seconds": 0.0,
+    "end_seconds": 45.943333,
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1816_0_60",
+    "source_id": "IMG_1816",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+    "source_sha256": "4ec8fdef4e8bcc4d2d62b8f0b1319107302d26cfb974c3537254470afd344646",
+    "start_seconds": 0.0,
+    "end_seconds": 60.0,
+    "detected_language": "en"
+  },
+  {
+    "window_id": "LC4931_120_180",
+    "source_id": "LC4931",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "source_sha256": "b18ab61af2b9c462a1494f23d8b8bd7800e02af1b54475a911fb719f7fd9998e",
+    "start_seconds": 120.0,
+    "end_seconds": 180.0,
+    "detected_language": "en"
+  },
+  {
+    "window_id": "LCATL0012_60_120",
+    "source_id": "LCATL0012",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "source_sha256": "bd5da72f95f6b61fdab451b8fea84a928ad3517290048b0f8a5e494cfa597dff",
+    "start_seconds": 60.0,
+    "end_seconds": 120.0,
+    "detected_language": "en"
+  }
+]

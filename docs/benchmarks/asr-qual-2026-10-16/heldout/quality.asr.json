@@ -1,0 +1,425 @@
+{
+  "schema": "vep_mu_asr_heldout_text_scores_v1",
+  "split": "held_out",
+  "scoring": "case-insensitive lexical-word Levenshtein; filler category per frozen calibration set; no timestamps read",
+  "labels": "provisional Gemini agent word sequence with transcript-assisted Anthropic timing check; not independent gold",
+  "results": {
+    "voz": {
+      "aggregate": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation"
+      },
+      "per_sample": {
+        "LCATL0011": {
+          "reference_words": 91,
+          "hypothesis_words": 90,
+          "substitutions": 7,
+          "deletions": 1,
+          "insertions": 0,
+          "wer": 0.08791208791208792,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 0,
+          "matched_fillers": 0,
+          "filler_precision": null,
+          "filler_recall": 0.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "LC4930": {
+          "reference_words": 72,
+          "hypothesis_words": 60,
+          "substitutions": 5,
+          "deletions": 12,
+          "insertions": 0,
+          "wer": 0.2361111111111111,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 1,
+          "matched_fillers": 1,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1818": {
+          "reference_words": 100,
+          "hypothesis_words": 102,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.03,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1820": {
+          "reference_words": 61,
+          "hypothesis_words": 63,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.04918032786885246,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        }
+      }
+    },
+    "parakeet": {
+      "aggregate": {
+        "reference_words": 324,
+        "substitutions": 10,
+        "deletions": 61,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.23148148148148148,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation"
+      },
+      "per_sample": {
+        "LCATL0011": {
+          "reference_words": 91,
+          "hypothesis_words": 44,
+          "substitutions": 5,
+          "deletions": 48,
+          "insertions": 1,
+          "wer": 0.5934065934065934,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 0,
+          "matched_fillers": 0,
+          "filler_precision": null,
+          "filler_recall": 0.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "LC4930": {
+          "reference_words": 72,
+          "hypothesis_words": 60,
+          "substitutions": 3,
+          "deletions": 12,
+          "insertions": 0,
+          "wer": 0.20833333333333334,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 1,
+          "matched_fillers": 1,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1818": {
+          "reference_words": 100,
+          "hypothesis_words": 101,
+          "substitutions": 1,
+          "deletions": 1,
+          "insertions": 2,
+          "wer": 0.04,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1820": {
+          "reference_words": 61,
+          "hypothesis_words": 62,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 1,
+          "wer": 0.03278688524590164,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        }
+      }
+    },
+    "mfa": {
+      "aggregate": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation"
+      },
+      "per_sample": {
+        "LCATL0011": {
+          "reference_words": 91,
+          "hypothesis_words": 90,
+          "substitutions": 7,
+          "deletions": 1,
+          "insertions": 0,
+          "wer": 0.08791208791208792,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 0,
+          "matched_fillers": 0,
+          "filler_precision": null,
+          "filler_recall": 0.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "LC4930": {
+          "reference_words": 72,
+          "hypothesis_words": 60,
+          "substitutions": 5,
+          "deletions": 12,
+          "insertions": 0,
+          "wer": 0.2361111111111111,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 1,
+          "matched_fillers": 1,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1818": {
+          "reference_words": 100,
+          "hypothesis_words": 102,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.03,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1820": {
+          "reference_words": 61,
+          "hypothesis_words": 63,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.04918032786885246,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        }
+      }
+    },
+    "align": {
+      "aggregate": {
+        "reference_words": 324,
+        "substitutions": 14,
+        "deletions": 13,
+        "insertions": 4,
+        "reference_fillers": 6,
+        "hypothesis_fillers": 5,
+        "matched_fillers": 5,
+        "reference_punctuation_tokens": 0,
+        "punctuation_scored_matches": 0,
+        "punctuation_exact": 0,
+        "wer": 0.09567901234567901,
+        "filler_precision": 1.0,
+        "filler_recall": 0.8333333333333334,
+        "punctuation": "not_scored_reference_contains_no_punctuation"
+      },
+      "per_sample": {
+        "LCATL0011": {
+          "reference_words": 91,
+          "hypothesis_words": 90,
+          "substitutions": 7,
+          "deletions": 1,
+          "insertions": 0,
+          "wer": 0.08791208791208792,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 0,
+          "matched_fillers": 0,
+          "filler_precision": null,
+          "filler_recall": 0.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "LC4930": {
+          "reference_words": 72,
+          "hypothesis_words": 60,
+          "substitutions": 5,
+          "deletions": 12,
+          "insertions": 0,
+          "wer": 0.2361111111111111,
+          "reference_fillers": 1,
+          "hypothesis_fillers": 1,
+          "matched_fillers": 1,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1818": {
+          "reference_words": 100,
+          "hypothesis_words": 102,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.03,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        },
+        "IMG_1820": {
+          "reference_words": 61,
+          "hypothesis_words": 63,
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 2,
+          "wer": 0.04918032786885246,
+          "reference_fillers": 2,
+          "hypothesis_fillers": 2,
+          "matched_fillers": 2,
+          "filler_precision": 1.0,
+          "filler_recall": 1.0,
+          "reference_punctuation_tokens": 0,
+          "punctuation_scored_matches": 0,
+          "punctuation_exact": null
+        }
+      }
+    }
+  },
+  "report_revision": "asr-qual-2026-10-17-heldout-r1",
+  "reported_once": true,
+  "reported_at": "2026-10-17",
+  "scoring_method": {
+    "word_sequence": "NFKC, lowercase, punctuation stripped, then Levenshtein substitutions/deletions/insertions divided by reference word count; no hypothesis or reference timing fields read.",
+    "fillers": "frozen calibration vocabulary {uh, um, erm, er, mm, mhm, hmm}; matched filler-class tokens from the word-sequence alignment; Uhm event timing not used.",
+    "punctuation": "not scored because all four held-out references contain zero punctuation-bearing word tokens.",
+    "source_timing": "not scored because reference timings are unreliable in 7/8 label samples; this includes word boundaries, phrase boundaries, and event boundaries.",
+    "label_independence": "agent label words from one audio-capable Gemini family plus a transcript-assisted Anthropic timing check; no independent text transcript or text inter-labeler agreement is available."
+  },
+  "scheduler": {
+    "command": "bin/vep -m library.tools.heavy_work_lock run --owner vep-mu-asr --ram-gb 6.25 -- zsh /tmp/vep-mu-asr/heldout.sh",
+    "ram_reservation_gb": 6.25,
+    "result": "completed; no scheduler over-reservation refusal",
+    "execution_seconds": 679.371,
+    "checkpoint_precision": "float32"
+  },
+  "sample_provenance": [
+    {
+      "sample_id": "heldout-lcatl0011-10-35",
+      "source_id": "LCATL0011",
+      "source_sha256": "9b5ec750c8dbddfd5a74c4e24d5d374f5f9880c1d3c787c6cf306770a01c30bc",
+      "split": "held_out",
+      "condition": "clean",
+      "start_seconds": 10.0,
+      "end_seconds": 35.0,
+      "duration_seconds": 25.0
+    },
+    {
+      "sample_id": "heldout-lc4930-10-35",
+      "source_id": "LC4930",
+      "source_sha256": "4c31055535f0a3bcfd115813b4add0e48012ec1593f8409da48266aed050b72b",
+      "split": "held_out",
+      "condition": "clean",
+      "start_seconds": 10.0,
+      "end_seconds": 35.0,
+      "duration_seconds": 25.0
+    },
+    {
+      "sample_id": "heldout-apple-1818-00-30",
+      "source_id": "IMG_1818",
+      "source_sha256": "848f587ca79321d348279912ae462624170eba221284b438c707fe51b98d5cf2",
+      "split": "held_out",
+      "condition": "naturally_noisy",
+      "start_seconds": 0.0,
+      "end_seconds": 30.0,
+      "duration_seconds": 30.0
+    },
+    {
+      "sample_id": "heldout-apple-1820-00-30",
+      "source_id": "IMG_1820",
+      "source_sha256": "84a38f61d47cd1f80e5cfd30d4896775fabcf93ff443adde11ed978b412997be",
+      "split": "held_out",
+      "condition": "naturally_noisy",
+      "start_seconds": 0.0,
+      "end_seconds": 30.0,
+      "duration_seconds": 30.0
+    }
+  ],
+  "held_out_audio_seconds": 110.0,
+  "language_id_observations": {
+    "LCATL0011": {
+      "language": "en",
+      "confidence": 0.9951151632332568
+    },
+    "LC4930": {
+      "language": "en",
+      "confidence": 0.9860241113593317
+    },
+    "IMG_1818": {
+      "language": "en",
+      "confidence": 0.992704509946936
+    },
+    "IMG_1820": {
+      "language": "en",
+      "confidence": 0.9903809804699117
+    }
+  },
+  "timing_metrics": "not_scored_unreliable_reference_timing",
+  "punctuation_metrics": "not_scored_reference_contains_no_punctuation",
+  "memory_metrics": "not_scored_per_candidate: subprocess ru_maxrss is a cumulative process-lifetime high-water mark across sequential candidate runs; held-out memory values in execution reports cannot be attributed to individual candidates. Parakeet scheduler reservation/footprint remains recorded in the download and scheduler evidence."
+}

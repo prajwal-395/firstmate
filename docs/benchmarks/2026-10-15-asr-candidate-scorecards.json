@@ -1,0 +1,108 @@
+{
+  "schema_version": "asr_candidate_scorecards/1",
+  "as_of": "2026-10-15",
+  "hardware_target": "Apple Silicon, 24 GB unified memory",
+  "evaluation_corpus": "GEO podcast and Apple 001 originals only; blind agent labels pending",
+  "selection_basis": "No candidate adoption or default change. Published vendor claims are recorded separately from Ren measurements.",
+  "candidates": [
+    {
+      "id": "voz-mfa-baseline",
+      "role": "baseline",
+      "implementation": "Voz transcription + Montreal Forced Aligner",
+      "checkpoint": {
+        "voz_revision": "desert-ant-labs/voz v0.1.0; publisher tag commit 8e7ab8ca342c6bb00f9347a25e53fe44543b2a40",
+        "mfa_acoustic_dictionary": "english_us_arpa v3.0.0",
+        "mfa_g2p": "english_us_arpa v2.0.0a"
+      },
+      "runtime": "da 0.1.1 / Desert Ant Core 3.1.0 / Core ML; MFA 3.4.2 in isolated micromamba environment",
+      "precision": "Voz compiled Core ML; cached metadata reports float16 model and IO precision",
+      "quality_metrics": {
+        "wer": {"value": null, "status": "unmeasured on new blind labels"},
+        "cer": {"value": null, "status": "unmeasured on new blind labels"},
+        "punctuation_f1": {"value": null, "status": "scorer added; labels pending"},
+        "word_start_mae_ms": {"value": null, "status": "unmeasured on agent reference boundaries"},
+        "word_end_mae_ms": {"value": null, "status": "unmeasured on agent reference boundaries"}
+      },
+      "latency_seconds": {"cold": null, "warm": null, "status": "no paired lane run"},
+      "peak_memory_bytes": {"value": null, "status": "not measured"},
+      "runtime_split_seconds": {"decode": null, "infer": null, "serialize": null, "status": "not measured as an ASR lane run"},
+      "license_class": "Voz: Desert Ant Labs Source-Available License, commercial license required at scale; MFA software MIT and acoustic/dictionary/G2P model artifacts CC BY 4.0",
+      "license_evidence": ["https://huggingface.co/desert-ant-labs/voz", "https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md", "docs/DOWNLOAD_INVENTORY.md"],
+      "adoption_decision": "retain baseline"
+    },
+    {
+      "id": "nvidia-parakeet-tdt-0.6b-v3-original",
+      "role": "candidate",
+      "implementation": "Original NVIDIA checkpoint, independent NeMo/Transformers inference path",
+      "checkpoint": {"revision": "nvidia/parakeet-tdt-0.6b-v3 @ 541d1f99c6b0c3cd0b11a95167540bb8edefd82b", "artifact": "publisher F32 safetensors / .nemo"},
+      "runtime": "NeMo or Transformers; exact local runtime not installed or qualified",
+      "precision": "full precision F32 per under-1.5B candidate rule; not downloaded or run",
+      "quality_metrics": {
+        "wer": {"value": null, "status": "unmeasured on new blind labels"},
+        "cer": {"value": null, "status": "unmeasured on new blind labels"},
+        "punctuation_f1": {"value": null, "status": "scorer added; labels pending"},
+        "word_start_mae_ms": {"value": null, "status": "unmeasured on agent reference boundaries"},
+        "word_end_mae_ms": {"value": null, "status": "unmeasured on agent reference boundaries"}
+      },
+      "latency_seconds": {"cold": null, "warm": null, "status": "not measured"},
+      "peak_memory_bytes": {"value": null, "status": "not measured"},
+      "runtime_split_seconds": {"decode": null, "infer": null, "serialize": null, "status": "not measured"},
+      "license_class": "CC BY 4.0; commercial use permitted subject to attribution and license terms",
+      "license_evidence": ["https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"],
+      "weight_relationship": "Same base checkpoint as Voz; independent runtime/distribution comparison, not an independent trained model.",
+      "adoption_decision": "research-only"
+    },
+    {
+      "id": "desert-ant-align-v1.1.0",
+      "role": "candidate",
+      "implementation": "Desert Ant Align word-boundary refinement",
+      "checkpoint": {"revision": "desert-ant-labs/align v1.1.0 @ cad8bbf8cbb2f461c04855402a54ff461496f6fc", "published_package_size_bytes": 740000},
+      "runtime": "Desert Ant Core 3.6.0+ SDK or @desert-ant-labs/align; Node path uses LiteRT",
+      "precision": "Apple compiled Core ML FP16 or LiteRT FP32 on Node; Ren target path not selected",
+      "quality_metrics": {
+        "wer": {"value": null, "status": "not applicable; alignment does not transcribe"},
+        "word_start_mae_ms": {"value": null, "status": "unmeasured against blind agent labels"},
+        "word_end_mae_ms": {"value": null, "status": "unmeasured against blind agent labels"}
+      },
+      "published_boundary_claims": {"status": "vendor-reported only", "align_mean_error_ms": 45, "whisperx_mean_error_ms": 53.5, "reference": "machine forced-alignment estimates, not human labels"},
+      "latency_seconds": {"cold": null, "warm": null, "status": "not measured"},
+      "peak_memory_bytes": {"value": null, "status": "not measured"},
+      "runtime_split_seconds": {"decode": null, "infer": null, "serialize": null, "status": "not measured"},
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale",
+      "license_evidence": ["https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md", "https://license.desertant.com/"],
+      "adoption_decision": "research-only"
+    },
+    {
+      "id": "desert-ant-ear-v0.1.0",
+      "role": "candidate",
+      "implementation": "Desert Ant Ear speech language identification",
+      "checkpoint": {"revision": "desert-ant-labs/ear v0.1.0 @ a5a2a6ef1241a53ab4404f9a9e7ccb092d2b7c47", "machine_state": "already cached before lane; no lane download"},
+      "runtime": "da 0.1.1 / Desert Ant Core 3.1.0 / Core ML",
+      "precision": "compiled Core ML FP16",
+      "quality_metrics": {"language_accuracy": {"value": null, "status": "unmeasured on agent labels"}, "unsupported_language_abstention": {"value": null, "status": "unmeasured"}},
+      "published_metrics": {"status": "vendor-reported only", "ordinary_recordings_confident_correct": "12/12", "podcast_rebuilds_confident_correct": "8/8 confident from 10", "reference": "publisher model documentation"},
+      "latency_seconds": {"cold": null, "warm": null, "status": "not measured in this lane"},
+      "peak_memory_bytes": {"value": null, "status": "not measured"},
+      "runtime_split_seconds": {"decode": null, "infer": null, "serialize": null, "status": "not measured"},
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale",
+      "license_evidence": ["https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/ear.md", "https://license.desertant.com/"],
+      "adoption_decision": "research-only"
+    },
+    {
+      "id": "desert-ant-uhm",
+      "role": "candidate",
+      "implementation": "Desert Ant Uhm audio filler detector",
+      "checkpoint": {"revision": "612592c10ad7b2a51f3237725448a1aad212480b", "provider": "desert-ant-labs/uhm", "machine_state": "exact revision reported by da 0.1.1; not downloaded"},
+      "runtime": "da 0.1.1 / Desert Ant Core 3.1.0 / Core ML; runnable but weights not downloaded",
+      "precision": "publisher's shipped Apple build; exact precision not recorded",
+      "quality_metrics": {"precision": {"value": null, "status": "unmeasured on agent labels"}, "recall": {"value": null, "status": "unmeasured on agent labels"}, "boundary_mae_ms": {"value": null, "status": "unmeasured"}},
+      "published_metrics": {"status": "vendor-reported only", "claimed_boundary_precision_ms": 20, "claimed_runtime_seconds_per_audio_hour": 12},
+      "latency_seconds": {"cold": null, "warm": null, "status": "not measured"},
+      "peak_memory_bytes": {"value": null, "status": "not measured"},
+      "runtime_split_seconds": {"decode": null, "infer": null, "serialize": null, "status": "not measured"},
+      "license_class": "Desert Ant Labs Source-Available License; commercial license required at scale",
+      "license_evidence": ["https://desertant.com/audio/", "https://license.desertant.com/"],
+      "adoption_decision": "research-only"
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "format": "ren_evaluation_report/1",
+  "revision": "asr-qual-2026-10-16-r3",
+  "version": {
+    "id": "parakeet-tdt-0.6b-v3-original",
+    "role": "candidate",
+    "models": {
+      "parakeet": "nvidia/parakeet-tdt-0.6b-v3 @ 541d1f99c6b0c3cd0b11a95167540bb8edefd82b",
+      "parakeet_runtime": "nemo",
+      "parakeet_precision": "float32"
+    }
+  },
+  "modality": "speech_transcription",
+  "split": "calibration",
+  "metrics": {
+    "cold_latency_mean_seconds": {
+      "value": 12.151920083000732,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "single first window: checkpoint load plus first inference"
+    },
+    "warm_latency_mean_seconds": {
+      "value": 1.7180019582010573,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "perf_counter around the candidate call, second invocation"
+    },
+    "cold_peak_rss_max_bytes": {
+      "value": 5766840320,
+      "unit": "bytes",
+      "dimension": "memory",
+      "method": "getrusage high-water at end of invocation, max over windows; children for subprocess runtimes, self for in-process; each candidate runs in its own process so the max is its own peak"
+    },
+    "seconds_per_audio_minute_warm": {
+      "value": 2.0714347629446257,
+      "unit": "seconds_per_audio_minute",
+      "dimension": "cost",
+      "method": "summed warm wall time divided by summed window audio"
+    },
+    "model_load_seconds": {
+      "value": 11.190324249997502,
+      "unit": "seconds",
+      "dimension": "latency",
+      "method": "single perf_counter around NeMo restore_from in this process"
+    }
+  },
+  "evidence": [
+    {
+      "id": "editorial-eval-corpus",
+      "path": "../2026-10-15-editorial-eval-corpus.json",
+      "sha256": "2ea35f4af400c7d28e5ef6bbcf61d319c3314dc9542c0e36c77ffcb12527bff8"
+    },
+    {
+      "id": "window:IMG_1811_0_22",
+      "sha256": "987ebe786c49f8500727ae5b5981b124897de229a29d3535aaf9a3e37381bc02"
+    },
+    {
+      "id": "window:IMG_1814_0_45",
+      "sha256": "13cb6f4ae3861913353545df9c679b7e08d13aadabc0983d78b4a9a650a6a8b3"
+    },
+    {
+      "id": "window:IMG_1816_0_60",
+      "sha256": "6a7dcbaae61f6ee5aaec318cb05172b06c1e30441114976ec4f779e94173567d"
+    },
+    {
+      "id": "window:LC4931_120_180",
+      "sha256": "c3b76eded7b9699638e9431e73e61e206258146662f0fd753a7b6759242dfcf1"
+    },
+    {
+      "id": "window:LCATL0012_60_120",
+      "sha256": "6dcdb0d3fb7d9bac483967bba573f7b3557720aca0180e7e435e112e81f1d3de"
+    },
+    {
+      "id": "language-id:IMG_1811_0_22",
+      "path": "hypothesis.ear.IMG_1811_0_22.json",
+      "sha256": "9fd0ccc27a1aa1d8ae8731b3c1ff43ccec8259cfac9e5df1f5d33ff19ab20501"
+    },
+    {
+      "id": "language-id:IMG_1814_0_45",
+      "path": "hypothesis.ear.IMG_1814_0_45.json",
+      "sha256": "c9a83dcc5dad9e0bf70051825a289f81fc6e7d8433cc7f3f769ba2529a353e26"
+    },
+    {
+      "id": "language-id:IMG_1816_0_60",
+      "path": "hypothesis.ear.IMG_1816_0_60.json",
+      "sha256": "906802718c94948540ac500da6a138be0a5fb41621582447718033a88d0eb208"
+    },
+    {
+      "id": "language-id:LC4931_120_180",
+      "path": "hypothesis.ear.LC4931_120_180.json",
+      "sha256": "6ed2cf6585be7370d429633b74f4467aae3897b3fe31c1936de20a7efc6889b3"
+    },
+    {
+      "id": "language-id:LCATL0012_60_120",
+      "path": "hypothesis.ear.LCATL0012_60_120.json",
+      "sha256": "a9a1a3ce8f522c897b3ab4da3a1392f3d98f6aad434225a0c77778efd75cdcb0"
+    }
+  ],
+  "selection_basis": [
+    "calibration"
+  ]
+}

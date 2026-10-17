@@ -18,7 +18,40 @@ def test_scores_text_boundaries_speakers_and_cost_independently():
     assert result["cer"] > 0
     assert result["boundary"]["start_median_abs_ms"] == 10
     assert result["speaker_attribution"]["accuracy"] == 1
+    assert result["punctuation"]["status"] == "measured"
+    assert result["punctuation"]["false_negatives"] == 1
+    assert result["punctuation"]["f1"] == 0
     assert result["cost"]["seconds_per_audio_minute"] == 30
+
+
+def test_punctuation_score_is_type_sensitive_and_only_uses_matched_words():
+    ref = {"sample_id": "x", "words": [
+        {"text": "Well,", "start": 0, "end": .2},
+        {"text": "really?", "start": .3, "end": .6},
+    ]}
+    hyp = {"words": [
+        {"text": "well;", "start": 0, "end": .2},
+        {"text": "really?", "start": .3, "end": .6},
+        {"text": "added.", "start": .7, "end": .8},
+    ]}
+    result = score(ref, hyp, split="calibration", condition="clean",
+                   audio_seconds=1, elapsed_seconds=1)
+    punctuation = result["punctuation"]
+    assert punctuation["scored_tokens"] == 2
+    assert punctuation["true_positives"] == 1
+    assert punctuation["false_positives"] == 1
+    assert punctuation["false_negatives"] == 1
+    assert punctuation["f1"] == .5
+
+
+def test_punctuation_is_unmeasured_without_exact_word_matches():
+    ref = {"sample_id": "x", "words": [{"text": "Hello,", "start": 0,
+                                            "end": .2}]}
+    result = score(ref, {"words": [{"text": "goodbye!"}]},
+                   split="held_out", condition="clean", audio_seconds=1,
+                   elapsed_seconds=None)
+    assert result["punctuation"]["status"] == "unmeasured"
+    assert result["punctuation"]["f1"] is None
 
 
 def test_abstention_is_not_counted_as_recognition_error():

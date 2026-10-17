@@ -1,0 +1,62 @@
+[
+  {
+    "window_id": "IMG_1811_0_22",
+    "source_id": "IMG_1811",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1811.MOV",
+    "source_sha256": "ba6ae9fea8ed3ae09424239937046cb0b7a08013c2d4b82eaa3ff9005789d86b",
+    "start_seconds": 0.0,
+    "end_seconds": 22.87,
+    "wav_path": "/tmp/vep-mu-asr/windows/IMG_1811_0_22.wav",
+    "wav_sha256": "987ebe786c49f8500727ae5b5981b124897de229a29d3535aaf9a3e37381bc02",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1814_0_45",
+    "source_id": "IMG_1814",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1814.MOV",
+    "source_sha256": "2421eaa7470d2f84c119108cf06a49d9b6069c8331b75bc890e67003aecdb377",
+    "start_seconds": 0.0,
+    "end_seconds": 45.943333,
+    "wav_path": "/tmp/vep-mu-asr/windows/IMG_1814_0_45.wav",
+    "wav_sha256": "13cb6f4ae3861913353545df9c679b7e08d13aadabc0983d78b4a9a650a6a8b3",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "IMG_1816_0_60",
+    "source_id": "IMG_1816",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/content_stuff/post a day keeps the apple away/001/raw/IMG_1816.MOV",
+    "source_sha256": "4ec8fdef4e8bcc4d2d62b8f0b1319107302d26cfb974c3537254470afd344646",
+    "start_seconds": 0.0,
+    "end_seconds": 60.0,
+    "wav_path": "/tmp/vep-mu-asr/windows/IMG_1816_0_60.wav",
+    "wav_sha256": "6a7dcbaae61f6ee5aaec318cb05172b06c1e30441114976ec4f779e94173567d",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "LC4931_120_180",
+    "source_id": "LC4931",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LC4931.MXF",
+    "source_sha256": "b18ab61af2b9c462a1494f23d8b8bd7800e02af1b54475a911fb719f7fd9998e",
+    "start_seconds": 120.0,
+    "end_seconds": 180.0,
+    "wav_path": "/tmp/vep-mu-asr/windows/LC4931_120_180.wav",
+    "wav_sha256": "c3b76eded7b9699638e9431e73e61e206258146662f0fd753a7b6759242dfcf1",
+    "detected_language": "en"
+  },
+  {
+    "window_id": "LCATL0012_60_120",
+    "source_id": "LCATL0012",
+    "split": "calibration",
+    "source_path": "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media/LCATL0012.MXF",
+    "source_sha256": "bd5da72f95f6b61fdab451b8fea84a928ad3517290048b0f8a5e494cfa597dff",
+    "start_seconds": 60.0,
+    "end_seconds": 120.0,
+    "wav_path": "/tmp/vep-mu-asr/windows/LCATL0012_60_120.wav",
+    "wav_sha256": "6dcdb0d3fb7d9bac483967bba573f7b3557720aca0180e7e435e112e81f1d3de",
+    "detected_language": "en"
+  }
+]

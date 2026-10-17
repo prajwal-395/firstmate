@@ -1,0 +1,725 @@
+{
+  "words": [
+    {
+      "word": "So",
+      "start": 0.61,
+      "end": 0.88,
+      "source_start": 0.61,
+      "source_end": 0.88
+    },
+    {
+      "word": "you",
+      "start": 0.96,
+      "end": 1.06,
+      "source_start": 0.96,
+      "source_end": 1.06
+    },
+    {
+      "word": "might",
+      "start": 1.06,
+      "end": 1.29,
+      "source_start": 1.06,
+      "source_end": 1.29
+    },
+    {
+      "word": "be",
+      "start": 1.29,
+      "end": 1.42,
+      "source_start": 1.29,
+      "source_end": 1.42
+    },
+    {
+      "word": "asking,",
+      "start": 1.42,
+      "end": 2.08,
+      "source_start": 1.42,
+      "source_end": 2.08
+    },
+    {
+      "word": "you",
+      "start": 2.1399999999999997,
+      "end": 2.2,
+      "source_start": 2.1399999999999997,
+      "source_end": 2.2
+    },
+    {
+      "word": "know,",
+      "start": 2.2,
+      "end": 2.29,
+      "source_start": 2.2,
+      "source_end": 2.29
+    },
+    {
+      "word": "why",
+      "start": 2.29,
+      "end": 2.53,
+      "source_start": 2.29,
+      "source_end": 2.53
+    },
+    {
+      "word": "the",
+      "start": 2.53,
+      "end": 2.64,
+      "source_start": 2.53,
+      "source_end": 2.64
+    },
+    {
+      "word": "sudden",
+      "start": 2.64,
+      "end": 3.0,
+      "source_start": 2.64,
+      "source_end": 3.0
+    },
+    {
+      "word": "change",
+      "start": 3.0,
+      "end": 3.29,
+      "source_start": 3.0,
+      "source_end": 3.29
+    },
+    {
+      "word": "of",
+      "start": 3.29,
+      "end": 3.39,
+      "source_start": 3.29,
+      "source_end": 3.39
+    },
+    {
+      "word": "heart?",
+      "start": 3.39,
+      "end": 3.87,
+      "source_start": 3.39,
+      "source_end": 3.87
+    },
+    {
+      "word": "Why",
+      "start": 4.619999999999999,
+      "end": 4.960000000000001,
+      "source_start": 4.619999999999999,
+      "source_end": 4.960000000000001
+    },
+    {
+      "word": "the",
+      "start": 4.960000000000001,
+      "end": 5.550000000000001,
+      "source_start": 4.960000000000001,
+      "source_end": 5.550000000000001
+    },
+    {
+      "word": "sudden",
+      "start": 5.630000000000001,
+      "end": 5.960000000000001,
+      "source_start": 5.630000000000001,
+      "source_end": 5.960000000000001
+    },
+    {
+      "word": "motivation?",
+      "start": 5.960000000000001,
+      "end": 6.630000000000001,
+      "source_start": 5.960000000000001,
+      "source_end": 6.630000000000001
+    },
+    {
+      "word": "Um,",
+      "start": 7.18,
+      "end": 7.6899999999999995,
+      "source_start": 7.18,
+      "source_end": 7.6899999999999995
+    },
+    {
+      "word": "you",
+      "start": 7.779999999999999,
+      "end": 7.869999999999999,
+      "source_start": 7.779999999999999,
+      "source_end": 7.869999999999999
+    },
+    {
+      "word": "know,",
+      "start": 7.869999999999999,
+      "end": 8.03,
+      "source_start": 7.869999999999999,
+      "source_end": 8.03
+    },
+    {
+      "word": "I",
+      "start": 8.28,
+      "end": 8.63,
+      "source_start": 8.28,
+      "source_end": 8.63
+    },
+    {
+      "word": "finished",
+      "start": 9.23,
+      "end": 9.42,
+      "source_start": 9.23,
+      "source_end": 9.42
+    },
+    {
+      "word": "up",
+      "start": 9.42,
+      "end": 9.5,
+      "source_start": 9.42,
+      "source_end": 9.5
+    },
+    {
+      "word": "school",
+      "start": 9.5,
+      "end": 9.690000000000001,
+      "source_start": 9.5,
+      "source_end": 9.690000000000001
+    },
+    {
+      "word": "about",
+      "start": 9.690000000000001,
+      "end": 9.93,
+      "source_start": 9.690000000000001,
+      "source_end": 9.93
+    },
+    {
+      "word": "three,",
+      "start": 9.93,
+      "end": 10.42,
+      "source_start": 9.93,
+      "source_end": 10.42
+    },
+    {
+      "word": "three",
+      "start": 10.63,
+      "end": 10.780000000000001,
+      "source_start": 10.63,
+      "source_end": 10.780000000000001
+    },
+    {
+      "word": "and",
+      "start": 10.780000000000001,
+      "end": 10.870000000000001,
+      "source_start": 10.780000000000001,
+      "source_end": 10.870000000000001
+    },
+    {
+      "word": "a",
+      "start": 10.870000000000001,
+      "end": 10.9,
+      "source_start": 10.870000000000001,
+      "source_end": 10.9
+    },
+    {
+      "word": "half",
+      "start": 10.9,
+      "end": 11.07,
+      "source_start": 10.9,
+      "source_end": 11.07
+    },
+    {
+      "word": "months",
+      "start": 11.07,
+      "end": 11.280000000000001,
+      "source_start": 11.07,
+      "source_end": 11.280000000000001
+    },
+    {
+      "word": "ago.",
+      "start": 11.280000000000001,
+      "end": 11.63,
+      "source_start": 11.280000000000001,
+      "source_end": 11.63
+    },
+    {
+      "word": "It's",
+      "start": 12.07,
+      "end": 12.16,
+      "source_start": 12.07,
+      "source_end": 12.16
+    },
+    {
+      "word": "been",
+      "start": 12.16,
+      "end": 12.33,
+      "source_start": 12.16,
+      "source_end": 12.33
+    },
+    {
+      "word": "three",
+      "start": 12.33,
+      "end": 12.57,
+      "source_start": 12.33,
+      "source_end": 12.57
+    },
+    {
+      "word": "and",
+      "start": 12.57,
+      "end": 12.76,
+      "source_start": 12.57,
+      "source_end": 12.76
+    },
+    {
+      "word": "three",
+      "start": 12.76,
+      "end": 12.9,
+      "source_start": 12.76,
+      "source_end": 12.9
+    },
+    {
+      "word": "and",
+      "start": 12.9,
+      "end": 13.030000000000001,
+      "source_start": 12.9,
+      "source_end": 13.030000000000001
+    },
+    {
+      "word": "a",
+      "start": 13.030000000000001,
+      "end": 13.06,
+      "source_start": 13.030000000000001,
+      "source_end": 13.06
+    },
+    {
+      "word": "you",
+      "start": 13.3,
+      "end": 13.360000000000001,
+      "source_start": 13.3,
+      "source_end": 13.360000000000001
+    },
+    {
+      "word": "know,",
+      "start": 13.360000000000001,
+      "end": 13.42,
+      "source_start": 13.360000000000001,
+      "source_end": 13.42
+    },
+    {
+      "word": "three",
+      "start": 13.42,
+      "end": 13.700000000000001,
+      "source_start": 13.42,
+      "source_end": 13.700000000000001
+    },
+    {
+      "word": "to",
+      "start": 13.700000000000001,
+      "end": 13.780000000000001,
+      "source_start": 13.700000000000001,
+      "source_end": 13.780000000000001
+    },
+    {
+      "word": "three",
+      "start": 13.780000000000001,
+      "end": 13.950000000000001,
+      "source_start": 13.780000000000001,
+      "source_end": 13.950000000000001
+    },
+    {
+      "word": "and",
+      "start": 13.950000000000001,
+      "end": 14.040000000000001,
+      "source_start": 13.950000000000001,
+      "source_end": 14.040000000000001
+    },
+    {
+      "word": "a",
+      "start": 14.040000000000001,
+      "end": 14.07,
+      "source_start": 14.040000000000001,
+      "source_end": 14.07
+    },
+    {
+      "word": "half",
+      "start": 14.07,
+      "end": 14.35,
+      "source_start": 14.07,
+      "source_end": 14.35
+    },
+    {
+      "word": "years",
+      "start": 14.35,
+      "end": 14.81,
+      "source_start": 14.35,
+      "source_end": 14.81
+    },
+    {
+      "word": "um",
+      "start": 15.48,
+      "end": 15.83,
+      "source_start": 15.48,
+      "source_end": 15.83
+    },
+    {
+      "word": "at",
+      "start": 16.349999999999998,
+      "end": 16.510001,
+      "source_start": 16.349999999999998,
+      "source_end": 16.510001
+    },
+    {
+      "word": "university",
+      "start": 16.510001,
+      "end": 16.96,
+      "source_start": 16.510001,
+      "source_end": 16.96
+    },
+    {
+      "word": "in",
+      "start": 16.96,
+      "end": 17.020001,
+      "source_start": 16.96,
+      "source_end": 17.020001
+    },
+    {
+      "word": "the",
+      "start": 17.020001,
+      "end": 17.090001,
+      "source_start": 17.020001,
+      "source_end": 17.090001
+    },
+    {
+      "word": "first",
+      "start": 17.090001,
+      "end": 17.359999000000002,
+      "source_start": 17.090001,
+      "source_end": 17.359999000000002
+    },
+    {
+      "word": "place.",
+      "start": 17.359999000000002,
+      "end": 17.73,
+      "source_start": 17.359999000000002,
+      "source_end": 17.73
+    },
+    {
+      "word": "And",
+      "start": 18.199999000000002,
+      "end": 18.590001,
+      "source_start": 18.199999000000002,
+      "source_end": 18.590001
+    },
+    {
+      "word": "a",
+      "start": 18.590001,
+      "end": 18.689999,
+      "source_start": 18.590001,
+      "source_end": 18.689999
+    },
+    {
+      "word": "lot",
+      "start": 18.689999,
+      "end": 18.98,
+      "source_start": 18.689999,
+      "source_end": 18.98
+    },
+    {
+      "word": "of",
+      "start": 18.98,
+      "end": 19.039999,
+      "source_start": 18.98,
+      "source_end": 19.039999
+    },
+    {
+      "word": "the",
+      "start": 19.039999,
+      "end": 19.109999000000002,
+      "source_start": 19.039999,
+      "source_end": 19.109999000000002
+    },
+    {
+      "word": "stuff",
+      "start": 19.109999000000002,
+      "end": 19.439999,
+      "source_start": 19.109999000000002,
+      "source_end": 19.439999
+    },
+    {
+      "word": "I",
+      "start": 19.439999,
+      "end": 19.529999,
+      "source_start": 19.439999,
+      "source_end": 19.529999
+    },
+    {
+      "word": "ended",
+      "start": 19.529999,
+      "end": 19.689999,
+      "source_start": 19.529999,
+      "source_end": 19.689999
+    },
+    {
+      "word": "up",
+      "start": 19.689999,
+      "end": 19.830000000000002,
+      "source_start": 19.689999,
+      "source_end": 19.830000000000002
+    },
+    {
+      "word": "doing",
+      "start": 19.830000000000002,
+      "end": 20.279999,
+      "source_start": 19.830000000000002,
+      "source_end": 20.279999
+    },
+    {
+      "word": "was",
+      "start": 21.72,
+      "end": 21.89,
+      "source_start": 21.72,
+      "source_end": 21.89
+    },
+    {
+      "word": "not",
+      "start": 21.89,
+      "end": 22.010001,
+      "source_start": 21.89,
+      "source_end": 22.010001
+    },
+    {
+      "word": "really",
+      "start": 22.010001,
+      "end": 22.23,
+      "source_start": 22.010001,
+      "source_end": 22.23
+    },
+    {
+      "word": "the",
+      "start": 22.23,
+      "end": 22.289999,
+      "source_start": 22.23,
+      "source_end": 22.289999
+    },
+    {
+      "word": "stuff",
+      "start": 22.289999,
+      "end": 22.57,
+      "source_start": 22.289999,
+      "source_end": 22.57
+    },
+    {
+      "word": "in",
+      "start": 22.57,
+      "end": 22.63,
+      "source_start": 22.57,
+      "source_end": 22.63
+    },
+    {
+      "word": "the",
+      "start": 22.63,
+      "end": 22.689999,
+      "source_start": 22.63,
+      "source_end": 22.689999
+    },
+    {
+      "word": "back",
+      "start": 22.689999,
+      "end": 22.850001,
+      "source_start": 22.689999,
+      "source_end": 22.850001
+    },
+    {
+      "word": "of",
+      "start": 22.850001,
+      "end": 22.91,
+      "source_start": 22.850001,
+      "source_end": 22.91
+    },
+    {
+      "word": "my",
+      "start": 22.91,
+      "end": 23.029999,
+      "source_start": 22.91,
+      "source_end": 23.029999
+    },
+    {
+      "word": "head",
+      "start": 23.029999,
+      "end": 23.31,
+      "source_start": 23.029999,
+      "source_end": 23.31
+    },
+    {
+      "word": "that",
+      "start": 23.31,
+      "end": 23.57,
+      "source_start": 23.31,
+      "source_end": 23.57
+    },
+    {
+      "word": "got",
+      "start": 23.57,
+      "end": 23.72,
+      "source_start": 23.57,
+      "source_end": 23.72
+    },
+    {
+      "word": "me",
+      "start": 23.72,
+      "end": 23.82,
+      "source_start": 23.72,
+      "source_end": 23.82
+    },
+    {
+      "word": "excited.",
+      "start": 23.82,
+      "end": 24.23,
+      "source_start": 23.82,
+      "source_end": 24.23
+    },
+    {
+      "word": "I",
+      "start": 25.21,
+      "end": 25.240000000000002,
+      "source_start": 25.21,
+      "source_end": 25.240000000000002
+    },
+    {
+      "word": "mean,",
+      "start": 25.240000000000002,
+      "end": 25.41,
+      "source_start": 25.240000000000002,
+      "source_end": 25.41
+    },
+    {
+      "word": "you",
+      "start": 25.779999,
+      "end": 25.88,
+      "source_start": 25.779999,
+      "source_end": 25.88
+    },
+    {
+      "word": "know,",
+      "start": 25.88,
+      "end": 26.06,
+      "source_start": 25.88,
+      "source_end": 26.06
+    },
+    {
+      "word": "I",
+      "start": 26.289999,
+      "end": 26.330000000000002,
+      "source_start": 26.289999,
+      "source_end": 26.330000000000002
+    },
+    {
+      "word": "was",
+      "start": 26.330000000000002,
+      "end": 26.46,
+      "source_start": 26.330000000000002,
+      "source_end": 26.46
+    },
+    {
+      "word": "happy",
+      "start": 26.46,
+      "end": 26.680001,
+      "source_start": 26.46,
+      "source_end": 26.680001
+    },
+    {
+      "word": "to",
+      "start": 26.680001,
+      "end": 26.75,
+      "source_start": 26.680001,
+      "source_end": 26.75
+    },
+    {
+      "word": "do",
+      "start": 26.75,
+      "end": 27.05,
+      "source_start": 26.75,
+      "source_end": 27.05
+    },
+    {
+      "word": "it.",
+      "start": 27.109999000000002,
+      "end": 27.170001,
+      "source_start": 27.109999000000002,
+      "source_end": 27.170001
+    },
+    {
+      "word": "Some",
+      "start": 27.170001,
+      "end": 27.3,
+      "source_start": 27.170001,
+      "source_end": 27.3
+    },
+    {
+      "word": "of",
+      "start": 27.3,
+      "end": 27.39,
+      "source_start": 27.3,
+      "source_end": 27.39
+    },
+    {
+      "word": "it",
+      "start": 27.39,
+      "end": 27.420001,
+      "source_start": 27.39,
+      "source_end": 27.420001
+    },
+    {
+      "word": "was",
+      "start": 27.420001,
+      "end": 27.57,
+      "source_start": 27.420001,
+      "source_end": 27.57
+    },
+    {
+      "word": "interesting",
+      "start": 27.57,
+      "end": 28.010001,
+      "source_start": 27.57,
+      "source_end": 28.010001
+    },
+    {
+      "word": "but",
+      "start": 28.010001,
+      "end": 28.260001,
+      "source_start": 28.010001,
+      "source_end": 28.260001
+    },
+    {
+      "word": "At",
+      "start": 28.650000000000002,
+      "end": 28.82,
+      "source_start": 28.650000000000002,
+      "source_end": 28.82
+    },
+    {
+      "word": "the",
+      "start": 28.82,
+      "end": 28.89,
+      "source_start": 28.82,
+      "source_end": 28.89
+    },
+    {
+      "word": "end",
+      "start": 28.89,
+      "end": 29.020001,
+      "source_start": 28.89,
+      "source_end": 29.020001
+    },
+    {
+      "word": "of",
+      "start": 29.020001,
+      "end": 29.080000000000002,
+      "source_start": 29.020001,
+      "source_end": 29.080000000000002
+    },
+    {
+      "word": "the",
+      "start": 29.080000000000002,
+      "end": 29.150000000000002,
+      "source_start": 29.080000000000002,
+      "source_end": 29.150000000000002
+    },
+    {
+      "word": "day.",
+      "start": 29.150000000000002,
+      "end": 29.449999000000002,
+      "source_start": 29.150000000000002,
+      "source_end": 29.449999000000002
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1818",
+    "start_seconds": 0.0,
+    "end_seconds": 30.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

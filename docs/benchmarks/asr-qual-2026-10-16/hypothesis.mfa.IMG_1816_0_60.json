@@ -1,0 +1,753 @@
+{
+  "words": [
+    {
+      "word": "I",
+      "start": 0.78,
+      "end": 0.85,
+      "source_start": 0.78,
+      "source_end": 0.85
+    },
+    {
+      "word": "can",
+      "start": 0.85,
+      "end": 0.98,
+      "source_start": 0.85,
+      "source_end": 0.98
+    },
+    {
+      "word": "feel",
+      "start": 0.98,
+      "end": 1.25,
+      "source_start": 0.98,
+      "source_end": 1.25
+    },
+    {
+      "word": "the",
+      "start": 1.25,
+      "end": 1.37,
+      "source_start": 1.25,
+      "source_end": 1.37
+    },
+    {
+      "word": "silent",
+      "start": 1.37,
+      "end": 1.91,
+      "source_start": 1.37,
+      "source_end": 1.91
+    },
+    {
+      "word": "judgment",
+      "start": 1.95,
+      "end": 2.23,
+      "source_start": 1.95,
+      "source_end": 2.23
+    },
+    {
+      "word": "of",
+      "start": 2.23,
+      "end": 2.41,
+      "source_start": 2.23,
+      "source_end": 2.41
+    },
+    {
+      "word": "the",
+      "start": 2.41,
+      "end": 2.4699999999999998,
+      "source_start": 2.41,
+      "source_end": 2.4699999999999998
+    },
+    {
+      "word": "people",
+      "start": 2.4699999999999998,
+      "end": 2.65,
+      "source_start": 2.4699999999999998,
+      "source_end": 2.65
+    },
+    {
+      "word": "behind",
+      "start": 2.65,
+      "end": 3.15,
+      "source_start": 2.65,
+      "source_end": 3.15
+    },
+    {
+      "word": "me.",
+      "start": 4.74,
+      "end": 4.800000000000001,
+      "source_start": 4.74,
+      "source_end": 4.800000000000001
+    },
+    {
+      "word": "Okay.",
+      "start": 6.24,
+      "end": 6.449999999999999,
+      "source_start": 6.24,
+      "source_end": 6.449999999999999
+    },
+    {
+      "word": "Okay.",
+      "start": 7.859999999999999,
+      "end": 7.949999999999999,
+      "source_start": 7.859999999999999,
+      "source_end": 7.949999999999999
+    },
+    {
+      "word": "Today",
+      "start": 9.32,
+      "end": 9.63,
+      "source_start": 9.32,
+      "source_end": 9.63
+    },
+    {
+      "word": "is",
+      "start": 9.63,
+      "end": 10.05,
+      "source_start": 9.63,
+      "source_end": 10.05
+    },
+    {
+      "word": "March",
+      "start": 10.360000000000001,
+      "end": 10.64,
+      "source_start": 10.360000000000001,
+      "source_end": 10.64
+    },
+    {
+      "word": "25th,",
+      "start": 10.64,
+      "end": 11.0,
+      "source_start": 10.64,
+      "source_end": 11.0
+    },
+    {
+      "word": "2026.",
+      "start": 11.0,
+      "end": 13.67,
+      "source_start": 11.0,
+      "source_end": 13.67
+    },
+    {
+      "word": "It",
+      "start": 14.84,
+      "end": 14.9,
+      "source_start": 14.84,
+      "source_end": 14.9
+    },
+    {
+      "word": "is",
+      "start": 14.9,
+      "end": 15.030000000000001,
+      "source_start": 14.9,
+      "source_end": 15.030000000000001
+    },
+    {
+      "word": "not",
+      "start": 15.030000000000001,
+      "end": 15.17,
+      "source_start": 15.030000000000001,
+      "source_end": 15.17
+    },
+    {
+      "word": "my",
+      "start": 15.17,
+      "end": 15.280000000000001,
+      "source_start": 15.17,
+      "source_end": 15.280000000000001
+    },
+    {
+      "word": "thirty-fourth",
+      "start": 15.280000000000001,
+      "end": 15.88,
+      "source_start": 15.280000000000001,
+      "source_end": 15.88
+    },
+    {
+      "word": "birthday",
+      "start": 15.88,
+      "end": 16.36,
+      "source_start": 15.88,
+      "source_end": 16.36
+    },
+    {
+      "word": "and",
+      "start": 17.31,
+      "end": 18.100001,
+      "source_start": 17.31,
+      "source_end": 18.100001
+    },
+    {
+      "word": "I",
+      "start": 19.039999,
+      "end": 19.14,
+      "source_start": 19.039999,
+      "source_end": 19.14
+    },
+    {
+      "word": "have",
+      "start": 19.14,
+      "end": 19.580000000000002,
+      "source_start": 19.14,
+      "source_end": 19.580000000000002
+    },
+    {
+      "word": "an",
+      "start": 19.580000000000002,
+      "end": 19.66,
+      "source_start": 19.580000000000002,
+      "source_end": 19.66
+    },
+    {
+      "word": "announcement",
+      "start": 19.66,
+      "end": 20.039999,
+      "source_start": 19.66,
+      "source_end": 20.039999
+    },
+    {
+      "word": "to",
+      "start": 20.039999,
+      "end": 20.109999000000002,
+      "source_start": 20.039999,
+      "source_end": 20.109999000000002
+    },
+    {
+      "word": "make.",
+      "start": 20.109999000000002,
+      "end": 20.240000000000002,
+      "source_start": 20.109999000000002,
+      "source_end": 20.240000000000002
+    },
+    {
+      "word": "Well",
+      "start": 21.900000000000002,
+      "end": 22.16,
+      "source_start": 21.900000000000002,
+      "source_end": 22.16
+    },
+    {
+      "word": "look",
+      "start": 22.270001,
+      "end": 22.400000000000002,
+      "source_start": 22.270001,
+      "source_end": 22.400000000000002
+    },
+    {
+      "word": "I",
+      "start": 22.580000000000002,
+      "end": 22.609999000000002,
+      "source_start": 22.580000000000002,
+      "source_end": 22.609999000000002
+    },
+    {
+      "word": "just",
+      "start": 22.609999000000002,
+      "end": 22.869999,
+      "source_start": 22.609999000000002,
+      "source_end": 22.869999
+    },
+    {
+      "word": "have",
+      "start": 23.05,
+      "end": 23.279999,
+      "source_start": 23.05,
+      "source_end": 23.279999
+    },
+    {
+      "word": "news.",
+      "start": 23.279999,
+      "end": 23.73,
+      "source_start": 23.279999,
+      "source_end": 23.73
+    },
+    {
+      "word": "Um",
+      "start": 23.990000000000002,
+      "end": 24.350001,
+      "source_start": 23.990000000000002,
+      "source_end": 24.350001
+    },
+    {
+      "word": "not",
+      "start": 24.430001,
+      "end": 24.5,
+      "source_start": 24.430001,
+      "source_end": 24.5
+    },
+    {
+      "word": "really",
+      "start": 24.5,
+      "end": 24.72,
+      "source_start": 24.5,
+      "source_end": 24.72
+    },
+    {
+      "word": "announcement.",
+      "start": 24.72,
+      "end": 25.150000000000002,
+      "source_start": 24.72,
+      "source_end": 25.150000000000002
+    },
+    {
+      "word": "This",
+      "start": 25.150000000000002,
+      "end": 25.279999,
+      "source_start": 25.150000000000002,
+      "source_end": 25.279999
+    },
+    {
+      "word": "doesn't",
+      "start": 25.279999,
+      "end": 25.46,
+      "source_start": 25.279999,
+      "source_end": 25.46
+    },
+    {
+      "word": "really",
+      "start": 25.46,
+      "end": 25.580000000000002,
+      "source_start": 25.46,
+      "source_end": 25.580000000000002
+    },
+    {
+      "word": "concern",
+      "start": 25.580000000000002,
+      "end": 26.0,
+      "source_start": 25.580000000000002,
+      "source_end": 26.0
+    },
+    {
+      "word": "anyone",
+      "start": 26.0,
+      "end": 26.330000000000002,
+      "source_start": 26.0,
+      "source_end": 26.330000000000002
+    },
+    {
+      "word": "except",
+      "start": 26.330000000000002,
+      "end": 26.600001,
+      "source_start": 26.330000000000002,
+      "source_end": 26.600001
+    },
+    {
+      "word": "me.",
+      "start": 26.600001,
+      "end": 26.66,
+      "source_start": 26.600001,
+      "source_end": 26.66
+    },
+    {
+      "word": "Um",
+      "start": 27.939999,
+      "end": 28.5,
+      "source_start": 27.939999,
+      "source_end": 28.5
+    },
+    {
+      "word": "I",
+      "start": 31.670001,
+      "end": 31.699999000000002,
+      "source_start": 31.670001,
+      "source_end": 31.699999000000002
+    },
+    {
+      "word": "how",
+      "start": 31.699999000000002,
+      "end": 31.88,
+      "source_start": 31.699999000000002,
+      "source_end": 31.88
+    },
+    {
+      "word": "did",
+      "start": 31.88,
+      "end": 32.199999,
+      "source_start": 31.88,
+      "source_end": 32.199999
+    },
+    {
+      "word": "you",
+      "start": 32.199999,
+      "end": 32.32,
+      "source_start": 32.199999,
+      "source_end": 32.32
+    },
+    {
+      "word": "say",
+      "start": 33.57,
+      "end": 33.75999899999999,
+      "source_start": 33.57,
+      "source_end": 33.75999899999999
+    },
+    {
+      "word": "this?",
+      "start": 33.75999899999999,
+      "end": 34.110001,
+      "source_start": 33.75999899999999,
+      "source_end": 34.110001
+    },
+    {
+      "word": "So",
+      "start": 36.200001,
+      "end": 36.25999899999999,
+      "source_start": 36.200001,
+      "source_end": 36.25999899999999
+    },
+    {
+      "word": "the",
+      "start": 36.25999899999999,
+      "end": 36.32,
+      "source_start": 36.25999899999999,
+      "source_end": 36.32
+    },
+    {
+      "word": "reason",
+      "start": 36.32,
+      "end": 36.540001,
+      "source_start": 36.32,
+      "source_end": 36.540001
+    },
+    {
+      "word": "I",
+      "start": 36.540001,
+      "end": 36.57,
+      "source_start": 36.540001,
+      "source_end": 36.57
+    },
+    {
+      "word": "bring",
+      "start": 36.57,
+      "end": 36.739998,
+      "source_start": 36.57,
+      "source_end": 36.739998
+    },
+    {
+      "word": "up",
+      "start": 36.739998,
+      "end": 36.840000999999994,
+      "source_start": 36.739998,
+      "source_end": 36.840000999999994
+    },
+    {
+      "word": "the",
+      "start": 36.840000999999994,
+      "end": 36.899998,
+      "source_start": 36.840000999999994,
+      "source_end": 36.899998
+    },
+    {
+      "word": "date",
+      "start": 36.899998,
+      "end": 37.239998,
+      "source_start": 36.899998,
+      "source_end": 37.239998
+    },
+    {
+      "word": "is",
+      "start": 37.239998,
+      "end": 37.38999999999999,
+      "source_start": 37.239998,
+      "source_end": 37.38999999999999
+    },
+    {
+      "word": "because",
+      "start": 37.540001,
+      "end": 37.829997999999996,
+      "source_start": 37.540001,
+      "source_end": 37.829997999999996
+    },
+    {
+      "word": "11",
+      "start": 37.829997999999996,
+      "end": 38.16,
+      "source_start": 37.829997999999996,
+      "source_end": 38.16
+    },
+    {
+      "word": "years",
+      "start": 38.16,
+      "end": 38.380002,
+      "source_start": 38.16,
+      "source_end": 38.380002
+    },
+    {
+      "word": "ago",
+      "start": 38.380002,
+      "end": 38.619999,
+      "source_start": 38.380002,
+      "source_end": 38.619999
+    },
+    {
+      "word": "today",
+      "start": 38.669999,
+      "end": 39.3,
+      "source_start": 38.669999,
+      "source_end": 39.3
+    },
+    {
+      "word": "Casey",
+      "start": 39.959999999999994,
+      "end": 40.279999,
+      "source_start": 39.959999999999994,
+      "source_end": 40.279999
+    },
+    {
+      "word": "Neistat",
+      "start": 40.279999,
+      "end": 40.860001,
+      "source_start": 40.279999,
+      "source_end": 40.860001
+    },
+    {
+      "word": "shout",
+      "start": 41.590000999999994,
+      "end": 41.75999899999999,
+      "source_start": 41.590000999999994,
+      "source_end": 41.75999899999999
+    },
+    {
+      "word": "out",
+      "start": 41.75999899999999,
+      "end": 42.0,
+      "source_start": 41.75999899999999,
+      "source_end": 42.0
+    },
+    {
+      "word": "Casey",
+      "start": 42.0,
+      "end": 42.540001,
+      "source_start": 42.0,
+      "source_end": 42.540001
+    },
+    {
+      "word": "Um",
+      "start": 43.25,
+      "end": 43.590000999999994,
+      "source_start": 43.25,
+      "source_end": 43.590000999999994
+    },
+    {
+      "word": "Casey",
+      "start": 44.029999,
+      "end": 44.27000099999999,
+      "source_start": 44.029999,
+      "source_end": 44.27000099999999
+    },
+    {
+      "word": "Neistat",
+      "start": 44.27000099999999,
+      "end": 44.63999999999999,
+      "source_start": 44.27000099999999,
+      "source_end": 44.63999999999999
+    },
+    {
+      "word": "posted",
+      "start": 44.63999999999999,
+      "end": 45.040001,
+      "source_start": 44.63999999999999,
+      "source_end": 45.040001
+    },
+    {
+      "word": "his",
+      "start": 45.16,
+      "end": 45.489998,
+      "source_start": 45.16,
+      "source_end": 45.489998
+    },
+    {
+      "word": "very",
+      "start": 45.75999899999999,
+      "end": 45.959999999999994,
+      "source_start": 45.75999899999999,
+      "source_end": 45.959999999999994
+    },
+    {
+      "word": "first",
+      "start": 45.959999999999994,
+      "end": 46.50999899999999,
+      "source_start": 45.959999999999994,
+      "source_end": 46.50999899999999
+    },
+    {
+      "word": "vlog.",
+      "start": 47.52000099999999,
+      "end": 47.849999,
+      "source_start": 47.52000099999999,
+      "source_end": 47.849999
+    },
+    {
+      "word": "Um",
+      "start": 47.849999,
+      "end": 48.029999,
+      "source_start": 47.849999,
+      "source_end": 48.029999
+    },
+    {
+      "word": "and",
+      "start": 48.329997999999996,
+      "end": 48.489998,
+      "source_start": 48.329997999999996,
+      "source_end": 48.489998
+    },
+    {
+      "word": "I",
+      "start": 48.489998,
+      "end": 48.630002,
+      "source_start": 48.489998,
+      "source_end": 48.630002
+    },
+    {
+      "word": "think",
+      "start": 48.630002,
+      "end": 48.950001,
+      "source_start": 48.630002,
+      "source_end": 48.950001
+    },
+    {
+      "word": "a",
+      "start": 49.50999899999999,
+      "end": 49.590000999999994,
+      "source_start": 49.50999899999999,
+      "source_end": 49.590000999999994
+    },
+    {
+      "word": "lot",
+      "start": 49.590000999999994,
+      "end": 49.88999999999999,
+      "source_start": 49.590000999999994,
+      "source_end": 49.88999999999999
+    },
+    {
+      "word": "of",
+      "start": 49.88999999999999,
+      "end": 50.099999,
+      "source_start": 49.88999999999999,
+      "source_end": 50.099999
+    },
+    {
+      "word": "what",
+      "start": 50.099999,
+      "end": 50.340000999999994,
+      "source_start": 50.099999,
+      "source_end": 50.340000999999994
+    },
+    {
+      "word": "that",
+      "start": 50.340000999999994,
+      "end": 50.579997999999996,
+      "source_start": 50.340000999999994,
+      "source_end": 50.579997999999996
+    },
+    {
+      "word": "vlog",
+      "start": 50.579997999999996,
+      "end": 50.950001,
+      "source_start": 50.579997999999996,
+      "source_end": 50.950001
+    },
+    {
+      "word": "series",
+      "start": 50.950001,
+      "end": 51.450001,
+      "source_start": 50.950001,
+      "source_end": 51.450001
+    },
+    {
+      "word": "did",
+      "start": 52.029999,
+      "end": 52.349999,
+      "source_start": 52.029999,
+      "source_end": 52.349999
+    },
+    {
+      "word": "was",
+      "start": 52.349999,
+      "end": 52.610001,
+      "source_start": 52.349999,
+      "source_end": 52.610001
+    },
+    {
+      "word": "inspire",
+      "start": 52.610001,
+      "end": 53.13999999999999,
+      "source_start": 52.610001,
+      "source_end": 53.13999999999999
+    },
+    {
+      "word": "me",
+      "start": 53.13999999999999,
+      "end": 53.649998,
+      "source_start": 53.13999999999999,
+      "source_end": 53.649998
+    },
+    {
+      "word": "to",
+      "start": 53.73,
+      "end": 54.07,
+      "source_start": 53.73,
+      "source_end": 54.07
+    },
+    {
+      "word": "get",
+      "start": 54.07,
+      "end": 54.239998,
+      "source_start": 54.07,
+      "source_end": 54.239998
+    },
+    {
+      "word": "into",
+      "start": 54.239998,
+      "end": 54.489998,
+      "source_start": 54.239998,
+      "source_end": 54.489998
+    },
+    {
+      "word": "videography,",
+      "start": 54.489998,
+      "end": 55.239998,
+      "source_start": 54.489998,
+      "source_end": 55.239998
+    },
+    {
+      "word": "photography",
+      "start": 55.239998,
+      "end": 56.040001,
+      "source_start": 55.239998,
+      "source_end": 56.040001
+    },
+    {
+      "word": "and",
+      "start": 56.040001,
+      "end": 56.340000999999994,
+      "source_start": 56.040001,
+      "source_end": 56.340000999999994
+    },
+    {
+      "word": "camera",
+      "start": 56.340000999999994,
+      "end": 56.700001,
+      "source_start": 56.340000999999994,
+      "source_end": 56.700001
+    },
+    {
+      "word": "stuff.",
+      "start": 56.700001,
+      "end": 57.220001999999994,
+      "source_start": 56.700001,
+      "source_end": 57.220001999999994
+    },
+    {
+      "word": "Um",
+      "start": 58.63999999999999,
+      "end": 58.94,
+      "source_start": 58.63999999999999,
+      "source_end": 58.94
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1816",
+    "start_seconds": 0.0,
+    "end_seconds": 60.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}

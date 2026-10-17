@@ -1,0 +1,725 @@
+{
+  "words": [
+    {
+      "text": "So",
+      "start": 0.48,
+      "end": 0.72,
+      "source_start": 0.48,
+      "source_end": 0.72
+    },
+    {
+      "text": "you",
+      "start": 0.8,
+      "end": 1.04,
+      "source_start": 0.8,
+      "source_end": 1.04
+    },
+    {
+      "text": "might",
+      "start": 1.04,
+      "end": 1.24,
+      "source_start": 1.04,
+      "source_end": 1.24
+    },
+    {
+      "text": "be",
+      "start": 1.28,
+      "end": 1.44,
+      "source_start": 1.28,
+      "source_end": 1.44
+    },
+    {
+      "text": "asking,",
+      "start": 1.44,
+      "end": 1.92,
+      "source_start": 1.44,
+      "source_end": 1.92
+    },
+    {
+      "text": "you",
+      "start": 1.92,
+      "end": 2.06,
+      "source_start": 1.92,
+      "source_end": 2.06
+    },
+    {
+      "text": "know,",
+      "start": 2.08,
+      "end": 2.24,
+      "source_start": 2.08,
+      "source_end": 2.24
+    },
+    {
+      "text": "why",
+      "start": 2.24,
+      "end": 2.56,
+      "source_start": 2.24,
+      "source_end": 2.56
+    },
+    {
+      "text": "the",
+      "start": 2.56,
+      "end": 2.71,
+      "source_start": 2.56,
+      "source_end": 2.71
+    },
+    {
+      "text": "sudden",
+      "start": 2.72,
+      "end": 3.12,
+      "source_start": 2.72,
+      "source_end": 3.12
+    },
+    {
+      "text": "change",
+      "start": 3.12,
+      "end": 3.44,
+      "source_start": 3.12,
+      "source_end": 3.44
+    },
+    {
+      "text": "of",
+      "start": 3.44,
+      "end": 3.6,
+      "source_start": 3.44,
+      "source_end": 3.6
+    },
+    {
+      "text": "heart?",
+      "start": 3.6,
+      "end": 4.51,
+      "source_start": 3.6,
+      "source_end": 4.51
+    },
+    {
+      "text": "Why",
+      "start": 4.5600000000000005,
+      "end": 5.12,
+      "source_start": 4.5600000000000005,
+      "source_end": 5.12
+    },
+    {
+      "text": "the",
+      "start": 5.12,
+      "end": 5.44,
+      "source_start": 5.12,
+      "source_end": 5.44
+    },
+    {
+      "text": "sudden",
+      "start": 5.44,
+      "end": 6.08,
+      "source_start": 5.44,
+      "source_end": 6.08
+    },
+    {
+      "text": "motivation?",
+      "start": 6.08,
+      "end": 7.2,
+      "source_start": 6.08,
+      "source_end": 7.2
+    },
+    {
+      "text": "Um,",
+      "start": 7.2,
+      "end": 7.6,
+      "source_start": 7.2,
+      "source_end": 7.6
+    },
+    {
+      "text": "you",
+      "start": 7.6000000000000005,
+      "end": 7.92,
+      "source_start": 7.6000000000000005,
+      "source_end": 7.92
+    },
+    {
+      "text": "know,",
+      "start": 7.92,
+      "end": 8.4,
+      "source_start": 7.92,
+      "source_end": 8.4
+    },
+    {
+      "text": "I",
+      "start": 8.4,
+      "end": 8.66,
+      "source_start": 8.4,
+      "source_end": 8.66
+    },
+    {
+      "text": "finished",
+      "start": 8.88,
+      "end": 9.36,
+      "source_start": 8.88,
+      "source_end": 9.36
+    },
+    {
+      "text": "up",
+      "start": 9.36,
+      "end": 9.51,
+      "source_start": 9.36,
+      "source_end": 9.51
+    },
+    {
+      "text": "school",
+      "start": 9.52,
+      "end": 9.84,
+      "source_start": 9.52,
+      "source_end": 9.84
+    },
+    {
+      "text": "about",
+      "start": 9.84,
+      "end": 10.0,
+      "source_start": 9.84,
+      "source_end": 10.0
+    },
+    {
+      "text": "three,",
+      "start": 10.0,
+      "end": 10.47,
+      "source_start": 10.0,
+      "source_end": 10.47
+    },
+    {
+      "text": "three",
+      "start": 10.48,
+      "end": 10.8,
+      "source_start": 10.48,
+      "source_end": 10.8
+    },
+    {
+      "text": "and",
+      "start": 10.8,
+      "end": 10.88,
+      "source_start": 10.8,
+      "source_end": 10.88
+    },
+    {
+      "text": "a",
+      "start": 10.88,
+      "end": 10.96,
+      "source_start": 10.88,
+      "source_end": 10.96
+    },
+    {
+      "text": "half",
+      "start": 10.96,
+      "end": 11.2,
+      "source_start": 10.96,
+      "source_end": 11.2
+    },
+    {
+      "text": "months",
+      "start": 11.200000000000001,
+      "end": 11.44,
+      "source_start": 11.200000000000001,
+      "source_end": 11.44
+    },
+    {
+      "text": "ago.",
+      "start": 11.44,
+      "end": 11.81,
+      "source_start": 11.44,
+      "source_end": 11.81
+    },
+    {
+      "text": "It's",
+      "start": 11.84,
+      "end": 12.08,
+      "source_start": 11.84,
+      "source_end": 12.08
+    },
+    {
+      "text": "been",
+      "start": 12.08,
+      "end": 12.24,
+      "source_start": 12.08,
+      "source_end": 12.24
+    },
+    {
+      "text": "three",
+      "start": 12.32,
+      "end": 12.48,
+      "source_start": 12.32,
+      "source_end": 12.48
+    },
+    {
+      "text": "and",
+      "start": 12.48,
+      "end": 12.56,
+      "source_start": 12.48,
+      "source_end": 12.56
+    },
+    {
+      "text": "three",
+      "start": 12.72,
+      "end": 12.88,
+      "source_start": 12.72,
+      "source_end": 12.88
+    },
+    {
+      "text": "and",
+      "start": 12.88,
+      "end": 12.96,
+      "source_start": 12.88,
+      "source_end": 12.96
+    },
+    {
+      "text": "a",
+      "start": 12.96,
+      "end": 13.04,
+      "source_start": 12.96,
+      "source_end": 13.04
+    },
+    {
+      "text": "you",
+      "start": 13.200000000000001,
+      "end": 13.28,
+      "source_start": 13.200000000000001,
+      "source_end": 13.28
+    },
+    {
+      "text": "know,",
+      "start": 13.280000000000001,
+      "end": 13.44,
+      "source_start": 13.280000000000001,
+      "source_end": 13.44
+    },
+    {
+      "text": "three",
+      "start": 13.44,
+      "end": 13.68,
+      "source_start": 13.44,
+      "source_end": 13.68
+    },
+    {
+      "text": "to",
+      "start": 13.68,
+      "end": 13.79,
+      "source_start": 13.68,
+      "source_end": 13.79
+    },
+    {
+      "text": "three",
+      "start": 13.84,
+      "end": 14.08,
+      "source_start": 13.84,
+      "source_end": 14.08
+    },
+    {
+      "text": "and",
+      "start": 14.08,
+      "end": 14.16,
+      "source_start": 14.08,
+      "source_end": 14.16
+    },
+    {
+      "text": "a",
+      "start": 14.16,
+      "end": 14.24,
+      "source_start": 14.16,
+      "source_end": 14.24
+    },
+    {
+      "text": "half",
+      "start": 14.24,
+      "end": 14.48,
+      "source_start": 14.24,
+      "source_end": 14.48
+    },
+    {
+      "text": "years",
+      "start": 14.48,
+      "end": 14.96,
+      "source_start": 14.48,
+      "source_end": 14.96
+    },
+    {
+      "text": "um",
+      "start": 15.45,
+      "end": 15.77,
+      "source_start": 15.45,
+      "source_end": 15.77
+    },
+    {
+      "text": "at",
+      "start": 16.169999999999998,
+      "end": 16.4899375,
+      "source_start": 16.169999999999998,
+      "source_end": 16.4899375
+    },
+    {
+      "text": "university",
+      "start": 16.49,
+      "end": 16.9699375,
+      "source_start": 16.49,
+      "source_end": 16.9699375
+    },
+    {
+      "text": "in",
+      "start": 16.97,
+      "end": 17.13,
+      "source_start": 16.97,
+      "source_end": 17.13
+    },
+    {
+      "text": "the",
+      "start": 17.13,
+      "end": 17.31,
+      "source_start": 17.13,
+      "source_end": 17.31
+    },
+    {
+      "text": "first",
+      "start": 17.369999999999997,
+      "end": 17.6899375,
+      "source_start": 17.369999999999997,
+      "source_end": 17.6899375
+    },
+    {
+      "text": "place.",
+      "start": 17.689999999999998,
+      "end": 18.1699375,
+      "source_start": 17.689999999999998,
+      "source_end": 18.1699375
+    },
+    {
+      "text": "And",
+      "start": 18.169999999999998,
+      "end": 18.4899375,
+      "source_start": 18.169999999999998,
+      "source_end": 18.4899375
+    },
+    {
+      "text": "a",
+      "start": 18.49,
+      "end": 18.6499375,
+      "source_start": 18.49,
+      "source_end": 18.6499375
+    },
+    {
+      "text": "lot",
+      "start": 18.65,
+      "end": 18.81,
+      "source_start": 18.65,
+      "source_end": 18.81
+    },
+    {
+      "text": "of",
+      "start": 18.81,
+      "end": 18.97,
+      "source_start": 18.81,
+      "source_end": 18.97
+    },
+    {
+      "text": "the",
+      "start": 18.97,
+      "end": 19.049999999999997,
+      "source_start": 18.97,
+      "source_end": 19.049999999999997
+    },
+    {
+      "text": "stuff",
+      "start": 19.049999999999997,
+      "end": 19.339937499999998,
+      "source_start": 19.049999999999997,
+      "source_end": 19.339937499999998
+    },
+    {
+      "text": "I",
+      "start": 19.369999999999997,
+      "end": 19.53,
+      "source_start": 19.369999999999997,
+      "source_end": 19.53
+    },
+    {
+      "text": "ended",
+      "start": 19.53,
+      "end": 19.849999999999998,
+      "source_start": 19.53,
+      "source_end": 19.849999999999998
+    },
+    {
+      "text": "up",
+      "start": 19.85,
+      "end": 20.169999999999998,
+      "source_start": 19.85,
+      "source_end": 20.169999999999998
+    },
+    {
+      "text": "doing",
+      "start": 20.169999999999998,
+      "end": 20.81,
+      "source_start": 20.169999999999998,
+      "source_end": 20.81
+    },
+    {
+      "text": "was",
+      "start": 21.369999999999997,
+      "end": 21.6899375,
+      "source_start": 21.369999999999997,
+      "source_end": 21.6899375
+    },
+    {
+      "text": "not",
+      "start": 21.689999999999998,
+      "end": 21.93,
+      "source_start": 21.689999999999998,
+      "source_end": 21.93
+    },
+    {
+      "text": "really",
+      "start": 21.93,
+      "end": 22.17,
+      "source_start": 21.93,
+      "source_end": 22.17
+    },
+    {
+      "text": "the",
+      "start": 22.17,
+      "end": 22.25,
+      "source_start": 22.17,
+      "source_end": 22.25
+    },
+    {
+      "text": "stuff",
+      "start": 22.25,
+      "end": 22.49,
+      "source_start": 22.25,
+      "source_end": 22.49
+    },
+    {
+      "text": "in",
+      "start": 22.57,
+      "end": 22.65,
+      "source_start": 22.57,
+      "source_end": 22.65
+    },
+    {
+      "text": "the",
+      "start": 22.65,
+      "end": 22.729999999999997,
+      "source_start": 22.65,
+      "source_end": 22.729999999999997
+    },
+    {
+      "text": "back",
+      "start": 22.729999999999997,
+      "end": 22.839937499999998,
+      "source_start": 22.729999999999997,
+      "source_end": 22.839937499999998
+    },
+    {
+      "text": "of",
+      "start": 22.89,
+      "end": 22.97,
+      "source_start": 22.89,
+      "source_end": 22.97
+    },
+    {
+      "text": "my",
+      "start": 22.97,
+      "end": 23.13,
+      "source_start": 22.97,
+      "source_end": 23.13
+    },
+    {
+      "text": "head",
+      "start": 23.13,
+      "end": 23.369999999999997,
+      "source_start": 23.13,
+      "source_end": 23.369999999999997
+    },
+    {
+      "text": "that",
+      "start": 23.369999999999997,
+      "end": 23.61,
+      "source_start": 23.369999999999997,
+      "source_end": 23.61
+    },
+    {
+      "text": "got",
+      "start": 23.61,
+      "end": 23.77,
+      "source_start": 23.61,
+      "source_end": 23.77
+    },
+    {
+      "text": "me",
+      "start": 23.77,
+      "end": 23.93,
+      "source_start": 23.77,
+      "source_end": 23.93
+    },
+    {
+      "text": "excited.",
+      "start": 23.93,
+      "end": 24.97,
+      "source_start": 23.93,
+      "source_end": 24.97
+    },
+    {
+      "text": "I",
+      "start": 24.97,
+      "end": 25.13,
+      "source_start": 24.97,
+      "source_end": 25.13
+    },
+    {
+      "text": "mean,",
+      "start": 25.13,
+      "end": 25.4,
+      "source_start": 25.13,
+      "source_end": 25.4
+    },
+    {
+      "text": "you",
+      "start": 25.61,
+      "end": 25.77,
+      "source_start": 25.61,
+      "source_end": 25.77
+    },
+    {
+      "text": "know,",
+      "start": 25.77,
+      "end": 26.09,
+      "source_start": 25.77,
+      "source_end": 26.09
+    },
+    {
+      "text": "I",
+      "start": 26.09,
+      "end": 26.25,
+      "source_start": 26.09,
+      "source_end": 26.25
+    },
+    {
+      "text": "was",
+      "start": 26.25,
+      "end": 26.409999999999997,
+      "source_start": 26.25,
+      "source_end": 26.409999999999997
+    },
+    {
+      "text": "happy",
+      "start": 26.41,
+      "end": 26.65,
+      "source_start": 26.41,
+      "source_end": 26.65
+    },
+    {
+      "text": "to",
+      "start": 26.65,
+      "end": 26.729999999999997,
+      "source_start": 26.65,
+      "source_end": 26.729999999999997
+    },
+    {
+      "text": "do",
+      "start": 26.729999999999997,
+      "end": 26.89,
+      "source_start": 26.729999999999997,
+      "source_end": 26.89
+    },
+    {
+      "text": "it.",
+      "start": 26.89,
+      "end": 27.119999999999997,
+      "source_start": 26.89,
+      "source_end": 27.119999999999997
+    },
+    {
+      "text": "Some",
+      "start": 27.13,
+      "end": 27.29,
+      "source_start": 27.13,
+      "source_end": 27.29
+    },
+    {
+      "text": "of",
+      "start": 27.29,
+      "end": 27.369999999999997,
+      "source_start": 27.29,
+      "source_end": 27.369999999999997
+    },
+    {
+      "text": "it",
+      "start": 27.369999999999997,
+      "end": 27.53,
+      "source_start": 27.369999999999997,
+      "source_end": 27.53
+    },
+    {
+      "text": "was",
+      "start": 27.53,
+      "end": 27.61,
+      "source_start": 27.53,
+      "source_end": 27.61
+    },
+    {
+      "text": "interesting",
+      "start": 27.61,
+      "end": 27.85,
+      "source_start": 27.61,
+      "source_end": 27.85
+    },
+    {
+      "text": "but",
+      "start": 27.93,
+      "end": 28.17,
+      "source_start": 27.93,
+      "source_end": 28.17
+    },
+    {
+      "text": "At",
+      "start": 28.44,
+      "end": 28.76,
+      "source_start": 28.44,
+      "source_end": 28.76
+    },
+    {
+      "text": "the",
+      "start": 28.76,
+      "end": 28.92,
+      "source_start": 28.76,
+      "source_end": 28.92
+    },
+    {
+      "text": "end",
+      "start": 28.92,
+      "end": 29.07,
+      "source_start": 28.92,
+      "source_end": 29.07
+    },
+    {
+      "text": "of",
+      "start": 29.080000000000002,
+      "end": 29.240000000000002,
+      "source_start": 29.080000000000002,
+      "source_end": 29.240000000000002
+    },
+    {
+      "text": "the",
+      "start": 29.240000000000002,
+      "end": 29.400000000000002,
+      "source_start": 29.240000000000002,
+      "source_end": 29.400000000000002
+    },
+    {
+      "text": "day.",
+      "start": 29.400000000000002,
+      "end": 30.0,
+      "source_start": 29.400000000000002,
+      "source_end": 30.0
+    }
+  ],
+  "status": "answered",
+  "source_interval": {
+    "source_id": "IMG_1818",
+    "start_seconds": 0.0,
+    "end_seconds": 30.0,
+    "timebase": "original_source_audio_seconds"
+  }
+}
