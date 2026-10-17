@@ -1,0 +1,59 @@
+{
+  "adoption_decision": "retain baseline",
+  "decision_reason": "Existing dialogue cleanup option; keep query-triggered. No real-footage labels establish preference.",
+  "evidence": [],
+  "fixture": "Synthetic five-second TTS speech/music/noise mixture, 5.24 dB input SNR, with 10 ms 4 kHz click. No real-footage or human labels.",
+  "format": "ren_evaluation_report/1",
+  "license_class": "MIT OR Apache-2.0",
+  "limitations": [
+    "One generated TTS mixture; not podcast or Apple 001.",
+    "Click retention is a technical transient proxy, not editorial quality.",
+    "Enhancement models are not general source separators."
+  ],
+  "metrics": {
+    "aligned_speech_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 15.3088773475
+    },
+    "click_projection_retention": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.01839
+    },
+    "click_retention_change_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -34.71
+    },
+    "complete_separation_seconds": {
+      "dimension": "cost",
+      "unit": "s",
+      "value": 9.24
+    },
+    "output_alignment_offset_ms": {
+      "dimension": "latency",
+      "unit": "ms",
+      "value": 30
+    },
+    "speech_si_sdr_gain_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 10.2008773475
+    }
+  },
+  "modality": "audio.enhance",
+  "revision": "DeepFilterNet 0.5.6 / measured 2026-10-15",
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "DeepFilterNet/0.5.6",
+    "models": {
+      "model": "DeepFilterNet 0.5.6",
+      "runtime": "deep-filter 0.5.6"
+    },
+    "role": "baseline"
+  }
+}

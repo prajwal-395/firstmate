@@ -1,0 +1,474 @@
+{
+  "aggregation": "modality_and_split_only; no_blended_score_or_version_ranking",
+  "dimensions": [
+    "quality",
+    "latency",
+    "memory",
+    "cost"
+  ],
+  "format": "ren_intelligence_scorecard/1",
+  "selection_policy": "selection_basis is limited to training/calibration; held_out is report-only",
+  "sources": [
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/58/video-editing-pilot/docs/benchmarks/2026-10-15-clear-enhancement-eval.json",
+      "sha256": "5281d3173df30db84ca1ef91daf425544ebf2ae3aec9859a37e3d0f38e3b226e"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/58/video-editing-pilot/docs/benchmarks/2026-10-15-deepfilternet-enhancement-eval.json",
+      "sha256": "5766ddd32b831bc83176f6b054afee057df48966ac7de4e42c04b88f3b0f760b"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/58/video-editing-pilot/docs/benchmarks/2026-10-15-demucs-baseline-eval.json",
+      "sha256": "79badcba5f32edf5a34873958f5da23d516368e7b6012aac421552eaa0f4bf4f"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/58/video-editing-pilot/docs/benchmarks/2026-10-15-demucs-mlx-eval.json",
+      "sha256": "bc18d7c92500e48014a8d50476a482578cf53e4a4d9dfbedf8249043878fdbf6"
+    },
+    {
+      "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/58/video-editing-pilot/docs/benchmarks/2026-10-15-mlx-audio-separator-eval.json",
+      "sha256": "55f30f578ab816909172d5cd115d6bc937d5fbd539129771dfa78265d600ef00"
+    }
+  ],
+  "versions": {
+    "DeepFilterNet/0.5.6": {
+      "modalities": {
+        "audio.enhance": {
+          "calibration": {
+            "evidence_checksums": {},
+            "metrics": {
+              "aligned_speech_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 15.3088773475
+              },
+              "click_projection_retention": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.01839
+              },
+              "click_retention_change_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -34.71
+              },
+              "complete_separation_seconds": {
+                "dimension": "cost",
+                "unit": "s",
+                "value": 9.24
+              },
+              "output_alignment_offset_ms": {
+                "dimension": "latency",
+                "unit": "ms",
+                "value": 30
+              },
+              "speech_si_sdr_gain_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 10.2008773475
+              }
+            },
+            "revision": "DeepFilterNet 0.5.6 / measured 2026-10-15",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "model": "DeepFilterNet 0.5.6",
+        "runtime": "deep-filter 0.5.6"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "audio.enhance": [
+          "memory"
+        ]
+      }
+    },
+    "DesertAnt-Clear/clear-studio-v0.3.0": {
+      "modalities": {
+        "audio.enhance": {
+          "calibration": {
+            "evidence_checksums": {},
+            "metrics": {
+              "aligned_speech_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 7.9394589682
+              },
+              "click_projection_retention": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.8318
+              },
+              "click_retention_change_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -1.6
+              },
+              "complete_separation_seconds": {
+                "dimension": "cost",
+                "unit": "s",
+                "value": 2.35
+              },
+              "installed_model_bundle_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 9408512
+              },
+              "output_alignment_offset_ms": {
+                "dimension": "latency",
+                "unit": "ms",
+                "value": 0
+              },
+              "processing_seconds_reported": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.365
+              },
+              "speech_si_sdr_gain_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 2.8305816207
+              }
+            },
+            "revision": "Desert Ant Clear clear-studio v0.3.0 / measured 2026-10-15",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "model": "clear-studio v0.3.0",
+        "runtime": "desertant 0.1.1 CoreML"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "audio.enhance": []
+      }
+    },
+    "demucs-infer/htdemucs": {
+      "modalities": {
+        "audio.separate": {
+          "calibration": {
+            "evidence_checksums": {
+              "benchmark-worker": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e",
+              "fixture-and-metrics": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9",
+              "prior-c6-baseline": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+            },
+            "metrics": {
+              "cold_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 41.303504124996834
+              },
+              "cold_input_decode_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.0019086249958490953
+              },
+              "complete_separation_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 73.18288227148878
+              },
+              "dialogue_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 6.942905691107097
+              },
+              "dialogue_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -18.11221288610912
+              },
+              "model_load_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 1.4903613750066143
+              },
+              "music_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -0.3632653192048442
+              },
+              "music_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 0.356536231665592
+              },
+              "output_serialize_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.0681018339964794
+              },
+              "peak_process_rss_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 1656127488.0
+              },
+              "separation_cost_6s_input": {
+                "dimension": "cost",
+                "unit": "seconds/6-second-input",
+                "value": 73.18288227148878
+              },
+              "warm_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 73.11287181249645
+              }
+            },
+            "revision": "demucs-infer/htdemucs  / measured 2026-10-15",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "runtime": "demucs-infer==4.2.2",
+        "source": "htdemucs@955717e8"
+      },
+      "role": "baseline",
+      "unmeasured": {
+        "audio.separate": []
+      }
+    },
+    "demucs-mlx/htdemucs": {
+      "modalities": {
+        "audio.separate": {
+          "calibration": {
+            "evidence_checksums": {
+              "benchmark-worker": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e",
+              "fixture-and-metrics": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9",
+              "prior-c6-baseline": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+            },
+            "metrics": {
+              "cold_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 3.061352790988167
+              },
+              "cold_input_decode_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.007595459013828076
+              },
+              "complete_separation_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 1.9638489380013198
+              },
+              "dialogue_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 6.854104212977717
+              },
+              "dialogue_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -17.900733131053556
+              },
+              "model_load_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 1.0571904169919435
+              },
+              "music_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -0.3612726931398736
+              },
+              "music_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 0.3545111299141051
+              },
+              "output_serialize_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.026990707992808893
+              },
+              "peak_mlx_memory_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 2078405960.0
+              },
+              "peak_process_rss_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 217350144.0
+              },
+              "separation_cost_6s_input": {
+                "dimension": "cost",
+                "unit": "seconds/6-second-input",
+                "value": 1.9638489380013198
+              },
+              "warm_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 1.9292627709946828
+              },
+              "waveform_bass_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0008915032958611846
+              },
+              "waveform_drums_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.009501217864453793
+              },
+              "waveform_other_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.004638343583792448
+              },
+              "waveform_vocals_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.06500061601400375
+              },
+              "waveform_vocals_snr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 23.741649627685547
+              }
+            },
+            "revision": "demucs-mlx  / measured 2026-10-15",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "runtime": "demucs-mlx==1.4.8",
+        "source": "htdemucs@955717e8"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "audio.separate": []
+      }
+    },
+    "mlx-audio-separator/htdemucs": {
+      "modalities": {
+        "audio.separate": {
+          "calibration": {
+            "evidence_checksums": {
+              "benchmark-worker": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e",
+              "fixture-and-metrics": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9",
+              "prior-c6-baseline": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+            },
+            "metrics": {
+              "cold_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 1.7997822920006001
+              },
+              "cold_input_decode_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.22776300000259653
+              },
+              "complete_separation_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.7624839790005353
+              },
+              "dialogue_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 6.980443330022914
+              },
+              "dialogue_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -18.091097194552663
+              },
+              "model_load_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.9766287080128677
+              },
+              "music_bleed_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": -0.36105584435195526
+              },
+              "music_si_sdr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 0.3543064203623155
+              },
+              "output_serialize_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.0031525000085821375
+              },
+              "peak_mlx_memory_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 3044918488.0
+              },
+              "peak_process_rss_bytes": {
+                "dimension": "memory",
+                "unit": "bytes",
+                "value": 269713408.0
+              },
+              "separation_cost_6s_input": {
+                "dimension": "cost",
+                "unit": "seconds/6-second-input",
+                "value": 0.7624839790005353
+              },
+              "warm_inference_seconds": {
+                "dimension": "latency",
+                "unit": "s",
+                "value": 0.6745468335066107
+              },
+              "waveform_bass_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.0005038402159698308
+              },
+              "waveform_drums_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.010084334760904312
+              },
+              "waveform_other_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.004470741841942072
+              },
+              "waveform_vocals_rel_l2": {
+                "dimension": "quality",
+                "unit": "ratio",
+                "value": 0.07145974785089493
+              },
+              "waveform_vocals_snr_db": {
+                "dimension": "quality",
+                "unit": "dB",
+                "value": 22.91876983642578
+              }
+            },
+            "revision": "mlx-audio-separator 0.1.20 / measured 2026-10-15",
+            "selection_basis": [
+              "calibration"
+            ]
+          }
+        }
+      },
+      "models": {
+        "runtime": "mlx-audio-separator==0.1.20",
+        "source": "htdemucs@955717e8"
+      },
+      "role": "candidate",
+      "unmeasured": {
+        "audio.separate": []
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "span_id": "apple-001-IMG_1808-calibration-t03-23",
+  "split": "calibration",
+  "source_id": "IMG_1808",
+  "collection": "apple-001",
+  "source_path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+  "source_sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+  "source_start_seconds": 3.0,
+  "source_end_seconds": 23.0,
+  "duration_seconds": 20.0,
+  "sample_rate_hz": 44100,
+  "channels": 2,
+  "input_sha256": "3970e169293f5974bbb9f8a35154077ab9126056b4b1bf75bc45ba7a90a41e46",
+  "extraction": "ffmpeg -ss 3 -t 20 -vn -ac 2 -ar 44100 -c:a pcm_f32le",
+  "rights_basis": "captain_001_clearance_2026-10-15"
+}

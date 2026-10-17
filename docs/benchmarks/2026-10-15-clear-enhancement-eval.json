@@ -1,0 +1,69 @@
+{
+  "adoption_decision": "research-only",
+  "decision_reason": "Retains substantially more click energy on this single synthetic mixture but improves aligned speech SI-SDR less than DeepFilterNet. No real-footage labels establish preference.",
+  "evidence": [],
+  "fixture": "Synthetic five-second TTS speech/music/noise mixture, 5.24 dB input SNR, with 10 ms 4 kHz click. No real-footage or human labels.",
+  "format": "ren_evaluation_report/1",
+  "license_class": "Source-available; commercial terms vary by monthly active users; attribution required.",
+  "limitations": [
+    "One generated TTS mixture; not podcast or Apple 001.",
+    "Click retention is a technical transient proxy, not editorial quality.",
+    "Enhancement models are not general source separators."
+  ],
+  "metrics": {
+    "aligned_speech_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 7.9394589682
+    },
+    "click_projection_retention": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.8318
+    },
+    "click_retention_change_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -1.6
+    },
+    "complete_separation_seconds": {
+      "dimension": "cost",
+      "unit": "s",
+      "value": 2.35
+    },
+    "installed_model_bundle_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 9408512
+    },
+    "output_alignment_offset_ms": {
+      "dimension": "latency",
+      "unit": "ms",
+      "value": 0
+    },
+    "processing_seconds_reported": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.365
+    },
+    "speech_si_sdr_gain_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 2.8305816207
+    }
+  },
+  "modality": "audio.enhance",
+  "revision": "Desert Ant Clear clear-studio v0.3.0 / measured 2026-10-15",
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "DesertAnt-Clear/clear-studio-v0.3.0",
+    "models": {
+      "model": "clear-studio v0.3.0",
+      "runtime": "desertant 0.1.1 CoreML"
+    },
+    "role": "candidate"
+  }
+}

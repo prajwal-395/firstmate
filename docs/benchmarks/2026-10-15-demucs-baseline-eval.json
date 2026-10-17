@@ -1,0 +1,113 @@
+{
+  "adoption_decision": "retain baseline",
+  "decision_reason": "Existing runtime is retained; its six-second proxy is a calibration baseline.",
+  "evidence": [
+    {
+      "id": "benchmark-worker",
+      "path": "../../scripts/benchmark_source_separation.py",
+      "sha256": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e"
+    },
+    {
+      "id": "fixture-and-metrics",
+      "path": "../../library/tools/analysis/source_separation.py",
+      "sha256": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9"
+    },
+    {
+      "id": "prior-c6-baseline",
+      "path": "2026-10-13-source-separation-c6.json",
+      "sha256": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+    }
+  ],
+  "fixture": "C6 synthetic three-stem proxy",
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "cold_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 41.303504124996834
+    },
+    "cold_input_decode_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.0019086249958490953
+    },
+    "complete_separation_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 73.18288227148878
+    },
+    "dialogue_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 6.942905691107097
+    },
+    "dialogue_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -18.11221288610912
+    },
+    "model_load_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 1.4903613750066143
+    },
+    "music_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -0.3632653192048442
+    },
+    "music_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 0.356536231665592
+    },
+    "output_serialize_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.0681018339964794
+    },
+    "peak_process_rss_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 1656127488.0
+    },
+    "separation_cost_6s_input": {
+      "dimension": "cost",
+      "unit": "seconds/6-second-input",
+      "value": 73.18288227148878
+    },
+    "warm_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 73.11287181249645
+    }
+  },
+  "modality": "audio.separate",
+  "revision": "demucs-infer/htdemucs  / measured 2026-10-15",
+  "runtime_measurements": {
+    "cold_inference_seconds": 41.303504124996834,
+    "cold_input_decode_seconds": 0.0019086249958490953,
+    "complete_separation_seconds": 73.18288227148878,
+    "model_load_seconds": 1.4903613750066143,
+    "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+    "output_serialize_seconds": 0.0681018339964794,
+    "peak_rss_bytes": 1656127488,
+    "warm_inference_seconds_each": [
+      80.27616258298804,
+      65.94958104200487
+    ],
+    "warm_inference_seconds_median": 73.11287181249645
+  },
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "demucs-infer/htdemucs",
+    "models": {
+      "runtime": "demucs-infer==4.2.2",
+      "source": "htdemucs@955717e8"
+    },
+    "role": "baseline"
+  }
+}

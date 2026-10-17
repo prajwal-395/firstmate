@@ -1,0 +1,148 @@
+{
+  "adoption_decision": "conditional fallback",
+  "decision_reason": "Faster on this synthetic proxy with close output parity; condition adoption on real-footage labels and memory qualification.",
+  "evidence": [
+    {
+      "id": "benchmark-worker",
+      "path": "../../scripts/benchmark_source_separation.py",
+      "sha256": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e"
+    },
+    {
+      "id": "fixture-and-metrics",
+      "path": "../../library/tools/analysis/source_separation.py",
+      "sha256": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9"
+    },
+    {
+      "id": "prior-c6-baseline",
+      "path": "2026-10-13-source-separation-c6.json",
+      "sha256": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+    }
+  ],
+  "fixture": "C6 synthetic three-stem proxy",
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "cold_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 3.061352790988167
+    },
+    "cold_input_decode_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.007595459013828076
+    },
+    "complete_separation_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 1.9638489380013198
+    },
+    "dialogue_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 6.854104212977717
+    },
+    "dialogue_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -17.900733131053556
+    },
+    "model_load_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 1.0571904169919435
+    },
+    "music_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -0.3612726931398736
+    },
+    "music_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 0.3545111299141051
+    },
+    "output_serialize_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.026990707992808893
+    },
+    "peak_mlx_memory_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 2078405960.0
+    },
+    "peak_process_rss_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 217350144.0
+    },
+    "separation_cost_6s_input": {
+      "dimension": "cost",
+      "unit": "seconds/6-second-input",
+      "value": 1.9638489380013198
+    },
+    "warm_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 1.9292627709946828
+    },
+    "waveform_bass_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0008915032958611846
+    },
+    "waveform_drums_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.009501217864453793
+    },
+    "waveform_other_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.004638343583792448
+    },
+    "waveform_vocals_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.06500061601400375
+    },
+    "waveform_vocals_snr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 23.741649627685547
+    }
+  },
+  "modality": "audio.separate",
+  "revision": "demucs-mlx  / measured 2026-10-15",
+  "runtime_measurements": {
+    "cold_inference_seconds": 3.061352790988167,
+    "cold_input_decode_seconds": 0.007595459013828076,
+    "complete_separation_seconds": 1.9638489380013198,
+    "mlx_memory": {
+      "active_bytes": 193555524,
+      "cache_bytes": 4355028408,
+      "peak_bytes": 2078405960
+    },
+    "model_load_seconds": 1.0571904169919435,
+    "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+    "output_serialize_seconds": 0.026990707992808893,
+    "peak_rss_bytes": 217350144,
+    "warm_inference_seconds_each": [
+      2.475602833001176,
+      1.3829227089881897
+    ],
+    "warm_inference_seconds_median": 1.9292627709946828
+  },
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "demucs-mlx/htdemucs",
+    "models": {
+      "runtime": "demucs-mlx==1.4.8",
+      "source": "htdemucs@955717e8"
+    },
+    "role": "candidate"
+  }
+}

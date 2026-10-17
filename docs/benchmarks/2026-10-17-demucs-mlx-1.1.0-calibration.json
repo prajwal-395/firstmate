@@ -1,0 +1,530 @@
+{
+  "adoption_decision": "retain baseline",
+  "baseline": {
+    "identity": {
+      "device": "cpu",
+      "implementation": "demucs-infer/htdemucs",
+      "model": "htdemucs",
+      "overlap": 0.25,
+      "revision": "955717e8",
+      "sample_rate_hz": 44100,
+      "shifts": 0,
+      "weights_precision": "fp32"
+    },
+    "metrics": {
+      "cold_inference_seconds": 21.363118750006834,
+      "cold_input_decode_seconds": 0.004504833996179514,
+      "complete_separation_seconds": 11.203221063500678,
+      "model_load_seconds": 0.18851733399787918,
+      "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+      "output_serialize_seconds": 0.029233459004899487,
+      "peak_rss_bytes": 1734410240,
+      "scheduler_peak_footprint_gb": 1.771,
+      "warm_inference_seconds_each": [
+        11.433599208001397,
+        10.9053663329978
+      ],
+      "warm_inference_seconds_median": 11.169482770499599
+    },
+    "modality": "audio.separate",
+    "schema": "ren_separation_benchmark/1",
+    "split": "calibration",
+    "version": {
+      "id": "demucs-infer/htdemucs",
+      "models": {
+        "runtime": "demucs-infer/htdemucs",
+        "signature": "955717e8",
+        "source": "htdemucs"
+      },
+      "role": "baseline"
+    }
+  },
+  "caller_audit": {
+    "decision": "Retain PyTorch for the active four-stem music.analyse path. Do not switch an unused two-signal helper by default. Revisit the helper if it gains a production caller and the paired output scorecard passes the intended quality review.",
+    "downstream_stem_consumers": "No in-repository reader of those returned stem paths was found; the operation response exposes the four-stem result to its caller.",
+    "production_path": "library.capabilities.music.analyse invokes library.tools.analysis.music_pipeline.analyze_music, which invokes separate_stems and writes vocals, drums, bass and other files.",
+    "two_signal_interface": "library.tools.analysis.source_separation.separate_waveform returns dialogue_candidate from vocals and music_candidate from the sum of bass, drums and other; repository callers are benchmark_c6 and tests only."
+  },
+  "candidate": {
+    "identity": {
+      "batch_size": 2,
+      "device": "Apple GPU / MLX",
+      "implementation": "demucs-mlx",
+      "model": "htdemucs",
+      "overlap": 0.25,
+      "revision": "955717e8",
+      "runtime": "demucs-mlx==1.1.0",
+      "sample_rate_hz": 44100,
+      "shifts": 0,
+      "weights_precision": "fp32; attention fp32"
+    },
+    "metrics": {
+      "cold_inference_seconds": 1.7197092499991413,
+      "cold_input_decode_seconds": 0.0021152920089662075,
+      "complete_separation_seconds": 1.4304021875141189,
+      "mlx_memory": {
+        "active_bytes": 232720204,
+        "cache_bytes": 8539151496,
+        "peak_bytes": 2769455720
+      },
+      "model_load_seconds": 0.05631729098968208,
+      "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+      "output_serialize_seconds": 0.0496272080054041,
+      "peak_rss_bytes": 286982144,
+      "scheduler_peak_footprint_gb": 8.286,
+      "warm_inference_seconds_each": [
+        1.389511790999677,
+        1.36780758399982
+      ],
+      "warm_inference_seconds_median": 1.3786596874997485
+    },
+    "modality": "audio.separate",
+    "schema": "ren_separation_benchmark/1",
+    "split": "calibration",
+    "version": {
+      "id": "demucs-mlx",
+      "models": {
+        "runtime": "demucs-mlx",
+        "signature": "955717e8",
+        "source": "htdemucs"
+      },
+      "role": "candidate"
+    }
+  },
+  "comparison_method": {
+    "acceptance_threshold": "difference SNR >= 40 dB for every stem",
+    "candidate": "demucs-mlx 1.1.0 WAV output",
+    "formula": "difference SNR = 10*log10(sum(reference^2)/sum((candidate-reference)^2)); max absolute difference over aligned float32 samples",
+    "reference": "demucs-infer/htdemucs WAV output",
+    "result": "FAIL: all four stems are below threshold",
+    "samples_per_stem": 882000
+  },
+  "decision_reason": "The active music.analyse caller exposes all four stems, including the still-divergent other component. The two-signal helper has no production caller. Retain PyTorch for the active path pending a consumer-specific integration and qualification.",
+  "limitations": [
+    "Real footage has no isolated ground-truth stems, so no SI-SDR is reported here.",
+    "Waveform parity measures runtime closeness, not separation quality.",
+    "These are technical comparisons, not editorial-quality judgments.",
+    "A numerical output-equivalence threshold does not establish real-footage separation quality against ground truth."
+  ],
+  "normalization_diagnostic": {
+    "change": "Applied the incumbent demucs-infer wrapper normalization (channel-mean reference, global reference mean and unbiased standard deviation), separated the normalized waveform, then restored output scale and mean.",
+    "interpretation": "Wrapper normalization explains the vocals gap: vocals rise from 38.64 dB to 48.11 dB. The paired accompaniment residual rises from 33.26 dB to 35.07 dB. The four-stem other component remains divergent. Both measured runs use FP32, zero shifts and 0.25 overlap; source inspection found matching triangular weighted overlap-add formulas. This rules out a settings mismatch in precision or overlap-add as the cause. The remaining other-stem difference is not isolated to a specific MLX operator. The other reference stem has 0.002437 RMS and the aligned error has 0.000333 RMS (12.65% relative L2); real-footage ground truth is unavailable.",
+    "purpose": "Investigate the observed candidate-to-incumbent output divergence under the same 20-second Apple 001 calibration input.",
+    "results": {
+      "bass": {
+        "difference_relative_l2": 0.023243734,
+        "difference_snr_db": 32.673882,
+        "max_abs_difference": 0.00635384
+      },
+      "drums": {
+        "difference_relative_l2": 0.031308513,
+        "difference_snr_db": 30.086748,
+        "max_abs_difference": 0.014079124
+      },
+      "music_candidate_sum_bass_drums_other": {
+        "difference_relative_l2": 0.017648397,
+        "difference_snr_db": 35.065892,
+        "max_abs_difference": 0.016734451
+      },
+      "other": {
+        "difference_relative_l2": 0.126489088,
+        "difference_snr_db": 17.958937,
+        "max_abs_difference": 0.01246284
+      },
+      "vocals": {
+        "difference_relative_l2": 0.003929843,
+        "difference_snr_db": 48.112492,
+        "max_abs_difference": 0.008931745
+      }
+    },
+    "runtime": "demucs-mlx==1.1.0 with MLX 0.32.4; loaded the isolated 1.1.0 calibration cache whose conversion metadata records MLX 0.30.3.",
+    "scheduler_peak_reservation_gb": 8.5,
+    "source_files": "Temporary diagnostic output and script under /tmp/vep-mu-demucs; outputs were not added to the repository."
+  },
+  "processing": {
+    "overlap": 0.25,
+    "sample_rate_hz": 44100,
+    "shifts": 0,
+    "stems": [
+      "vocals",
+      "drums",
+      "bass",
+      "other"
+    ],
+    "weights_precision": "full precision on both; MLX attention fp32"
+  },
+  "runtime_comparison": {
+    "basis": "20-second calibration input; complete_separation_seconds",
+    "complete_separation_speedup_vs_baseline": 7.832217512873522
+  },
+  "scheduler_observation": {
+    "admission": "completed under 10 GB ceiling",
+    "measurement_source": "resource-scheduler.sqlite3 grant for vep-mu-demucs, 2026-10-17T02:23:11Z",
+    "peak_physical_footprint_gb": 8.286,
+    "reservation_gb": 8.5
+  },
+  "schema": "ren_separation_realfoot_comparison/1",
+  "scorecards": {
+    "baseline": {
+      "adoption_decision": "retain baseline",
+      "decision_reason": "Existing runtime is retained; real-footage quality awaits blind agent labels.",
+      "evidence": [
+        {
+          "id": "benchmark-worker",
+          "path": "scripts/benchmark_source_separation.py",
+          "sha256": "3025651d57530acbedd2fbf62708a15f7bf80b58aa6e6504bc8d87c88f8680b8"
+        },
+        {
+          "id": "span-provenance",
+          "path": "2026-10-17-demucs-mlx-1.1.0-calibration-span.json",
+          "sha256": "685d7f8c21ca150c3ddb8d61b57234d0d9aeed4144143546960d5efdce725843"
+        },
+        {
+          "id": "realfoot-comparison-worker",
+          "path": "scripts/benchmark_separation_realfoot.py",
+          "sha256": "c5b545040b4eb59ab79fa557cbc32d387da5bbad57f1452d385da600be2caee1"
+        }
+      ],
+      "fixture": "apple-001-IMG_1808-calibration-t03-23",
+      "format": "ren_evaluation_report/1",
+      "metrics": {
+        "cold_inference_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 21.363118750006834
+        },
+        "cold_input_decode_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.004504833996179514
+        },
+        "complete_separation_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 11.203221063500678
+        },
+        "model_load_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.18851733399787918
+        },
+        "output_serialize_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.029233459004899487
+        },
+        "peak_process_rss_bytes": {
+          "dimension": "memory",
+          "unit": "bytes",
+          "value": 1734410240.0
+        },
+        "scheduler_peak_footprint_gb": {
+          "dimension": "memory",
+          "unit": "GB",
+          "value": 1.771
+        },
+        "separation_cost_20s_input": {
+          "dimension": "cost",
+          "unit": "seconds/20-second-input",
+          "value": 11.203221063500678
+        },
+        "warm_inference_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 11.169482770499599
+        }
+      },
+      "modality": "audio.separate",
+      "revision": "demucs-infer/htdemucs  / measured 2026-10-17",
+      "runtime_measurements": {
+        "cold_inference_seconds": 21.363118750006834,
+        "cold_input_decode_seconds": 0.004504833996179514,
+        "complete_separation_seconds": 11.203221063500678,
+        "model_load_seconds": 0.18851733399787918,
+        "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+        "output_serialize_seconds": 0.029233459004899487,
+        "peak_rss_bytes": 1734410240,
+        "scheduler_peak_footprint_gb": 1.771,
+        "warm_inference_seconds_each": [
+          11.433599208001397,
+          10.9053663329978
+        ],
+        "warm_inference_seconds_median": 11.169482770499599
+      },
+      "selection_basis": [
+        "calibration"
+      ],
+      "span": {
+        "channels": 2,
+        "collection": "apple-001",
+        "duration_seconds": 20.0,
+        "extraction": "ffmpeg -ss 3 -t 20 -vn -ac 2 -ar 44100 -c:a pcm_f32le",
+        "input_sha256": "3970e169293f5974bbb9f8a35154077ab9126056b4b1bf75bc45ba7a90a41e46",
+        "rights_basis": "captain_001_clearance_2026-10-15",
+        "sample_rate_hz": 44100,
+        "source_end_seconds": 23.0,
+        "source_id": "IMG_1808",
+        "source_path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+        "source_sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+        "source_start_seconds": 3.0,
+        "span_id": "apple-001-IMG_1808-calibration-t03-23",
+        "split": "calibration"
+      },
+      "split": "calibration",
+      "version": {
+        "id": "demucs-infer/htdemucs",
+        "models": {
+          "runtime": "demucs-infer==4.2.2",
+          "source": "htdemucs@955717e8"
+        },
+        "role": "baseline"
+      }
+    },
+    "candidate": {
+      "adoption_decision": "conditional fallback",
+      "decision_reason": "Fast candidate; vocals reach 48.11 dB after matching wrapper normalization. The active production caller exposes all four stems and other remains at 17.96 dB, so the current four-stem path retains PyTorch.",
+      "evidence": [
+        {
+          "id": "benchmark-worker",
+          "path": "scripts/benchmark_source_separation.py",
+          "sha256": "3025651d57530acbedd2fbf62708a15f7bf80b58aa6e6504bc8d87c88f8680b8"
+        },
+        {
+          "id": "span-provenance",
+          "path": "2026-10-17-demucs-mlx-1.1.0-calibration-span.json",
+          "sha256": "685d7f8c21ca150c3ddb8d61b57234d0d9aeed4144143546960d5efdce725843"
+        },
+        {
+          "id": "realfoot-comparison-worker",
+          "path": "scripts/benchmark_separation_realfoot.py",
+          "sha256": "c5b545040b4eb59ab79fa557cbc32d387da5bbad57f1452d385da600be2caee1"
+        }
+      ],
+      "fixture": "apple-001-IMG_1808-calibration-t03-23",
+      "format": "ren_evaluation_report/1",
+      "license": {
+        "runtime_code": {
+          "class": "MIT",
+          "evidence": "https://pypi.org/project/demucs-mlx/1.1.0/",
+          "revision": "35b790cfe4d7ab34c8fb419552efcef9204a7f89"
+        },
+        "weights": {
+          "class": "MIT at upstream source, per existing Demucs license record",
+          "qualification": "Converted artifact distribution remains quarantined in library/model_registry/license_evidence.json pending license-lane reconciliation.",
+          "source": "official HTDemucs checkpoint signature 955717e8"
+        }
+      },
+      "metrics": {
+        "cold_inference_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 1.7197092499991413
+        },
+        "cold_input_decode_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.0021152920089662075
+        },
+        "complete_separation_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 1.4304021875141189
+        },
+        "model_load_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.05631729098968208
+        },
+        "output_serialize_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 0.0496272080054041
+        },
+        "peak_mlx_memory_bytes": {
+          "dimension": "memory",
+          "unit": "bytes",
+          "value": 2769455720.0
+        },
+        "peak_process_rss_bytes": {
+          "dimension": "memory",
+          "unit": "bytes",
+          "value": 286982144.0
+        },
+        "scheduler_peak_footprint_gb": {
+          "dimension": "memory",
+          "unit": "GB",
+          "value": 8.286
+        },
+        "separation_cost_20s_input": {
+          "dimension": "cost",
+          "unit": "seconds/20-second-input",
+          "value": 1.4304021875141189
+        },
+        "warm_inference_seconds": {
+          "dimension": "latency",
+          "unit": "s",
+          "value": 1.3786596874997485
+        },
+        "waveform_bass_difference_snr_db": {
+          "dimension": "quality",
+          "unit": "dB",
+          "value": 28.264063
+        },
+        "waveform_bass_max_abs_difference": {
+          "dimension": "quality",
+          "unit": "float32 amplitude",
+          "value": 0.010153778
+        },
+        "waveform_bass_rel_l2": {
+          "dimension": "quality",
+          "unit": "ratio",
+          "value": 0.038618628
+        },
+        "waveform_drums_difference_snr_db": {
+          "dimension": "quality",
+          "unit": "dB",
+          "value": 28.892757
+        },
+        "waveform_drums_max_abs_difference": {
+          "dimension": "quality",
+          "unit": "float32 amplitude",
+          "value": 0.011689082
+        },
+        "waveform_drums_rel_l2": {
+          "dimension": "quality",
+          "unit": "ratio",
+          "value": 0.035922136
+        },
+        "waveform_other_difference_snr_db": {
+          "dimension": "quality",
+          "unit": "dB",
+          "value": 17.291613
+        },
+        "waveform_other_max_abs_difference": {
+          "dimension": "quality",
+          "unit": "float32 amplitude",
+          "value": 0.010162899
+        },
+        "waveform_other_rel_l2": {
+          "dimension": "quality",
+          "unit": "ratio",
+          "value": 0.136590153
+        },
+        "waveform_vocals_difference_snr_db": {
+          "dimension": "quality",
+          "unit": "dB",
+          "value": 38.635948
+        },
+        "waveform_vocals_max_abs_difference": {
+          "dimension": "quality",
+          "unit": "float32 amplitude",
+          "value": 0.012596822
+        },
+        "waveform_vocals_rel_l2": {
+          "dimension": "quality",
+          "unit": "ratio",
+          "value": 0.01170043
+        },
+        "waveform_vocals_snr_db": {
+          "dimension": "quality",
+          "unit": "dB",
+          "value": 38.943685085389355
+        }
+      },
+      "modality": "audio.separate",
+      "revision": "demucs-mlx 1.1.0 / measured 2026-10-17",
+      "runtime_measurements": {
+        "cold_inference_seconds": 1.7197092499991413,
+        "cold_input_decode_seconds": 0.0021152920089662075,
+        "complete_separation_seconds": 1.4304021875141189,
+        "mlx_memory": {
+          "active_bytes": 232720204,
+          "cache_bytes": 8539151496,
+          "peak_bytes": 2769455720
+        },
+        "model_load_seconds": 0.05631729098968208,
+        "output_serialize_format": "WAV FLOAT 32-bit, all four stems",
+        "output_serialize_seconds": 0.0496272080054041,
+        "peak_rss_bytes": 286982144,
+        "scheduler_peak_footprint_gb": 8.286,
+        "warm_inference_seconds_each": [
+          1.389511790999677,
+          1.36780758399982
+        ],
+        "warm_inference_seconds_median": 1.3786596874997485
+      },
+      "selection_basis": [
+        "calibration"
+      ],
+      "span": {
+        "channels": 2,
+        "collection": "apple-001",
+        "duration_seconds": 20.0,
+        "extraction": "ffmpeg -ss 3 -t 20 -vn -ac 2 -ar 44100 -c:a pcm_f32le",
+        "input_sha256": "3970e169293f5974bbb9f8a35154077ab9126056b4b1bf75bc45ba7a90a41e46",
+        "rights_basis": "captain_001_clearance_2026-10-15",
+        "sample_rate_hz": 44100,
+        "source_end_seconds": 23.0,
+        "source_id": "IMG_1808",
+        "source_path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+        "source_sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+        "source_start_seconds": 3.0,
+        "span_id": "apple-001-IMG_1808-calibration-t03-23",
+        "split": "calibration"
+      },
+      "split": "calibration",
+      "version": {
+        "id": "demucs-mlx/htdemucs",
+        "models": {
+          "runtime": "demucs-mlx==1.1.0",
+          "source": "htdemucs@955717e8"
+        },
+        "role": "candidate"
+      }
+    }
+  },
+  "span": {
+    "channels": 2,
+    "collection": "apple-001",
+    "duration_seconds": 20.0,
+    "extraction": "ffmpeg -ss 3 -t 20 -vn -ac 2 -ar 44100 -c:a pcm_f32le",
+    "input_sha256": "3970e169293f5974bbb9f8a35154077ab9126056b4b1bf75bc45ba7a90a41e46",
+    "rights_basis": "captain_001_clearance_2026-10-15",
+    "sample_rate_hz": 44100,
+    "source_end_seconds": 23.0,
+    "source_id": "IMG_1808",
+    "source_path": "content_stuff/post a day keeps the apple away/001/raw/IMG_1808.MOV",
+    "source_sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+    "source_start_seconds": 3.0,
+    "span_id": "apple-001-IMG_1808-calibration-t03-23",
+    "split": "calibration"
+  },
+  "span_provenance": {
+    "path": "2026-10-17-demucs-mlx-1.1.0-calibration-span.json",
+    "sha256": "685d7f8c21ca150c3ddb8d61b57234d0d9aeed4144143546960d5efdce725843"
+  },
+  "split": "calibration",
+  "waveform_parity": {
+    "bass": {
+      "difference_relative_l2": 0.038618628,
+      "difference_snr_db": 28.264063,
+      "max_abs_difference": 0.010153778
+    },
+    "drums": {
+      "difference_relative_l2": 0.035922136,
+      "difference_snr_db": 28.892757,
+      "max_abs_difference": 0.011689082
+    },
+    "other": {
+      "difference_relative_l2": 0.136590153,
+      "difference_snr_db": 17.291613,
+      "max_abs_difference": 0.010162899
+    },
+    "vocals": {
+      "difference_relative_l2": 0.01170043,
+      "difference_snr_db": 38.635948,
+      "max_abs_difference": 0.012596822
+    }
+  },
+  "weights": "htdemucs signature 955717e8, same official source weights"
+}

@@ -1,0 +1,48 @@
+{
+  "schema": "ren_dialogue_enhancement_comparison/1",
+  "modality": "audio.enhance",
+  "split": "calibration",
+  "fixture": {
+    "kind": "synthetic",
+    "duration_seconds": 4.976,
+    "sample_rate_hz": 48000,
+    "speech": "macOS say TTS: The quick brown fox walks over the quiet dog. Please keep every word clear.",
+    "mixture": "speech, 196/247/392 Hz tones, seeded noise at 5.24 dB speech-to-interference SNR, and a 10 ms 4 kHz click",
+    "truth": "isolated generated TTS speech; not real-footage labels"
+  },
+  "comparison": {
+    "clear": {
+      "version": "Desert Ant Clear clear-studio v0.3.0",
+      "runtime": "CoreML, desertant 0.1.1",
+      "license_class": "Source-available; commercial terms vary by monthly active users; attribution required",
+      "processing_seconds_reported": 0.365,
+      "wall_seconds": 2.35,
+      "aligned_speech_si_sdr_before_db": 5.108,
+      "aligned_speech_si_sdr_after_db": 7.939,
+      "aligned_speech_si_sdr_delta_db": 2.831,
+      "click_projection_retention": 0.8318,
+      "click_retention_change_db": -1.60,
+      "output_alignment_offset_ms": 0
+    },
+    "deepfilternet": {
+      "version": "DeepFilterNet 0.5.6",
+      "runtime": "installed deep-filter command through run_deepfilternet",
+      "license_class": "MIT OR Apache-2.0",
+      "wall_seconds": 9.24,
+      "aligned_speech_si_sdr_before_db": 5.108,
+      "aligned_speech_si_sdr_after_db": 15.309,
+      "aligned_speech_si_sdr_delta_db": 10.201,
+      "click_projection_retention": 0.01839,
+      "click_retention_change_db": -34.71,
+      "output_alignment_offset_ms": 30
+    }
+  },
+  "interpretation": "On this generated fixture DeepFilterNet improved aligned speech SI-SDR more and strongly attenuated the click; Clear retained substantially more click energy. These measurements do not establish a preference on podcast or Apple 001 footage, and do not measure general source-separation utility.",
+  "adoption_decision": "research-only",
+  "decision_reason": "No blind independent agent labels or bounded real-footage evaluation are present. Keep cleanup query-triggered and separate from source separation.",
+  "limitations": [
+    "TTS speech is not a natural speaker or human reference annotation.",
+    "One synthetic mixture and one transient do not represent difficult real dialogue/music overlap.",
+    "Clear and DeepFilterNet are dialogue enhancement systems, not general source separators."
+  ]
+}

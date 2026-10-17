@@ -1,0 +1,159 @@
+{
+  "adoption_decision": "research-only",
+  "decision_reason": "This package uses the demucs-mlx implementation internally; retain as research-only unless its package-level workflow adds measurable value over the direct runtime.",
+  "evidence": [
+    {
+      "id": "benchmark-worker",
+      "path": "../../scripts/benchmark_source_separation.py",
+      "sha256": "684dae2ae7bb45632a19271550ccbdb2775e1768472a95a6e540c6bbb826138e"
+    },
+    {
+      "id": "fixture-and-metrics",
+      "path": "../../library/tools/analysis/source_separation.py",
+      "sha256": "f156e5820b7e7032d67552675330cc69c865d91544215fd6e2c6d92e223699e9"
+    },
+    {
+      "id": "prior-c6-baseline",
+      "path": "2026-10-13-source-separation-c6.json",
+      "sha256": "55c9e4a63ac06d39641b3071fe0761c509404f2a63754b21b7f6077da138c287"
+    }
+  ],
+  "fixture": "C6 synthetic three-stem proxy",
+  "format": "ren_evaluation_report/1",
+  "metrics": {
+    "cold_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 1.7997822920006001
+    },
+    "cold_input_decode_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.22776300000259653
+    },
+    "complete_separation_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.7624839790005353
+    },
+    "dialogue_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 6.980443330022914
+    },
+    "dialogue_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -18.091097194552663
+    },
+    "model_load_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.9766287080128677
+    },
+    "music_bleed_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": -0.36105584435195526
+    },
+    "music_si_sdr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 0.3543064203623155
+    },
+    "output_serialize_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.0031525000085821375
+    },
+    "peak_mlx_memory_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 3044918488.0
+    },
+    "peak_process_rss_bytes": {
+      "dimension": "memory",
+      "unit": "bytes",
+      "value": 269713408.0
+    },
+    "separation_cost_6s_input": {
+      "dimension": "cost",
+      "unit": "seconds/6-second-input",
+      "value": 0.7624839790005353
+    },
+    "warm_inference_seconds": {
+      "dimension": "latency",
+      "unit": "s",
+      "value": 0.6745468335066107
+    },
+    "waveform_bass_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0005038402159698308
+    },
+    "waveform_drums_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.010084334760904312
+    },
+    "waveform_other_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.004470741841942072
+    },
+    "waveform_vocals_rel_l2": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.07145974785089493
+    },
+    "waveform_vocals_snr_db": {
+      "dimension": "quality",
+      "unit": "dB",
+      "value": 22.91876983642578
+    }
+  },
+  "modality": "audio.separate",
+  "revision": "mlx-audio-separator 0.1.20 / measured 2026-10-15",
+  "runtime_measurements": {
+    "cold_inference_seconds": 1.7997822920006001,
+    "cold_input_decode_seconds": 0.22776300000259653,
+    "complete_separation_seconds": 0.7624839790005353,
+    "mlx_memory": {
+      "active_bytes": 235386824,
+      "cache_bytes": 0,
+      "peak_bytes": 3044918488
+    },
+    "model_init_seconds": 0.0018365419964538887,
+    "model_load_seconds": 0.9766287080128677,
+    "output_serialize_seconds": 0.0031525000085821375,
+    "package_warm_details": {
+      "cleanup_s": 0.0025535829918226227,
+      "decode_s": 0.0005760420026490465,
+      "inference_s": 0.6515929170127492,
+      "postprocess_s": 0.003639916001702659,
+      "preprocess_s": 0.0,
+      "total_s": 0.6708487089927075,
+      "write_s": 0.00438850000500679
+    },
+    "peak_rss_bytes": 269713408,
+    "warm_inference_seconds_each": [
+      1.129169957988779,
+      0.6467506659973878,
+      0.6975007500004722,
+      0.6515929170127492
+    ],
+    "warm_inference_seconds_median": 0.6745468335066107
+  },
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "mlx-audio-separator/htdemucs",
+    "models": {
+      "runtime": "mlx-audio-separator==0.1.20",
+      "source": "htdemucs@955717e8"
+    },
+    "role": "candidate"
+  }
+}
