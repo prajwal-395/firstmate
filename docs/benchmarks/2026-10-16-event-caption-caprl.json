@@ -1,0 +1,177 @@
+{
+  "decision": "research-only",
+  "decision_basis": "Publisher license limits use to research. Exact lexical evaluator matched 0/73 adjudicated events (and 1/51 raw-B); this does not establish semantic quality. No adoption.",
+  "evidence": [
+    {
+      "id": "caprl_predictions",
+      "path": null,
+      "sha256": "f991147751b90cfe301edad5cfe40d4d5bc58c76a2084479a312796eb5a10202"
+    },
+    {
+      "id": "caprl_run_stats",
+      "path": null,
+      "sha256": "901ec7345b45f60e45a3de39b37a036d186b575c516af37a41ebf99c2d3bd3cb"
+    },
+    {
+      "id": "agent_labels_raw_a",
+      "path": null,
+      "sha256": "da05d695d2fb98ce95b9a58f1cd82f53d567e8ed841173675f555e011ef3309f"
+    },
+    {
+      "id": "agent_labels_raw_b",
+      "path": null,
+      "sha256": "0f2bda5a83add8777183a58368c110175148fb8e9c5ac293b7d3b9044087458f"
+    },
+    {
+      "id": "agent_labels_adjudicated",
+      "path": null,
+      "sha256": "97b4b9973f9be95fac5b6c0b5d07acb5c2142d66085cb0e81423eada9d558523"
+    }
+  ],
+  "format": "ren_evaluation_report/1",
+  "limitations": [
+    "Evidence frame times are reconstructed from the 2 fps uniform input plan; llama.cpp does not report exact consumed frame timestamps.",
+    "Each window used a fresh llama-cli process, so median later-window elapsed time includes repeated model loading and is not warm model-resident inference latency.",
+    "RSS and decode/inference/serialization split were not measured.",
+    "Exact normalized action matching is lexical, not semantic."
+  ],
+  "metrics": {
+    "description_precision_adjudicated": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0
+    },
+    "description_precision_raw_a": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0
+    },
+    "description_precision_raw_b": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0125
+    },
+    "event_recall_adjudicated": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0
+    },
+    "event_recall_raw_a": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0
+    },
+    "event_recall_raw_b": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.0196078431372549
+    },
+    "evidence_coverage_adjudicated": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 1.0
+    },
+    "evidence_coverage_raw_a": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 1.0
+    },
+    "evidence_coverage_raw_b": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 1.0
+    },
+    "first_window_elapsed": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 37.173223416997644
+    },
+    "matched_interval_iou_raw_b": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.75
+    },
+    "median_later_window_elapsed": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 180.16
+    },
+    "parsed_windows": {
+      "dimension": "quality",
+      "unit": "windows",
+      "value": 30
+    },
+    "peak_process_tree_phys_footprint": {
+      "dimension": "memory",
+      "unit": "GB",
+      "value": 5.7529296875
+    },
+    "prediction_events": {
+      "dimension": "quality",
+      "unit": "events",
+      "value": 80
+    },
+    "timestamp_end_mae_raw_b": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 1.0000000000000004
+    },
+    "timestamp_start_mae_raw_b": {
+      "dimension": "quality",
+      "unit": "seconds",
+      "value": 0.0
+    },
+    "total_serial_wall": {
+      "dimension": "latency",
+      "unit": "seconds",
+      "value": 4717.84
+    },
+    "unsupported_claim_rate_adjudicated": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 1.0
+    },
+    "unsupported_claim_rate_raw_a": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 1.0
+    },
+    "unsupported_claim_rate_raw_b": {
+      "dimension": "quality",
+      "unit": "ratio",
+      "value": 0.9875
+    }
+  },
+  "modality": "event_caption",
+  "revision": "event_caption_adapter/1; prompt=caprl-json-events-v1; score=evaluator IOU>=0.3 + exact normalized action",
+  "run": {
+    "cold_first_window_seconds": 37.173223416997644,
+    "cold_first_window_total_seconds": 37.173223416997644,
+    "decode_seconds": null,
+    "end_to_end_cost_usd": null,
+    "inference_seconds": null,
+    "latency_notes": "Each window used a new process. First-window elapsed includes process startup, model load, and inference; later-window median also includes a fresh load. No isolated load, warm-resident, or decode/inference/serialization split was measured.",
+    "mode": "caprl-video-4b-q4_k_m-llama.cpp-video-sequential-window-processes",
+    "parse_errors": 0,
+    "parsed_windows": 30,
+    "peak_footprint_gb_sampled_during_run": 5.7529296875,
+    "prompt_id": "caprl-json-events-v1",
+    "sampling": "llama.cpp --video-fps 2, --video-timestamp-interval 500 ms, image_max_tokens=512; exact consumed frame dimensions are not emitted by CLI",
+    "serialization_seconds": null,
+    "wall_seconds": 4717.84,
+    "warm_resident_window_seconds": null,
+    "warm_window_median_seconds": 180.16,
+    "windows": 30
+  },
+  "selection_basis": [
+    "calibration"
+  ],
+  "split": "calibration",
+  "version": {
+    "id": "caprl-video-4b-q4_k_m-sequential-window-processes",
+    "models": {
+      "captioner": "mradermacher/CapRL-Video-4B-GGUF@87bfd741f670dbbbe5bd94a50e3c93728f01c210; upstream=internlm/CapRL-Video-4B@d932a039f2a7f580abf9d9e07dabe60a18eb1960; precision=Q4_K_M + Q8_0 mmproj; license_class=research-only CC BY-NC 4.0"
+    },
+    "role": "candidate"
+  }
+}
