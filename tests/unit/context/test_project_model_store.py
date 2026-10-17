@@ -244,3 +244,61 @@ def test_pipeline_data_projects_the_event_revision_and_parity_is_actionable(tmp_
     report = parity_report(project)
     assert any(row["kind"] == "stale_revision" for row in report["mismatches"])
     assert snapshot_path.read_bytes() == before
+
+
+def test_replay_validates_once_not_once_per_event(tmp_path, monkeypatch):
+    """Replaying N events validates one model, not N models.
+
+    Regression for the 2026-10-17 build stall: `_replay` validated the
+    whole model after every event, so loading a 37-event log with a
+    350 MB model ran 37 full jsonschema validations (7.6 s each -
+    a 12-minute hang on the `sorted(validator.iter_errors(...))`
+    frame). The hash chain `_read_events` verifies still guards every
+    event; the schema check runs once on the replayed model.
+    """
+    from library.tools import project_model_store as store
+
+    calls = []
+    real_validate = store.validate_project_model
+
+    def counting_validate(model):
+        calls.append(id(model))
+        return real_validate(model)
+
+    monkeypatch.setattr(store, "validate_project_model", counting_validate)
+
+    project = tmp_path / "project"
+    assert commit_project_model(project, FIXTURE, expected_revision=0,
+                                reason="baseline") == 1
+    for revision in range(1, 6):
+        updated = dict(FIXTURE)
+        updated["intents"] = [{**FIXTURE["intents"][0],
+                               "constraints": [f"keep {revision}"]}]
+        append_model_patch(project, {"intents": updated["intents"]},
+                           expected_revision=revision)
+    calls.clear()
+
+    revision, model = load_project_model(project)
+
+    assert revision == 6
+    assert calls, "the replayed model must still be validated"
+    assert len(calls) <= 2, (
+        f"replaying 6 events validated {len(calls)} models - "
+        "the per-event validation loop is back")
+
+
+def test_replay_still_refuses_a_broken_event_chain(tmp_path):
+    from library.tools.project_model_store import _read_events, _replay
+
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0, reason="x")
+    events_path = project / "project_model" / "events.jsonl"
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    lines.append(json.dumps({"revision": 2, "previous_hash": "0" * 64,
+                             "kind": "bogus", "payload": {}}))
+    events_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="broken project model event chain"):
+        _read_events(events_path)
+    with pytest.raises(ValueError, match="invalid event kind or order"):
+        _replay([{"revision": 1, "kind": "bogus", "payload": {}}])

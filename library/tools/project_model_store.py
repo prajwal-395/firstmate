@@ -101,6 +101,16 @@ def _replay(events: list[dict[str, Any]]) -> dict[str, Any] | None:
             model = _apply_patch(model, event["payload"])
         else:
             raise ValueError(f"invalid event kind or order at revision {event['revision']}")
+    # One validation for the replayed model, not one per event: every
+    # event the log holds was schema-checked when it was committed, and
+    # the hash chain `_read_events` verifies above already guards order
+    # and tampering per event. Validating a 350 MB model with 116k
+    # observations costs seconds per pass (measured 7.6 s on geo-podcast),
+    # so per-event validation turns every load into events x seconds of
+    # pure Ren CPU - the 12-minute build stall of 2026-10-17, caught on
+    # the `sorted(validator.iter_errors(...))` frame inside
+    # `protocol_conformance.validate`.
+    if model is not None:
         validate_project_model(model)
     return model
 

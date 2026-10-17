@@ -7760,7 +7760,60 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
     return applied
 
 
-def pool_items_for(pool, filepath: str):
+class PoolIndex:
+    """One media-pool walk per placement pass, not one per placement.
+
+    `build_reel_timeline` looks every placed file up in the pool - each
+    footage clip, card, caption, overlay and transition element - and
+    each lookup walked every folder calling `GetClipProperty` per item.
+    A pool that holds thousands of renders turns ~100 lookups into
+    hundreds of thousands of scripting calls. The index walks once and
+    answers every lookup from memory, in the same order the walk would
+    have returned.
+
+    The index is a snapshot accelerator only: a path it does not know
+    falls back to a live walk (`pool_items_for` below), so a file
+    another lane pooled after this was built is found, not duplicated.
+    It is built and spent inside one `build_reel_timeline` call, under
+    that call's exclusive placement hold - the only pool writes in that
+    window are this call's own imports, which never remove an indexed
+    item, so nothing indexed goes stale while it is read.
+    """
+
+    def __init__(self, pool):
+        self._by_path: dict = {}
+        self._by_frame_dir: dict = {}
+        self._build(pool)
+
+    def _build(self, pool):
+        def _search(folder):
+            for item in folder.GetClipList() or ():
+                path = item.GetClipProperty("File Path")
+                if path:
+                    self._by_path.setdefault(path, []).append(item)
+                    if "[" in path:
+                        key = os.path.normpath(os.path.dirname(
+                            path.split("[")[0]))
+                    else:
+                        key = os.path.normpath(os.path.dirname(path))
+                    self._by_frame_dir.setdefault(key, item)
+            for sub in folder.GetSubFolderList() or ():
+                _search(sub)
+
+        _search(pool.GetRootFolder())
+
+    def items_for(self, filepath: str) -> list:
+        """`pool_items_for` for *filepath*, from the snapshot walk."""
+        return list(self._by_path.get(filepath, ()))
+
+    def sequence_for(self, frame_dir: str):
+        """`pool_sequence_for` for *frame_dir*, from the snapshot walk."""
+        if not frame_dir:
+            return None
+        return self._by_frame_dir.get(os.path.normpath(frame_dir))
+
+
+def pool_items_for(pool, filepath: str, pool_index=None):
     """EVERY media pool item for *filepath*, in pool order.
 
     The plural half of `pool_item_for` below: a path normally holds
@@ -7769,7 +7822,17 @@ def pool_items_for(pool, filepath: str):
     that function), so a lookup that stops at the first hit would
     re-import on every rebuild - the unbounded duplication measured
     on 2026-09-09, back by another door.
+
+    `pool_index` answers from one snapshot walk instead of walking
+    again; a path the snapshot never saw falls back to a live walk.
     """
+    if pool_index is not None:
+        found = pool_index.items_for(filepath)
+        if found:
+            return found
+        # Another lane may have pooled this after the snapshot was
+        # taken: a miss is verified live rather than read as absent,
+        # so the build reuses instead of duplicating.
     found = []
 
     def _search(folder):
@@ -7783,7 +7846,7 @@ def pool_items_for(pool, filepath: str):
     return found
 
 
-def pool_item_for(pool, filepath: str):
+def pool_item_for(pool, filepath: str, pool_index=None):
     """The media pool item for *filepath*, or None if it is not there yet.
 
     Searched by FULL PATH through every folder, which is the identity
@@ -7805,11 +7868,11 @@ def pool_item_for(pool, filepath: str):
     from library.tools.reel_otio_placement import PlacementRecorder
     if isinstance(pool, PlacementRecorder):
         return pool.pooled(filepath)
-    items = pool_items_for(pool, filepath)
+    items = pool_items_for(pool, filepath, pool_index=pool_index)
     return items[0] if items else None
 
 
-def _fresh_pooled_item(pool, filepath: str):
+def _fresh_pooled_item(pool, filepath: str, pool_index=None):
     """The pooled item for *filepath* whose metadata matches the file.
 
     A lookup hit is only reusable when Resolve's cached stream
@@ -7844,7 +7907,7 @@ def _fresh_pooled_item(pool, filepath: str):
     """
     from library.tools import pool_stream_meta
 
-    candidates = pool_items_for(pool, filepath)
+    candidates = pool_items_for(pool, filepath, pool_index=pool_index)
     if not candidates:
         return None, None
     disk = pool_stream_meta.disk_stream(filepath)
@@ -7930,7 +7993,8 @@ def _ensure_bin_path(pool, path: tuple[str, ...]):
 
 
 def import_pool_item(pool, filepath: str, project_folder: str = "",
-                     dest: tuple[str, ...] | None = None):
+                     dest: tuple[str, ...] | None = None,
+                     pool_index=None):
     """The pool item for *filepath*, imported only if it is not there.
 
     A needed import lands in the bin `import_dest_bin` names -
@@ -7954,6 +8018,10 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     `timeline_layout` owns track index and name. A tuple passed as
     `project_folder` reads as `dest`, so overlay callers keep spelling
     the destination positionally.
+
+    `pool_index` answers the pre-import lookup from one snapshot walk
+    instead of walking again; a path the snapshot never saw falls back
+    to a live walk.
 
     Returns None when the import itself failed, so every caller keeps
     judging the call by what it RETURNS (AGENTS.md 5). Without a
@@ -8008,7 +8076,8 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
             apply_clip_attributes(item, filepath)
         return item
 
-    fresh, stale_record = _fresh_pooled_item(pool, filepath)
+    fresh, stale_record = _fresh_pooled_item(
+        pool, filepath, pool_index=pool_index)
     if fresh is not None:
         return _carry(fresh)
     if stale_record is not None:
@@ -8053,7 +8122,7 @@ def _overlay_segment_id(segment: dict) -> str:
     return os.path.splitext(os.path.basename(path))[0]
 
 
-def pool_sequence_for(pool, frame_dir: str):
+def pool_sequence_for(pool, frame_dir: str, pool_index=None):
     """The pooled image-sequence item for a rendered frame directory.
 
     A sequence reports ONE `File Path` with a bracket range
@@ -8062,7 +8131,14 @@ def pool_sequence_for(pool, frame_dir: str):
     rebuild re-imported every caption sequence beside the one already
     there. The directory is the identity: frame directories are per
     segment, so the mapping stays one to one.
+
+    `pool_index` answers from the snapshot walk; a directory the
+    snapshot never saw falls back to a live walk.
     """
+    if pool_index is not None:
+        found = pool_index.sequence_for(frame_dir)
+        if found is not None:
+            return found
     if not frame_dir:
         return None
     wanted = os.path.normpath(frame_dir)
@@ -8095,7 +8171,8 @@ def pool_sequence_for(pool, frame_dir: str):
 
 def import_pool_sequence(pool, frame_paths: list, frame_dir: str,
                          project_folder: str = "",
-                         dest: tuple[str, ...] | None = None):
+                         dest: tuple[str, ...] | None = None,
+                         pool_index=None):
     """The pool item for a frame directory, imported only if unpooled.
 
     The sequence-shaped half of `import_pool_item`: lookup by
@@ -8113,7 +8190,7 @@ def import_pool_sequence(pool, frame_paths: list, frame_dir: str,
         raise OtioPlacementRefused(
             f"{frame_dir}: an image-sequence overlay has no measured OTIO "
             f"spelling - build this reel with the default placement")
-    existing = pool_sequence_for(pool, frame_dir)
+    existing = pool_sequence_for(pool, frame_dir, pool_index=pool_index)
     if existing is not None:
         return existing
     if not frame_paths:
@@ -8258,7 +8335,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            seen_labels: list = None,
                            sweep_out: list = None,
                            draw_gain: float = FALLBACK_DRAW_GAIN,
-                           resolve_app=None) -> list:
+                           resolve_app=None,
+                           pool_index=None) -> list:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for every generated graphic layer. Pixel-static PNGs are
@@ -8401,7 +8479,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         item = import_pool_item(
             pool, segment["overlay_path"],
             overlay_import_bin(project_folder, name,
-                               segment["overlay_path"]))
+                               segment["overlay_path"]),
+            pool_index=pool_index)
         if item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered {kind} "
@@ -9217,6 +9296,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 raise
     recording = placement_mode == "otio"
     pool = project.GetMediaPool()
+    # One pool walk for the whole placement pass below, not one per
+    # placed file: every footage, card, caption and overlay lookup in
+    # this function answers from the snapshot and falls back to a live
+    # walk only for a path the snapshot never saw. The recorder needs
+    # no pool index - it answers from its own recorded items.
+    pool_index = None if recording else PoolIndex(pool)
     if recording:
         real_pool, pool = pool, _otio.PlacementRecorder(pool)
     profile = pool.profile if recording else None
@@ -9366,7 +9451,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"was declared at all.")
         assert_placeable(path, project_folder)
         card_item = import_pool_item(
-            pool, path, overlay_import_bin(project_folder, name, path))
+            pool, path, overlay_import_bin(project_folder, name, path),
+            pool_index=pool_index)
         if card_item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered card "
@@ -9455,7 +9541,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             print(f"  {note}", file=sys.stderr)
             build_record["skipped_clips"].append(note)
             continue
-        pool_item = pool_item_for(pool, c.source_file)
+        pool_item = pool_item_for(pool, c.source_file,
+                                    pool_index=pool_index)
         if not pool_item:
             if is_freeze_tail:
                 raise ReelBuildError(
@@ -9744,7 +9831,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_labels=seen_intent_labels,
             sweep_out=_sweep_records,
             draw_gain=draw_gain,
-            resolve_app=resolve_app))
+            resolve_app=resolve_app,
+            pool_index=pool_index))
         return runs
 
     def _hold_and_replay():
@@ -9887,13 +9975,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 found = import_pool_sequence(
                     pool, paths, frame_dir, project_folder,
                     dest=overlay_import_bin(project_folder, name,
-                                            paths[0] if paths else ""))
+                                            paths[0] if paths else ""),
+                    pool_index=pool_index)
                 items = [found] if found is not None else []
             else:
                 found = import_pool_item(
                     pool, segment["overlay_path"],
                     overlay_import_bin(project_folder, name,
-                                       segment["overlay_path"]))
+                                       segment["overlay_path"]),
+                    pool_index=pool_index)
                 items = [found] if found is not None else []
             if not items:
                 failed_path = segment.get("overlay_path") or frame_dir
@@ -10032,7 +10122,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             element_item = import_pool_item(
                 pool, placement.element_path,
                 overlay_import_bin(project_folder, name,
-                                   placement.element_path))
+                                   placement.element_path),
+                pool_index=pool_index)
             items = [element_item] if element_item is not None else []
             if not items:
                 raise ValueError(
@@ -10078,7 +10169,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
                 draw_gain=draw_gain,
-                resolve_app=resolve_app))
+                resolve_app=resolve_app,
+                pool_index=pool_index))
 
 
 
@@ -10099,7 +10191,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
                 draw_gain=draw_gain,
-                resolve_app=resolve_app))
+                resolve_app=resolve_app,
+                pool_index=pool_index))
 
         # The speaker lower thirds. ADDITIVE, exactly as the two above are:
         # laid over picture that keeps playing, moving no frame of it, so a
@@ -10122,7 +10215,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
                 draw_gain=draw_gain,
-                resolve_app=resolve_app))
+                resolve_app=resolve_app,
+                pool_index=pool_index))
 
         # The social-post header, on its own row above everything drawn.
         # A tight canvas like every graphic: its segments carry their own
@@ -10141,7 +10235,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 seen_labels=seen_intent_labels,
                 sweep_out=_sweep_records,
                 draw_gain=draw_gain,
-                resolve_app=resolve_app))
+                resolve_app=resolve_app,
+                pool_index=pool_index))
         return stamped_placements
 
     # The default path places as it goes. A recorded build (`placement_mode

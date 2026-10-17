@@ -47,9 +47,98 @@ def _signature(font_file: str) -> tuple[str, int, int]:
     return (os.path.abspath(font_file), int(stat.st_mtime_ns), stat.st_size)
 
 
+_FONTTOOLS_VERSION: Optional[str] = None
+
+
+def _fonttools_version() -> str:
+    """The instancer version, so a fontTools upgrade re-cuts instances."""
+    global _FONTTOOLS_VERSION
+    if _FONTTOOLS_VERSION is None:
+        try:
+            from importlib.metadata import version
+            _FONTTOOLS_VERSION = version("fonttools")
+        except Exception:  # noqa: BLE001 - unknown version disables reuse
+            _FONTTOOLS_VERSION = "unknown"
+    return _FONTTOOLS_VERSION
+
+
+def _disk_cache_dir() -> Optional[str]:
+    override = os.environ.get("VEP_FONT_CACHE", "").strip()
+    if override:
+        return override or None
+    try:
+        return os.path.join(os.path.expanduser("~"), ".cache", "vep",
+                            "font-instances")
+    except Exception:  # noqa: BLE001 - no home means no disk cache
+        return None
+
+
+def _disk_cache_key(signature: tuple[str, int, int],
+                    weight: Optional[int]) -> str:
+    digest = hashlib.sha1(
+        f"{signature[0]}\0{signature[1]}\0{signature[2]}\0{weight}\0"
+        f"{_fonttools_version()}".encode("utf-8")).hexdigest()
+    return digest + ".ttf"
+
+
+def _disk_cache_read(key: str) -> Optional[tuple[bytes, str]]:
+    """A cached static instance, or None where nothing usable is stored.
+
+    The instance family name travels beside the bytes (``.name``), so a
+    hit never re-opens the font to ask what it is called. A short or
+    unsigned file is not a hit - an interrupted write cannot leave one
+    behind (writes land under a temp name and arrive by rename), so
+    anything unreadable here is foreign and ignored, never trusted.
+    """
+    directory = _disk_cache_dir()
+    if not directory:
+        return None
+    try:
+        with open(os.path.join(directory, key), "rb") as handle:
+            data = handle.read()
+        with open(os.path.join(directory, key + ".name"), "r",
+                  encoding="utf-8") as handle:
+            unique = handle.read().strip()
+    except OSError:
+        return None
+    if len(data) < 12 or data[:4] not in (
+            b"\x00\x01\x00\x00", b"OTTO", b"true", b"typ1"):
+        return None
+    if not unique:
+        return None
+    return data, unique
+
+
+def _disk_cache_write(key: str, data: bytes, unique: str) -> None:
+    """Store an instance where the next process finds it.
+
+    Best effort: a cache that cannot be written costs time, never
+    correctness - the caller already holds the bytes it needs.
+    """
+    directory = _disk_cache_dir()
+    if not directory:
+        return
+    try:
+        os.makedirs(directory, exist_ok=True)
+        tmp = os.path.join(
+            directory, f".{key}.{os.getpid()}.tmp")
+        with open(tmp, "wb") as handle:
+            handle.write(data)
+        os.replace(tmp, os.path.join(directory, key))
+        with open(tmp + ".name", "w", encoding="utf-8") as handle:
+            handle.write(unique)
+        os.replace(tmp + ".name", os.path.join(directory, key + ".name"))
+    except OSError:
+        pass
+
+
 @lru_cache(maxsize=64)
 def _instance_bytes(signature: tuple[str, int, int], weight: Optional[int]) -> tuple[bytes, str]:
     from fontTools.ttLib import TTFont
+
+    cached = _disk_cache_read(_disk_cache_key(signature, weight))
+    if cached is not None:
+        return cached
 
     path = signature[0]
     try:
@@ -81,7 +170,9 @@ def _instance_bytes(signature: tuple[str, int, int], weight: Optional[int]) -> t
     name.setName(unique.replace(" ", "-"), 6, 3, 1, 0x409)
     buffer = io.BytesIO()
     font.save(buffer)
-    return buffer.getvalue(), unique
+    data = buffer.getvalue()
+    _disk_cache_write(_disk_cache_key(signature, weight), data, unique)
+    return data, unique
 
 
 def static_instance(font_file: str, weight: Optional[float]) -> tuple[bytes, str]:
