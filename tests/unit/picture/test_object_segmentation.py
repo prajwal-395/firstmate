@@ -9,7 +9,7 @@ empty trigger without loading the segmenter.
 import json
 import os
 import sys
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
@@ -163,6 +163,28 @@ def test_model_lifecycle_keeps_a_batch_resident_and_releases_it():
         assert "test-sam2" in model_lifecycle._loaded_models
 
     assert "test-sam2" not in model_lifecycle._loaded_models
+
+
+def test_seeded_session_does_not_load_automatic_mask_generator(monkeypatch):
+    from library.tools.analysis import object_segmentation as segmentation
+
+    predictor = object()
+    module = ModuleType("sam2.build_sam")
+    module.build_sam2_video_predictor_hf = (
+        lambda model_id, device: predictor)
+    module.build_sam2_hf = lambda *args, **kwargs: pytest.fail(
+        "the seeded session must not build the automatic-mask model")
+    generator_module = ModuleType("sam2.automatic_mask_generator")
+    generator_module.SAM2AutomaticMaskGenerator = lambda model: pytest.fail(
+        "the seeded session must not construct the automatic-mask generator")
+    monkeypatch.setitem(sys.modules, "sam2", ModuleType("sam2"))
+    monkeypatch.setitem(sys.modules, "sam2.build_sam", module)
+    monkeypatch.setitem(
+        sys.modules, "sam2.automatic_mask_generator", generator_module)
+    monkeypatch.setattr(segmentation, "_resolve_device", lambda device: device)
+
+    assert segmentation.ObjectSegmenter._load_sam2(
+        include_generator=False) == (predictor, None)
 
 
 def test_model_lifecycle_requires_explicit_residency_for_direct_load():
@@ -429,7 +451,7 @@ def test_scheduled_sam_session_spans_clips_and_yields_for_ram_waiters(
             self.ends = 0
             self.calls = []
 
-        def begin_run(self):
+        def begin_run(self, **kwargs):
             self.begins += 1
             self.run_active = True
 

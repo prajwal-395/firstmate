@@ -484,10 +484,18 @@ def find_match_cut_candidates(masks_a: SegmentationResult, masks_b: Segmentation
 class ObjectSegmenter:
     """Wrapper for SAM 2 video segmentation model using managed_model lifecycle."""
 
-    def begin_run(self):
-        """Start a SAM 2 model session inside its scheduler reservation."""
+    def begin_run(self, *, include_generator: bool = True):
+        """Start a SAM 2 session, optionally loading the blob generator.
+
+        Detector- and face-seeded clips never call the automatic mask
+        generator. The pipeline can omit that second model for its seeded
+        work while direct legacy callers retain the generator by default.
+        """
         if getattr(self, "_run_model_scope", None) is None:
-            scope = resident_model(SAM2_MODEL_ID, self._load_sam2)
+            scope = resident_model(
+                SAM2_MODEL_ID,
+                lambda: self._load_sam2(include_generator=include_generator),
+            )
             scope.__enter__()
             self._run_model_scope = scope
 
@@ -503,7 +511,7 @@ class ObjectSegmenter:
             scope.__exit__(None, None, None)
 
     @staticmethod
-    def _load_sam2():
+    def _load_sam2(*, include_generator: bool = True):
         try:
             from sam2.build_sam import (build_sam2_hf,
                                         build_sam2_video_predictor_hf)
@@ -513,9 +521,11 @@ class ObjectSegmenter:
         print(f"Loading {SAM2_MODEL_ID}...", file=sys.stderr)
         predictor = build_sam2_video_predictor_hf(
             SAM2_MODEL_ID, device=_resolve_device(PROPAGATION_DEVICE))
-        generator = SAM2AutomaticMaskGenerator(
-            build_sam2_hf(SAM2_MODEL_ID,
-                          device=_resolve_device(GENERATOR_DEVICE)))
+        generator = None
+        if include_generator:
+            generator = SAM2AutomaticMaskGenerator(
+                build_sam2_hf(SAM2_MODEL_ID,
+                              device=_resolve_device(GENERATOR_DEVICE)))
         return predictor, generator
     
     def segment_clip(self, video_path: str, sample_fps: float = 2.0,
@@ -664,6 +674,10 @@ class ObjectSegmenter:
                 elif not detector_seeds:
                     # The legacy path: seed on the largest automatic regions.
                     # 1. Run automatic mask generation on the first frame to find objects
+                    if generator is None:
+                        raise RuntimeError(
+                            "automatic mask generation was not loaded for "
+                            "an unseeded clip")
                     masks = generator.generate(first_frame_img)
 
                     masks = sorted(masks, key=lambda x: x["area"],

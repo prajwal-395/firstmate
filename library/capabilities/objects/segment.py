@@ -468,7 +468,7 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
                 with heavy_work_lock("SAM 2 clip segmentation",
                                      "objects.segment:inference"):
                     if not segmenter.run_active:
-                        segmenter.begin_run()
+                        segmenter.begin_run(include_generator=False)
                     seg_result = segmenter.segment_clip(
                         clip_path, sample_fps=SEGMENT_SAMPLE_FPS,
                         face_box=face_box, require_face=face_box is not None,
