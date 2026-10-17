@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
-import { AnimatedWord } from "./AnimatedWord";
+import { AnimatedWord, karaokeScaleAtFrame } from "./AnimatedWord";
 import { loadBundledFonts } from "../../fonts";
 
 // Registered at module scope so the delayRender handle is taken before
@@ -20,6 +20,8 @@ export type SubtitleBlock = {
   endFrame: number;
   emphasisWords?: string[];
   words?: WordTiming[];
+  /** Stable word indices after which the caption starts a new line. */
+  lineBreakAfter?: number[];
   /**
    * How far THIS card shrinks so its widest word fits the safe area.
    * 1.0 (or absent) for almost every card. A single word wider than the
@@ -62,6 +64,8 @@ export type SubtitleStyle = {
    * implies.
    */
   captionMaxWidth?: number;
+  /** Per-word gap in ems for word-timed subtitle layouts. */
+  wordGapEm?: number;
 };
 
 export type SubtitleOverlayProps = {
@@ -137,7 +141,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
     -${outlineW}px  0   0 ${outlineCol},
     0 10px 20px rgba(0,0,0,0.8)
   `;
-  
+
   let bottomStyle = `${safeArea.bottom}px`;
   if (pos === "top") bottomStyle = "auto";
   const topStyle = pos === "top" ? `${safeArea.top}px` : "auto";
@@ -145,18 +149,24 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   const transformStyle = pos === "center" ? "translateY(-50%)" : undefined;
 
   return (
-    <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-      <div 
-        style={{ 
-          position: "absolute", 
-          bottom: centerStyle ? undefined : bottomStyle, 
+    <AbsoluteFill
+      style={{
+        alignItems: "center",
+        justifyContent: "center",
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          bottom: centerStyle ? undefined : bottomStyle,
           top: centerStyle || topStyle,
           transform: transformStyle,
-          width: "100%", 
-          display: "flex", 
-          justifyContent: "center", 
-          flexDirection: "column", 
-          alignItems: "center" 
+          width: "100%",
+          display: "flex",
+          justifyContent: "center",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
         {subtitles.map((sub, index) => {
@@ -164,6 +174,53 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
           if (!isActive) return null;
 
           const hasWords = sub.words && sub.words.length > 0;
+          const lineBreaks = new Set(sub.lineBreakAfter ?? []);
+          const explicitLines: WordTiming[][] = [];
+          if (hasWords && sub.lineBreakAfter) {
+            let start = 0;
+            sub.words!.forEach((word, wordIndex) => {
+              if (lineBreaks.has(wordIndex)) {
+                explicitLines.push(sub.words!.slice(start, wordIndex + 1));
+                start = wordIndex + 1;
+              }
+            });
+            if (start < sub.words!.length)
+              explicitLines.push(sub.words!.slice(start));
+          }
+          const renderWord = (
+            word: WordTiming,
+            wordIndex: number,
+            line: WordTiming[],
+            key: string | number,
+          ) => {
+            const next = line[wordIndex + 1];
+            return (
+              <AnimatedWord
+                key={key}
+                word={word.word}
+                startFrame={word.startFrame}
+                endFrame={word.endFrame}
+                isEmphasis={isEmphasisWord(word.word, sub.emphasisWords)}
+                nextWord={next?.word}
+                nextIsEmphasis={
+                  next ? isEmphasisWord(next.word, sub.emphasisWords) : false
+                }
+                nextScale={
+                  next
+                    ? karaokeScaleAtFrame(frame, next.startFrame, next.endFrame)
+                    : 1
+                }
+                fontFamily={fontFam}
+                fontWeight={fWeight}
+                baseFontSize={
+                  sub.fitScale && sub.fitScale < 1
+                    ? Math.round(baseFontSize * sub.fitScale)
+                    : baseFontSize
+                }
+                style={style}
+              />
+            );
+          };
 
           return (
             <div
@@ -174,6 +231,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
                 // lines against this font and width. Keep wrapping here
                 // so the rendered card follows that word-timed partition.
                 flexWrap: "wrap",
+                flexDirection: explicitLines.length ? "column" : "row",
                 justifyContent: "center",
                 alignItems: "center",
                 fontFamily: fontFam,
@@ -195,18 +253,31 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
               }}
             >
               {hasWords
-                ? sub.words!.map((w, i) => {
-                    return (
-                      <AnimatedWord
-                        key={i}
-                        word={w.word}
-                        startFrame={w.startFrame}
-                        endFrame={w.endFrame}
-                        isEmphasis={isEmphasisWord(w.word, sub.emphasisWords)}
-                        style={style}
-                      />
-                    );
-                  })
+                ? explicitLines.length
+                  ? explicitLines.map((line, lineIndex) => (
+                      <div
+                        key={`line-${lineIndex}`}
+                        style={{
+                          display: "flex",
+                          flexWrap: "nowrap",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          width: "max-content",
+                        }}
+                      >
+                        {line.map((word, wordIndex) =>
+                          renderWord(
+                            word,
+                            wordIndex,
+                            line,
+                            `${lineIndex}-${wordIndex}`,
+                          ),
+                        )}
+                      </div>
+                    ))
+                  : sub.words!.map((word, wordIndex) =>
+                      renderWord(word, wordIndex, sub.words!, wordIndex),
+                    )
                 : sub.text}
             </div>
           );

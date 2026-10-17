@@ -9,6 +9,7 @@ from library.tools.reel_graphics import (
     assert_before_end,
     assert_timeline_media_online,
     assert_tight_alpha,
+    assert_tight_overlay_media,
     corner_brand_bug_segment,
 )
 
@@ -21,6 +22,22 @@ def test_full_canvas_overlay_is_rejected(tmp_path):
 
     with pytest.raises(ReelGraphicsError, match="not tight-boxed"):
         assert_tight_alpha(str(path))
+
+
+def test_padded_png_requires_a_matching_tight_canvas_and_placement(tmp_path):
+    image = Image.new("RGBA", (728, 480), (0, 0, 0, 0))
+    image.putpixel((24, 16), (255, 255, 255, 255))
+    path = tmp_path / "padded_tight.png"
+    image.save(path)
+    box = {"width": 728, "height": 480,
+           "placement": {"pan": 100, "tilt": 200, "scaling": 1}}
+
+    assert assert_tight_overlay_media(str(path), box) == (728, 480)
+    with pytest.raises(ReelGraphicsError, match="declares 400x480"):
+        assert_tight_overlay_media(
+            str(path), {**box, "width": 400})
+    with pytest.raises(ReelGraphicsError, match="not tight-boxed"):
+        assert_tight_overlay_media(str(path))
 
 
 def test_corner_bug_is_a_still_with_absolute_canvas_box(tmp_path):

@@ -98,7 +98,8 @@ DECLARATION_KEY = "speaker_lower_thirds"
 #: checked on read: a key nothing reads is a look the editor believes
 #: shipped.
 DECLARATION_KEYS = ("speakers", "anchor", "hold_seconds", "entrance",
-                    "exit", "reason")
+                    "exit", "construction", "animation_variant",
+                    "logo_asset", "reason")
 
 #: What ONE speaker's entry may carry.  ``name`` and ``title`` are the
 #: copy; ``colour`` is this speaker's own, and its absence falls to the
@@ -346,6 +347,30 @@ def declared_speakers(declaration: Any,
             f"effect.{DECLARATION_KEY}.hold_seconds must be positive, got "
             f"{hold!r}")
 
+    construction = str(declaration.get("construction") or "staged_rule").strip()
+    if construction not in {"staged_rule", "aep_comp25"}:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.construction is {construction!r}; "
+            "choose 'staged_rule' or 'aep_comp25'.")
+    animation_variant = str(
+        declaration.get("animation_variant") or "mask-rise").strip()
+    if animation_variant not in {
+            "mask-rise", "soft-focus", "horizontal-wipe", "minimal-fade"}:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.animation_variant is "
+            f"{animation_variant!r}; choose mask-rise, soft-focus, "
+            "horizontal-wipe or minimal-fade.")
+
+    logo_asset = str(declaration.get("logo_asset") or "").strip()
+    if construction == "aep_comp25" and not logo_asset:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.logo_asset is required for "
+            "construction 'aep_comp25'.")
+    if logo_asset and os.path.basename(logo_asset) != logo_asset:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.logo_asset must name a file in "
+            "brand_assets/, not a path outside it.")
+
     raw = declaration.get("speakers")
     if raw is None:
         raw = {}
@@ -384,6 +409,9 @@ def declared_speakers(declaration: Any,
         "hold_seconds": hold,
         "entrance": str(declaration["entrance"]).strip().lower(),
         "exit": str(declaration["exit"]).strip().lower(),
+        "construction": construction,
+        "animation_variant": animation_variant,
+        "logo_asset": logo_asset,
     }
 
 
@@ -724,6 +752,8 @@ def entry_for(introduction: Introduction, declared: dict) -> dict:
                f"reel, at {introduction.at_seconds}s")
     return {
         "element": ELEMENT,
+        **({"asset": declared["logo_asset"]}
+           if declared.get("logo_asset") else {}),
         "anchor": declared["anchor"],
         "row": 0,
         "copy": runs,
@@ -738,7 +768,8 @@ def entry_for(introduction: Introduction, declared: dict) -> dict:
             # arm reads this and draws the staged construction; without
             # it the arm keeps the flat attribution block it drew
             # before, so every existing caller's graphic is unchanged.
-            "construction": "staged_rule",
+            "construction": declared["construction"],
+            "animationVariant": declared["animation_variant"],
             "speaker": introduction.speaker,
             "colour_basis": introduction.colour_basis,
         },
@@ -881,6 +912,33 @@ def render_findings(measured: dict, insets: Dict[str, int],
             "message": (f"ink spans columns {left}..{right}, outside the "
                         f"safe columns {left_edge}..{right_edge}")})
     return findings
+
+
+def insets_to_clear_render(measured: dict, insets: Dict[str, int],
+                           width: int, height: int,
+                           buffer_px: int = 4) -> Dict[str, int]:
+    """Move the anchored lower third inward by the rendered overflow.
+
+    The compositor is the authority on the graphic's real ink bounds.
+    When those measured pixels extend past the declared box, move the
+    bottom-left anchor inward by exactly the overflow plus a small pixel
+    buffer, then render again. This keeps measured typography and artwork
+    clear of the caption rail and safe columns without guessing their size.
+    """
+    rows = (measured or {}).get("rows")
+    cols = (measured or {}).get("cols")
+    if not rows or not cols:
+        return dict(insets)
+    result = {key: int(value) for key, value in insets.items()}
+    floor = int(height) - result.get("bottom", 0)
+    left = result.get("left", 0)
+    overflow_left = max(0, left - int(cols[0]))
+    overflow_bottom = max(0, int(rows[1]) - floor)
+    if overflow_left:
+        result["left"] += overflow_left + int(buffer_px)
+    if overflow_bottom:
+        result["bottom"] += overflow_bottom + int(buffer_px)
+    return result
 
 
 def measured_box(measured: dict) -> Optional[Tuple[int, int, int, int]]:

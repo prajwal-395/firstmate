@@ -405,7 +405,7 @@ def test_a_gate_failing_build_leaves_the_approved_timeline_in_place(project):
     delete-first code this reads the replaced timeline: the original
     is gone and the assertion fails on the survivors, not on a mock.
     """
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
     _gate_failed_report(project)
     original = next(t for t in resolve_project.timelines
                     if t.GetName() == TARGET)
@@ -428,7 +428,7 @@ def test_a_gate_failing_build_leaves_the_approved_timeline_in_place(project):
 def test_a_gate_failing_build_grades_the_staging_not_the_approved_reel(project):
     """The gate never sees the approved timeline: it is asked to grade
     the staging container the build placed, by its staging name."""
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
     _gate_failed_report(project)
 
     with _patched_build(resolve_project, project, 1) as (_, gate), \
@@ -443,7 +443,7 @@ def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
     """The other direction: a clean gate still replaces, and the record
     names the reels the captain sees - no staging container leaks into
     the project or the record."""
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
 
     record, placed, _ = _drive(resolve_project, project, 0, only=[3])
 
@@ -635,7 +635,7 @@ def test_build_reels_cli_plans_reel15_from_cached_iso_and_f25_passes(
         "manage_project.py", "build-reels", str(project),
         "--rebuild-all", "--only-reel", "15",
     ])
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
     with _patched_build(
             resolve_project, project, 0,
             caption_planner=_capture_plan,
@@ -912,7 +912,7 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     Under the loop this replaces, this assertion reads
     `['GEO Podcast - Synced']`.
     """
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
 
     record, placed, _ = _run(resolve_project, project, only=[3])
 
@@ -1109,7 +1109,7 @@ def test_one_refusing_reel_leaves_its_sibling_staged_and_held(project_dir):
     """The batch case from the lane's own log: four reels in, one
     refuses, the clean siblings' verified stagings AND their holds
     must survive - while the raise still names the failed reel."""
-    resolve_project = FakeProject([MASTER, TARGET_A, TARGET_B])
+    resolve_project = FakeProject("Mock Project", [MASTER, TARGET_A, TARGET_B])
 
     with pytest.raises(ReelVerificationRefused) as refused:
         _drive_build(resolve_project, project_dir,
@@ -1143,7 +1143,7 @@ def test_an_unattributed_refusal_discards_nothing(project_dir):
     carries error findings, so the refusal names no reel - and no
     staging may go. The stagings stay with their holds until an
     operator reads the report and discards deliberately."""
-    resolve_project = FakeProject([MASTER, TARGET_A, TARGET_B])
+    resolve_project = FakeProject("Mock Project", [MASTER, TARGET_A, TARGET_B])
 
     with pytest.raises(ReelVerificationRefused, match="NO staging"):
         _drive_build(resolve_project, project_dir,
@@ -1159,7 +1159,7 @@ def test_an_unattributed_refusal_discards_nothing(project_dir):
 def test_an_all_passing_batch_is_unchanged(project_dir):
     """The other direction: a batch where every reel passes promotes
     both, leaves no staging container and no hold behind."""
-    resolve_project = FakeProject([MASTER, TARGET_A, TARGET_B])
+    resolve_project = FakeProject("Mock Project", [MASTER, TARGET_A, TARGET_B])
 
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
@@ -1596,7 +1596,7 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
     graded all nineteen - the call the quadratic cost and the 94
     foreign errors both came from.
     """
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
 
     record, gate = _run_build(resolve_project, project, only=[3])
 
@@ -1624,7 +1624,7 @@ def test_a_full_build_grades_everything_it_placed(project):
     nineteen were placed - the explicit sweep is preserved, now as a
     consequence of what was built rather than as a project-wide scan.
     """
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
 
     record, gate = _run_build(resolve_project, project)
 
@@ -1638,7 +1638,7 @@ def test_a_full_build_grades_everything_it_placed(project):
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_suffixed_rebuild_grades_scratch_then_promotes_to_base(project):
     """A suffixed scratch is graded before it replaces the base reel."""
-    resolve_project = FakeProject([MASTER] + APPROVED)
+    resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
 
     record, gate = _run_build(resolve_project, project, only=[3],
                                name_suffix=" (whole-take rebuild)")

@@ -106,6 +106,7 @@ docs/evidence/mg_tight_box.md.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
@@ -425,6 +426,25 @@ def _element_size(element: dict, scale: float, project_folder: str,
     """
     kind = element.get("element", "")
 
+    if kind == "channel_bug":
+        named = str(element.get("asset") or "").strip()
+        if not named:
+            return None
+        try:
+            from PIL import Image
+            from library.tools.remotion_brand_linker import find_brand_assets
+            asset_root = find_brand_assets(project_folder)
+            asset_path = asset_root / os.path.basename(named) if asset_root else None
+            if asset_path is None or not asset_path.is_file():
+                return None
+            with Image.open(asset_path) as asset_image:
+                asset_width, asset_height = asset_image.size
+            if asset_width <= 0 or asset_height <= 0:
+                return None
+            width = usable_width * scale
+            return width, width * asset_height / asset_width
+        except Exception:  # noqa: BLE001 - unknown artwork stays refused
+            return None
     if kind in ASSET_ELEMENTS:
         return None
     # A `lower_third` the plan asked to be CONSTRUCTED is a different
@@ -990,6 +1010,16 @@ def _tighten_impl(props: dict,
 
     canvas_w = _ceil_even(union_w + 2 * MG_PAD)
     measured_h = _ceil_even(union_h + 2 * MG_PAD)
+    channel_bug_right = (
+        bool(elements)
+        and all(e.get("element") == "channel_bug"
+                and str(e.get("anchor", "")).endswith("right")
+                for e in elements))
+    if channel_bug_right:
+        # A narrow top-right mark needs a wider carrier to stay inside
+        # Resolve's Pan rail. Pin its right edge to the measured union so
+        # the added transparent area does not move the mark on screen.
+        canvas_w = max(canvas_w, 480)
 
     # The layout-width floor (captain 2026-09-21: fix the wrapping at
     # tight size). A centre stack's container is the canvas minus the
@@ -1005,6 +1035,8 @@ def _tighten_impl(props: dict,
     # floor at the layout rather than a second estimate.
     layout_width: Optional[float] = None
     canvas_left = union[0] - MG_PAD
+    if channel_bug_right:
+        canvas_left = union[2] + MG_PAD - canvas_w
     if _stack_needs_layout_width(stacks):
         layout_width = usable_width
         need_left = min(canvas_left,
@@ -1102,6 +1134,13 @@ def _tighten_impl(props: dict,
         "top": MG_PAD + top_extra, "right": MG_PAD,
         "bottom": MG_PAD + grown_below, "left": MG_PAD,
     }
+    # A top-corner asset sizes itself as a fraction of the full-frame
+    # usable width. Its tight canvas is only a crop, so using the crop's
+    # smaller safe width would shrink the artwork and invalidate the
+    # measured union. Carry this basis on that element alone.
+    for element in tight_props.get("elements", []):
+        if element.get("element") == "channel_bug":
+            element["assetWidthBasis"] = usable_width
     # The wrap width the composition caps centre stacks at. Present
     # exactly where the floor above applied, and equal to the
     # full-frame usable width - which is why the tight render wraps

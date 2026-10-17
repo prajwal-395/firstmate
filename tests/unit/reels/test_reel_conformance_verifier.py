@@ -34,6 +34,7 @@ from library.tools.reel_conformance_verifier import (
     check_format,
     check_item_count,
     check_picture_holes,
+    check_plan_describes_timeline,
     check_plan_length,
     check_plan_picture_continuity,
     check_plan_speakers,
@@ -2492,3 +2493,31 @@ def test_build_for_reel_forwards_the_project_to_the_render(
     assert len(captured.calls) == 1
     _planned, _out_dir, kwargs = captured.calls[0]
     assert kwargs.get("project_folder") == str(project)
+
+
+# ── A declared tail shot counts in the re-derived plan ────────────────
+#
+# Reel 26, 2026-10-17: the approved 46.1 s cut carries a 220-frame
+# source-locked tail shot after the keep ranges. The re-derived plan
+# laid 884 frames against the built 1104 until the declared tail was
+# counted alongside cards and the freeze hold.
+
+_TAIL_FPS = 24000 / 1001
+# The build's snapped body ranges, the 72-frame closing logo and the
+# 19-frame native TV-off hold.
+_TAIL_RANGES = [(2137.98, 2171.059)]
+
+
+def test_declared_tail_shot_counts_in_plan_length():
+    assert check_plan_describes_timeline(
+        "Reel 26", _TAIL_RANGES, 1104, _TAIL_FPS,
+        card_frames=72, held_frames=19, tail_frames=220) == []
+
+
+def test_undeclared_tail_shot_refuses_plan_length():
+    findings = check_plan_describes_timeline(
+        "Reel 26", _TAIL_RANGES, 1104, _TAIL_FPS,
+        card_frames=72, held_frames=19)
+    assert len(findings) == 1
+    assert findings[0].detail["planned_frames"] == 884
+    assert findings[0].detail["tail_frames"] == 0

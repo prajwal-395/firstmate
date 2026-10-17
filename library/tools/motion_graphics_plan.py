@@ -601,7 +601,7 @@ def _data_is_drawn_without_an_axis(key: str, data: Any) -> bool:
     if not isinstance(data, dict):
         return False
     if (key == "lower_third"
-            and data.get("construction") == "staged_rule"):
+            and data.get("construction") in {"staged_rule", "aep_comp25"}):
         return True
     return key == "list_build" and "stage_offsets" in data
 
@@ -947,7 +947,14 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
         # from the roster's own axes rather than a second list of which
         # elements take an asset.
         asset_url = ""
-        if "asset" in element.axes:
+        # The AEP lower-third composition's logo is deterministic project
+        # artwork, selected by speaker_identity rather than the model. It is
+        # the one engine-directed asset outside a prompt axis.
+        needs_asset = ("asset" in element.axes or (
+            key == "lower_third"
+            and (entry.get("data") or {}).get("construction")
+            == "aep_comp25"))
+        if needs_asset:
             named = _text(entry.get("asset") or entry.get("asset_file"))
             if not named:
                 drop(entry, key, "no_asset_for_an_element_that_needs_one")

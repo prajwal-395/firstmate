@@ -1313,7 +1313,8 @@ def _channel_bug_width(el: dict[str, Any], ctx: _MGContext) -> float:
     """
     left = float(ctx.safe_area.get("left", 0))
     right = float(ctx.safe_area.get("right", 0))
-    usable = max(0.0, ctx.width - left - right)
+    usable = float(el.get("assetWidthBasis") or
+                   max(0.0, ctx.width - left - right))
     return float(round(usable * _mg_scale(el)))
 
 

@@ -33,6 +33,26 @@ except ImportError:
 REMOTION_BRAND_DIR = REMOTION_DIR / "public" / "brand"
 
 
+def project_asset_resolver(project_folder: str):
+    """Resolve a declared project asset to its staged Remotion URL.
+
+    Staging is lazy: a plan without an asset does not copy project
+    artwork into the shared renderer directory.
+    """
+    if not project_folder:
+        return None
+    staged: dict = {}
+
+    def resolve(name: str) -> str:
+        if not staged:
+            result = link_brand_assets(project_folder)
+            staged["files"] = set(result.get("files") or [])
+        base = os.path.basename(str(name).strip())
+        return f"brand/{base}" if base and base in staged["files"] else ""
+
+    return resolve
+
+
 # ─── Brand Assets ─────────────────────────────────────────────
 
 def find_brand_assets(project_folder: str) -> Path | None:

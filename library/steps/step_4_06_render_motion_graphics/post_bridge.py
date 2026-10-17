@@ -819,6 +819,11 @@ def render_one_segment(planned: dict, out_dir: str,
     # disk: the file is content-keyed below.
     placement_label = segment_name or f"mg_{planned['index']:03d}"
     remotion = remotion_dir or _remotion_dir()
+    force_static_asset_video = (
+        tight is not None
+        and bool(render_props.get("elements"))
+        and all(element.get("element") == "channel_bug"
+                for element in render_props["elements"]))
 
     def _tight_record():
         return ({
@@ -959,6 +964,8 @@ def render_one_segment(planned: dict, out_dir: str,
                  names["still_key_path"], names["still_key"]),
                 ("video", names["video_path"],
                  names["video_key_path"], names["video_key"])):
+            if force_static_asset_video and media_type == "still":
+                continue
             _recorded = _read_recorded_key(key_path)
             _reuse_ok, _ = _cascade.overlay_reuse_allowed(key, _recorded)
             if not _reuse_ok or not os.path.isfile(overlay_path):
@@ -1115,7 +1122,12 @@ def render_one_segment(planned: dict, out_dir: str,
 
     frames = _canonicalize_motion_frames(frames)
     identical = _motion_frames_are_identical(frames)
-    if identical:
+    # A tight channel bug can require a rail-height canvas (the measured
+    # artwork stays small, while transparent space keeps its Pan/Tilt
+    # placeable). Reel PNGs have a stricter carriage contract: their alpha
+    # must fill the file, so carry this otherwise-static asset as alpha video.
+    # The pixels and placement stay exactly those the tight renderer measured.
+    if identical and not force_static_asset_video:
         output_path = names["still_path"]
         shutil.copyfile(frames[0], output_path)
         media_type = "still"
@@ -1141,7 +1153,10 @@ def render_one_segment(planned: dict, out_dir: str,
         media_type = "video"
         reuse_key = names["video_key"]
         reuse_key_path = names["video_key_path"]
-        print(f"    changing pixels: carried as {OVERLAY_FORMAT_NAME}",
+        reason = ("static tight asset with placement padding"
+                  if identical and force_static_asset_video
+                  else "changing pixels")
+        print(f"    {reason}: carried as {OVERLAY_FORMAT_NAME}",
               file=sys.stderr)
 
     # Behind-subject rendering consumes every raster frame when it

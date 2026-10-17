@@ -514,6 +514,120 @@ def ending_tail_frames(ending, look=None) -> int:
     return tail_room_frames(ending, look)
 
 
+def approved_tail_frames(ending, fps: float) -> int:
+    """Record frames a declared source-locked tail shot plays.
+
+    The tail shot plays AFTER the keep ranges and BEFORE the ending's
+    own hold, so anything positioned past the picture - a tail card,
+    the frame the overlays stop at - starts after it. Reel 26,
+    2026-10-17: without this the closing logo planned at body-plus-hold
+    and landed on top of the carried LCATL0013 shot. `0` for no
+    declaration: a project that declares none plans exactly what it
+    planned before. A malformed declaration raises rather than
+    misplacing the card by a guessed length.
+    """
+    tail = (ending or {}).get("approved_tail") if ending else None
+    if not tail:
+        return 0
+    try:
+        duration = int(tail["source_duration_frames"])
+        source_fps = float(tail["source_fps"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReelEndingError(
+            "approved_tail cannot be sized: "
+            f"{exc}. A tail card planned past a tail of unknown "
+            "length would land on picture.") from exc
+    if duration <= 0 or source_fps <= 0 or float(fps) <= 0:
+        raise ReelEndingError(
+            "approved_tail has non-positive frames or fps: a tail "
+            "card planned past it would land on picture.")
+    return int(round(duration / source_fps * float(fps)))
+
+
+def approved_tail_master_span(master_clips, ending, fps: float = 0.0):
+    """Master-timeline seconds the declared tail shot plays, or None.
+
+    The tail is source-locked footage, not a keep range, so nothing
+    that plans from ranges ever sees it - but the caption spine plans
+    from master seconds, and the tail's speech is master speech that
+    must be captioned word-accurately. Reel 26, 2026-10-17: without
+    this the rebuild carried the LCATL0013 shot while planning no
+    caption over its 33 words, and verification refused the timeline
+    as playing uncaptioned speech.
+
+    Coverage is compared in the FILE's own frames - the declaration's
+    `source_start_frame`/`source_duration_frames` against the master
+    clip's raw `source_in_frame`/`source_out_frame` - so no fps
+    representation can admit or refuse a span by rounding dust (the
+    23.976-vs-24000/1001 kind). The master seconds come from the
+    timeline clock (`fps`, else the declaration's own rate): where
+    the words sit, not how the file counts. `source_out_frame` reads
+    as INCLUSIVE, the way `GetSourceEndFrame` reports it
+    (measured on the approved Reel 26 read-back).
+
+    Raises where the file is not on the master or no clip covers the
+    span: then the tail's speech has no master clock, so no caption
+    plan can cover it word-accurately. `None` where nothing is
+    declared: a project that declares none spines exactly what it
+    spined before.
+    """
+    import os
+
+    tail = (ending or {}).get("approved_tail") if ending else None
+    if not tail:
+        return None
+    try:
+        source_file = str(tail["source_file"])
+        start_frame = int(tail["source_start_frame"])
+        duration_frames = int(tail["source_duration_frames"])
+        source_fps = float(tail["source_fps"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReelEndingError(
+            "approved_tail cannot be mapped to the master: "
+            f"{exc}.") from exc
+    if (not os.path.isabs(source_file) or start_frame < 0
+            or duration_frames <= 0 or source_fps <= 0):
+        raise ReelEndingError(
+            "approved_tail cannot be mapped to the master: invalid "
+            "source, frames or fps.")
+    clock = float(fps) if fps else 0.0
+    if not (clock > 0.0):
+        clock = source_fps
+    wanted = os.path.normcase(os.path.normpath(source_file))
+    end_frame = start_frame + duration_frames
+    for clip in master_clips or ():
+        if getattr(clip, "track_type", "video") != "video":
+            continue
+        try:
+            candidate = os.path.normcase(os.path.normpath(
+                str(clip.source_file)))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if candidate != wanted:
+            continue
+        try:
+            clip_start_frame = int(clip.source_in_frame)
+            # Inclusive end, the way GetSourceEndFrame reports it.
+            clip_end_frame = int(clip.source_out_frame) + 1
+            clip_start = float(clip.timeline_start)
+            clip_end = float(clip.timeline_end)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if start_frame < clip_start_frame or end_frame > clip_end_frame:
+            continue
+        master_start = (clip_start
+                        + (start_frame - clip_start_frame) / clock)
+        master_end = master_start + duration_frames / clock
+        if master_start + 1e-6 < clip_start or master_end - 1e-6 > clip_end:
+            continue
+        return (master_start, master_end)
+    raise ReelEndingError(
+        f"approved_tail names {os.path.basename(source_file)} source "
+        f"{start_frame}+{duration_frames}f and no master clip plays "
+        "that span: the tail's speech has no master clock, so no "
+        "caption plan can cover it word-accurately.")
+
+
 def overlay_runs_before_tail_cards(
         picture_runs, cards) -> list[tuple[int, int]]:
     """Keep picture overlays on picture, before the reel's first tail card.

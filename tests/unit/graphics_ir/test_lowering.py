@@ -106,6 +106,33 @@ def _mg_props():
     }
 
 
+def test_tight_channel_bug_preserves_full_frame_footprint(tmp_path):
+    from PIL import Image
+
+    bug = tmp_path / "bug.png"
+    Image.new("RGBA", (200, 100), (255, 255, 255, 255)).save(bug)
+    props = _mg_props()
+    props.update({
+        "width": 186,
+        "height": 480,
+        "safeArea": {"top": 48, "right": 48,
+                     "bottom": 354, "left": 48},
+    })
+    props["elements"] = [{
+        "element": "channel_bug", "anchor": "top_right",
+        "row": 0, "runs": [], "color": "", "entrance": "cut",
+        "exit": "cut", "startFrame": 0, "durationFrames": 793,
+        "asset": str(bug), "footprint": 0.12,
+        "assetWidthBasis": 750,
+    }]
+
+    scene = lower_motion_graphics(props)
+    image = next(node for node in scene.nodes
+                 if node.type == NodeType.IMAGE)
+    assert image.bounds.width == pytest.approx(90)
+    assert image.bounds.height == pytest.approx(45)
+
+
 class TestSubtitleOverlayLowering:
     def test_word_scale_pulses_only_while_highlighted_and_resets_at_handoff(self):
         scene = lower_subtitle_overlay(_subtitle_props())

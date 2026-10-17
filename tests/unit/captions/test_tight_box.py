@@ -622,6 +622,24 @@ def test_every_refusal_names_itself():
         assert refusal.message()
 
 
+def test_tight_channel_bug_keeps_its_full_frame_asset_size(tmp_path):
+    from PIL import Image
+
+    assets = tmp_path / "brand_assets"
+    assets.mkdir()
+    Image.new("RGBA", (200, 100), (255, 255, 255, 255)).save(
+        assets / "bug.png")
+    props = _props_3([
+        _el("channel_bug", anchor="top_right", footprint=0.12,
+            asset="brand/bug.png")
+    ], safe={"top": 498, "right": 212, "bottom": 334, "left": 118})
+    box = tighten_motion_graphics_props(props, str(tmp_path))
+    assert box is not None
+    assert box.width == 480
+    assert abs(box.placement["pan"]) < 1080
+    assert box.props["elements"][0]["assetWidthBasis"] == 750
+
+
 def _write_props(path, width=FULL_W, height=FULL_H, elements=None):
     import json
     props = _props_3(elements if elements is not None

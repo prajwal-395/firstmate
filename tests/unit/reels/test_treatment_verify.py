@@ -205,7 +205,7 @@ def _reel_tail_manifest():
     }
 
 
-def _mock_resolve(monkeypatch, played):
+def _mock_resolve(monkeypatch, played, source_duration=None):
     import library.tools.execution.apply_fusion_comps as afc
 
     class MockFusionTool:
@@ -260,7 +260,8 @@ def _mock_resolve(monkeypatch, played):
 
         def GetStart(self): return 0
         def GetEnd(self): return played
-        def GetDuration(self): return played
+        def GetDuration(self):
+            return played if source_duration is None else source_duration
         def GetMediaPoolItem(self): return MockPool()
         def GetFusionCompNameList(self): return list(self.comps)
         def GetFusionCompByName(self, name): return self.comps.get(name)
@@ -340,6 +341,30 @@ def test_applier_verifies_the_tail_on_the_path_that_ships(
             assert "PowerBand" not in text
         else:
             assert "PowerBandMask1 = RectangleMask" in text
+
+
+def test_applier_uses_record_span_for_a_retimed_hold(
+        monkeypatch, tmp_path):
+    """A 19-frame native hold can draw the declared 18-frame switch-off.
+
+    Resolve may report the source span (220 frames) from GetDuration after
+    SetSpeed(0).  The played window is the 19-frame timeline record span.
+    """
+    project = tmp_path / "native-hold"
+    project.mkdir()
+    afc = _mock_resolve(monkeypatch, played=19, source_duration=220)
+
+    assert afc.apply_fusion_comps(
+        _reel_tail_manifest(), str(project),
+        step_id="build_reels") is True
+
+    from library.tools import pipeline_skills
+
+    receipts = pipeline_skills.read_receipts(str(project), "build_reels")
+    record = receipts["verify_treatment"]["result"]
+    assert record["treatments_undone"] == 0
+    assert record["rows"][0]["played_frames"] == 19
+    assert record["rows"][0]["passed"] is True
 
 
 def test_head_samples_decode_the_opening_not_the_number():

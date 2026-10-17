@@ -31,6 +31,7 @@ from library.tools.brand_palette import (
     describe_palette_state,
     roles_from_palette,
 )
+from library.tools.remotion_brand_linker import project_asset_resolver
 from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
     LAYER_ABOVE,
     LAYER_BEHIND_SUBJECT,
@@ -78,44 +79,6 @@ def brand_palette_roles(brand_style: Optional[dict]) -> dict:
     gate.
     """
     return roles_from_palette((brand_style or {}).get("color_palette")) or {}
-
-
-#: Where a staged project asset lives under Remotion's `public/`.
-#: `remotion_brand_linker.link_brand_assets` is what puts it there, and
-#: `MotionGraphics` wraps this path in `staticFile` to load it.
-STAGED_ASSET_PREFIX = "brand"
-
-
-def project_asset_resolver(project_folder: str):
-    """A function turning a NAMED project file into a staged public path.
-
-    Returns None when there is no project to look in, which
-    `resolve_plan` reads as "no way to resolve an asset" and drops an
-    asset element under its own reason rather than rendering an empty
-    frame.
-
-    **Staged lazily, on the first asset actually asked for.** Copying a
-    project's brand files into the repository's `public/brand/` is a real
-    side effect, and a run whose plan names no asset should not have one.
-    """
-    if not project_folder:
-        return None
-
-    staged: dict = {}
-
-    def resolve(name: str) -> str:
-        if not staged:
-            from library.tools.remotion_brand_linker import link_brand_assets
-            result = link_brand_assets(project_folder)
-            staged["files"] = set(result.get("files") or [])
-        base = os.path.basename(str(name).strip())
-        # Basename only: a declaration is a file in the project's own
-        # brand_assets/, so a path that climbs out of it resolves to
-        # nothing rather than reaching whatever it points at.
-        return (f"{STAGED_ASSET_PREFIX}/{base}"
-                if base and base in staged["files"] else "")
-
-    return resolve
 
 
 def generate_motion_props(

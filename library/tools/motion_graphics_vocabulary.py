@@ -456,7 +456,8 @@ ROSTER: tuple[MotionElement, ...] = (
              "with one has to move up or not be drawn."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
-              "emphasis", "colour_role", "type_role", "copy", "layer"),
+              "emphasis", "colour_role", "type_role", "copy", "data",
+              "layer"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(

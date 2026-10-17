@@ -58,6 +58,42 @@ def assert_tight_alpha(path: str, *, tight_box=None) -> tuple[int, int]:
     return size
 
 
+def assert_tight_overlay_media(path: str,
+                               tight_box: dict | None = None) -> tuple[int, int]:
+    """Check a PNG is cropped or carries its measured tight placement.
+
+    A standalone PNG must fill its alpha bounds. Some engine graphics
+    keep transparent space inside a tight canvas so their recorded
+    Pan/Tilt stays within Resolve's rail; those must name the exact canvas
+    size and placement they were rendered and measured against.
+    """
+    if not tight_box:
+        return assert_tight_alpha(path)
+    from PIL import Image
+
+    with Image.open(path) as image:
+        rgba = image.convert("RGBA")
+        actual_size = rgba.size
+        alpha_bounds = rgba.getchannel("A").getbbox()
+    if alpha_bounds is None:
+        raise ReelGraphicsError(
+            f"overlay {path!r} has no visible alpha pixels")
+    try:
+        declared_size = (int(tight_box["width"]), int(tight_box["height"]))
+        placement = tight_box["placement"]
+        float(placement["pan"])
+        float(placement["tilt"])
+        float(placement["scaling"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReelGraphicsError(
+            f"overlay {path!r} has malformed tight placement metadata") from exc
+    if actual_size != declared_size:
+        raise ReelGraphicsError(
+            f"overlay {path!r} is {actual_size[0]}x{actual_size[1]}, but its "
+            f"tight placement declares {declared_size[0]}x{declared_size[1]}")
+    return actual_size
+
+
 def assert_before_end(overlay_start: int, overlay_end: int,
                       ending_start: int, label: str = "overlay") -> None:
     """Refuse an overlay whose half-open timeline span reaches the ending."""

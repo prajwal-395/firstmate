@@ -1,7 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from "react";
-import { AbsoluteFill, Img, useCurrentFrame, interpolate, spring, staticFile, useVideoConfig } from "remotion";
-import { loadBundledFonts } from "../../fonts";
+import {
+  AbsoluteFill,
+  Img,
+  useCurrentFrame,
+  interpolate,
+  spring,
+  staticFile,
+  useVideoConfig,
+  Easing,
+} from "remotion";
+import { loadBundledFonts, loadProjectFont } from "../../fonts";
 
 // Same reason as SubtitleOverlay: this composition sets
 // fontFamily "Montserrat" and must not race the font load.
@@ -64,6 +73,8 @@ export type PlannedElement = {
    * reached these props - never a placeholder.
    */
   asset?: string;
+  /** Full-frame usable width carried through a tight crop for asset sizing. */
+  assetWidthBasis?: number;
   data?: any;
 };
 
@@ -224,8 +235,8 @@ export const isTypewriting = (
   entrance: string,
   exit: string,
 ): boolean =>
-  (entrance === "typewriter" || exit === "typewriter")
-  && typewriterShown(localFrame, durationFrames, entrance, exit) < 1;
+  (entrance === "typewriter" || exit === "typewriter") &&
+  typewriterShown(localFrame, durationFrames, entrance, exit) < 1;
 
 /** Split a typewriter reveal across runs: how many characters of each show.
  *
@@ -348,7 +359,10 @@ export const entranceTransform = (
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
-      return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
+      return {
+        transform: `scale(${s})`,
+        filter: `blur(${(1 - progress) * 4}px)`,
+      };
     }
     // `blur` - inspired by Remotion Bits BlurIn (MIT, github.com/av/remotion-bits).
     // A heavier blur than draw (8px vs 4px) with a slight upward drift,
@@ -455,7 +469,10 @@ export const exitTransform = (
         extrapolateLeft: "clamp",
         extrapolateRight: "clamp",
       });
-      return { transform: `scale(${s})`, filter: `blur(${(1 - progress) * 4}px)` };
+      return {
+        transform: `scale(${s})`,
+        filter: `blur(${(1 - progress) * 4}px)`,
+      };
     }
     case "blur": {
       const blurAmount = interpolate(progress, [0, 1], [8, 0], {
@@ -706,9 +723,18 @@ const StarRow: React.FC<{
       return (
         <span
           key={`star-${index}`}
-          style={{ position: "relative", width: `${size}px`, height: `${size}px` }}
+          style={{
+            position: "relative",
+            width: `${size}px`,
+            height: `${size}px`,
+          }}
         >
-          <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+          <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            style={{ display: "block" }}
+          >
             <path d={STAR_PATH} fill={muted} />
           </svg>
           {filled > 0 && (
@@ -722,7 +748,12 @@ const StarRow: React.FC<{
                 overflow: "hidden",
               }}
             >
-              <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+              <svg
+                width={size}
+                height={size}
+                viewBox="0 0 24 24"
+                style={{ display: "block" }}
+              >
                 <path d={STAR_PATH} fill={star} />
               </svg>
             </span>
@@ -882,7 +913,14 @@ const StagedLowerThird: React.FC<{
           transform: `translateY(${nameLift}px)`,
         }}
       >
-        <div style={runStyle(nameRun.type_role, scale, element.color, nameRun.uppercase ?? false)}>
+        <div
+          style={runStyle(
+            nameRun.type_role,
+            scale,
+            element.color,
+            nameRun.uppercase ?? false,
+          )}
+        >
           {nameRun.text}
         </div>
       </div>
@@ -903,11 +941,153 @@ const StagedLowerThird: React.FC<{
             clipPath: wipeFrom(titleBuilt),
           }}
         >
-          <div style={runStyle(titleRun.type_role, scale, element.color, titleRun.uppercase ?? false)}>
+          <div
+            style={runStyle(
+              titleRun.type_role,
+              scale,
+              element.color,
+              titleRun.uppercase ?? false,
+            )}
+          >
             {titleRun.text}
           </div>
         </div>
       ) : null}
+    </div>
+  );
+};
+
+/** A rendering of the active "25" composition in Lucie's supplied AEP. */
+const AepComp25LowerThird: React.FC<{
+  element: PlannedElement;
+  scale: number;
+  localFrame: number;
+}> = ({ element, scale, localFrame }) => {
+  if (!element.asset) return null;
+  loadProjectFont("ProximaNova", "brand/ProximaNova.otf");
+
+  const variant = element.data?.animationVariant ?? "mask-rise";
+  const easeOut = Easing.bezier(0.22, 1, 0.36, 1);
+  const easeIn = Easing.bezier(0.42, 0, 1, 1);
+  const progress = (start: number, duration: number) =>
+    interpolate(localFrame, [start, start + duration], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+      easing: easeOut,
+    });
+  const logoIn = progress(0, 8);
+  const nameIn = progress(3, 11);
+  const titleIn = progress(7, 10);
+  const ruleIn = progress(4, 8);
+  const exitStart = Math.max(0, element.durationFrames - 8);
+  const exitOpacity = interpolate(
+    localFrame,
+    [exitStart, element.durationFrames],
+    [1, 0],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: easeIn },
+  );
+  const nameSize = 136 * 0.5625 * 0.7 * scale;
+  const titleSize = 50 * 0.5625 * scale;
+  const logoSize = 62 * scale;
+  const name = element.runs[0]?.text ?? "";
+  const title = element.runs[1]?.text ?? "";
+  const layerStyle = (built: number) => {
+    if (variant === "soft-focus") {
+      return {
+        opacity: built,
+        filter: `blur(${(1 - built) * 5}px)`,
+        transform: `translateY(${(1 - built) * 14 * scale}px)`,
+      };
+    }
+    if (variant === "horizontal-wipe") {
+      return {
+        opacity: built,
+        clipPath: `inset(0 ${(1 - built) * 100}% 0 0)`,
+      };
+    }
+    if (variant === "minimal-fade") {
+      return { opacity: built };
+    }
+    return {
+      opacity: built,
+      clipPath: `inset(0 0 ${(1 - built) * 100}% 0)`,
+      transform: `translateY(${(1 - built) * 12 * scale}px)`,
+    };
+  };
+  const tracking = (built: number) =>
+    variant === "minimal-fade" ? `${(1 - built) * 1.5 * scale}px` : undefined;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: `${18 * scale}px`,
+        opacity: exitOpacity,
+        transform: `translateY(${(1 - exitOpacity) * -4 * scale}px)`,
+      }}
+    >
+      <div
+        aria-hidden="true"
+        style={{
+          width: logoSize,
+          height: logoSize,
+          flexShrink: 0,
+          backgroundColor: "#FFFFFF",
+          WebkitMaskImage: `url(${staticFile(element.asset)})`,
+          maskImage: `url(${staticFile(element.asset)})`,
+          WebkitMaskSize: "contain",
+          maskSize: "contain",
+          WebkitMaskRepeat: "no-repeat",
+          maskRepeat: "no-repeat",
+          WebkitMaskPosition: "center",
+          maskPosition: "center",
+          ...layerStyle(logoIn),
+        }}
+      />
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          color: "#FFFFFF",
+          fontFamily: "ProximaNova, sans-serif",
+        }}
+      >
+        <div
+          style={{
+            fontSize: nameSize,
+            lineHeight: 0.98,
+            whiteSpace: "nowrap",
+            letterSpacing: tracking(nameIn),
+            ...layerStyle(nameIn),
+          }}
+        >
+          {name}
+        </div>
+        {variant === "mask-rise" ? (
+          <div
+            aria-hidden="true"
+            style={{
+              width: `${168 * scale * ruleIn}px`,
+              height: `${2 * scale}px`,
+              marginTop: `${2 * scale}px`,
+              backgroundColor: "#FFFFFF",
+            }}
+          />
+        ) : null}
+        <div
+          style={{
+            marginTop: `${4 * scale}px`,
+            fontSize: titleSize,
+            lineHeight: 1.1,
+            whiteSpace: "nowrap",
+            letterSpacing: tracking(titleIn),
+            ...layerStyle(titleIn),
+          }}
+        >
+          {title}
+        </div>
+      </div>
     </div>
   );
 };
@@ -918,7 +1098,15 @@ const Runs: React.FC<{ element: PlannedElement; scale: number }> = ({
 }) => (
   <>
     {element.runs.map((run, i) => (
-      <div key={i} style={runStyle(run.type_role, scale, element.color, run.uppercase ?? false)}>
+      <div
+        key={i}
+        style={runStyle(
+          run.type_role,
+          scale,
+          element.color,
+          run.uppercase ?? false,
+        )}
+      >
         {run.text}
       </div>
     ))}
@@ -1150,7 +1338,10 @@ export const stageStarts = (
     // the next stage: real speech leaves uneven gaps, and deriving the
     // fade from a four-second gap would make one item drift in over two
     // and a half seconds while its neighbour snaps.
-    const window = Math.max(1, RAMP_FRAMES[element.entrance] ?? RAMP_FRAMES.fade);
+    const window = Math.max(
+      1,
+      RAMP_FRAMES[element.entrance] ?? RAMP_FRAMES.fade,
+    );
     return { starts, window, anchored: true };
   }
 
@@ -1181,14 +1372,21 @@ const DrawnElement: React.FC<{
   // one. Absent, the composition's own drawing stands - there is no
   // default footprint to substitute, and 1 is "as drawn", not a chosen
   // size.
-  const scale = element.footprint && element.footprint > 0 ? element.footprint : 1;
+  const scale =
+    element.footprint && element.footprint > 0 ? element.footprint : 1;
 
   // Entrance and exit transforms: slide, scale, mask, and draw each
   // produce their own spatial animation. Fade is opacity-only.
   const entTransform = entranceTransform(
-    localFrame, element.durationFrames, element.entrance);
+    localFrame,
+    element.durationFrames,
+    element.entrance,
+  );
   const extTransform = exitTransform(
-    localFrame, element.durationFrames, element.exit);
+    localFrame,
+    element.durationFrames,
+    element.exit,
+  );
 
   // When the entrance is `typewriter`, characters appear one at a time.
   // When the EXIT is, they leave the same way in reverse. Both are read
@@ -1198,16 +1396,26 @@ const DrawnElement: React.FC<{
   // Both ramps, from the one shared helper. FullFrameCard reads the same
   // one, so a reveal means the same thing in both compositions.
   const shown = typewriterShown(
-    localFrame, element.durationFrames, element.entrance, element.exit);
+    localFrame,
+    element.durationFrames,
+    element.entrance,
+    element.exit,
+  );
   const typewriting = isTypewriting(
-    localFrame, element.durationFrames, element.entrance, element.exit);
+    localFrame,
+    element.durationFrames,
+    element.entrance,
+    element.exit,
+  );
 
   // TextContent: unified text renderer that uses TypewriterRuns for
   // typewriter entrances and exits, and Runs for everything else.
   const TextContent: React.FC<{ scl?: number }> = ({ scl }) => {
     const s = scl ?? scale;
     if (typewriting) {
-      return <TypewriterRuns element={element} scale={s} revealProgress={shown} />;
+      return (
+        <TypewriterRuns element={element} scale={s} revealProgress={shown} />
+      );
     }
     return <Runs element={element} scale={s} />;
   };
@@ -1302,7 +1510,13 @@ const DrawnElement: React.FC<{
     ): React.ReactElement => (
       <div
         key={key}
-        style={{ position: "absolute", width: size, height: size, opacity, ...style }}
+        style={{
+          position: "absolute",
+          width: size,
+          height: size,
+          opacity,
+          ...style,
+        }}
       />
     );
     return (
@@ -1335,7 +1549,6 @@ const DrawnElement: React.FC<{
     );
   }
 
-
   // `lower_third`
   //
   // TWO drawings, and the PLAN says which. An entry carrying
@@ -1346,6 +1559,17 @@ const DrawnElement: React.FC<{
   // existed renders exactly as it did. The engine is not choosing
   // between two looks - the plan states which it wrote.
   if (element.element === "lower_third") {
+    if ((element.data ?? {}).construction === "aep_comp25") {
+      return (
+        <div style={{ opacity, ...entTransform, ...extTransform }}>
+          <AepComp25LowerThird
+            element={element}
+            scale={scale}
+            localFrame={localFrame}
+          />
+        </div>
+      );
+    }
     if ((element.data ?? {}).construction === "staged_rule") {
       return (
         <div style={{ opacity, ...entTransform, ...extTransform }}>
@@ -1403,7 +1627,8 @@ const DrawnElement: React.FC<{
           opacity,
           ...entTransform,
           ...extTransform,
-          width: `${Math.round(safeUsableWidth(safeArea, frameWidth) * scale)}px`,
+          width: `${Math.round((element.assetWidthBasis ??
+            safeUsableWidth(safeArea, frameWidth)) * scale)}px`,
           height: "auto",
           objectFit: "contain",
           display: "block",
@@ -1471,23 +1696,19 @@ const DrawnElement: React.FC<{
     const px = (n: number) => Math.round(n * scale);
 
     const placeRun = element.runs.find((run) => run.type_role === "display");
-    const labelRuns = element.runs.filter(
-      (run) => run.type_role !== "display",
-    );
+    const labelRuns = element.runs.filter((run) => run.type_role !== "display");
 
     const nameHeight = px(REVIEW_PANEL.nameSize * REVIEW_PANEL.nameLine);
     const scoreHeight = Math.max(
       px(REVIEW_PANEL.scoreSize * REVIEW_PANEL.scoreLine),
       px(REVIEW_PANEL.headerStar),
     );
-    const bodyLineHeight = px(
-      REVIEW_PANEL.bodySize * REVIEW_PANEL.bodyLine,
-    );
+    const bodyLineHeight = px(REVIEW_PANEL.bodySize * REVIEW_PANEL.bodyLine);
     const rowInner = Math.max(
       px(REVIEW_PANEL.avatar),
-      px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine)
-        + px(REVIEW_PANEL.authorToBody)
-        + REVIEW_PANEL.bodyLines * bodyLineHeight,
+      px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine) +
+        px(REVIEW_PANEL.authorToBody) +
+        REVIEW_PANEL.bodyLines * bodyLineHeight,
     );
     const rowHeight = px(REVIEW_PANEL.rowPadY) * 2 + rowInner;
 
@@ -1592,7 +1813,9 @@ const DrawnElement: React.FC<{
                 justifyContent: "center",
               }}
             >
-              {String(row.initial || row.author || "").trim().slice(0, 1)}
+              {String(row.initial || row.author || "")
+                .trim()
+                .slice(0, 1)}
             </div>
             <div style={{ flex: "1 1 auto", minWidth: 0 }}>
               <div
@@ -1691,8 +1914,7 @@ const DrawnElement: React.FC<{
   // than arriving whole.
   if (element.element === "subject_emblem") {
     const mark = element.runs.find((run) => run.type_role === "display");
-    const label = element.runs.filter(
-      (run) => run.type_role !== "display");
+    const label = element.runs.filter((run) => run.type_role !== "display");
     const plate = Math.round(200 * scale);
     let markText = mark ? mark.text : "";
     let markCursor = false;
@@ -1791,7 +2013,8 @@ const DrawnElement: React.FC<{
   // count decelerate into the final value.
   if (element.element === "counter_roll") {
     const data = element.data ?? {};
-    const startVal = typeof data.start_value === "number" ? data.start_value : 0;
+    const startVal =
+      typeof data.start_value === "number" ? data.start_value : 0;
     const endVal = typeof data.end_value === "number" ? data.end_value : 100;
     const prefix = typeof data.prefix === "string" ? data.prefix : "";
     const suffix = typeof data.suffix === "string" ? data.suffix : "";
@@ -1808,9 +2031,10 @@ const DrawnElement: React.FC<{
     // Cubic ease-out for a natural deceleration
     const eased = 1 - Math.pow(1 - rollProgress, 3);
     const currentValue = startVal + (endVal - startVal) * eased;
-    const displayValue = decimals > 0
-      ? currentValue.toFixed(decimals)
-      : Math.round(currentValue).toLocaleString();
+    const displayValue =
+      decimals > 0
+        ? currentValue.toFixed(decimals)
+        : Math.round(currentValue).toLocaleString();
     const fontSize = (TYPE_SIZE.display ?? 56) * scale * 1.5;
 
     return (
@@ -1836,7 +2060,9 @@ const DrawnElement: React.FC<{
             lineHeight: 1.0,
           }}
         >
-          {prefix}{displayValue}{suffix}
+          {prefix}
+          {displayValue}
+          {suffix}
         </div>
         {element.runs.length > 0 && (
           <Runs element={element} scale={scale * 0.7} />
@@ -1859,9 +2085,10 @@ const DrawnElement: React.FC<{
     const suffix = typeof data.suffix === "string" ? data.suffix : "";
     const decimals = typeof data.decimals === "number" ? data.decimals : 0;
 
-    const displayValue = decimals > 0
-      ? endVal.toFixed(decimals)
-      : Math.round(endVal).toLocaleString();
+    const displayValue =
+      decimals > 0
+        ? endVal.toFixed(decimals)
+        : Math.round(endVal).toLocaleString();
     const fontSize = (TYPE_SIZE.display ?? 56) * scale * 1.5;
 
     return (
@@ -1937,13 +2164,14 @@ const DrawnElement: React.FC<{
   if (element.element === "list_build") {
     const items = element.runs;
     if (!items.length) return null;
-    const listSize =
-      TYPE_SIZE[items[0].type_role] ?? TYPE_SIZE.supporting;
+    const listSize = TYPE_SIZE[items[0].type_role] ?? TYPE_SIZE.supporting;
     // WHEN each item appears is `stageStarts`: the plan's own
     // per-stage offsets where it has them, an equal share of the hold
     // where it does not. See the helper for which is which.
     const { starts, window: revealWindow } = stageStarts(
-      element, items.length, fps,
+      element,
+      items.length,
+      fps,
     );
 
     return (
@@ -1959,9 +2187,13 @@ const DrawnElement: React.FC<{
       >
         {items.map((run, i) => {
           const itemStart = starts[i];
-          const itemProgress = Math.max(0, Math.min(1,
-            (localFrame - itemStart) / Math.max(1, revealWindow * 0.6),
-          ));
+          const itemProgress = Math.max(
+            0,
+            Math.min(
+              1,
+              (localFrame - itemStart) / Math.max(1, revealWindow * 0.6),
+            ),
+          );
           // Cubic ease-out for a natural deceleration per item
           const eased = 1 - Math.pow(1 - itemProgress, 3);
           const itemOpacity = eased;
@@ -2002,7 +2234,8 @@ const DrawnElement: React.FC<{
               <div
                 style={{
                   fontSize: `${listSize * scale}px`,
-                  fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+                  fontWeight:
+                    TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
                   color: element.color,
                   textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
                   lineHeight: 1.3,
@@ -2045,9 +2278,13 @@ const DrawnElement: React.FC<{
       >
         {Array.from({ length: count }).map((_, i) => {
           const itemStart = starts[i];
-          const growProgress = Math.max(0, Math.min(1,
-            (localFrame - itemStart) / Math.max(1, revealWindow * 0.7),
-          ));
+          const growProgress = Math.max(
+            0,
+            Math.min(
+              1,
+              (localFrame - itemStart) / Math.max(1, revealWindow * 0.7),
+            ),
+          );
           const eased = 1 - Math.pow(1 - growProgress, 3);
           const barWidth = (values[i] / maxValue) * 100 * eased;
 
@@ -2064,7 +2301,8 @@ const DrawnElement: React.FC<{
               <div
                 style={{
                   fontSize: `${(TYPE_SIZE[items[i].type_role] ?? TYPE_SIZE.micro) * scale}px`,
-                  fontWeight: TYPE_WEIGHT[items[i].type_role] ?? TYPE_WEIGHT.micro,
+                  fontWeight:
+                    TYPE_WEIGHT[items[i].type_role] ?? TYPE_WEIGHT.micro,
                   color: element.color,
                   textShadow: "0px 2px 8px rgba(0,0,0,0.5)",
                 }}
@@ -2178,8 +2416,7 @@ const DrawnElement: React.FC<{
   // stays legible whatever the plan declared.
   if (element.element === "website_panel") {
     if (!element.asset) return null;
-    const address =
-      element.runs.length > 0 ? element.runs[0].text : "";
+    const address = element.runs.length > 0 ? element.runs[0].text : "";
     return (
       <div
         style={{

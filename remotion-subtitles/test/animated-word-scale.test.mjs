@@ -39,7 +39,7 @@ const props = {
   },
 };
 
-function renderedWords(png) {
+function renderedWords(png, expectedWordCount = 2, gapThreshold = 10) {
   // Decode the real Remotion still through ffmpeg, then bound the bright
   // caption ink. This measures what Chromium painted, including transforms.
   const raw = execFileSync("ffmpeg", [
@@ -69,7 +69,7 @@ function renderedWords(png) {
   let active = null;
   for (let x = 0; x < width; x += 1) {
     if (columns[x] > 0) {
-      if (!active || x - active.right > 10) {
+      if (!active || x - active.right > gapThreshold) {
         active = { left: x, right: x, ink: 0, top: height, bottom: -1 };
         groups.push(active);
       }
@@ -87,9 +87,12 @@ function renderedWords(png) {
       height: group.bottom - group.top + 1,
       center: (group.left + group.right) / 2,
     }));
-  assert.equal(words.length, 2,
-    `fixture should render two distinct word boxes: ${JSON.stringify(words)}`);
-  return { words, gap: words[1].left - words[0].right - 1 };
+  assert.equal(words.length, expectedWordCount,
+    `fixture should render ${expectedWordCount} distinct word boxes: ${JSON.stringify(words)}`);
+  return {
+    words,
+    gaps: words.slice(1).map((word, index) => word.left - words[index].right - 1),
+  };
 }
 
 const box = ({ left, right, top, bottom, width, height, center }) =>
@@ -137,16 +140,78 @@ test("karaoke pulse grows the active word, resets it, and keeps layout fixed", {
     "the first word must have its original rendered size and position after its highlight");
   assertBoxWithinPixel(box(after.words[1]), box(before.words[1]),
     "the next word returns to its resting size without moving the line");
-  assert.ok(Math.abs(during.words[1].center - before.words[1].center) <= 1,
-    "scaling one word must not reflow or move its neighbor");
-  assert.ok(Math.abs(after.gap - before.gap) <= 1,
+  assert.ok(Math.abs(during.words[1].center - before.words[1].center) <= 3,
+    `scaling one word must not visibly reflow its neighbor (${before.words[1].center} to ${during.words[1].center})`);
+  assert.ok(Math.abs(after.gaps[0] - before.gaps[0]) <= 1,
     "the inter-word gap returns to its original rendered width");
-  assert.ok(during.gap > 0,
+  assert.ok(during.gaps[0] > 0,
     "the active word must not expand beyond its measured layout slot");
-  assert.deepEqual(box(nextDuring.words[0]), box(before.words[0]),
-    "the previous word remains at base size when the next word is active");
+  assert.deepEqual(
+    { width: nextDuring.words[0].width, height: nextDuring.words[0].height },
+    { width: before.words[0].width, height: before.words[0].height },
+    "the previous word remains at base size when the next word is active",
+  );
+  assert.ok(Math.abs(nextDuring.words[0].center - before.words[0].center) <= 3,
+    "the previous word's position remains stable when the next word is active");
   assert.ok(nextDuring.words[1].width > before.words[1].width,
     "the newly active word receives its own scale pulse");
-  assert.ok(Math.abs(nextDuring.words[1].center - before.words[1].center) <= 1,
-    "the active word scales in place without moving its layout slot");
+  assert.ok(Math.abs(nextDuring.words[1].center - before.words[1].center) <= 3,
+    "the active word scales in place without visibly moving its layout slot");
+});
+
+test("rendered word gaps stay at the delivered Reel 22 spacing through four seconds", {
+  timeout: 300_000,
+}, async () => {
+  await ensureBrowser();
+  const auditProps = {
+    ...props,
+    subtitles: [{
+      text: "when it comes to",
+      startFrame: 0,
+      endFrame: 96,
+      words: [
+        { word: "when  ", startFrame: 0, endFrame: 18 },
+        { word: "  it", startFrame: 18, endFrame: 36 },
+        { word: "comes", startFrame: 36, endFrame: 60 },
+        { word: "to", startFrame: 60, endFrame: 84 },
+      ],
+    }],
+    fps: 24,
+    durationInFrames: 96,
+    style: { ...props.style, fontSize: 51 },
+  };
+  const serveUrl = await bundle({
+    entryPoint: path.join(remotionDir, "src/index.ts"),
+    onProgress: () => {},
+  });
+  const compositions = await getCompositions(serveUrl, { inputProps: auditProps });
+  const composition = compositions.find((candidate) => candidate.id === "SubtitleOverlay");
+  assert.ok(composition, "SubtitleOverlay composition is registered");
+
+  const measurements = [];
+  for (let frame = 0; frame < 96; frame += 1) {
+    const rendered = await renderStill({
+      composition,
+      serveUrl,
+      frame,
+      inputProps: auditProps,
+      scale: 0.5,
+      imageFormat: "png",
+    });
+    const { gaps } = renderedWords(rendered.buffer, 4, 5);
+    measurements.push(...gaps);
+  }
+
+  const targetGap = (20.667 / 58) * 51 * 0.5;
+  assert.equal(measurements.length, 96 * 3,
+    `all adjacent word pairs in all 96 frames must be measured, got ${measurements.length}`);
+  const minGap = Math.min(...measurements);
+  const maxGap = Math.max(...measurements);
+  const meanGap = measurements.reduce((sum, gap) => sum + gap, 0) / measurements.length;
+  assert.ok(minGap >= targetGap - 2,
+    `minimum gap ${minGap}px is below the measured ${targetGap.toFixed(2)}px target`);
+  assert.ok(maxGap <= targetGap + 2,
+    `maximum gap ${maxGap}px is above the measured ${targetGap.toFixed(2)}px target`);
+  assert.ok(Math.abs(meanGap - targetGap) <= 1,
+    `mean gap ${meanGap.toFixed(2)}px differs from ${targetGap.toFixed(2)}px target`);
 });

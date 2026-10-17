@@ -1333,6 +1333,7 @@ def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
         "useCustomSettings": "1",
         "timelineResolutionWidth": "1080",
         "timelineResolutionHeight": "1920",
+        "timelineFrameRate": "23.976",
     }.get(key, "")
     timeline.GetTrackCount.side_effect = lambda kind: (
         1 if kind in ("video", "audio") else 0)
@@ -1350,24 +1351,67 @@ def test_build_reel_timeline_places_audio_at_or_after_the_measured_edge(
 
     placed = []
 
-    def _capture_patch(**kwargs):
-        placed.extend(kwargs["operations"])
-        return {"status": "committed"}
+    def _capture_append(items):
+        placed.extend(items)
+        return [MagicMock() for _ in items]
 
-    monkeypatch.setattr(edit_patch, "apply_live_patch", _capture_patch)
+    pool.AppendToTimeline.side_effect = _capture_append
+
+    # The one-pass placement verifies its own read-back: serve the
+    # captured appends as the timeline's items, so the check grades
+    # what the build asked to play rather than an empty row. Picture
+    # and speech sharing a record position are linked selections,
+    # like Resolve's own append.
+    def _placed_items():
+        by_position = {}
+        stubs = []
+        for spec in placed:
+            kind = "video" if spec["mediaType"] == 1 else "audio"
+            duration = spec["endFrame"] - spec["startFrame"]
+            media = SimpleNamespace(
+                GetClipProperty=lambda prop: (
+                    SOURCE if prop == "File Path" else str(FPS)))
+            stub = SimpleNamespace(
+                _kind=kind, _record=spec["recordFrame"],
+                GetStart=lambda s=spec["recordFrame"]: s,
+                GetEnd=lambda s=(
+                    spec["recordFrame"] + duration): s,
+                GetSourceStartFrame=lambda s=spec["startFrame"]: s,
+                GetSourceEndFrame=lambda s=spec["endFrame"]: s,
+                GetLeftOffset=lambda s=spec["startFrame"]: s,
+                GetMediaPoolItem=lambda m=media: m,
+                GetUniqueId=lambda k=kind, t=spec["trackIndex"],
+                r=spec["recordFrame"]: "test-%s-%s-%s" % (k, t, r),
+                GetSpeed=lambda: {"Percentage": 100.0},
+                GetLinkedItems=lambda: [],
+                GetProperty=lambda *args: {},
+            )
+            by_position.setdefault(stub._record, []).append(stub)
+            stubs.append((spec, stub))
+        for _spec, stub in stubs:
+            partners = [other for other in by_position[stub._record]
+                        if other is not stub]
+            stub.GetLinkedItems = lambda p=partners: list(p)
+        return stubs
+
+    timeline.GetItemListInTrack.side_effect = (
+        lambda kind, index: [stub for spec, stub in _placed_items()
+                             if (("video" if spec["mediaType"] == 1
+                                   else "audio") == kind)
+                             and spec["trackIndex"] == index])
 
     build_reel_timeline(
         project, moment, clips, [], FPS, 1080, 1920,
         str(tmp_path), transcript, program_channels={"1": 1},
     )
 
-    audio_append = next(op for op in placed if op["track_type"] == "audio")
-    assert audio_append["source_in"] == 3022
-    assert audio_append["source_out"] - audio_append["source_in"] == 129
+    audio_append = next(op for op in placed if op["mediaType"] == 2)
+    assert audio_append["startFrame"] == 3022
+    assert audio_append["endFrame"] - audio_append["startFrame"] == 129
 
     # F25 reads the source frames the placement was asked to play.
-    source_start = audio_append["source_in"] / float(FPS)
-    source_end = audio_append["source_out"] / float(FPS)
+    source_start = audio_append["startFrame"] / float(FPS)
+    source_end = audio_append["endFrame"] / float(FPS)
     played = subtitle_coverage.played_words_from_transcript(
         transcript["segments"], [{
             "source_file": SOURCE,

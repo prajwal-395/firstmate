@@ -624,20 +624,31 @@ class MockResolve:
 
 
 class MockMediaPoolItem:
-    def __init__(self, path):
+    def __init__(self, path, fps="23.976"):
         self._path = path
+        self._fps = fps
 
     def GetClipProperty(self, prop):
         if prop == "File Path":
             return self._path
+        if prop == "FPS":
+            return self._fps
 
 
 class MockTimelineItem:
-    def __init__(self, mpi):
+    def __init__(self, mpi, source_start=None, speed=100.0):
         self._mpi = mpi
+        self._source_start = source_start
+        self._speed = speed
 
     def GetMediaPoolItem(self):
         return self._mpi
+
+    def GetSourceStartFrame(self):
+        return self._source_start
+
+    def GetSpeed(self):
+        return {"Percentage": self._speed}
 
 
 # ── verify_destination tests ─────────────────────────────────────
@@ -683,6 +694,27 @@ def test_clips_map_to_items_by_full_path_only():
         items("/footage/clip_A.mov")) == {1: 0}
     assert _map_clips_to_items(
         [{"source_file": "/footage/clip_A.mov"}], []) == {}
+
+
+def test_clips_with_repeated_source_match_the_native_hold_by_held_frame():
+    """The tail treatment maps to a hold, not the same file's live shot."""
+    path = "/footage/LCATL0013.MXF"
+    source_start = 11538
+    held_frame = 11757
+    fps = 23.976
+    clips = [{
+        "source_file": path,
+        "source_in": (held_frame - 18) / fps,
+        "source_out": (held_frame + 1) / fps,
+    }]
+    items = [
+        MockTimelineItem(MockMediaPoolItem(path),
+                         source_start=source_start, speed=100.0),
+        MockTimelineItem(MockMediaPoolItem(path),
+                         source_start=held_frame, speed=0.0),
+    ]
+
+    assert _map_clips_to_items(clips, items) == {0: 1}
 
 
 # ── Subprocess CLI arg parsing ───────────────────────────────────

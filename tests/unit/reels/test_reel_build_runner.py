@@ -1062,7 +1062,7 @@ def _build(project_dir, world, **kwargs):
 @pytest.mark.usefixtures("mock_dvr")
 def test_the_first_build_places_everything_and_records_its_signature(
         project):
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     record, placed = _build(project, world,
                             resolve_project=resolve_project)
@@ -1105,7 +1105,7 @@ def test_master_revision_changed_during_prepare_refuses_before_placement(
     from library.tools import reel_rebuild_need
     from library.tools.reel_build import ReelBuildError
 
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     original = reel_rebuild_need.carried_digest_live
     calls = 0
@@ -1127,7 +1127,7 @@ def test_master_revision_changed_during_prepare_refuses_before_placement(
     placed.assert_not_called()
 @pytest.mark.usefixtures("mock_dvr")
 def test_the_second_build_of_the_same_state_places_nothing(project):
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
     before = sorted(resolve_project.names())
@@ -1151,7 +1151,7 @@ def test_the_gate_is_not_called_with_an_empty_scope(project):
     a gate that passes having graded nothing reads as coverage. A build
     that placed nothing because nothing needed placing must not reach
     it."""
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
     with _patched(resolve_project, world), \
@@ -1163,7 +1163,7 @@ def test_the_gate_is_not_called_with_an_empty_scope(project):
 @pytest.mark.usefixtures("mock_dvr")
 def test_only_the_reel_whose_picture_drifted_is_placed_again(project):
     """One reel of three - the realistic build the profile priced."""
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
 
@@ -1182,7 +1182,7 @@ def test_only_the_reel_whose_picture_drifted_is_placed_again(project):
 
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_changed_plan_places_every_reel_again(project):
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
 
@@ -1204,7 +1204,7 @@ def test_a_per_reel_pin_store_does_not_place_the_other_reels(project):
     is still left alone - which is the half that proves the store is
     not being folded into the project-wide digest.
     """
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
 
@@ -1240,7 +1240,7 @@ def test_a_reel_reads_the_same_however_the_run_entered(project):
     So the read is taken with the reel ITSELF current, at both ends,
     and the run's entry point stops mattering.
     """
-    resolve_project = FakeProject([MASTER])
+    resolve_project = FakeProject("Mock Project", [MASTER])
     world = World(resolve_project)
     _build(project, world, resolve_project=resolve_project)
 

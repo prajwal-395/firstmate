@@ -463,6 +463,7 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
                        for r in (ranges or []))
     brand_style, brand_effect = _brand_slots(project_folder)
     from library.tools import reel_cta_treatment as cta_rx
+    from library.tools.remotion_brand_linker import project_asset_resolver
     # The captain's declared CTA treatment (external/declarations/reel_cta.json),
     # normalised into the answer BEFORE resolve_plan times and validates
     # it - so a re-rendered card keeps the plan's own copy and timing
@@ -502,7 +503,7 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
             project_folder=project_folder or None),
         captioned_spans=captioned_spans(spine),
         word_windows=collect_word_windows(spine),
-        resolve_asset=None,
+        resolve_asset=project_asset_resolver(project_folder),
     )
     for dropped in resolved.dropped:
         print(f"  {name}: semantic entry dropped ({dropped.reason}) "

@@ -34,6 +34,7 @@ import sys
 import os
 import json
 import argparse
+import math
 
 # This module runs both as a script (launched by resolve_build_timeline in
 # its own process) and as `library.tools.execution.apply_fusion_comps`, so
@@ -89,6 +90,31 @@ try:
     from execution.fusion_tracks import fusion_comp_tracks
 except ImportError:  # pragma: no cover - package import path
     from library.tools.execution.fusion_tracks import fusion_comp_tracks
+
+
+def _played_timeline_frames(timeline_item):
+    """Frames the item occupies on the timeline, including native holds.
+
+    Resolve's ``GetDuration`` may report the retimed source span for a
+    zero-speed item, even though the item occupies only its held record
+    range.  Fusion's treatment window must be judged against the frames
+    that play, so use the timeline edges first and retain GetDuration as
+    a fallback for older or incomplete API objects.
+    """
+    try:
+        start = float(timeline_item.GetStart())
+        end = float(timeline_item.GetEnd())
+        if (math.isfinite(start) and math.isfinite(end) and end > start):
+            return int(round(end - start))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        pass
+    try:
+        duration = float(timeline_item.GetDuration())
+        if math.isfinite(duration) and duration > 0:
+            return int(round(duration))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        pass
+    return None
 
 
 def _source_resolution(mpi):
@@ -238,33 +264,69 @@ def assert_destination(resolve, expected_project, expected_timeline):
     return verify_destination(resolve, expected_project, expected_timeline)
 
 
-def _map_clips_to_items(clips, items):
+def _map_clips_to_items(clips, items, fallback_fps=None):
     """Match one track's manifest clip specs to the items really placed.
 
     A spec that names no source file, or whose file does not match the
     next unconsumed item, is skipped rather than guessed at: the index is
     what decides which clip a comp lands on.
 
-    Matching is by FULL PATH only.  The basename fallback that used to
-    sit here was the exact defect H2 describes: the captain's rough cut
-    is built from the same footage, so on the wrong timeline the matcher
-    does not fail - it SUCCEEDS, and writes Fusion comps onto the wrong
-    clips.  A matcher that succeeds against wrong material is worse than
-    one that fails.
+    Matching is by FULL PATH and, where the manifest states a source
+    window, its first source frame. A native zero-speed hold reports the
+    held frame as its source start, while its manifest window starts
+    ``duration - 1`` frames earlier so Resolve has a span to collapse.
+    The basename fallback that used to sit here was the exact defect H2
+    describes: the captain's rough cut is built from the same footage,
+    so on the wrong timeline the matcher does not fail - it SUCCEEDS,
+    and writes Fusion comps onto the wrong clips. A matcher that
+    succeeds against wrong material is worse than one that fails.
     """
     mapping = {}
     item_idx = 0
     for orig_ci, clip_spec in enumerate(clips):
-        if item_idx >= len(items):
-            break
         src = clip_spec.get('source_file', '')
         if not src:
             continue
-        mpi = items[item_idx].GetMediaPoolItem()
-        mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
-        if mpi_path == src:
-            mapping[orig_ci] = item_idx
-            item_idx += 1
+        window = (clip_spec.get("source_in"),
+                  clip_spec.get("source_out"))
+        matched = None
+        for candidate_idx in range(item_idx, len(items)):
+            item = items[candidate_idx]
+            mpi = item.GetMediaPoolItem()
+            mpi_path = mpi.GetClipProperty("File Path") if mpi else ""
+            if mpi_path != src:
+                continue
+            if all(bound is not None for bound in window):
+                try:
+                    fps_value = mpi.GetClipProperty("FPS")
+                    source_fps = float(fps_value or fallback_fps)
+                    expected_start = int(round(float(window[0]) * source_fps))
+                    expected_end = int(round(float(window[1]) * source_fps))
+                    actual_start = int(item.GetSourceStartFrame())
+                except (AttributeError, TypeError, ValueError,
+                        OverflowError):
+                    # Older Resolve facades and path-only fixtures do not
+                    # expose a readable source trim. Preserve the exact-path
+                    # match in that case; a readable trim is always checked.
+                    pass
+                else:
+                    try:
+                        speed = float(
+                            (item.GetSpeed() or {}).get("Percentage"))
+                    except (AttributeError, TypeError, ValueError):
+                        speed = None
+                    held_frame = (expected_end - 1
+                                  if speed is not None
+                                  and math.isfinite(speed)
+                                  and abs(speed) <= 1e-9
+                                  else expected_start)
+                    if actual_start != held_frame:
+                        continue
+            matched = candidate_idx
+            break
+        if matched is not None:
+            mapping[orig_ci] = matched
+            item_idx = matched + 1
     return mapping
 
 
@@ -588,7 +650,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
     # entry names a timeline instant and compile_manifest resolves it to
     # the A-roll clip playing there.
     v1_items = timeline.GetItemListInTrack("video", 1) or []
-    orig_to_item = _map_clips_to_items(v1_clips, v1_items)
+    orig_to_item = _map_clips_to_items(v1_clips, v1_items, fps)
 
     vfx_entries = manifest.get('vfx', [])
     # Legacy fallback ONLY: compile_manifest resolves every entry to
@@ -625,7 +687,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
                 v1_items if track_index == 1
                 else (timeline.GetItemListInTrack("video", track_index) or []))
             _items_by_track[track_index] = track_items
-            track_map = _map_clips_to_items(track_clips, track_items)
+            track_map = _map_clips_to_items(track_clips, track_items, fps)
             for ci, spec in enumerate(track_clips):
                 if ci in track_map:
                     work.append((track_index, track_items, track_map[ci],
@@ -798,11 +860,7 @@ def apply_fusion_comps_with_resolve(resolve, manifest, project_folder,
             # state its duration is checked against the assumed horizon,
             # and the receipt says so - an unread duration must not take
             # the check down with it.
-            get_duration = getattr(tl_clip, "GetDuration", None)
-            try:
-                played = int(get_duration() or 0) or None
-            except (TypeError, ValueError):
-                played = None
+            played = _played_timeline_frames(tl_clip)
             # A treatment nobody declared may be undone: it was the
             # look's own offer and the picture is fine without it. One
             # the project DECLARED may not - an element the captain

@@ -444,6 +444,12 @@ class ReelPlan:
     Picture the viewer watches that the ranges do not describe, the
     same case a full-frame card is (`library/tools/reel_ending.py`).
     """
+    tail_frames: int = 0
+    """Frames the declared source-locked tail SHOT plays, from no keep range.
+
+    Picture the viewer watches between the ranges and the hold, the
+    same case a third time (`reel_ending.approved_tail_frames`).
+    """
     declared_short_captions: Tuple[Tuple[int, int], ...] = ()
     """Cards a caption-timing PIN left under the readability floor.
 
@@ -1069,6 +1075,7 @@ def check_plan_describes_timeline(reel_name: str,
                                  fps: float,
                                  card_frames: int = 0,
                                  held_frames: int = 0,
+                                 tail_frames: int = 0,
                                  ) -> List[Finding]:
     """Refuse F4 when the RE-DERIVED plan is not the plan that was built.
 
@@ -1118,6 +1125,12 @@ def check_plan_describes_timeline(reel_name: str,
     no keep range, and left out it refuses every reel that declares
     one. Zero for every project that declares none.
 
+    `tail_frames` is a declared source-locked tail SHOT
+    (`reel_ending.approved_tail`), the same case a third time: the
+    shot plays after the keep ranges and before the hold, and left out
+    the plan lays 884 frames against a built 1104 (Reel 26,
+    2026-10-17). Zero for every reel that declares none.
+
     `total_frames` is the PICTURE extent - V1/V2 to the timeline origin -
     never the whole-timeline GetEndFrame minus GetStartFrame. The plan
     under test describes picture only, and the caption layer it does not
@@ -1138,7 +1151,8 @@ def check_plan_describes_timeline(reel_name: str,
     # `reel_build.placements`' own `int(round(x * fps))` per range edge -
     # the builder's arithmetic, not an approximation of it.
     planned_frames = (_reel_clock.total_played_frames(keep_ranges, fps)
-                      + int(card_frames) + int(held_frames))
+                      + int(card_frames) + int(held_frames)
+                      + int(tail_frames))
     if planned_frames == total_frames:
         return []
     delta = total_frames - planned_frames
@@ -1161,6 +1175,9 @@ def check_plan_describes_timeline(reel_name: str,
             "delta_seconds": round(delta / fps, 3),
             "keep_ranges": [(round(a, 3), round(b, 3))
                             for a, b in keep_ranges],
+            "card_frames": int(card_frames),
+            "held_frames": int(held_frames),
+            "tail_frames": int(tail_frames),
             "refused": "F4",
         },
     )]
@@ -5556,7 +5573,8 @@ def verify_reel(plan: ReelPlan,
         plan.reel_name, plan_ranges, picture_frames, fps,
         card_frames=(0 if span_present
                      else sum(c.duration_frames for c in plan.cards)),
-        held_frames=plan.held_frames)
+        held_frames=plan.held_frames,
+        tail_frames=plan.tail_frames)
     # A mismatch a recorded manual edit explains is reported AS that
     # edit - naming it - instead of as an unexplained PLAN-MISMATCH.
     not_this_plan = _attribute_plan_mismatch_to_recorded_edit(
@@ -6354,6 +6372,35 @@ def _derive_plan_from_master(
             placed, project_folder, reel_name, master_clips, kr,
             transcript or {}, fps, lead_in_frames=lead_frames)
 
+    # A declared source-locked tail shot is picture the viewer watches
+    # that no keep range describes - the same case a full-frame card
+    # and the freeze hold already are below. Reel 26, 2026-10-17:
+    # without it the re-derived plan laid 884 frames against the built
+    # 1104 and PLAN-MISMATCH refused a correct rebuild, and the item
+    # count read 3 planned against 4 placed. The tail rides the same
+    # append the build plans from
+    # (`reel_build.append_approved_tail`), placed AFTER the angle-plan
+    # composition exactly as the build places it after its own angle
+    # select - so the freeze below holds the tail's last frame, and
+    # the caption spine covers the tail's master span. Zero, and no
+    # span, for every reel that declares none.
+    tail_seconds = 0.0
+    tail_span = None
+    if ending_declaration is not None and placed:
+        from library.tools import reel_ending as _tail_ending
+        from library.tools.reel_build import (
+            append_approved_tail as _append_tail,
+        )
+        tail_span = _tail_ending.approved_tail_master_span(
+            master_clips, ending_declaration, fps)
+        if tail_span is not None:
+            placed = list(placed)
+            _append_tail(placed, ending_declaration, fps, reel_name,
+                         track_types=("video",))
+            tail_seconds = (
+                _tail_ending.approved_tail_frames(ending_declaration, fps)
+                / fps if fps else 0.0)
+
     # The declared FREEZE, re-derived with the owner's own planner:
     # the hold is a picture clip on the ending shot's row, so a plan
     # that leaves it out reports the reel as one item and 18 frames
@@ -6392,11 +6439,13 @@ def _derive_plan_from_master(
     card_seconds = sum(c.duration_frames for c in cards) / fps if cards else 0.0
     # A held frame occupies reel time exactly as a card does: the
     # viewer watches it, so leaving it out reports the reel short.
+    # The declared tail shot is the same case: picture the viewer
+    # watches that no keep range describes (`tail_seconds` above).
     freeze_seconds = (freeze_plan.duration_frames / fps
                       if freeze_plan is not None else 0.0)
     plan_seconds = (card_seconds if span_present
                     else _reel_clock.total_played_seconds(kr) + card_seconds
-                    ) + freeze_seconds
+                    ) + freeze_seconds + tail_seconds
     plan_frames = plan_seconds * fps
     lead_seconds = lead_frames / fps if fps else 0.0
 
@@ -6414,7 +6463,8 @@ def _derive_plan_from_master(
         if captions_unavailable:
             raise CaptionsUnavailable(captions_unavailable)
         captions, declared_short = _derive_planned_captions(
-            moment, kr, transcript, fps, project_folder,
+            moment, list(kr) + ([tail_span] if tail_span else []),
+            transcript, fps, project_folder,
             lead_seconds=lead_seconds, timeline=reel_name)
     except CaptionsUnavailable as unavailable:
         captions_unavailable = str(unavailable)
@@ -6437,6 +6487,8 @@ def _derive_plan_from_master(
         call_to_action=closer,
         held_frames=(freeze_plan.duration_frames
                      if freeze_plan is not None else 0),
+        tail_frames=(int(round(tail_seconds * fps)) if tail_seconds and fps
+                     else 0),
         declared_short_captions=declared_short,
     )
 

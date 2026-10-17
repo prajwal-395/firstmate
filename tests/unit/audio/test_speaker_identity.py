@@ -278,6 +278,42 @@ def test_the_entry_resolves_through_step_4_06s_own_resolver(tmp_path):
     assert moment["data"]["construction"] == "staged_rule"
 
 
+def test_aep_comp25_soft_focus_is_declared_and_reaches_the_renderer(tmp_path):
+    declaration = {**DECLARATION, "construction": "aep_comp25",
+                   "animation_variant": "soft-focus",
+                   "logo_asset": "Lucie_Logo_Icon_2023.svg"}
+    folder = _project(tmp_path, "aep", effect={si.DECLARATION_KEY: declaration})
+    plan = si.plan_for_reel("R", _lines(("Ada", 2.0)), 40.0, folder,
+                            width=1080, height=1920)
+    assert plan.entries[0]["data"]["construction"] == "aep_comp25"
+    assert plan.entries[0]["data"]["animationVariant"] == "soft-focus"
+    assert plan.entries[0]["asset"] == "Lucie_Logo_Icon_2023.svg"
+
+
+def test_aep_comp25_asset_and_data_reach_step_406_resolver(tmp_path):
+    from library.tools.motion_graphics_plan import resolve_plan
+
+    declaration = {**DECLARATION, "construction": "aep_comp25",
+                   "animation_variant": "soft-focus",
+                   "logo_asset": "Lucie_Logo_Icon_2023.svg"}
+    folder = _project(tmp_path, "aep-asset",
+                      effect={si.DECLARATION_KEY: declaration})
+    plan = si.plan_for_reel("R", _lines(("Ada", 2.0)), 40.0, folder,
+                            width=1080, height=1920)
+    resolved = resolve_plan(
+        plan.entries, timeline_duration=40.0, fps=24.0,
+        resolve_asset=lambda name: "brand/" + name)
+    assert not resolved.dropped
+    assert resolved.moments[0]["asset"] == "brand/Lucie_Logo_Icon_2023.svg"
+    assert resolved.moments[0]["data"]["construction"] == "aep_comp25"
+
+
+def test_unknown_lower_third_animation_variant_is_refused():
+    with pytest.raises(si.SpeakerIdentityError, match="animation_variant"):
+        si.declared_speakers({**DECLARATION,
+                              "animation_variant": "surprise"})
+
+
 # ── One row, one moment: a card ends where the next begins ────────
 
 HOLD_3_5 = {
@@ -371,6 +407,13 @@ def test_a_render_measurement_is_judged_in_delivery_frame_pixels():
         INSETS, 1080, 1920)
     assert [(f["code"], f["severity"]) for f in findings] == [
         ("not_the_delivery_frame", "warning")]
+
+
+def test_measured_lower_third_overflow_moves_its_anchor_inward():
+    adjusted = si.insets_to_clear_render(
+        _measured((1000, 1391), (76, 700)), INSETS, 1080, 1920)
+    assert adjusted == {"top": 120, "right": 120,
+                        "bottom": 555, "left": 108}
 
 
 # ── The record a check grades against ────────────────────────────────

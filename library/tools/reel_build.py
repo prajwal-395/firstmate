@@ -5450,6 +5450,10 @@ def plan_cards(moment, transcript: dict, ranges, project_folder: str,
     if ending is not None:
         from library.tools import reel_ending as _reel_ending
         body_frames += _reel_ending.ending_tail_frames(ending, look)
+        # A declared source-locked tail shot plays between the keep
+        # ranges and the ending's hold, so a tail card starts after it
+        # rather than on top of it (`approved_tail_frames` owns why).
+        body_frames += _reel_ending.approved_tail_frames(ending, fps)
     # The ranges and the transcript travel too, and only a span reads
     # them: its segments anchor to the keep ranges one by one, so the
     # boundaries sit on the reel's own edit points.  Cards never read
@@ -6611,6 +6615,7 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
     from library.tools import explainer_plan as ex
     from library.tools import motion_graphics_plan as mg
     from library.tools import operations
+    from library.tools.remotion_brand_linker import project_asset_resolver
     from library.tools import speaker_identity as si
     from library.tools.project_layout import Area, ProjectLayout
     from library.tools.reel_quality_bar import played_speech
@@ -6671,7 +6676,8 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
 
     resolved = mg.resolve_plan(
         plan.entries, timeline_duration=reel_seconds, fps=fps,
-        palette_roles={}, asked=True)
+        palette_roles={}, asked=True,
+        resolve_asset=project_asset_resolver(project_folder))
     for dropped in resolved.dropped:
         print(f"  {name}: lower third dropped ({dropped.reason}) "
               f"{dropped.element}: {dropped.detail}", file=sys.stderr)
@@ -6692,6 +6698,7 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
 
     insets = {key: int(value) for key, value in plan.box.items()
               if key in ("top", "right", "bottom", "left")}
+    placement_limits = dict(insets)
     segments_plan = mg.plan_segments(
         resolved.moments, fps=fps, width=width, height=height,
         safe_area=insets, project_folder=project_folder or "")
@@ -6737,12 +6744,53 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
         if measured is not None:
             rendered["measured"] = measured
             rendered["measured_box"] = si.measured_box(measured)
-            refused = False
-            for finding in si.render_findings(measured, insets, width, height):
+            findings = si.render_findings(measured, insets, width, height)
+            refused = any(finding["severity"] == "error"
+                          for finding in findings)
+            if refused:
+                adjusted = si.insets_to_clear_render(
+                    measured, insets, width, height)
+                if adjusted != insets:
+                    print(f"  {name}: lower-third rendered ink exceeded its "
+                          "box; moving the bottom-left anchor inward and "
+                          "re-rendering from the measured bounds",
+                          file=sys.stderr)
+                    insets = adjusted
+                    planned["props"]["safeArea"] = dict(insets)
+                    plan.box.update(insets)
+                    plan.box["_basis"] += "; adjusted from measured " \
+                        "rendered ink bounds"
+                    rendered = render.run(
+                        planned, out_dir,
+                        segment_name=f"lt_{_reel_slug(name)}_{index:02d}",
+                        progress=f"[{index + 1}/{len(segments_plan)}; "
+                                 "measured-placement retry]",
+                        project_folder=project_folder,
+                        draw_gain=draw_gain,
+                        overlay_geometry="full",
+                        reuse=True)
+                    if rendered is None:
+                        continue
+                    try:
+                        measured = ex.measure_render(
+                            rendered["overlay_path"], frame=midpoint)
+                    except ex.ExplainerError as why:
+                        print(f"  {name}: lower-third retry could not be "
+                              f"measured - {why}", file=sys.stderr)
+                        measured = None
+                    if measured is not None:
+                        rendered["measured"] = measured
+                        rendered["measured_box"] = si.measured_box(measured)
+                        findings = si.render_findings(
+                            measured, placement_limits, width, height)
+                        refused = any(finding["severity"] == "error"
+                                      for finding in findings)
+                    else:
+                        refused = True
+            for finding in findings:
                 print(f"  {name}: LOWER THIRD "
                       f"{finding['severity'].upper()} ({finding['code']}) "
                       f"{finding['message']}", file=sys.stderr)
-                refused = refused or finding["severity"] == "error"
             if refused:
                 plan.refused.append({
                     "speaker": "", "reason": si.INK_LEFT_THE_BOX,
@@ -7516,6 +7564,12 @@ def _verify_freeze_tail_after_fusion(project, name: str, freeze,
                 timeline_matches.append(candidate)
         if len(timeline_matches) == 1:
             expected = trace["expected"]
+            # A retimed hold reads its HELD frame, not the span start the
+            # append landed: Resolve collapses the appended source span
+            # onto the ending shot's last frame, so the post-retime
+            # read-back must name that frame. Reel 26, 2026-10-17: the
+            # span [11739, 11758) holds 11757, and expecting the span
+            # start refused a correctly placed hold after the Fusion pass.
             item_matches = _freeze_tail_matches(
                 timeline_matches[0], int(expected["track_index"]),
                 int(expected["start_frame"]), int(expected["end_frame"]),
@@ -7659,7 +7713,8 @@ def _apply_native_hold(name: str, timeline, freeze, row: int,
     if len(before) != 1:
         raise ReelBuildError(
             f"{name}: expected one native hold segment from "
-            f"{freeze.held_from!r} source frame {freeze.held_source_frame} "
+            f"{freeze.held_from!r} source span "
+            f"[{freeze.source_start_frame}, {freeze.source_end_frame}) "
             f"on V{row} at [{start}, {end}); found {len(before)}")
     item = before[0]
     original_span = _timeline_span(item)
@@ -7682,7 +7737,10 @@ def _apply_native_hold(name: str, timeline, freeze, row: int,
     if len(held) != 1 or _timeline_span(item) != original_span:
         raise ReelBuildError(
             f"{name}: native ending hold did not retain its exact record "
-            f"span [{start}, {end}) and 0% speed after Resolve read-back")
+            f"span [{start}, {end}) and 0% speed after Resolve read-back "
+            f"(matching holds={len(held)}, before={original_span}, "
+            f"after={_timeline_span(item)}, speed={item.GetSpeed()!r}, "
+            f"source_start={item.GetSourceStartFrame()})")
     if trace is not None:
         trace["native_retime"] = {
             "applied": True,
@@ -9071,6 +9129,91 @@ class ReelPlacementPlan:
     subject_measure: object = None
 
 
+def append_approved_tail(placements_list, ending, fps, name,
+                         track_types=("video", "audio")):
+    """Append a declared source-locked tail shot to a placement plan.
+
+    A captain-approved hand edit can declare a source-locked tail shot
+    with its ending. Keep the source span and destination angle explicit
+    in the project declaration, then feed picture and program audio
+    through the ordinary placement and verification path. This does not
+    widen the spoken body or copy rows from the live timeline.
+
+    Mutates `placements_list` in place (picture plus speech entries
+    abutting the body's end, or only the picture entry where the
+    caller passes `track_types=("video",)` - the verifier's
+    re-derivation plans picture only) and returns the appended
+    entries. With no `approved_tail` on the ending nothing is appended
+    and `[]` returns. A malformed declaration raises `ReelBuildError`
+    naming it, so a half-declared tail refuses before any placement
+    rather than landing a partial shot.
+    """
+    import sys
+    import os
+    from types import SimpleNamespace
+
+    # A captain-approved hand edit can declare a source-locked tail shot
+    # with its ending. Keep the source span and destination angle explicit
+    # in the project declaration, then feed picture and program audio
+    # through the ordinary placement and verification path. This does not
+    # widen the spoken body or copy rows from the live timeline.
+    approved_tail = (ending or {}).get("approved_tail") if ending else None
+    if not approved_tail:
+        return []
+    try:
+        source_file = str(approved_tail["source_file"])
+        source_start_frame = int(approved_tail["source_start_frame"])
+        source_duration_frames = int(
+            approved_tail["source_duration_frames"])
+        source_fps = float(approved_tail["source_fps"])
+        track_index = int(approved_tail["track_index"])
+        speaker = str(approved_tail["speaker"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ReelBuildError(
+            f"{name}: approved_tail declaration is incomplete: {exc}") from exc
+    if (not os.path.isabs(source_file) or source_start_frame < 0
+            or source_duration_frames <= 0 or source_fps <= 0
+            or track_index <= 0 or not speaker.strip()):
+        raise ReelBuildError(
+            f"{name}: approved_tail has invalid source, frames, fps, "
+            "track index, or speaker")
+    tail_start_frame = max(
+        int(p["snapped_record"]) + int(
+            p.get("record_frames") or round(
+                (float(p["source_out"]) - float(p["source_in"]))
+                * fps))
+        for p in placements_list)
+    tail_record_seconds = tail_start_frame / fps
+    tail_source_in = source_start_frame / source_fps
+    tail_source_out = (source_start_frame + source_duration_frames) / source_fps
+    tail_seconds = source_duration_frames / source_fps
+    appended = []
+    for track_type in tuple(track_types):
+        clip = SimpleNamespace(
+            source_file=source_file, source_fps=source_fps,
+            track_index=track_index, speaker=speaker,
+            track_type=track_type, timeline_start=0.0,
+            timeline_end=tail_seconds, track_name=speaker)
+        appended.append({
+            "clip": clip,
+            "source_in": tail_source_in,
+            "source_out": tail_source_out,
+            "record": tail_record_seconds,
+            "snapped_record": tail_start_frame,
+            "record_frames": int(round(tail_seconds * fps)),
+            "track_index": track_index,
+            "speaker": speaker,
+            "master": (0.0, 0.0),
+            "approved_tail": True,
+        })
+    placements_list.extend(appended)
+    print(f"  {name}: approved tail {os.path.basename(source_file)} "
+          f"source {source_start_frame}+{source_duration_frames}f on "
+          f"{speaker} V{track_index}/A{track_index} at reel frame "
+          f"{tail_start_frame}", file=sys.stderr)
+    return appended
+
+
 def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
                           width, height, project_folder, transcript,
                           timeline_name: str = "", cards=None,
@@ -9206,6 +9349,7 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
     # any Resolve placement occurs.
     placements_list, mic_bleed_suppressions = suppress_mic_bleed_audio(
         placements_list, transcript, fps, master_clips=master_clips)
+    append_approved_tail(placements_list, ending, fps, name)
     if angle_plan_record["declared"]:
         print(f"  {name}: angle plan - "
               + " | ".join(f"{shot['camera']} {shot['start_frame']}-"
@@ -9909,7 +10053,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         if is_freeze_tail:
             _append_freeze_tail(
                 pool, project, timeline, name, c.source_file,
-                source_start_frame, append_spec,
+                freeze_tail.source_start_frame, append_spec,
                 recording=recording,
                 trace=build_record["freeze_placement"])
             continue
@@ -10767,6 +10911,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if freeze_tail is not None:
         freeze_trace = build_record["freeze_placement"]
         expected = freeze_trace["expected"]
+        # Post-retime read-back, like the post-Fusion one: the hold
+        # item reads its held frame, not the appended span's start.
         found = _freeze_tail_matches(
             timeline, int(expected["track_index"]),
             int(expected["start_frame"]),
@@ -14612,8 +14758,25 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # Was: computed by the standalone captioner and then passed as
             # None, so every reel built since #524 carried no subtitles at
             # all while the work was done and discarded.
+            #
+            # A declared source-locked tail shot speaks master speech no
+            # keep range covers, so the spine it is captioned from must
+            # cover the tail's master span too. Reel 26, 2026-10-17:
+            # without this the rebuild carried the LCATL0013 shot while
+            # planning no caption over its 33 words, and verification
+            # refused the timeline as playing uncaptioned speech. The
+            # tail span rides the caption spine ONLY: placements still
+            # come from `ranges`, so the tail is captioned, never
+            # placed twice.
+            caption_ranges = list(ranges)
+            if _ending_decl is not None:
+                from library.tools import reel_ending as _ending_caps
+                tail_span = _ending_caps.approved_tail_master_span(
+                    master_clips, _ending_decl, fps)
+                if tail_span is not None:
+                    caption_ranges.append(tail_span)
             subtitle_segments = None if skip_captions else reel_subtitle_segments(
-                moment, transcript, ranges, project_folder,
+                moment, transcript, caption_ranges, project_folder,
                 fps=fps, width=reel_width, height=reel_height,
                 timeline_name=name, lead_seconds=lead,
                 draw_gain=run_gain)
@@ -14921,8 +15084,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # exact project, master revision, and plan inputs only after
                 # this placement owns the Resolve cursor, so stale work is
                 # refused before it creates or changes a staging timeline.
-                if resolve_project_exactly(
-                        resolve.GetProjectManager(), resolve_name) is not project:
+                current_project = resolve_project_exactly(
+                    resolve.GetProjectManager(), resolve_name)
+                if (current_project.GetName() != resolve_name
+                        or project.GetName() != resolve_name):
                     raise ReelBuildError(
                         "Resolve project identity changed during reel "
                         "preparation; refusing placement")
