@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import resource
 import sys
 import time
 from pathlib import Path
@@ -63,7 +64,20 @@ def check_ground_truth(doc: Any) -> list[dict]:
                  if isinstance(b, dict) and b.get("phrase") and b.get("box")]
         if not image or not phrases or not boxes:
             continue
-        frames.append({"image": str(image), "phrases": phrases,
+        timestamp = entry.get("timestamp_s")
+        if timestamp is None:
+            raise ValueError(
+                f"frame {image!r} is missing its source timestamp_s")
+        try:
+            timestamp = float(timestamp)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"frame {image!r} has an invalid timestamp_s") from exc
+        if timestamp < 0:
+            raise ValueError(
+                f"frame {image!r} has a negative timestamp_s")
+        frames.append({"image": str(image), "timestamp_s": timestamp,
+                       "phrases": phrases,
                        "boxes": [{"phrase": str(b["phrase"]),
                                   "box": [float(v) for v in b["box"]]}
                                  for b in boxes]})
@@ -80,32 +94,88 @@ def score_frame(boxes: Sequence[dict], predictions: Sequence[ovd.Detection],
 
     Pure: the unit tests score synthetic boxes through this, never a model.
     """
-    by_phrase: dict[str, list[ovd.Detection]] = {}
-    for pred in predictions:
-        by_phrase.setdefault(pred.phrase, []).append(pred)
-    hits = misses = 0
-    rows = []
+    # Maximum-cardinality bipartite matching prevents one prediction from
+    # recalling several overlapping labels and counts duplicate detections
+    # as false positives. A phraseless class-agnostic proposal may match any
+    # class; a named prediction only matches the same phrase.
+    edges: list[list[tuple[float, int]]] = []
     for entry in boxes:
         phrase = str(entry["phrase"])
         gt = [float(v) for v in entry["box"]]
-        candidates = by_phrase.get(phrase, [])
-        if not candidates and "" in by_phrase:
-            candidates = by_phrase[""]
-        best = max((ovd.box_iou(p.box, gt) for p in candidates),
-                   default=0.0)
-        recalled = best >= iou_threshold
-        hits += recalled
-        misses += (not recalled)
-        rows.append({"phrase": phrase, "best_iou": round(best, 3),
-                     "recalled": bool(recalled)})
-    return {"boxes": len(boxes), "hits": hits, "misses": misses,
-            "recall": (hits / len(boxes)) if boxes else None,
-            "rows": rows, "phrases": list(phrases)}
+        candidates = [
+            (ovd.box_iou(pred.box, gt), index)
+            for index, pred in enumerate(predictions)
+            if pred.phrase == phrase or not pred.phrase
+        ]
+        edges.append(sorted(
+            ((iou, index) for iou, index in candidates
+             if iou >= iou_threshold), reverse=True))
+
+    prediction_to_box: dict[int, int] = {}
+
+    def assign(box_index: int, visited: set[int]) -> bool:
+        for _iou, pred_index in edges[box_index]:
+            if pred_index in visited:
+                continue
+            visited.add(pred_index)
+            previous = prediction_to_box.get(pred_index)
+            if previous is None or assign(previous, visited):
+                prediction_to_box[pred_index] = box_index
+                return True
+        return False
+
+    for box_index in range(len(boxes)):
+        assign(box_index, set())
+
+    box_to_prediction = {box_index: pred_index
+                         for pred_index, box_index
+                         in prediction_to_box.items()}
+    rows = []
+    by_class: dict[str, dict[str, int]] = {}
+    for box_index, entry in enumerate(boxes):
+        phrase = str(entry["phrase"])
+        matched = box_to_prediction.get(box_index)
+        best_iou = (ovd.box_iou(predictions[matched].box,
+                                [float(v) for v in entry["box"]])
+                    if matched is not None else 0.0)
+        counts = by_class.setdefault(phrase, {"true_positives": 0,
+                                              "false_positives": 0,
+                                              "false_negatives": 0})
+        if matched is None:
+            counts["false_negatives"] += 1
+        else:
+            counts["true_positives"] += 1
+        rows.append({"phrase": phrase, "best_iou": round(best_iou, 3),
+                     "recalled": matched is not None,
+                     "matched_prediction": matched})
+
+    false_positive_indices = sorted(
+        set(range(len(predictions))) - set(prediction_to_box))
+    for index in false_positive_indices:
+        phrase = predictions[index].phrase or "<class_agnostic>"
+        by_class.setdefault(phrase, {"true_positives": 0,
+                                     "false_positives": 0,
+                                     "false_negatives": 0})[
+                                         "false_positives"] += 1
+
+    hits = len(prediction_to_box)
+    false_positives = len(false_positive_indices)
+    misses = len(boxes) - hits
+    precision = hits / (hits + false_positives) if hits + false_positives else None
+    recall = hits / len(boxes) if boxes else None
+    return {"boxes": len(boxes), "predictions": len(predictions),
+            "hits": hits, "misses": misses,
+            "false_positives": false_positives,
+            "false_positive_indices": false_positive_indices,
+            "precision": precision, "recall": recall,
+            "per_class": by_class, "rows": rows,
+            "phrases": list(phrases)}
 
 
 def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
                 detectors: Sequence[str] | None = None, *,
                 score_threshold: float = ovd.DEFAULT_SCORE_THRESHOLD,
+                class_thresholds: dict[str, float] | None = None,
                 iou_threshold: float = ovd.BAKEOFF_IOU_THRESHOLD,
                 ) -> dict:
     """Every detector over every frame: timings plus recall. Heavy (one
@@ -113,6 +183,14 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
     """
     frames_dir = Path(frames_dir)
     wanted = list(detectors) if detectors else list(ovd.DETECTORS)
+    thresholds = dict(class_thresholds or {})
+    if not 0.0 <= score_threshold <= 1.0:
+        raise ValueError("score_threshold must be between 0 and 1")
+    for phrase, threshold in thresholds.items():
+        if not phrase.strip() or not 0.0 <= threshold <= 1.0:
+            raise ValueError("class thresholds need a phrase and a value "
+                             "between 0 and 1")
+    detector_floor = min([score_threshold, *thresholds.values()])
     for name in wanted:
         ovd.check_detector(name)
     total_boxes = sum(len(f["boxes"]) for f in frames)
@@ -120,6 +198,7 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
         "frames": len(frames),
         "ground_truth_boxes": total_boxes,
         "score_threshold": score_threshold,
+        "class_thresholds": thresholds,
         "iou_threshold": iou_threshold,
         "detectors": {},
     }
@@ -131,6 +210,8 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
             row["load_seconds"] = round(time.perf_counter() - t0, 1)
             row["device"] = load.get("device")
             row["model"] = load.get("model_id")
+            row["model_revision"] = (load.get("revision")
+                                     or ovd.published_revision(load))
         except ovd.DetectorNotAvailable as exc:
             row["viable"] = False
             row["reason"] = str(exc)
@@ -145,24 +226,55 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
             continue
         per_frame_s: list[float] = []
         scored_boxes = scored_hits = 0
+        scored_false_positives = 0
+        class_counts: dict[str, dict[str, int]] = {}
+        frame_records: list[dict[str, Any]] = []
         failed = 0
         for entry in frames:
             image = str(frames_dir / entry["image"])
+            error = None
+            t0 = time.perf_counter()
             try:
-                t0 = time.perf_counter()
-                preds = ovd.detect_image(name, image, entry["phrases"],
-                                         score_threshold=score_threshold)
-                per_frame_s.append(time.perf_counter() - t0)
-            except Exception:  # noqa: BLE001 - one frame's failure is
+                preds = ovd.detect_image(
+                    name, image, entry["phrases"],
+                    score_threshold=detector_floor)
+                preds = [pred for pred in preds if pred.score >=
+                         thresholds.get(pred.phrase, score_threshold)]
+            except Exception as exc:  # noqa: BLE001 - one frame's failure is
                 # recorded on the row; the rest of the frames still run.
                 failed += 1
-                continue
+                error = f"{type(exc).__name__}: {exc}"
+                preds = []
+            per_frame_s.append(time.perf_counter() - t0)
             scored = score_frame(entry["boxes"], preds, entry["phrases"],
                                  iou_threshold=iou_threshold)
             scored_boxes += scored["boxes"]
             scored_hits += scored["hits"]
+            scored_false_positives += scored["false_positives"]
+            for phrase, counts in scored["per_class"].items():
+                target = class_counts.setdefault(
+                    phrase, {"true_positives": 0, "false_positives": 0,
+                             "false_negatives": 0})
+                for key, value in counts.items():
+                    target[key] += value
+            frame_records.append({
+                "image": entry["image"],
+                "timestamp_s": entry["timestamp_s"],
+                "error": error,
+                "detections": [{
+                    "class": detection.phrase,
+                    "bbox_xyxy_normalized": detection.box,
+                    "score": detection.score,
+                    "producer": detection.detector or name,
+                    "producer_model": load.get("model_id"),
+                    "producer_revision": row["model_revision"],
+                } for detection in preds],
+                "false_positive_indices": scored[
+                    "false_positive_indices"],
+                "ground_truth": scored["rows"],
+            })
         row["viable"] = True
-        row["frames_scored"] = len(per_frame_s)
+        row["frames_scored"] = len(frames) - failed
         row["frames_failed"] = failed
         row["median_seconds_per_frame"] = (
             round(float(sorted(per_frame_s)[len(per_frame_s) // 2]), 2)
@@ -170,8 +282,45 @@ def run_bakeoff(frames_dir: str | Path, frames: Sequence[dict],
         row["total_seconds"] = round(sum(per_frame_s), 1)
         row["recall_boxes"] = scored_boxes
         row["recall_hits"] = scored_hits
+        row["false_positives"] = scored_false_positives
+        row["false_negatives"] = scored_boxes - scored_hits
+        row["precision"] = (round(scored_hits / (
+            scored_hits + scored_false_positives), 3)
+            if scored_hits + scored_false_positives else None)
         row["recall"] = (round(scored_hits / scored_boxes, 3)
                          if scored_boxes else None)
+        row["per_class"] = class_counts
+        row["detections_by_frame"] = frame_records
+        row["cold_seconds"] = round(row["load_seconds"] +
+                                    (per_frame_s[0] if per_frame_s else 0), 3)
+        row["end_to_end_seconds"] = round(
+            row["load_seconds"] + sum(per_frame_s), 3)
+        warm = per_frame_s[1:]
+        row["warm_median_seconds_per_frame"] = (
+            round(float(sorted(warm)[len(warm) // 2]), 3)
+            if warm else None)
+        serialize_started = time.perf_counter()
+        json.dumps(frame_records, separators=(",", ":"))
+        serialization_seconds = time.perf_counter() - serialize_started
+        row["timing_breakdown_seconds"] = {
+            "decode": None, "inference": None, "postprocess": None,
+            "serialization": round(serialization_seconds, 6),
+            "unmeasured_reason": (
+                "Current detector adapters expose only combined per-image "
+                "latency. Serialization measures the normalized frame "
+                "records; decode, inference and postprocess are not split."),
+        }
+        if len(wanted) == 1:
+            # macOS reports ru_maxrss in bytes; Linux reports KiB.
+            peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            row["peak_rss_mb"] = round(
+                peak_rss / (1024 * 1024 if sys.platform == "darwin"
+                            else 1024), 2)
+            row["peak_rss_scope"] = "single-detector process"
+        else:
+            row["peak_rss_mb"] = None
+            row["peak_rss_scope"] = (
+                "unmeasured: run one detector per process to isolate peak RSS")
         results["detectors"][name] = row
     return results
 
@@ -222,22 +371,24 @@ def render_markdown(results: dict, *, frames_source: str,
             f"boxes) at {row['median_seconds_per_frame']} s/frame median "
             f"on {row['device']}.")
     lines += ["", "## Per-model numbers", "",
-              "| Detector | Viable | Load (s) | Median s/frame | "
-              "Recall | Hit / scored |", "|---|---|---|---|---|---|"]
+              "| Detector | Viable | Cold (s) | Warm median (s/frame) | "
+              "Peak RSS (MB) | Precision | Recall | False positives | "
+              "False negatives |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for name in ovd.DETECTORS:
         row = results["detectors"].get(name)
         if row is None:
             continue
         if not row.get("viable"):
             lines.append(f"| {name} | no ({row.get('reason')}) | - | - | "
-                         f"- | - |")
+                         "- | - | - | - | - |")
             continue
         lines.append(
-            f"| {name} | yes ({row.get('device')}; {row.get('model')}) | "
-            f"{row.get('load_seconds')} | "
-            f"{row.get('median_seconds_per_frame')} | {row.get('recall')} "
-            f"| {row.get('recall_hits')}/{row.get('recall_boxes')} "
-            f"(+{row.get('frames_failed')} failed frames) |")
+            f"| {name} ({row.get('model')}, {row.get('device')}) | "
+            f"yes | {row.get('cold_seconds')} | "
+            f"{row.get('warm_median_seconds_per_frame')} | "
+            f"{row.get('peak_rss_mb')} | {row.get('precision')} | "
+            f"{row.get('recall')} | {row.get('false_positives')} | "
+            f"{row.get('false_negatives')} |")
     lines += [
         "",
         "## Method",
@@ -248,6 +399,9 @@ def render_markdown(results: dict, *, frames_source: str,
         "phrase overlaps it at IoU >= "
         f"{results['iou_threshold']}; the Vision baseline predicts no "
         "phrase, so any of its foreground instances may cover each box.",
+        "- A prediction can match at most one label. Duplicate and unmatched "
+        "predictions count as false positives; missed labels count separately "
+        "as false negatives.",
         "- A backend that refuses (`DetectorNotAvailable`) or fails to "
         "load is NOT-VIABLE with its reason, never a zero: the table "
         "tells 'cannot run' from 'ran, nothing there'.",
@@ -282,8 +436,14 @@ def main(argv: list[str] | None = None) -> int:
                        help="score only this detector; repeatable")
     p_run.add_argument("--score-threshold", type=float,
                        default=ovd.DEFAULT_SCORE_THRESHOLD)
+    p_run.add_argument("--class-threshold", action="append", default=[],
+                       metavar="PHRASE=VALUE",
+                       help="apply a calibrated score floor for one class; "
+                       "repeatable")
     p_run.add_argument("--iou-threshold", type=float,
                        default=ovd.BAKEOFF_IOU_THRESHOLD)
+    p_run.add_argument("--json-out",
+                       help="write the full machine-readable results")
     args = parser.parse_args(argv)
     if args.command != RUN_COMMAND:
         parser.print_help()
@@ -294,16 +454,38 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"ground truth refused: {exc}", file=sys.stderr)
         return 1
-    results = run_bakeoff(args.frames, frames, args.detectors,
-                          score_threshold=args.score_threshold,
-                          iou_threshold=args.iou_threshold)
+    class_thresholds = {}
+    for item in args.class_threshold:
+        phrase, sep, value = item.partition("=")
+        if not sep:
+            print(f"invalid class threshold {item!r}: expected PHRASE=VALUE",
+                  file=sys.stderr)
+            return 2
+        try:
+            class_thresholds[phrase.strip()] = float(value)
+        except ValueError:
+            print(f"invalid class threshold {item!r}: value is not a number",
+                  file=sys.stderr)
+            return 2
+    try:
+        results = run_bakeoff(
+            args.frames, frames, args.detectors,
+            score_threshold=args.score_threshold,
+            class_thresholds=class_thresholds,
+            iou_threshold=args.iou_threshold)
+    except ValueError as exc:
+        print(f"benchmark settings refused: {exc}", file=sys.stderr)
+        return 2
     doc = render_markdown(results, frames_source=args.frames_source,
                           ground_truth_source=args.ground_truth_source,
                           gemma_source=args.gemma_source)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(doc, encoding="utf-8")
-    print(json.dumps(results, indent=2))
+    serialized = json.dumps(results, indent=2)
+    if args.json_out:
+        Path(args.json_out).write_text(serialized + "\n", encoding="utf-8")
+    print(serialized)
     print(f"wrote {out}", file=sys.stderr)
     return 0
 

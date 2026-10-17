@@ -16,6 +16,14 @@ Backends (the plan's bakeoff slate, MU-15 step one):
 - `florence2`: `microsoft/Florence-2-base`, `<OPEN_VOCABULARY_DETECTION>`.
 - `owlv2`: `google/owlv2-base-patch16-ensemble`.
 - `grounding_dino`: `IDEA-Research/grounding-dino-tiny`.
+- `rf_detr_nano` / `rf_detr_small`: fixed-vocabulary COCO detectors
+  (`Roboflow/rf-detr-nano`, `Roboflow/rf-detr-small`, Apache-2.0). They
+  predict COCO classes, not the queried phrases, so the adapter maps
+  each COCO label back to a queried phrase with the same fuzzy match
+  the Florence-2 path uses, and drops predictions no phrase names.
+  Dropped out-of-query predictions are NOT detections of the query:
+  the bakeoff scores what the detector answered, and the scorecard
+  states the mapping rule beside the numbers.
 
 Heavy models load lazily and once per process; a backend whose
 package or weights are missing REFUSES (`DetectorNotAvailable`) with
@@ -43,17 +51,30 @@ from library.tools.analyzer_providers import (
     select_execution_plan,
 )
 
-DETECTORS = ("vision_foreground", "florence2", "owlv2", "grounding_dino")
+DETECTORS = ("vision_foreground", "florence2", "owlv2", "grounding_dino",
+               "rf_detr_nano", "rf_detr_small")
 """Every open-vocabulary detector the bakeoff scores, in doc order."""
 
 VISION_FOREGROUND = "vision_foreground"
 FLORENCE2 = "florence2"
 OWLV2 = "owlv2"
 GROUNDING_DINO = "grounding_dino"
+RFDETR_NANO = "rf_detr_nano"
+RFDETR_SMALL = "rf_detr_small"
 
 FLORENCE2_MODEL_ID = "microsoft/Florence-2-base"
 OWLV2_MODEL_ID = "google/owlv2-base-patch16-ensemble"
+OWLV2_QUERY_BATCH_SIZE = 4
+OWLV2_MAX_TEXT_LENGTH = 16
+OWLV2_PADDING_QUERY = "__owlv2_padding__"
+OWLV2_INPUT_SIZE = 960
 GROUNDING_DINO_MODEL_ID = "IDEA-Research/grounding-dino-tiny"
+RFDETR_NANO_MODEL_ID = "Roboflow/rf-detr-nano"
+RFDETR_SMALL_MODEL_ID = "Roboflow/rf-detr-small"
+# Publisher-published checkpoint revisions (the hub commit each scorecard
+# ran against), recorded from the publisher, never hashed locally.
+RFDETR_NANO_REVISION = "9f201577d9415f0378084748d27e68586e6b3600"
+RFDETR_SMALL_REVISION = "3bdc465063270f99769da5a1b4c00c68bd2d439d"
 
 FLORENCE2_OVD_TASK = "<OPEN_VOCABULARY_DETECTION>"
 
@@ -215,6 +236,7 @@ def _load_owlv2() -> dict[str, Any]:
     device = _torch_device()
     try:
         processor = Owlv2Processor.from_pretrained(OWLV2_MODEL_ID)
+        _set_owlv2_input_size(processor)
         model = Owlv2ForObjectDetection.from_pretrained(OWLV2_MODEL_ID)
     except Exception as exc:
         raise DetectorNotAvailable(
@@ -227,6 +249,18 @@ def _load_owlv2() -> dict[str, Any]:
             device = "cpu"
     return {"processor": processor, "model": model, "device": device,
             "model_id": OWLV2_MODEL_ID}
+
+
+def _set_owlv2_input_size(processor: Any) -> None:
+    """Keep the processor on the model's published 960 px input canvas."""
+    image_processor = processor.image_processor
+    size = image_processor.size
+    if isinstance(size, dict):
+        image_processor.size = {**size, "height": OWLV2_INPUT_SIZE,
+                                "width": OWLV2_INPUT_SIZE}
+    else:
+        size.height = OWLV2_INPUT_SIZE
+        size.width = OWLV2_INPUT_SIZE
 
 
 def _load_grounding_dino() -> dict[str, Any]:
@@ -255,6 +289,33 @@ def _load_grounding_dino() -> dict[str, Any]:
             "model_id": GROUNDING_DINO_MODEL_ID}
 
 
+def _load_rf_detr(model_id: str, revision: str) -> dict[str, Any]:
+    _require_transformers()
+    try:
+        from transformers import RfDetrForObjectDetection, RfDetrImageProcessor
+    except ImportError as exc:
+        raise DetectorNotAvailable(
+            "this transformers version has no RF-DETR classes, so "
+            f"{model_id} cannot run here") from exc
+    device = _torch_device()
+    try:
+        processor = RfDetrImageProcessor.from_pretrained(
+            model_id, revision=revision)
+        model = RfDetrForObjectDetection.from_pretrained(
+            model_id, revision=revision)
+    except Exception as exc:
+        raise DetectorNotAvailable(
+            f"RF-DETR weights {model_id}@{revision} did not load: "
+            f"{type(exc).__name__}: {exc}") from exc
+    if device != "cpu":
+        try:
+            model = model.to(device)
+        except Exception:  # noqa: BLE001 - see _load_florence2.
+            device = "cpu"
+    return {"processor": processor, "model": model, "device": device,
+            "model_id": model_id, "revision": revision}
+
+
 def load_detector(name: str) -> dict[str, Any]:
     """A detector's loaded backend, cached per process. The Vision
     baseline answers `{"device": "ane"}`; HF backends answer their
@@ -270,7 +331,27 @@ def load_detector(name: str) -> dict[str, Any]:
             _LOADED[name] = _load_owlv2()
         elif name == GROUNDING_DINO:
             _LOADED[name] = _load_grounding_dino()
+        elif name == RFDETR_NANO:
+            _LOADED[name] = _load_rf_detr(
+                RFDETR_NANO_MODEL_ID, RFDETR_NANO_REVISION)
+        elif name == RFDETR_SMALL:
+            _LOADED[name] = _load_rf_detr(
+                RFDETR_SMALL_MODEL_ID, RFDETR_SMALL_REVISION)
     return _LOADED[name]
+
+
+def published_revision(loaded: dict[str, Any]) -> str | None:
+    """Return the hub-published checkpoint revision reported by Transformers.
+
+    A local file digest would identify cached bytes, not the publisher's
+    revision, so absent metadata stays unknown instead of being guessed.
+    """
+    for value in (loaded.get("model"), loaded.get("processor")):
+        config = getattr(value, "config", None)
+        revision = getattr(config, "_commit_hash", None)
+        if isinstance(revision, str) and revision.strip():
+            return revision.strip()
+    return None
 
 
 # ── Per-image detection ──
@@ -404,12 +485,62 @@ def _match_phrase(label: str, phrases: list[str]) -> str:
 
 def _detect_owlv2(image_path: str, phrases: list[str],
                   score_threshold: float) -> list[Detection]:
+    import gc
+
     import torch
 
     loaded = load_detector(OWLV2)
     processor, model, device = (loaded["processor"], loaded["model"],
                                 loaded["device"])
+    try:
+        # Keep all per-image tensors in a short-lived frame. OWLv2 returns
+        # device tensors from both the model and post-processor; returning
+        # only Python-valued Detection records lets those references die
+        # before the MPS allocator cache is released.
+        return _owlv2_infer(processor, model, device, image_path, phrases,
+                            score_threshold)
+    finally:
+        if device == "mps":
+            gc.collect()
+            torch.mps.empty_cache()
+
+
+def _owlv2_infer(processor: Any, model: Any, device: str, image_path: str,
+                 phrases: list[str], score_threshold: float
+                 ) -> list[Detection]:
+    import gc
+
+    import torch
+
     image, (width, height) = _read_image(image_path)
+    if max(width, height) > OWLV2_INPUT_SIZE:
+        # Owlv2ImageProcessor pads to square before resizing. Thumbnail first
+        # so a 4K source does not allocate a 4K-square tensor just to become
+        # the same 960 px canvas.
+        image.thumbnail((OWLV2_INPUT_SIZE, OWLV2_INPUT_SIZE))
+    out: list[Detection] = []
+    for start in range(0, len(phrases), OWLV2_QUERY_BATCH_SIZE):
+        active_phrases = phrases[start:start + OWLV2_QUERY_BATCH_SIZE]
+        phrase_batch = active_phrases + [
+            OWLV2_PADDING_QUERY
+        ] * (OWLV2_QUERY_BATCH_SIZE - len(active_phrases))
+        out.extend(_owlv2_infer_phrase_batch(
+            processor, model, device, image, width, height, phrase_batch,
+            len(active_phrases), score_threshold))
+        if device == "mps":
+            torch.mps.synchronize()
+            gc.collect()
+            torch.mps.empty_cache()
+    return out
+
+
+def _owlv2_infer_phrase_batch(processor: Any, model: Any, device: str,
+                              image: Any, width: int, height: int,
+                              phrases: list[str], active_phrase_count: int,
+                              score_threshold: float
+                              ) -> list[Detection]:
+    import torch
+
     post = getattr(processor, "post_process_grounded_object_detection",
                    None)
     if post is None:
@@ -417,9 +548,11 @@ def _detect_owlv2(image_path: str, phrases: list[str],
             "this transformers version answers no "
             "post_process_grounded_object_detection on OWLv2, so its "
             "boxes cannot be read")
-    inputs = processor(text=[phrases], images=image, return_tensors="pt")
+    inputs = processor(text=[phrases], images=image, return_tensors="pt",
+                       padding="max_length", max_length=OWLV2_MAX_TEXT_LENGTH)
     inputs = {k: (v.to(device) if hasattr(v, "to") else v)
               for k, v in inputs.items()}
+    inputs["interpolate_pos_encoding"] = OWLV2_INPUT_SIZE != 960
     with torch.no_grad():
         outputs = model(**inputs)
     target = (height, width)
@@ -441,10 +574,16 @@ def _detect_owlv2(image_path: str, phrases: list[str],
         if norm is None:
             continue
         if i < len(texts) and texts[i]:
-            phrase = _match_phrase(str(texts[i]), phrases)
+            text_label = str(texts[i])
+            if text_label == OWLV2_PADDING_QUERY:
+                continue
+            phrase = _match_phrase(text_label, phrases[:active_phrase_count])
         else:
             try:
-                phrase = phrases[int(label)]
+                label_index = int(label)
+                if label_index >= active_phrase_count:
+                    continue
+                phrase = phrases[label_index]
             except (TypeError, ValueError, IndexError):
                 phrase = str(label)
         out.append(Detection(phrase=phrase, box=norm, score=round(score_f, 3),
@@ -496,6 +635,68 @@ def _detect_grounding_dino(image_path: str, phrases: list[str],
     return out
 
 
+def _detect_rf_detr(detector: str, image_path: str, phrases: list[str],
+                    score_threshold: float) -> list[Detection]:
+    """Fixed-vocabulary COCO detection mapped onto the queried phrases.
+
+    RF-DETR names COCO classes ("cell phone", "cup"), never the query,
+    so each prediction is mapped with `_match_phrase` and predictions
+    no queried phrase names are dropped: they are true COCO detections
+    but not answers to this query. `extra["coco_label"]` keeps the raw
+    class so a scorecard can audit the mapping; `extra` never reaches
+    the bakeoff's scored boxes."""
+    import torch
+
+    loaded = load_detector(detector)
+    processor, model, device = (loaded["processor"], loaded["model"],
+                                loaded["device"])
+    post = getattr(processor, "post_process_object_detection", None)
+    if post is None:
+        raise DetectorNotAvailable(
+            "this transformers version answers no "
+            "post_process_object_detection on RF-DETR, so its boxes "
+            "cannot be read")
+    image, (width, height) = _read_image(image_path)
+    inputs = processor(images=image, return_tensors="pt")
+    inputs = {k: (v.to(device) if hasattr(v, "to") else v)
+              for k, v in inputs.items()}
+    with torch.no_grad():
+        outputs = model(**inputs)
+    results = post(outputs, target_sizes=[(height, width)],
+                   threshold=0.0)[0]
+    id2label = getattr(getattr(loaded.get("model"), "config", None),
+                       "id2label", None) or {}
+    out = []
+    for box, score, raw_label in zip(results["boxes"], results["scores"],
+                                     results.get("labels", [])):
+        score_f = float(score)
+        if score_f < score_threshold:
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in box.detach().cpu().tolist())
+        except (TypeError, ValueError):
+            continue
+        norm = normalize_box([x0 / width, y0 / height,
+                              x1 / width, y1 / height])
+        if norm is None:
+            continue
+        try:
+            # Post-processing answers class indices (tensors or ints).
+            coco_label = str(id2label.get(int(raw_label), raw_label))
+        except (TypeError, ValueError):
+            coco_label = str(raw_label)
+        phrase = _match_phrase(coco_label, phrases)
+        if phrase not in phrases:
+            # No queried phrase names this COCO class: a true detection
+            # of something unasked, not an answer. Dropped, counted
+            # nowhere; the scorecard states this rule.
+            continue
+        out.append(Detection(phrase=phrase, box=norm, score=round(score_f, 3),
+                             detector=detector,
+                             extra={"coco_label": coco_label}))
+    return out
+
+
 def detect_image(detector: str, image_path: str, phrases: Sequence[str],
                  *, score_threshold: float = DEFAULT_SCORE_THRESHOLD,
                  ) -> list[Detection]:
@@ -513,6 +714,8 @@ def detect_image(detector: str, image_path: str, phrases: Sequence[str],
         return _detect_florence2(image_path, clean, score_threshold)
     if detector == OWLV2:
         return _detect_owlv2(image_path, clean, score_threshold)
+    if detector in (RFDETR_NANO, RFDETR_SMALL):
+        return _detect_rf_detr(detector, image_path, clean, score_threshold)
     return _detect_grounding_dino(image_path, clean, score_threshold)
 
 

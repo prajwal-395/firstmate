@@ -161,7 +161,7 @@ def test_bakeoff_results_are_json_serializable(tmp_path, monkeypatch):
 
     def _fake_load(name):
         return {"device": "test", "model_id": f"fake-{name}",
-                "model": object()}
+                "model": object(), "revision": "published-commit"}
 
     def _fake_detect(detector, image_path, phrases, *, score_threshold):
         return [ovd.Detection("laptop", [0.0, 0.0, 0.5, 0.5], 0.9,
@@ -169,7 +169,8 @@ def test_bakeoff_results_are_json_serializable(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ovd, "load_detector", _fake_load)
     monkeypatch.setattr(ovd, "detect_image", _fake_detect)
-    frames = [{"image": "x.jpg", "phrases": ["laptop"],
+    frames = [{"image": "x.jpg", "timestamp_s": 12.5,
+               "phrases": ["laptop"],
                "boxes": [{"phrase": "laptop",
                           "box": [0.0, 0.0, 0.5, 0.5]}]}]
     results = bakeoff.run_bakeoff(tmp_path, frames,
@@ -177,6 +178,20 @@ def test_bakeoff_results_are_json_serializable(tmp_path, monkeypatch):
     _json.dumps(results)
     assert results["detectors"]["owlv2"]["model"] == "fake-owlv2"
     assert results["detectors"]["owlv2"]["recall"] == 1.0
+    row = results["detectors"]["owlv2"]
+    assert row["model_revision"] == "published-commit"
+    detection = row["detections_by_frame"][0]["detections"][0]
+    assert detection == {
+        "class": "laptop",
+        "bbox_xyxy_normalized": [0.0, 0.0, 0.5, 0.5],
+        "score": 0.9,
+        "producer": "owlv2",
+        "producer_model": "fake-owlv2",
+        "producer_revision": "published-commit",
+    }
+    assert row["detections_by_frame"][0]["timestamp_s"] == 12.5
+    assert row["false_positives"] == 0
+    assert row["false_negatives"] == 0
     doc = bakeoff.render_markdown(results, frames_source="t",
                                   ground_truth_source="t", gemma_source="t")
     assert "fake-owlv2" in doc
@@ -193,6 +208,85 @@ def test_bakeoff_recall_counts_covering_boxes():
         [ovd.Detection("laptop", [0.5, 0.5, 1.0, 1.0], 0.9, "owlv2")],
         ["laptop"])
     assert miss["recall"] == 0.0
+
+
+def test_bakeoff_counts_duplicate_predictions_and_misses_separately():
+    scored = bakeoff.score_frame(
+        [{"phrase": "laptop", "box": [0.0, 0.0, 0.4, 0.4]},
+         {"phrase": "laptop", "box": [0.6, 0.6, 1.0, 1.0]}],
+        [ovd.Detection("laptop", [0.0, 0.0, 0.4, 0.4], 0.9, "owlv2"),
+         ovd.Detection("laptop", [0.0, 0.0, 0.4, 0.4], 0.8, "owlv2")],
+        ["laptop"])
+    assert scored["hits"] == 1
+    assert scored["false_positives"] == 1
+    assert scored["misses"] == 1
+    assert scored["precision"] == 0.5
+    assert scored["recall"] == 0.5
+    assert scored["per_class"]["laptop"] == {
+        "true_positives": 1, "false_positives": 1,
+        "false_negatives": 1}
+
+
+def test_ground_truth_keeps_source_timestamp_and_rejects_negative_time():
+    frame = {"image": "frame.jpg", "timestamp_s": "2.25",
+             "phrases": ["cup"],
+             "boxes": [{"phrase": "cup", "box": [0, 0, 1, 1]}]}
+    assert bakeoff.check_ground_truth({"frames": [frame]})[0][
+        "timestamp_s"] == 2.25
+    frame["timestamp_s"] = -0.1
+    with pytest.raises(ValueError, match="negative timestamp_s"):
+        bakeoff.check_ground_truth({"frames": [frame]})
+    frame.pop("timestamp_s")
+    with pytest.raises(ValueError, match="missing its source timestamp_s"):
+        bakeoff.check_ground_truth({"frames": [frame]})
+
+
+def test_failed_detection_frame_counts_all_labels_as_missed(
+        tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        ovd, "load_detector",
+        lambda _name: {"device": "test", "model_id": "fake"})
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("fixture backend failure")
+
+    monkeypatch.setattr(ovd, "detect_image", fail)
+    results = bakeoff.run_bakeoff(
+        tmp_path,
+        [{"image": "unreadable.jpg", "timestamp_s": 3.0,
+          "phrases": ["cup"],
+          "boxes": [{"phrase": "cup", "box": [0, 0, 1, 1]}]}],
+        detectors=[ovd.OWLV2])
+    row = results["detectors"][ovd.OWLV2]
+    assert row["frames_failed"] == 1
+    assert row["frames_scored"] == 0
+    assert row["false_negatives"] == 1
+    assert row["recall"] == 0.0
+    assert row["detections_by_frame"][0]["error"] == (
+        "RuntimeError: fixture backend failure")
+
+
+def test_class_threshold_overrides_the_global_floor(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        ovd, "load_detector",
+        lambda _name: {"device": "test", "model_id": "fake"})
+    seen = []
+
+    def detect(_detector, _image, _phrases, *, score_threshold):
+        seen.append(score_threshold)
+        return [ovd.Detection("cup", [0, 0, 1, 1], 0.3, "owlv2")]
+
+    monkeypatch.setattr(ovd, "detect_image", detect)
+    results = bakeoff.run_bakeoff(
+        tmp_path,
+        [{"image": "x.jpg", "timestamp_s": 1,
+          "phrases": ["cup"],
+          "boxes": [{"phrase": "cup", "box": [0, 0, 1, 1]}]}],
+        detectors=[ovd.OWLV2], score_threshold=0.5,
+        class_thresholds={"cup": 0.2})
+    row = results["detectors"][ovd.OWLV2]
+    assert seen == [0.2]
+    assert row["recall"] == 1.0
 
 
 def test_bakeoff_baseline_covers_without_a_phrase():
@@ -393,3 +487,112 @@ def test_step_reuses_face_only_but_remeasures_new_seeds(tmp_path):
     s1._stamp_segmentation_identity(stored, str(clip), None, 2.0, seeds)
     assert s1._stored_segmentation_reusable(
         stored, str(clip), None, 2.0, seeds) is not None
+
+
+def test_rf_detr_detectors_are_on_the_slate():
+    assert ovd.check_detector(ovd.RFDETR_NANO) == ovd.RFDETR_NANO
+    assert ovd.check_detector(ovd.RFDETR_SMALL) == ovd.RFDETR_SMALL
+    with pytest.raises(ValueError):
+        ovd.check_detector("rf_detr_medium")
+
+
+def test_rf_detr_load_pins_publisher_revision(monkeypatch):
+    import sys
+    import types
+
+    seen = {}
+
+    class FakeProcessor:
+        @classmethod
+        def from_pretrained(cls, model_id, revision=None, **kwargs):
+            seen["processor"] = (model_id, revision)
+            return object()
+
+    class FakeModel:
+        @classmethod
+        def from_pretrained(cls, model_id, revision=None, **kwargs):
+            seen["model"] = (model_id, revision)
+            return cls()
+
+        def to(self, device):
+            return self
+
+    fake_transformers = types.ModuleType("transformers")
+    fake_transformers.RfDetrImageProcessor = FakeProcessor
+    fake_transformers.RfDetrForObjectDetection = FakeModel
+    # The from-import inside the loader resolves through sys.modules,
+    # so the fake module (not an attribute patch on whatever object
+    # one import statement happens to return) is the hermetic seam.
+    monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+    loaded = ovd._load_rf_detr(
+        ovd.RFDETR_NANO_MODEL_ID, ovd.RFDETR_NANO_REVISION)
+    assert seen["processor"] == (
+        ovd.RFDETR_NANO_MODEL_ID, ovd.RFDETR_NANO_REVISION)
+    assert seen["model"] == (
+        ovd.RFDETR_NANO_MODEL_ID, ovd.RFDETR_NANO_REVISION)
+    assert loaded["revision"] == ovd.RFDETR_NANO_REVISION
+
+
+def _rf_detr_fake_loaded(monkeypatch, tmp_path):
+    import torch
+    from types import SimpleNamespace
+
+    from PIL import Image
+    frame = tmp_path / "still.jpg"
+    Image.new("RGB", (64, 48), "white").save(frame)
+
+    class FakeModel:
+        config = SimpleNamespace(
+            id2label={0: "person", 41: "cup", 73: "laptop"})
+
+        def __call__(self, **kwargs):
+            return object()
+
+    class FakeProcessor:
+        def __call__(self, images, return_tensors=None):
+            return {"pixel_values": torch.zeros(1, 3, 8, 8)}
+
+        def post_process_object_detection(
+                self, outputs, target_sizes, threshold=0.0):
+            assert target_sizes == [(48, 64)]
+            return [{
+                "boxes": torch.tensor([
+                    [6.4, 4.8, 32.0, 24.0],   # laptop, 0.9
+                    [0.0, 0.0, 64.0, 48.0],   # person, 0.8
+                    [32.0, 24.0, 64.0, 48.0],  # cup, 0.05 (under floor)
+                ]),
+                "scores": torch.tensor([0.9, 0.8, 0.05]),
+                "labels": torch.tensor([73, 0, 41]),
+            }]
+
+    loaded = {"processor": FakeProcessor(), "model": FakeModel(),
+              "device": "cpu", "model_id": ovd.RFDETR_NANO_MODEL_ID,
+              "revision": ovd.RFDETR_NANO_REVISION}
+    monkeypatch.setattr(ovd, "load_detector", lambda _name: loaded)
+    return frame
+
+
+def test_rf_detr_maps_coco_labels_and_drops_unasked(
+        tmp_path, monkeypatch):
+    frame = _rf_detr_fake_loaded(monkeypatch, tmp_path)
+    found = ovd.detect_image(
+        ovd.RFDETR_NANO, str(frame), ["laptop", "cup"],
+        score_threshold=0.1)
+    assert [(d.phrase, d.score) for d in found] == [("laptop", 0.9)]
+    assert found[0].extra == {"coco_label": "laptop"}
+    # The true person detection answers no queried phrase, so it is
+    # dropped rather than scored as a false positive; the faint cup
+    # clears no floor.
+    assert all(d.phrase in ("laptop", "cup") for d in found)
+
+
+def test_rf_detr_refuses_without_post_processor(tmp_path, monkeypatch):
+    from PIL import Image
+    frame = tmp_path / "still.jpg"
+    Image.new("RGB", (16, 16), "white").save(frame)
+    monkeypatch.setattr(ovd, "load_detector", lambda _name: {
+        "processor": object(), "model": object(), "device": "cpu"})
+    with pytest.raises(ovd.DetectorNotAvailable):
+        ovd.detect_image(
+            ovd.RFDETR_SMALL, str(frame), ["cup"],
+            score_threshold=0.1)
