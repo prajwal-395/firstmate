@@ -547,13 +547,24 @@ def apply_live_patch(*, project, timeline, capability: str,
                      idempotency_key: str, preconditions=(),
                      postconditions=(),
                      store: shadow.ShadowStore | None = None,
-                     project_folder: str | None = None) -> dict:
+                     project_folder: str | None = None,
+                     model_revision: int | None = None) -> dict:
     """Build and commit a patch while the caller already owns Resolve.
 
     Entry points which already hold a Resolve lease use this seam to
     give one in-process write the same generation checks and read-back
     receipt as `timeline.apply_patch`. Remote callers submit that broker
     job instead of holding a lease here.
+
+    `model_revision` pins the Project Model revision the patch is
+    planned against. A caller placing many patches in one pass (a reel
+    build) loads it once and passes it to every patch instead of
+    re-loading - and re-validating - the whole model per patch
+    (measured 2026-10-17: ~10 s per load on the live model, twice per
+    patch). Left out, the revision is loaded here as before. A pinned
+    revision skips the re-read, so a model that advances mid-pass is
+    noticed only by the next fresh load - the pin is for one pass
+    under one hold, not across builds.
     """
     from library.tools import resolve_lock
 
@@ -607,8 +618,7 @@ def apply_live_patch(*, project, timeline, capability: str,
                     "new idempotency key")
             return _receipt_of(generation)
 
-    model_revision = None
-    if project_folder:
+    if model_revision is None and project_folder:
         from pathlib import Path
 
         from library.tools import project_model_store
@@ -672,12 +682,14 @@ def apply_live_patch(*, project, timeline, capability: str,
             expected_model_revision=model_revision)
         return apply_patch(patch, resolve=None, project=project,
                            timeline=timeline, store=store,
-                           project_folder=project_folder)
+                           project_folder=project_folder,
+                           model_revision=model_revision)
 
 
 def apply_patch(patch, *, resolve, project, timeline,
                 store: shadow.ShadowStore | None = None,
-                project_folder: str | None = None) -> dict:
+                project_folder: str | None = None,
+                model_revision: int | None = None) -> dict:
     """Commit one patch to the live timeline; the receipt, as plain data.
 
     The broker's `timeline.apply_patch` job. `resolve` is the app handle
@@ -686,6 +698,10 @@ def apply_patch(patch, *, resolve, project, timeline,
     made current. Raises `StalePatch` / `PatchRefused` with nothing
     written; returns a receipt whose `status` is `committed` or
     `verification_failed`.
+
+    `model_revision` pins the Project Model head the patch is checked
+    against; left out, it is loaded here as before (see
+    `apply_live_patch` for why a caller passes it).
     """
     del resolve
     patch = EditPatch.from_dict(patch)
@@ -725,8 +741,7 @@ def apply_patch(patch, *, resolve, project, timeline,
                     "a patch id is a durable identity for one complete patch",
                     "retry the original patch unchanged, or assign a new id")
             return _receipt_of(gen)
-    model_revision = None
-    if project_folder:
+    if model_revision is None and project_folder:
         from pathlib import Path
 
         from library.tools import project_model_store
@@ -737,20 +752,20 @@ def apply_patch(patch, *, resolve, project, timeline,
             # Projects predating the canonical model remain on the legacy
             # path. Once a model exists, its revision is mandatory.
             model_revision = None
-        if model_revision is not None:
-            if (type(patch.expected_model_revision) is not int
-                    or patch.expected_model_revision < 0):
-                _refuse(
-                    patch, "has an invalid Project Model revision",
-                    "the expected revision must be a non-negative integer",
-                    "rebuild the patch against the current Project Model")
-            if model_revision != patch.expected_model_revision:
-                _refuse(
-                    patch, f"was planned on Project Model revision "
-                    f"{patch.expected_model_revision}, but the head is "
-                    f"{model_revision}",
-                    "a stale edit cannot overwrite newer editorial state",
-                    "rebuild the patch against the current Project Model")
+    if model_revision is not None:
+        if (type(patch.expected_model_revision) is not int
+                or patch.expected_model_revision < 0):
+            _refuse(
+                patch, "has an invalid Project Model revision",
+                "the expected revision must be a non-negative integer",
+                "rebuild the patch against the current Project Model")
+        if model_revision != patch.expected_model_revision:
+            _refuse(
+                patch, f"was planned on Project Model revision "
+                f"{patch.expected_model_revision}, but the head is "
+                f"{model_revision}",
+                "a stale edit cannot overwrite newer editorial state",
+                "rebuild the patch against the current Project Model")
     if head.generation != patch.base_generation:
         from library.tools import patch_algebra
         moved, reason = patch_algebra.carry(patch, store, project_name,
@@ -784,6 +799,18 @@ def apply_patch(patch, *, resolve, project, timeline,
         handles = (_live_handles(timeline)
                    if any(OPERATIONS[op["op"]].item
                           for op in patch.operations) else {})
+        # Whether any op AFTER position i needs item handles. A
+        # `timeline_structure` write re-reads the rows below, and for a
+        # pure-placement patch (dozens of `clip.insert`, no addressing
+        # op) every one of those re-reads is waste: each walks the whole
+        # timeline and the patch pays O(n^2) Resolve calls. Measured on
+        # a one-reel build (2026-10-17): per-insert patches re-read per
+        # insert, and even one batched patch re-walked per insert.
+        later_needs_handles = [False] * (len(patch.operations) + 1)
+        for _rev in range(len(patch.operations) - 1, -1, -1):
+            later_needs_handles[_rev] = (
+                later_needs_handles[_rev + 1]
+                or OPERATIONS[patch.operations[_rev]["op"]].item)
         id_map: dict = {}
         ran = []
         stopped = None
@@ -837,8 +864,24 @@ def apply_patch(patch, *, resolve, project, timeline,
                         "returned": bool(returned)})
             if op["op"] == "clip.insert":
                 id_map[op["client_unique_id"]] = op["unique_id"]
-            if spec.domain == "timeline_structure":
-                handles = _live_handles(timeline)
+            if (spec.domain == "timeline_structure"
+                    and later_needs_handles[index + 1]):
+                if op["op"] == "clip.insert" and returned:
+                    # The only mutation an insert makes is one new item,
+                    # whose handle `spec.apply` just returned - register
+                    # it under both its Resolve id and the client id a
+                    # later op addresses it by, instead of re-walking
+                    # every row. Nothing else writes mid-patch (the
+                    # fence above holds the lease), so the increment is
+                    # exactly what a re-walk would report.
+                    handles[op["unique_id"]] = returned
+                    if op.get("client_unique_id"):
+                        handles[op["client_unique_id"]] = returned
+                elif op["op"] == "clip.delete":
+                    handles.pop(op["unique_id"], None)
+                    handles.pop(resolved, None)
+                else:
+                    handles = _live_handles(timeline)
         after = shadow.read_live(project, timeline)
     from library.tools import transform_write_log
 

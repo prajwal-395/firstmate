@@ -736,6 +736,282 @@ def sweep_placed_audio(timeline, plan, before: dict, target_row: int,
     return kept, deleted, unverified
 
 
+def sweep_placed_audio_many(timeline, plan, before: dict, expectations):
+    """One sweep for a whole batched footage placement pass.
+
+    `sweep_placed_audio` judges what ONE insert added (the row inventory
+    just before it minus the one just after); calling it per insert
+    re-reads every speech row per insert, which is the O(n^2) half of
+    the placement loop this replaces. This reads every speech row ONCE
+    and replays the per-insert judgement offline, in insert order, so
+    the end state is the same: what sits on its placement's target row
+    carrying the angle's recorded program channel stays, everything else
+    the pass added is deleted on the spot and recorded, and an item
+    whose mapping cannot be read is KEPT and reported.
+
+    `expectations` parallels the batch's audio placements in insert
+    order, each a mapping with `target_row`, `expected_channel`,
+    `label`, `record_in` (the insert's stated record frame) and
+    `source_file`. An added item is attributed to the placement whose
+    record frame AND source file it carries - the source disambiguates
+    the both-mics-hot case, where two angles share one record frame and
+    a row-only attribution would judge one angle's spill against the
+    other's program stream (a spill whose channel number happens to
+    equal the other angle's program would be kept, where the per-insert
+    pass deletes it). An added item matching no placement is evidence of
+    a write this pass did not make, so it is KEPT and reported rather
+    than deleted: an unreadable attribution must not delete speech.
+
+    Returns (kept_by_expectation, deleted, unverified). `kept_by_...`
+    is parallel to `expectations`, so the caller prints the same
+    "nothing of this angle's speech remains here" warning per placement
+    the single form prints.
+    """
+    after_items: dict = {}
+    after_failed = []
+    for row in plan.speech_rows():
+        try:
+            items = timeline.GetItemListInTrack("audio", row.index) or []
+        except Exception:
+            after_failed.append(row.index)
+            continue
+        after_items[row.index] = list(items)
+    kept_by = [[] for _ in expectations]
+    kept_all, deleted, unverified = [], [], []
+    # A row the AFTER inventory would not list reports spill-unchecked
+    # under every placement, exactly as N per-insert sweeps would each
+    # have reported it under their own label.
+    for index in after_failed:
+        for exp in expectations:
+            unverified.append(
+                f"{exp['label']} (A{index}): spill unchecked - "
+                f"the row would not list, so no spill read is reported "
+                f"as none found")
+    unreadable_before_rows = {
+        index for index, seen in (before or {}).items() if seen is None}
+    # A row the BEFORE snapshot never saw skips enforcement and is kept,
+    # reported under every placement - N per-insert sweeps would each
+    # have kept it under their own label.
+    for index in sorted(unreadable_before_rows):
+        for position, exp in enumerate(expectations):
+            unverified.append(
+                f"{exp['label']} (A{index}): before-inventory "
+                f"unreadable - added cannot be told from pre-existing, "
+                f"so enforcement is skipped and the row is kept")
+            for item in after_items.get(index, []):
+                kept_by[position].append(item)
+                kept_all.append(item)
+    # Added items on enforced rows: row inventory after minus before.
+    remaining: dict = {}
+    for index, items in after_items.items():
+        if index in after_failed or index in unreadable_before_rows:
+            continue
+        seen_before = (before or {}).get(index, set()) or set()
+        added = [item for item in items
+                 if _item_uid(item) not in seen_before]
+        if added:
+            remaining[index] = added
+    claimed = set()
+
+    def _source_file(item):
+        try:
+            pool_item = item.GetMediaPoolItem()
+        except Exception:
+            return None
+        if pool_item is None:
+            return None
+        try:
+            return pool_item.GetClipProperty("File Path") or ""
+        except Exception:
+            return None
+
+    for position, exp in enumerate(expectations):
+        if (exp["target_row"] in after_failed
+                or exp["target_row"] in unreadable_before_rows):
+            continue
+        for index in list(remaining):
+            for item in list(remaining[index]):
+                uid = _item_uid(item)
+                if uid in claimed:
+                    continue
+                span = _timeline_span(item)
+                if span is None:
+                    continue
+                try:
+                    starts_here = (int(span[0]) == int(exp["record_in"]))
+                except (TypeError, ValueError):
+                    continue
+                if not starts_here:
+                    continue
+                if _source_file(item) != exp["source_file"]:
+                    continue
+                claimed.add(uid)
+                remaining[index].remove(item)
+                channel = _placed_channel(item)
+                if channel is None:
+                    unverified.append(f"{exp['label']} (A{index})")
+                    kept_by[position].append(item)
+                    kept_all.append(item)
+                    continue
+                if index == exp["target_row"] and channel == exp[
+                        "expected_channel"]:
+                    kept_by[position].append(item)
+                    kept_all.append(item)
+                    continue
+                try:
+                    timeline.DeleteClips([item], False)
+                except Exception as exc:
+                    deleted.append(
+                        {"label": exp["label"], "row": index,
+                         "expected_channel": exp["expected_channel"],
+                         "placed_channels": [channel],
+                         "removal": f"REFUSED ({exc})"})
+                    continue
+                deleted.append({"label": exp["label"], "row": index,
+                                "expected_channel": exp["expected_channel"],
+                                "placed_channels": [channel]})
+    # Span-unreadable leftovers are KEPT and reported: an attribution
+    # this pass cannot make must not delete speech.
+    for index in list(remaining):
+        for item in list(remaining[index]):
+            if _timeline_span(item) is not None:
+                continue
+            unverified.append(
+                f"sweep (A{index}): an added item's span could not be "
+                f"read, so it is kept UNVERIFIED rather than judged")
+            kept_all.append(item)
+            remaining[index].remove(item)
+    # Anything still unclaimed starts on a planned frame but carries a
+    # source this pass never placed, or vice versa: foreign evidence,
+    # kept and reported, never deleted.
+    for index in list(remaining):
+        for item in list(remaining[index]):
+            unverified.append(
+                f"sweep (A{index}): an added item matches no placement "
+                f"of this pass, so it is kept UNVERIFIED rather than "
+                f"deleted")
+            kept_all.append(item)
+    return kept_by, kept_all, deleted, unverified
+
+
+def commit_footage_placements(project, timeline, track_plan, name,
+                              video_ops, audio_pairs, *,
+                              project_folder=None, model_revision=None):
+    """Commit a footage pass in overlap-layered batches, not per clip.
+
+    The whole pass used to commit one `clip.insert` patch plus one
+    `sweep_placed_audio` per clip: each patch re-read the full timeline
+    (observe, pre/post read-back, handle walk) and re-loaded the
+    Project Model twice, so a one-reel build paid O(n^2) Resolve calls
+    and O(n) model loads - measured 2026-10-17 at 46x for a 10x scale
+    probe and ~10 s per model load. This commits picture in ONE patch
+    (picture appends never spill, so no placement in it can block
+    another) and speech in overlap layers (an explicit audio append
+    also places a non-program spill beside the program stream, and a
+    spill sitting on another placement's row at an overlapping span
+    refuses that placement - the per-insert pass never saw it because
+    the sweep deleted each spill before the next insert). Inserts whose
+    record spans overlap commit in different layers (greedy interval
+    partitioning, in placements order), each layer swept before the
+    next commits. Layers are bounded by the overlap depth (both mics
+    hot: two), never by the clip count, so the pass stays O(layers).
+
+    `audio_pairs` parallels the speech placements in insert order as
+    (op, expectation) pairs, where each expectation is the
+    `sweep_placed_audio_many` mapping for that insert. Returns
+    {"batches", "checked", "deleted", "unverified"} for the caller's
+    build record; the same per-placement lines the single form prints
+    are printed. A batch that does not verify raises `ReelBuildError`
+    naming the batch, exactly as an unverified single insert did.
+    """
+    import hashlib as _hashlib
+    import sys as _sys
+
+    from library.tools.stable_json import dumps_stable
+
+    checked, deleted_all, unverified_all = 0, [], []
+    batches = 0
+
+    def _batch_key(ops, tag):
+        material = dumps_stable([
+            {key: op[key] for key in (
+                "unique_id", "track_type", "track_index", "record_in",
+                "record_out", "media_pool_item", "source_in",
+                "source_out")}
+            for op in ops])
+        return (
+            f"reel-build:{name}:footage-batch:{tag}:"
+            f"{_hashlib.sha256(material.encode('utf-8')).hexdigest()[:32]}")
+
+    def _commit_batch(ops, tag):
+        from library.tools import edit_patch
+
+        _receipt = edit_patch.apply_live_patch(
+            project=project, timeline=timeline,
+            capability="reel.build",
+            operations=ops,
+            conflict_domains=("timeline_structure",),
+            idempotency_key=_batch_key(ops, tag),
+            project_folder=project_folder,
+            model_revision=model_revision)
+        if _receipt["status"] != "committed":
+            raise ReelBuildError(
+                f"{name}: the footage batch {tag} of {len(ops)} "
+                f"placements did not verify: {_receipt}")
+
+    def _sweep_layer(layer_exps, layer_before):
+        nonlocal checked
+        kept_by, _kept, deleted, unverified = sweep_placed_audio_many(
+            timeline, track_plan, layer_before, layer_exps)
+        checked += len(_kept) + len(deleted) + len(unverified)
+        deleted_all.extend(deleted)
+        unverified_all.extend(unverified)
+        for record_ in deleted:
+            print(f"  ✗ {record_['label']}: stray on "
+                  f"A{record_['row']} carrying "
+                  f"CH{record_['placed_channels']}, program on that "
+                  f"row is CH{record_['expected_channel']} - removed",
+                  file=_sys.stderr)
+        for label in unverified:
+            print(f"  ⚠ {label}: placed audio mapping unreadable - "
+                  f"kept, UNVERIFIED", file=_sys.stderr)
+        for position, exp in enumerate(layer_exps):
+            if not kept_by[position]:
+                print(f"  ✗ A{exp['target_row']} "
+                      f"{os.path.basename(exp['source_file'])}: "
+                      f"nothing of this angle's speech remains here",
+                      file=_sys.stderr)
+
+    if video_ops:
+        _commit_batch(list(video_ops), "video")
+        batches += 1
+    layers: list = []
+    for op, exp in audio_pairs:
+        placed_layer = None
+        for layer in layers:
+            if all(op["record_out"] <= other["record_in"]
+                   or other["record_out"] <= op["record_in"]
+                   for other, _ in layer):
+                placed_layer = layer
+                break
+        if placed_layer is None:
+            placed_layer = []
+            layers.append(placed_layer)
+        placed_layer.append((op, exp))
+    for layer_index, layer in enumerate(layers):
+        # The row inventory BEFORE, so the sweep below can tell what
+        # this layer added: an explicit audio append returns one item
+        # and can place two, the program stream plus a non-program
+        # spill on the next row.
+        layer_before = _speech_row_uids(timeline, track_plan)
+        _commit_batch([op for op, _ in layer],
+                      f"audio-{layer_index + 1}-of-{len(layers)}")
+        batches += 1
+        _sweep_layer([exp for _, exp in layer], layer_before)
+    return {"batches": batches, "checked": checked,
+            "deleted": deleted_all, "unverified": unverified_all}
+
+
 def _timeline_span(item):
     try:
         return (item.GetStart(), item.GetEnd())
@@ -9439,6 +9715,30 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # throw away (library/tools/reel_placed_assets.py).
     # Already promoted out of scratch by `prepare_reel_timeline`.
     from library.tools.reel_placed_assets import assert_placeable
+    # The Project Model revision every patch of this pass is planned
+    # against, loaded ONCE: `apply_live_patch` otherwise re-loads (and
+    # re-validates) the whole model per patch - measured 2026-10-17 at
+    # ~10 s per load on the live model, twice per patch, which is the
+    # Ren-CPU half of the per-insert placement stall. The window is one
+    # build's placement pass under its own lease; a revision pinned
+    # here is checked, not re-read, downstream.
+    _pinned_model = {"loaded": False, "revision": None}
+
+    def _model_revision():
+        if not _pinned_model["loaded"]:
+            _pinned_model["loaded"] = True
+            if project_folder:
+                try:
+                    from pathlib import Path as _Path
+
+                    from library.tools import project_model_store
+                    _pinned_model["revision"], _ = (
+                        project_model_store.load_project_model(
+                            _Path(project_folder)))
+                except FileNotFoundError:
+                    _pinned_model["revision"] = None
+        return _pinned_model["revision"]
+
     head_tail_at = 0
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
@@ -9494,7 +9794,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             }],
             conflict_domains=("timeline_structure",),
             idempotency_key=f"reel-build:{name}:card:{card.render_name}:{dest_row}",
-            project_folder=project_folder)
+            project_folder=project_folder,
+            model_revision=_model_revision())
         if _receipt["status"] != "committed":
             raise ReelBuildError(
                 f"{name}: the card {card.render_name!r} did not verify: "
@@ -9515,6 +9816,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # which is what stops the non-program bleed. A clip from a master
     # row that is no angle (a layer, a bed) is skipped and said, not
     # misplaced: a reel plays its angles' picture and speech.
+    #
+    # The whole footage pass commits in ONE EditPatch, not one per
+    # clip: a per-insert patch re-reads the full timeline (observe,
+    # pre/post read-back, handle walk) per clip, which is O(n^2)
+    # Resolve calls - measured 2026-10-17 at 46x for a 10x scale probe
+    # - plus two Project Model loads per clip. The batch pays one
+    # observe, one pre/post read and one model check for the pass, and
+    # the sweep below replays the per-insert judgement offline, in
+    # insert order, so the placed timeline is the same.
+    footage_video_ops: list = []
+    footage_audio_pairs: list = []
     for p in placements_list:
         c = p["clip"]
         is_freeze_tail = bool(p.get("freeze"))
@@ -9581,13 +9893,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
         _assert_placing(project, timeline)
 
-        # The row inventory BEFORE, so the sweep below can tell what
-        # this append added: an explicit audio append returns one item
-        # and can place two, the program stream plus a non-program
-        # spill on the next row. A recorded build names the channel
-        # instead, and places no spill to sweep.
-        before = None if recording else _speech_row_uids(timeline,
-                                                         track_plan)
         append_spec = {
             "mediaPoolItem": pool_item,
             "startFrame": source_start_frame,
@@ -9602,75 +9907,62 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 source_start_frame, append_spec,
                 recording=recording,
                 trace=build_record["freeze_placement"])
-        elif recording:
+            continue
+        if recording:
             # OTIO recording: the placement is captured as a spec, not
             # patched onto a live Resolve - the recorder's pool items
             # are path-only and carry no Resolve unique id to patch by.
             pool.AppendToTimeline([append_spec])
+            if c.track_type != "video":
+                pool.set_channel(resolved_channels.get(angle_key, 1))
+            continue
+        if "rate" in p:
+            record_duration = p["record_frames"]
         else:
-            from library.tools import edit_patch
-            if "rate" in p:
-                record_duration = p["record_frames"]
-            else:
-                record_duration = int(round(
-                    (p["source_out"] - p["source_in"]) * fps))
-            _receipt = edit_patch.apply_live_patch(
-                project=project, timeline=timeline,
-                capability="reel.build",
-                operations=[{
-                    "op": "clip.insert",
-                    # The track type is part of the identity: one source
-                    # file rides both a picture and a speech row, and the
-                    # two placements share a record position - a key
-                    # without it collides the audio onto the picture.
-                    "unique_id": (
-                        f"footage:{name}:{c.track_type}"
-                        f":{c.source_file}:{p['snapped_record']}"),
-                    "track_type": c.track_type,
-                    "track_index": dest_row,
-                    "record_in": p["snapped_record"],
-                    "record_out": p["snapped_record"] + record_duration,
-                    "media_pool_item": str(pool_item.GetUniqueId()),
-                    "source_in": source_start_frame,
-                    "source_out": source_end_frame,
-                }],
-                conflict_domains=("timeline_structure",),
-                idempotency_key=(
-                    f"reel-build:{name}:footage:{c.track_type}"
-                    f":{c.source_file}:{p['snapped_record']}"),
-                project_folder=project_folder)
-            if _receipt["status"] != "committed":
-                raise ReelBuildError(
-                    f"{name}: the footage {c.source_file!r} did not "
-                    f"verify: {_receipt}")
-        if c.track_type != "video":
-            expected = resolved_channels.get(angle_key, 1)
-            if recording:
-                pool.set_channel(expected)
-                continue
-            kept, deleted, unverified = sweep_placed_audio(
-                timeline, track_plan, before, dest_row, expected,
-                f"A{dest_row} {os.path.basename(c.source_file)} "
-                f"@{p['snapped_record']}")
-            build_record["stream_enforcement"]["checked"] += (
-                len(kept) + len(deleted) + len(unverified))
-            for record_ in deleted:
-                build_record["stream_enforcement"]["deleted"].append(
-                    record_)
-                print(f"  ✗ {record_['label']}: stray on "
-                      f"A{record_['row']} carrying "
-                      f"CH{record_['placed_channels']}, program on that "
-                      f"row is CH{record_['expected_channel']} - removed",
-                      file=sys.stderr)
-            for label in unverified:
-                build_record["stream_enforcement"]["unverified"].append(
-                    label)
-                print(f"  ⚠ {label}: placed audio mapping unreadable - "
-                      f"kept, UNVERIFIED", file=sys.stderr)
-            if not kept:
-                print(f"  ✗ A{dest_row} "
-                      f"{os.path.basename(c.source_file)}: nothing of "
-                      f"this angle's speech remains here", file=sys.stderr)
+            record_duration = int(round(
+                (p["source_out"] - p["source_in"]) * fps))
+        op = {
+            "op": "clip.insert",
+            # The track type is part of the identity: one source
+            # file rides both a picture and a speech row, and the
+            # two placements share a record position - a key
+            # without it collides the audio onto the picture.
+            "unique_id": (
+                f"footage:{name}:{c.track_type}"
+                f":{c.source_file}:{p['snapped_record']}"),
+            "track_type": c.track_type,
+            "track_index": dest_row,
+            "record_in": p["snapped_record"],
+            "record_out": p["snapped_record"] + record_duration,
+            "media_pool_item": str(pool_item.GetUniqueId()),
+            "source_in": source_start_frame,
+            "source_out": source_end_frame,
+        }
+        if c.track_type == "video":
+            footage_video_ops.append(op)
+        else:
+            footage_audio_pairs.append((op, {
+                "target_row": dest_row,
+                "expected_channel": resolved_channels.get(angle_key, 1),
+                "label": (f"A{dest_row} "
+                          f"{os.path.basename(c.source_file)} "
+                          f"@{p['snapped_record']}"),
+                "record_in": p["snapped_record"],
+                "source_file": c.source_file,
+            }))
+
+    if (footage_video_ops or footage_audio_pairs) and not recording:
+        placement_record = commit_footage_placements(
+            project, timeline, track_plan, name,
+            footage_video_ops, footage_audio_pairs,
+            project_folder=project_folder,
+            model_revision=_model_revision())
+        build_record["stream_enforcement"]["checked"] += (
+            placement_record["checked"])
+        build_record["stream_enforcement"]["deleted"].extend(
+            placement_record["deleted"])
+        build_record["stream_enforcement"]["unverified"].extend(
+            placement_record["unverified"])
 
     # ── The declared look: punch-in on the picture, the frame over it ──
     # The punch-in is the Edit-page transform, which is what the
@@ -14858,7 +15150,48 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             exclusive=True)
                     except Exception:
                         pass
+                    # A small plan change touches only what changed:
+                    # duplicate the approved final into staging and patch
+                    # the changed overlay bytes, instead of re-placing the
+                    # whole reel. Anything the diff cannot prove safe
+                    # refuses with `IncrementalRefused` and falls through
+                    # to the full rebuild below, which stays the default.
+                    from library.tools import reel_incremental as _incr
                     try:
+                        build_result = _incr.build_staged_incremental(
+                            project=project,
+                            staging_name=name,
+                            final_name=final,
+                            recorded_carried=(
+                                _recorded_signatures.get(final) or {}
+                            ).get("carried") or None,
+                            prepared=prepared_artifact.placement_plan,
+                            overlay_placements=(
+                                overlay_plan.placements
+                                if overlay_plan else None),
+                            explainer_segments=explainer_segments,
+                            semantic_segments=semantic_segments,
+                            lower_third_segments=lower_third_segments,
+                            look=reel_look_decl,
+                            grade_cdl=reel_grade_cdl,
+                            power_grade=reel_power_grade,
+                            motion=reel_motion,
+                            overlay_intent=overlay_intent,
+                            suppressions=suppression_rules,
+                            fps=fps, width=reel_width,
+                            height=reel_height,
+                            project_folder=project_folder,
+                            draw_gain=run_gain,
+                            resolve_app=resolve,
+                            single_reel_scope=(wanted is not None),
+                            placement_mode=reel_placement_mode,
+                            transcript=transcript)
+                        print(f"  {name}: patched staging incrementally",
+                              flush=True)
+                    except _incr.IncrementalRefused as _refused:
+                        print(f"  {name}: incremental refused "
+                              f"({_refused}) - full rebuild",
+                              flush=True)
                         build_result = build_reel_timeline(
                             project=project,
                             **prepared_artifact.reel_inputs,
