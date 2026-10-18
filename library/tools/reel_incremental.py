@@ -1088,7 +1088,8 @@ def build_staged_incremental(
                 raise ReelBuildError(f"{staging_name}: {exc}") from exc
         return build_record
     except IncrementalRefused:
-        project.SetCurrentTimeline(final_timeline)
+        from library.tools.resolve_lock import assert_current_timeline
+        assert_current_timeline(project, final_timeline)
         if not project.GetMediaPool().DeleteTimelines([staging]):
             raise ReelBuildError("incremental staging cleanup failed")
         raise

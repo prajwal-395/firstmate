@@ -100,6 +100,27 @@ def test_picture_row_selector_finds_one_video_ending_at_requested_frame(
         reel_ending_copy._item_by_track_end(target, "Akshita", 1012)
 
 
+def test_reel_27_baked_tv_hold_is_removed_from_native_hold_collision():
+    pool = FakeMediaPoolItem("reel_tv_hold_27_source_104286.mov")
+    pool.SetClipProperty(
+        "File Path", "/project/reel_tv_hold_27_source_104286.mov")
+    baked = FakeTimelineItem(
+        "reel_tv_hold_27_source_104286.mov", None, start=1086,
+        duration=19, pool_item=pool, uid="baked-tv-hold")
+    target = FakeTimeline(
+        "Reel 27 - target", video=[("Akshita", [baked])])
+
+    legacy = reel_ending_copy._find_legacy_freeze(target, 1, 1086, 19)
+
+    assert legacy is baked
+    reel_ending_copy._assert_span_free(
+        target, 1, 1086, 1105,
+        allowed_uids=[str(legacy.GetUniqueId())], label="native TV-off hold")
+    assert target.DeleteClips([legacy], False)
+    reel_ending_copy._assert_span_free(
+        target, 1, 1086, 1105, label="native TV-off hold")
+
+
 def test_tv_signature_reads_the_three_animation_splines():
     from library.tools.fusion.comp_builder import build_effect_comp
 
@@ -228,8 +249,12 @@ def test_reel_22_post_header_is_planned_to_stop_at_the_ending(
     assert plan[0]["want_end"] == 1013
 
 
+@pytest.mark.parametrize("legacy_name", [
+    "reel_freeze_legacy.mov",
+    "reel_tv_hold_27_source_104286.mov",
+])
 def test_run_replaces_baked_freeze_with_native_hold_then_places_logo(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, legacy_name):
     from library.tools.fusion.comp_builder import build_effect_comp
 
     root = tmp_path / "project"
@@ -277,10 +302,12 @@ def test_run_replaces_baked_freeze_with_native_hold_then_places_logo(
         pool_item=pool_item("body.mov", picture_path),
         uid="target-picture")
     legacy_freeze = FakeTimelineItem(
-        "reel_freeze_legacy.mov", None, start=1013, duration=19,
-        pool_item=pool_item("reel_freeze_legacy.mov",
+        legacy_name, None, start=1013, duration=19,
+        pool_item=pool_item(legacy_name,
                             reference_freeze_path, frames=19),
-        fusion_comps=[tail_comp], uid="legacy-freeze")
+        fusion_comps=([tail_comp, tail_comp]
+                      if legacy_name.startswith("reel_tv_hold_")
+                      else [tail_comp]), uid="legacy-freeze")
     legacy_freeze.AddMarker(7, "Blue", "captain marker", "keep", 1, "")
     target = FakeTimeline(
         "Reel 27 - target",
@@ -291,6 +318,26 @@ def test_run_replaces_baked_freeze_with_native_hold_then_places_logo(
     project = FakeProject(
         reel_ending_copy.PROJECT_NAME, [source, target], current=target)
     resolve = FakeResolve(project)
+    pool = project.GetMediaPool()
+    append_to_timeline = pool.AppendToTimeline
+
+    def append_with_resolve_source_frame_origin(specs):
+        before = {item.GetUniqueId() for item in
+                  target.GetItemListInTrack("video", 1) or ()}
+        result = append_to_timeline(specs)
+        for item in target.GetItemListInTrack("video", 1) or ():
+            if (item.GetUniqueId() not in before
+                    and item.GetStart() == 1013
+                    and item.GetMediaPoolItem()
+                    is target_picture.GetMediaPoolItem()):
+                # Resolve's live AppendToTimeline reads one source frame
+                # lower than the 1-based startFrame argument.
+                item._source_start_frame -= 1
+                item._source_end_frame -= 1
+        return result
+
+    monkeypatch.setattr(pool, "AppendToTimeline",
+                        append_with_resolve_source_frame_origin)
     config = SimpleNamespace(
         slug=reel_ending_copy.PROJECT_SLUG,
         project_root=root,

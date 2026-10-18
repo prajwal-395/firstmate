@@ -346,7 +346,7 @@ def _reference_tv_comp(freeze_item, directory: Path) -> tuple[int, Path, dict]:
     return matches[0]
 
 
-def _target_tv_comp(item, directory: Path) -> tuple[int, Path, dict] | None:
+def _target_tv_comps(item, directory: Path) -> list[tuple[int, Path, dict]]:
     matches = []
     count = int(item.GetFusionCompCount() or 0)
     for index in range(1, count + 1):
@@ -357,10 +357,17 @@ def _target_tv_comp(item, directory: Path) -> tuple[int, Path, dict] | None:
         except JobRefused:
             continue
         matches.append((index, path, signature))
+    return matches
+
+
+def _target_tv_comp(item, directory: Path) -> tuple[int, Path, dict] | None:
+    matches = _target_tv_comps(item, directory)
     if len(matches) > 1:
-        raise JobRefused(
-            f"{KIND} target freeze carries {len(matches)} TV-off comps; "
-            "the ending is ambiguous")
+        signatures = [match[2] for match in matches]
+        if any(signature != signatures[0] for signature in signatures[1:]):
+            raise JobRefused(
+                f"{KIND} target freeze carries {len(matches)} different "
+                "TV-off comps; the ending is ambiguous")
     return matches[0] if matches else None
 
 
@@ -518,11 +525,14 @@ def _legacy_freeze_capture(item, directory: Path) -> dict:
             "cannot prove an inverse restore")
     comp_count = _read_int(item.GetFusionCompCount(),
                            "legacy freeze Fusion comp count")
-    tv_comp = _target_tv_comp(item, directory)
-    if comp_count != 1 or tv_comp is None or tv_comp[0] != 1:
+    tv_comps = _target_tv_comps(item, directory)
+    if (comp_count < 1 or len(tv_comps) != comp_count
+            or any(comp[0] != index
+                   for index, comp in enumerate(tv_comps, start=1))
+            or any(comp[2] != tv_comps[0][2] for comp in tv_comps[1:])):
         raise JobRefused(
-            f"{KIND} legacy freeze must have one Fusion comp and it must be "
-            "the verified TV-off comp to permit an exact inverse restore")
+            f"{KIND} legacy freeze must carry only identical verified "
+            "TV-off comps to permit an exact inverse restore")
     return {
         "uid": str(item.GetUniqueId() or ""),
         "original_item": item,
@@ -537,8 +547,9 @@ def _legacy_freeze_capture(item, directory: Path) -> dict:
         "color": item.GetClipColor(),
         "markers": dict(item.GetMarkers() or {}),
         "nodes": _read_int(item.GetNumNodes(), "legacy freeze node count"),
-        "tv_comp_content": tv_comp[1].read_text(encoding="utf-8"),
-        "tv_signature": tv_comp[2],
+        "tv_comp_contents": [
+            comp[1].read_text(encoding="utf-8") for comp in tv_comps],
+        "tv_signature": tv_comps[0][2],
     }
 
 
@@ -593,10 +604,12 @@ def _restore_legacy_freeze(pool, timeline, row: int, capture: dict, *,
                 or int(item.GetNumNodes() or 0) != capture["nodes"]):
             raise JobRefused(
                 f"{KIND} inverse restore could not restore legacy freeze grade")
-    comp_path = directory / "inverse-legacy-tv-off.comp"
-    comp_path.write_text(capture["tv_comp_content"], encoding="utf-8")
-    comp_receipt = _copy_reference_comp(
-        item, 1, comp_path, capture["tv_signature"], directory)
+    comp_receipts = []
+    for index, content in enumerate(capture["tv_comp_contents"], start=1):
+        comp_path = directory / f"inverse-legacy-tv-off-{index}.comp"
+        comp_path.write_text(content, encoding="utf-8")
+        comp_receipts.append(_copy_reference_comp(
+            item, index, comp_path, capture["tv_signature"], directory))
     if (int(item.GetStart()) != capture["start"]
             or int(item.GetDuration()) != capture["duration"]
             or int(item.GetSourceStartFrame()) != capture["source_start"]
@@ -605,7 +618,7 @@ def _restore_legacy_freeze(pool, timeline, row: int, capture: dict, *,
         raise JobRefused(
             f"{KIND} inverse-restored legacy freeze did not read back exactly")
     orphaned_items[:] = [other for other in orphaned_items if other is not item]
-    return {"item": item, "comp": comp_receipt}
+    return {"item": item, "comps": comp_receipts}
 
 
 def _apply_properties(item, values: dict, *, project_folder: str,
@@ -1367,10 +1380,21 @@ def _run(job: dict, resolve, project) -> dict:
                             f"{KIND} native hold needs source frames "
                             f"[{held_source_frame}, {freeze.source_end_frame}) "
                             f"but {picture_path!r} contains {source_frames}")
+                    # SetSpeed(0) freezes the final source frame in the
+                    # appended source window. Back the window up so that
+                    # its final frame is the measured hold frame.
+                    append_source_start = held_source_frame - source_duration + 1
+                    if append_source_start < 0:
+                        raise JobRefused(
+                            f"{KIND} native hold window would start before "
+                            "source frame zero")
                     landed_row, new_freeze = _append_item(
                         pool, target, media_pool_item=source_pool_item,
                         row=target_picture_row, record_frame=record_frame,
-                        source_start=held_source_frame,
+                        # Resolve's AppendToTimeline startFrame is one-based
+                        # for source media; GetSourceStartFrame reads the
+                        # corresponding zero-based frame.
+                        source_start=append_source_start + 1,
                         duration=source_duration,
                         label="native hold",
                         orphaned_items=orphaned_items)
@@ -1381,11 +1405,13 @@ def _run(job: dict, resolve, project) -> dict:
                         media_pool_item=source_pool_item,
                         row=target_picture_row, record_frame=record_frame,
                         duration=source_duration, label="native hold")
-                    if int(new_freeze.GetSourceStartFrame()) != held_source_frame:
+                    appended_source_start = int(
+                        new_freeze.GetSourceStartFrame())
+                    if abs(appended_source_start - append_source_start) > 1:
                         raise JobRefused(
                             f"{KIND} native hold starts at source frame "
-                            f"{new_freeze.GetSourceStartFrame()}, expected "
-                            f"{held_source_frame}")
+                            f"{appended_source_start}, outside expected "
+                            f"{append_source_start} ± 1")
                     if legacy_freeze is not None:
                         old_markers = legacy_freeze["capture"]["markers"]
                         _copy_clip_markers(old_markers, new_freeze)

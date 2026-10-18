@@ -114,6 +114,7 @@ ENDING_FILENAME = "reel_ending.json"
 #: Legacy rendered-hold prefix. Readers keep recognizing existing reels;
 #: new builds use native retime holds and never create this file.
 FREEZE_PREFIX = "reel_freeze_"
+BAKED_HOLD_PREFIXES = (FREEZE_PREFIX, "reel_tv_hold_")
 
 #: Resolve exposes no timeline-item rename. A verified 0% playback rate
 #: is the native signal used to recognize a held frame.
@@ -910,7 +911,7 @@ def is_freeze_path(source_file) -> bool:
     is the same question asked of a list of objects.
     """
     name = str(source_file or "").rsplit("/", 1)[-1]
-    return bool(name) and name.startswith(FREEZE_PREFIX)
+    return bool(name) and name.startswith(BAKED_HOLD_PREFIXES)
 
 
 def is_native_hold(item) -> bool:

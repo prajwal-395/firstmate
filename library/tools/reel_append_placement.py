@@ -42,7 +42,10 @@ def append_recorded(project, recorder, name, track_plan, fps, width, height,
                 pool, spec.path, recorder.bins.get(spec.path),
                 pool_index=index)
         if item is None:
-            raise RuntimeError(f"{name}: cannot import planned source {spec.path!r}")
+            from library.tools.reel_build import ReelBuildError
+            raise ReelBuildError(
+                f"{name}: Resolve would not import planned source "
+                f"{spec.path!r}; refusing to omit a planned item")
         sources[spec.path] = item
 
     by_id = {str(item.GetUniqueId()): item for item in sources.values()}
