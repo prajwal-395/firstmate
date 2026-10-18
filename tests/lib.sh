@@ -789,6 +789,16 @@ assert_not_contains() {
   esac
 }
 
+# Decode the recorded `nice ... /bin/sh -c <script>` launch without running it.
+# Spawn fixtures log the complete send-keys command, whose outer shell quoting
+# otherwise obscures the actual script from assertions across Bash versions.
+fm_test_launch_script() {  # <recorded-launch-command>
+  local command=$1
+  eval "set -- $command" || return 1
+  [ "${4:-}" = /bin/sh ] && [ "${5:-}" = -c ] && [ -n "${6:-}" ] || return 1
+  printf '%s\n' "$6"
+}
+
 # expect_code <expected> <actual> <label>
 expect_code() {
   local expected=$1 actual=$2 label=$3

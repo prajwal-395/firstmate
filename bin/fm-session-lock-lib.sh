@@ -6,11 +6,9 @@
 # bin/fm-lock.sh uses it to acquire and inspect state/.lock and its
 # state/.lock-session sidecar; bin/fm-claude-stop-autoarm.sh uses it to prove a
 # Stop hook fires inside the lock-owning primary session before it may arm or
-# rewake. Two signals decide ownership, either one sufficient: the recorded pid
-# is a member of this process's contiguous harness ancestry, or the trusted
-# Claude session id below matches the id recorded beside a live lock. Neither
-# signal ever fails open: no id, no sidecar, an untrusted id, or a different
-# recorded id leaves the ancestry verdict exactly as it was.
+# rewake. Ownership is decided by harness ancestry, a trusted matching Claude
+# session id, or an exact current Stop event match to the live Claude lock
+# anchor. No weaker identity evidence changes the ancestry verdict.
 # This file is sourced by scripts and has no side effects on source.
 
 # Cursor process identity is NOT expressible as a command-name pattern and is
@@ -243,6 +241,25 @@ fm_session_lock_same_session() {  # <state> [<ancestry-pids>]
   [ "$recorded" = "$trusted" ]
 }
 
+# True when a Claude Stop event identifies the live model-loop pid recorded in
+# the lock. The event id must agree with both Claude's environment and the lock
+# sidecar; unlike an inherited environment value alone, the hook payload ties
+# this proof to the current Stop event.
+fm_session_lock_same_event_session() {  # <state> <lock-pid> <event-session-id>
+  local state=$1 lock_pid=$2 event_id=${3:-} claude_pid=${CLAUDE_PID:-} id recorded comm args
+  [ "$claude_pid" = "$lock_pid" ] || return 1
+  case "$claude_pid" in ''|*[!0-9]*|1) return 1 ;; esac
+  id=${CLAUDE_CODE_SESSION_ID:-}
+  [ -n "$id" ] && [ "$id" = "$event_id" ] || return 1
+  case "$id" in *$'\n'*|*$'\r'*) return 1 ;; esac
+  comm=$(ps -o comm= -p "$claude_pid" 2>/dev/null) || return 1
+  args=$(ps -o args= -p "$claude_pid" 2>/dev/null)
+  fm_harness_process_matches "$comm" "$args" || return 1
+  [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
+  recorded=$(fm_session_lock_recorded_session_id "$state") || return 1
+  [ "$recorded" = "$id" ]
+}
+
 # Print the pid bin/fm-lock.sh records on lock line 1 for this session. For a
 # Claude session with a trusted id that is CLAUDE_PID, the model-loop process:
 # never the shared transient daemon and never a front-end that outlives the
@@ -264,7 +281,8 @@ fm_session_lock_anchor_pid() {
 # True when state dir $1 holds a session lock that this process's session owns:
 # the recorded pid is ANY harness ancestor of the current process, or the lock
 # was recorded by this same trusted Claude session and its recorded pid is still
-# a live harness. Membership is the honest ancestry test, because the lock owner
+# a live harness, or a current Stop event matches the recorded lock owner and
+# session id. Membership is the honest ancestry test, because the lock owner
 # sits at an unknown depth in a contiguous Claude run - it is the outermost pid
 # when the hook fires inside the session's own nested worker chain, and an inner
 # pid when a harness-named daemon parents the session. The same-session path
@@ -273,7 +291,7 @@ fm_session_lock_anchor_pid() {
 # silently owned with a dead anchor. A missing lock, a malformed lock, a lock
 # held by a harness outside this ancestry under another (or no) session id, or
 # an ancestry that cannot be resolved all fail closed.
-fm_session_lock_owned_by_self() {
+fm_session_lock_owned_by_self() {  # <state> [<Stop-event-session-id>]
   local state=$1 lock_pid pids pid
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
   case "$lock_pid" in
@@ -285,7 +303,9 @@ fm_session_lock_owned_by_self() {
   done <<EOF
 $pids
 EOF
-  fm_session_lock_same_session "$state" "$pids" || return 1
+  fm_session_lock_same_session "$state" "$pids" \
+    || fm_session_lock_same_event_session "$state" "$lock_pid" "${2:-}" \
+    || return 1
   fm_harness_pid_alive "$lock_pid"
 }
 
@@ -296,7 +316,7 @@ EOF
 # evidence.
 # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
 FM_SESSION_LOCK_FOREIGN_OWNER_PID=
-fm_session_lock_foreign_owner_live() {
+fm_session_lock_foreign_owner_live() {  # <state> [<Stop-event-session-id>]
   local state=$1 lock_pid pids pid
   FM_SESSION_LOCK_FOREIGN_OWNER_PID=
   [ -f "$state/.lock" ] && [ ! -L "$state/.lock" ] || return 1
@@ -311,7 +331,8 @@ fm_session_lock_foreign_owner_live() {
   done <<EOF
 $pids
 EOF
-  fm_session_lock_same_session "$state" "$pids" && return 1
+  { fm_session_lock_same_session "$state" "$pids" \
+    || fm_session_lock_same_event_session "$state" "$lock_pid" "${2:-}"; } && return 1
   # shellcheck disable=SC2034 # Output global, read by the sourcing guard caller.
   FM_SESSION_LOCK_FOREIGN_OWNER_PID=$lock_pid
   return 0

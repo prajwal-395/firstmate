@@ -162,16 +162,23 @@ test_spawn_launch_line_and_worker_wiring() {
   assert_grep "model=openai-codex/gpt-6-astra" "$state/$id.meta" "meta missing the pinned model"
   assert_grep "effort=medium" "$state/$id.meta" "meta missing the pinned effort"
   assert_present "$state/$id.omp-ext.ts" "omp spawn did not write the per-task extension"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_OMP_HARNESS=omp OMP_SKIP_SETUP=1 '$FAKEBIN_DIR/omp'" \
+  launch=$(fm_test_launch_script "$(cat "$LAUNCH_LOG")")
+  assert_contains "$launch" "env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u GEMINI_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_OMP_HARNESS=omp OMP_SKIP_SETUP=1" \
     "omp launch did not clear foreign markers and establish its own at the launch boundary"
-  assert_contains "$launch" "--config '$ROOT/.omp/fm-worker-overlay.yml' --auto-approve --cwd '$WT_DIR'" \
+  assert_contains "$launch" "$FAKEBIN_DIR/omp" "omp launch lost the configured executable"
+  assert_contains "$launch" "--config" "omp launch lost the worker overlay option"
+  assert_contains "$launch" "$ROOT/.omp/fm-worker-overlay.yml" "omp launch lost the tracked posture overlay"
+  assert_contains "$launch" "--auto-approve --cwd" \
     "omp launch did not carry the tracked posture overlay, --auto-approve, and the pinned working directory"
-  assert_contains "$launch" "--model 'openai-codex/gpt-6-astra' --thinking 'medium' -e '$state/$id.omp-ext.ts'" \
+  assert_contains "$launch" "--model" "omp launch lost its model option"
+  assert_contains "$launch" "openai-codex/gpt-6-astra" "omp launch lost its pinned model"
+  assert_contains "$launch" "--thinking" "omp launch lost its thinking option"
+  assert_contains "$launch" "medium" "omp launch lost its pinned thinking level"
+  assert_contains "$launch" "$state/$id.omp-ext.ts" \
     "omp launch did not pass the model, thinking level, and the state-resident worker extension"
   assert_contains "$launch" "Read the brief at $HOME_DIR/data/$id/launch-brief.md and follow it exactly." "omp launch lost the fixed brief pointer"
   case "$launch" in
-    *"-e '$state/$id.omp-ext.ts' 'Read the brief at "*) ;;
+    *"-e"*"$state/$id.omp-ext.ts"*"$HOME_DIR/data/$id/launch-brief.md"*) ;;
     *) fail "omp launch must keep exactly one positional brief pointer after the extension flag: $launch" ;;
   esac
   [ "$(fm_busy_classify tmux fake:w omp "$id" "$state")" = "busy fm-spawn" ] \
@@ -197,7 +204,7 @@ test_spawn_model_validation_scoped_to_listed_providers() {
   status=$?
   expect_code 0 "$status" "an extension-registered provider must pass through: $out"
   assert_contains "$out" "notice: omp provider 'claude-bridge' is not in 'omp models --json'" "pass-through did not state its reason"
-  assert_contains "$(cat "$LAUNCH_LOG")" "--model 'claude-bridge/claude-opus-4-8'" "pass-through model did not reach the launch line"
+  assert_contains "$(fm_test_launch_script "$(cat "$LAUNCH_LOG")")" "--model 'claude-bridge/claude-opus-4-8'" "pass-through model did not reach the launch line"
 
   rec=$(make_spawn_case model-fuzzy omp omp-model-fuzzy-q4)
   read_case_record "$rec"
@@ -237,7 +244,7 @@ test_secondmate_launch_relies_on_discovery() {
   status=$?
   expect_code 0 "$status" "omp secondmate spawn should succeed: $out"
   assert_grep "harness=omp" "$world/home/state/sm.meta" "secondmate meta missing harness=omp"
-  launch=$(cat "$launchlog")
+  launch=$(fm_test_launch_script "$(cat "$launchlog")")
   case "$launch" in
     *" -e "*) fail "an omp secondmate launch must name no -e: omp auto-discovers .omp/extensions and a file named both ways loads twice: $launch" ;;
   esac

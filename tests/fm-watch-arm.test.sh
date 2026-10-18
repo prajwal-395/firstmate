@@ -1611,7 +1611,7 @@ SH
 
 test_opencode_arm_plugin_decides_with_the_shared_predicate() {
   command -v node >/dev/null 2>&1 || { printf 'skip: node not found\n'; return 0; }
-  local driver case_name dir state config out status
+  local driver case_name dir repo state config out status
   driver="$TMP_ROOT/arm-decision-driver.mjs"
   cat > "$driver" <<'EOF'
 import { existsSync, writeFileSync } from "node:fs";
@@ -1687,8 +1687,9 @@ if (!existsSync(armLog)) {
 }
 process.exit(0);
 EOF
-  for case_name in source registered-check empty afk-with-source task-meta x-mode; do
+  for case_name in source registered-check empty afk-with-source task-meta x-mode secondmate; do
     dir=$(make_arm_decision_fixture "opencode-arm-$case_name")
+    repo="$dir/repo"
     state="$dir/home/state"
     config="$dir/home/config"
     case "$case_name" in
@@ -1702,8 +1703,15 @@ EOF
         ;;
       task-meta) : > "$state/fixture.meta" ;;
       x-mode) : > "$config/x-mode.env" ;;
+      secondmate)
+        git -C "$repo" add AGENTS.md bin
+        git -C "$repo" commit -q -m fixture
+        git -C "$repo" worktree add -q -b fm/opencode-secondmate "$dir/secondmate" HEAD
+        repo="$dir/secondmate"
+        printf 'sm-opencode\n' > "$repo/.fm-secondmate-home"
+        ;;
     esac
-    out=$(FM_ROOT_OVERRIDE="$dir/repo" WORKTREE="$dir/repo" FM_HOME="$dir/home" \
+    out=$(FM_ROOT_OVERRIDE="$repo" WORKTREE="$repo" FM_HOME="$dir/home" \
       FM_ARM_LOG="$dir/arm.log" NODE_NO_WARNINGS=1 \
       PLUGIN="$ROOT/.opencode/plugins/fm-primary-watch-arm.js" node "$driver" 2>&1)
     status=$?
