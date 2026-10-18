@@ -742,7 +742,7 @@ test_matrix_claude_titled_top_rule() {
   # read as a lower unmatched separator, and a visibly empty composer read
   # `unknown` on every cursorless backend, refusing steers, exit, and relaunch.
   local rule title top bottom footer screen ansi typed claude_idle
-  local scrollback short nonascii flush blank
+  local scrollback short long nonascii flush blank
   claude_idle=$(printf 'claude\tidle')
   rule='────────────────────────────────────────────────────────────'
   title=' Firstmate operational input 1790546042 '
@@ -768,10 +768,15 @@ test_matrix_claude_titled_top_rule() {
   # with transcript rows between it and a lower unmatched rule, stays unknown.
   scrollback="$top"$'\n❯'"$NBSP"$'\n'"$bottom"$'\nlater transcript output\n'"$bottom"$'\nmore output'
   assert_screen "titled sandwich in scrollback" unknown "$CAPS_STYLED_NOID" "$scrollback"
-  # Width is proven, not assumed: a titled rule narrower than its closing rule
-  # is not that composer's top edge.
+  # Claude's /rename top rule can be narrower than its closing rule. Its
+  # dashed prefix, trailing rule glyph, and ASCII title still prove the edge.
   short="${rule}${title}─"$'\n❯'"$NBSP"$'\n'"$bottom"
-  assert_screen "mismatched titled rule width" unknown "$CAPS_STYLED_NOID" "$short"
+  assert_screen "renamed claude short titled top rule" empty "$CAPS_STYLED_NOID" "$short"
+  short="${rule}${title}─"$'\n❯ fix the login bug\n'"$bottom"
+  assert_screen "renamed claude short titled top with draft" pending "$CAPS_STYLED_NOID" "$short"
+  # A title rule wider than the closing rule remains unproved.
+  long="${rule}${rule}${title}─"$'\n❯'"$NBSP"$'\n'"$bottom"
+  assert_screen "oversized titled top rule" unknown "$CAPS_STYLED_NOID" "$long"
   # A non-ASCII title leaves residue and refuses rather than guessing width.
   nonascii="${rule}─── ✳ Firstmate operational input 179054604 ─"$'\n❯'"$NBSP"$'\n'"$bottom"
   assert_screen "non-ASCII titled rule" unknown "$CAPS_STYLED_NOID" "$nonascii"

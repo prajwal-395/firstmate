@@ -782,8 +782,9 @@ _fm_composer_pi_separator_row() {  # <trimmed-row>
 # _fm_composer_titled_rule_row: 0 when a trimmed row is a composer rule with a
 # session title burned into it (Claude Code draws a named session's title into
 # its composer's TOP rule: `──────── <name> ─`, issues #5601 and #5558), proven
-# by collapsing to exactly the column width of <plain-rule-spaces>, the partner
-# closing rule already mapped to spaces.
+# by collapsing to no more than the column width of <plain-rule-spaces>, the
+# partner closing rule already mapped to spaces. Claude's `/rename` title rule
+# is narrower than the closing rule on Herdr.
 #
 # This is deliberately NOT a relaxation of _fm_composer_pi_separator_row, and
 # the two must not be merged: that predicate also feeds the pi identity
@@ -807,7 +808,10 @@ _fm_composer_titled_rule_row() {  # <trimmed-row> <plain-rule-spaces>
   case "$spaces" in
     *[![:space:]]*) return 1 ;;
   esac
-  [ "$spaces" = "$expected" ]
+  case "$expected" in
+    "$spaces"*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # Row-scan results are returned through FM_COMPOSER_SCAN_* globals (bash 3.2
