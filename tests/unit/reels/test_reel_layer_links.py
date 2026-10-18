@@ -315,6 +315,41 @@ def test_resolve_clip_use_at_seconds_walks_the_frame_map():
         model, slug, "soon")[0] is None
 
 
+def test_anchor_resolution_reads_only_projection_collections():
+    """Lane C3's model reads must stay inside the routing sidecar.
+
+    The sidecar carries clocks, frame maps and clip uses; if anchor
+    resolution ever reaches another collection, routing silently
+    degrades to clip_use_reason instead of answering. This test fails
+    first, before the sidecar does.
+    """
+    from collections.abc import Mapping
+
+    model = _model()
+    allowed = {"clocks", "frame_maps", "clip_uses"}
+    read: set[str] = set()
+
+    class _Strict(Mapping):
+        def __getitem__(self, key):
+            read.add(key)
+            if key not in allowed:
+                raise AssertionError(
+                    f"anchor resolution reached {key!r}, outside the "
+                    f"routing sidecar {sorted(allowed)}")
+            return model[key]
+
+        def __iter__(self):
+            return iter(model)
+
+        def __len__(self):
+            return len(model)
+
+    slug = links.slug_for_timeline("Reel 01")
+    use_id, _ = links.resolve_clip_use_at_seconds(_Strict(), slug, 1.0)
+    assert use_id == f"use:{slug}:0000"
+    assert read <= allowed
+
+
 def test_annotate_pulled_note_resolves_and_reports():
     model = _model()
     note = {"timeline": "Reel 01", "frame": 108030,

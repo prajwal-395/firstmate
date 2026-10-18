@@ -82,6 +82,122 @@ MODEL_COLLECTIONS = (
     "nle_bindings", "receipts", "provenance",
 )
 
+REEL_COMMIT_KEYS = (
+    "clocks", "clip_uses", "edits", "effects", "frame_maps", "masks",
+    "provenance",
+)
+"""Collections a reel build owns outright, committed as one merge_patch.
+
+On a fingerprint hit the evidence base is byte-identical to the stored
+head, so only these small keys can differ: reel rows are namespaced per
+reel, reel clocks are minted per build, and the provenance row is
+carried verbatim. Committing just these keeps the event log from
+growing a full 350 MB model per build; a fresh evidence base still
+commits a full replace carrying the new evidence too.
+"""
+
+EVIDENCE_FINGERPRINT_FILE = "evidence-fingerprint.json"
+"""Sidecar beside the store: fingerprint of the evidence inputs.
+
+Written after each successful ``maintain_from_build``; the next build
+reuses the stored evidence base when the fingerprint matches, skipping
+the 58 s re-migration. The fingerprint covers the catalog digests and
+every lane file's stat (size + mtime), never lane contents.
+"""
+
+
+def evidence_fingerprint(project_folder: str,
+                         memory_root: str | Path | None = None) -> str:
+    """Cheap fingerprint of the evidence migration inputs.
+
+    Stats only, no lane content reads: the catalog's clip digests plus
+    every file under each digest's source-memory directory (name, size,
+    mtime). A re-measured lane changes a file's mtime/size, so the
+    fingerprint changes and the migration reruns. Identical inputs reuse
+    the stored evidence base item-for-item.
+    """
+    from library.tools import source_memory as _sm
+    try:
+        catalog = _sm.load_catalog(project_folder)
+    except Exception:
+        catalog = []
+    try:
+        recorded = _sm.load_recorded_fingerprints(project_folder)
+    except Exception:
+        recorded = {}
+    if not isinstance(catalog, list):
+        catalog = []
+    if not isinstance(recorded, dict):
+        recorded = {}
+    digest_entries: list[str] = []
+    for clip in catalog:
+        if not isinstance(clip, dict):
+            continue
+        clip_id = str(clip.get("clip_id") or "")
+        entry = (recorded.get(clip_id) or {}) if isinstance(recorded, dict) else {}
+        digest = str(entry.get("content_digest") or "")
+        source_file = str(clip.get("source_file") or clip.get("path") or "")
+        digest_entries.append(f"{clip_id}\x00{digest}\x00{source_file}")
+    digest_entries.sort()
+    try:
+        root = Path(memory_root).expanduser() if memory_root else _sm.memory_root()
+    except Exception:
+        root = None
+    lane_stats: list[str] = []
+    if root is not None:
+        try:
+            digests = sorted({str((recorded.get(str((c or {}).get("clip_id") or "")) or {}).get("content_digest") or "")
+                             for c in catalog if isinstance(c, dict)} - {""})
+        except Exception:
+            digests = []
+        for digest in digests:
+            try:
+                lane_dir = _sm.source_dir(digest, root)
+            except Exception:
+                continue
+            try:
+                if not lane_dir.is_dir():
+                    lane_stats.append(f"{digest}:absent")
+                    continue
+                for child in sorted(lane_dir.iterdir(), key=lambda p: p.name):
+                    try:
+                        stat = child.stat()
+                        lane_stats.append(
+                            f"{digest}/{child.name}:{stat.st_size}:{stat.st_mtime_ns}")
+                    except OSError:
+                        lane_stats.append(f"{digest}/{child.name}:unreadable")
+            except OSError:
+                lane_stats.append(f"{digest}:unreadable")
+    canonical = "\x00".join([
+        "\n".join(digest_entries),
+        "\n".join(sorted(lane_stats)),
+    ])
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _read_stored_fingerprint(store_at: Path) -> dict[str, Any] | None:
+    try:
+        return json.loads(
+            (Path(store_at) / "project_model" / EVIDENCE_FINGERPRINT_FILE).read_text(
+                encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write_stored_fingerprint(store_at: Path, fingerprint: str,
+                              revision: int, report: dict[str, Any]) -> None:
+    path = Path(store_at) / "project_model" / EVIDENCE_FINGERPRINT_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "fingerprint": fingerprint,
+            "revision": revision,
+            "digests": report.get("digests", []),
+            "persons": report.get("persons", []),
+        }, sort_keys=True), encoding="utf-8")
+    except OSError:
+        pass
+
 
 def _slug(text: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", "-", str(text).lower()).strip("-")
@@ -1407,26 +1523,55 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
     spec = enhancement_spec if isinstance(enhancement_spec, dict) else {}
     overlay = (motion_graphics_overlay
                if isinstance(motion_graphics_overlay, dict) else {})
-    # The evidence base: what the preflight's lanes measured, migrated
-    # through Unit 3. A project with no lanes yet (or unreadable ones)
-    # gets an empty base with the reason said, never a refusal.
-    try:
-        from library.tools import project_model_evidence as evidence
-        base, evidence_report = evidence.migrate_project_evidence(
-            project_folder)
-        evidence_note = (f"migrated {len(evidence_report.get('digests', []))} "
-                         f"digest(s), {len(evidence_report.get('persons', []))} "
-                         f"person(s)")
-    except Exception as exc:  # noqa: BLE001 - lanes are best-effort here
-        base = blank_model(f"project-{slug}")
-        evidence_note = f"blank base: evidence migration said {exc!r}"
-    ensure_provenance(base)
     try:
         expected_revision, stored = store.load_project_model(store_at)
     except (FileNotFoundError, ValueError):
         expected_revision, stored = 0, None
+    # The evidence base: what the preflight's lanes measured, migrated
+    # through Unit 3. A rebuild whose evidence inputs have not changed
+    # reuses the stored base item-for-item instead of re-migrating (58 s
+    # on the measured build). The fingerprint covers catalog digests and
+    # lane file stats, never lane contents; a mismatch re-migrates.
+    current_fingerprint: str | None = None
+    try:
+        current_fingerprint = evidence_fingerprint(project_folder)
+    except Exception:  # noqa: BLE001 - fingerprint failure re-migrates
+        current_fingerprint = None
+    stored_fingerprint = _read_stored_fingerprint(store_at)
+    fingerprint_match = (
+        stored is not None
+        and current_fingerprint is not None
+        and isinstance(stored_fingerprint, dict)
+        and stored_fingerprint.get("fingerprint") == current_fingerprint
+    )
+    evidence_report: dict[str, Any] = {}
+    if fingerprint_match:
+        base = blank_model(f"project-{slug}")
+        evidence_note = (
+            f"reused stored evidence "
+            f"({len(stored_fingerprint.get('digests', []))} digest(s), "
+            f"{len(stored_fingerprint.get('persons', []))} person(s), "
+            f"fingerprint {current_fingerprint[:12]})")
+    else:
+        try:
+            from library.tools import project_model_evidence as evidence
+            base, evidence_report = evidence.migrate_project_evidence(
+                project_folder)
+            evidence_note = (f"migrated {len(evidence_report.get('digests', []))} "
+                             f"digest(s), {len(evidence_report.get('persons', []))} "
+                             f"person(s)")
+        except Exception as exc:  # noqa: BLE001 - lanes are best-effort here
+            base = blank_model(f"project-{slug}")
+            evidence_note = f"blank base: evidence migration said {exc!r}"
+    ensure_provenance(base)
     if stored is None:
         model = base
+    elif fingerprint_match:
+        # The evidence base is unchanged (fingerprint match) and the blank
+        # base carries no rows, so the merge is a no-op: keep the stored
+        # model verbatim instead of filtering 116k rows against an empty set.
+        model = stored
+        ensure_provenance(model)
     else:
         # Keep every stored row the fresh base does not replace and no
         # rebuilt reel owns: other reels' fragments and prior renders
@@ -1486,17 +1631,31 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
             audio_mix_spec=(audio_mix_spec
                             if isinstance(audio_mix_spec, dict) else None),
             fps=reel_fps, validate=False))
-    # commit_project_model validates the complete merged document once,
-    # before writing. Per-fragment and immediate duplicate validation
-    # each walked every source observation again.
+    # One store revision per build. The commit validates the complete
+    # merged document once, before writing; per-fragment and immediate
+    # duplicate validation each walked every source observation again.
+    # When the evidence base is unchanged (fingerprint hit) only the
+    # reel-scoped rows differ, so a small merge_patch carries exactly
+    # those keys and the 350 MB event log stops growing a full model
+    # per build. A fresh evidence base still commits a full replace.
     reels_named = sorted(placements_by_reel)
     write_reason = reason or f"reel.build: {', '.join(reels_named)}"
+
+    def _commit(expected: int, current: dict) -> int:
+        if stored is not None and fingerprint_match:
+            patch = {key: current.get(key) or []
+                     for key in REEL_COMMIT_KEYS}
+            return store.append_model_patch(
+                store_at, patch, expected_revision=expected,
+                author=author, reason=write_reason)
+        return store.commit_project_model(
+            store_at, current, expected_revision=expected,
+            author=author, reason=write_reason)
+
     last_error: Exception | None = None
     for _attempt in range(3):
         try:
-            revision = store.commit_project_model(
-                store_at, model, expected_revision=expected_revision,
-                author=author, reason=write_reason)
+            revision = _commit(expected_revision, model)
             break
         except RuntimeError as exc:
             last_error = exc
@@ -1538,6 +1697,9 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
     else:
         return {"status": "refused",
                 "reason": f"store contention, last error: {last_error!r}"}
+    if not fingerprint_match and current_fingerprint is not None:
+        _write_stored_fingerprint(store_at, current_fingerprint,
+                                  revision, evidence_report)
     counts = {key: len(model.get(key) or []) for key in MODEL_COLLECTIONS}
     return {"status": "committed", "revision": revision,
             "reason": write_reason, "reels": reports,

@@ -76,6 +76,61 @@ def _paths(project: Path) -> tuple[Path, Path, Path]:
     return root / EVENTS_FILE, root / SNAPSHOT_FILE, root / ".lock"
 
 
+def _read_events_tail(path: Path) -> dict[str, Any] | None:
+    """The last event line without reading the whole history.
+
+    Replace events carry a 350 MB model per line; a 50-revision history
+    is 17 GB to parse fully but 350 MB for the tail. The tail's revision
+    and head hash are enough to check snapshot freshness; a mismatch
+    falls back to the full verified read.
+    """
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, 2)
+            size = stream.tell()
+            if size == 0:
+                return None
+            # Scan back for the last newline (the file ends with one).
+            # Chunks nearer the end accumulate in `later` and join
+            # once: prepending to a bytes buffer here was O(n^2) on
+            # 340 MB replace lines and hung the live build past
+            # 10 minutes.
+            step = 1024 * 1024
+            later: list[bytes] = []
+            pos = size
+            # Skip a single trailing newline, then find the previous one.
+            if size >= 1:
+                stream.seek(size - 1)
+                if stream.read(1) == b"\n":
+                    pos = size - 1
+            while pos > 0:
+                chunk_size = min(step, pos)
+                pos -= chunk_size
+                stream.seek(pos)
+                chunk = stream.read(chunk_size)
+                newline = chunk.rfind(b"\n")
+                if newline != -1:
+                    # `later` holds end-nearer chunks in read order;
+                    # file order is its reverse.
+                    line = b"".join(
+                        [chunk[newline + 1:],
+                         *reversed(later)]).strip()
+                    if not line:
+                        return None
+                    return json.loads(line.decode("utf-8"))
+                later.append(chunk)
+                if pos == 0:
+                    # No newline seen: the whole file is one line (a
+                    # single-event log). File order is the reverse
+                    # of read order.
+                    line = b"".join(reversed(later)).strip()
+                    if not line:
+                        return None
+                    return json.loads(line.decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def _read_events(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -145,11 +200,79 @@ def _replay(events: list[dict[str, Any]], *, verified: bool = False) -> dict[str
     return model
 
 
+#: Collections small enough to ride a sidecar: the routing cascade
+#: resolves a note's anchor against frame maps and clocks only, and the
+#: reel writer only ever replaces these five. Everything evidence-sized
+#: stays in the snapshot and the event log.
+REEL_SCOPED_COLLECTIONS = (
+    "clocks", "clip_uses", "edits", "effects", "frame_maps", "masks",
+)
+
+VALIDATED_MODELS_FILE = "validated-models.json"
+"""Persistent set of validated model hashes, newest last, capped.
+
+The in-process `_validated_heads` cache dies with every build process,
+so each of the 4-5 model loads per end-to-end build re-validated the
+same unchanged head (8.5 s a pass, 36 s in input routing alone). A model
+hash recorded here was validated at commit time in a previous process;
+hash equality is byte-identity with validated bytes, so the fast path
+skips validation without weakening it. Tampered bytes hash differently
+and fall through to the full verified read, which refuses.
+"""
+_VALIDATED_MODELS_LIMIT = 256
+
+
+def _read_validated_models(store_dir: Path) -> list[str]:
+    try:
+        items = json.loads(
+            (store_dir / VALIDATED_MODELS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [h for h in items if isinstance(h, str)][: _VALIDATED_MODELS_LIMIT]
+
+
+def _record_validated_model(store_dir: Path, model_hash: str) -> None:
+    try:
+        known = _read_validated_models(store_dir)
+        known = [h for h in known if h != model_hash] + [model_hash]
+        store_dir.mkdir(parents=True, exist_ok=True)
+        (store_dir / VALIDATED_MODELS_FILE).write_text(
+            json.dumps(known[-_VALIDATED_MODELS_LIMIT:]), encoding="utf-8")
+    except OSError:
+        pass
+
+REEL_PROJECTION_FILE = "reel-projection.json"
+"""Tiny sidecar beside the snapshot: reel-scoped rows plus revision/head.
+
+Marker routing resolves anchors against frame maps and clocks; loading
+the 350 MB snapshot to reach a few dozen rows cost 36 s per build. The
+sidecar is written on every commit from the just-validated model and
+read back only when its revision and head still match the log tail -
+anything else falls back to the full verified load.
+"""
+
+
+def _reel_projection(model: dict[str, Any]) -> dict[str, Any]:
+    return {key: model.get(key) or []
+            for key in REEL_SCOPED_COLLECTIONS}
+
+
 def _write_snapshot(path: Path, events: list[dict[str, Any]], model: dict[str, Any]) -> None:
+    # Every caller holds the store lock and passes the model it just
+    # validated, so recording its hash extends that verdict to future
+    # processes: see VALIDATED_MODELS_FILE.
+    model_hash = hashlib.sha256(_json_bytes(model)).hexdigest()
     _atomic_write(path, _json_bytes({
         "revision": len(events),
         "head_hash": events[-1]["event_hash"],
         "model": model,
+        "model_hash": model_hash,
+    }))
+    _record_validated_model(path.parent, model_hash)
+    _atomic_write(path.with_name(REEL_PROJECTION_FILE), _json_bytes({
+        "revision": len(events),
+        "head_hash": events[-1]["event_hash"],
+        "collections": _reel_projection(model),
     }))
     # Every caller has just validated this exact model while holding
     # the store lock. Preserve that verdict for the head we wrote too,
@@ -174,26 +297,163 @@ def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        signature = _file_signature(events_path)
-        events = _read_events(events_path)
-        model = _replay(events, verified=True)
-        if model is None:
-            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
-        expected = {"revision": len(events), "head_hash": events[-1]["event_hash"], "model": model}
+        revision, model, _head = _load_locked(events_path, snapshot_path)
+        return revision, model
+
+
+def _load_locked(events_path: Path, snapshot_path: Path
+                 ) -> tuple[int, dict[str, Any], str]:
+    """Load and verify with the store lock already held.
+
+    Returns (revision, model, head_hash). The snapshot fast path, tail
+    verification, repair and verdict caching live here so writers
+    (merge_patch, evidence merges) reuse them instead of re-scanning
+    the whole event log per commit.
+    """
+    signature = _file_signature(events_path)
+    # Fast path: when the snapshot's revision and head match the
+    # log tail, the snapshot model IS the replay without scanning
+    # 17 GB of history. The tail hash is recomputed for the last
+    # event; a middle tamper changes the head and falls back to the
+    # full verified read, which refuses.
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        snapshot = None
+    if isinstance(snapshot, dict) and signature is not None:
+        tail = _read_events_tail(events_path)
+        if (tail is not None
+                and tail.get("revision") == snapshot.get("revision")
+                and tail.get("event_hash") == snapshot.get("head_hash")):
+            digest = tail.pop("event_hash", None)
+            actual = hashlib.sha256(_json_bytes(tail)).hexdigest()
+            tail["event_hash"] = digest
+            # The snapshot model hash guards a snapshot whose keys
+            # match but whose model was replaced: hashing 350 MB is
+            # ~1 s, vs 50 s to replay 17 GB of history.
+            replay_model_hash: str | None = None
+            if isinstance(snapshot.get("model"), dict):
+                replay_model_hash = hashlib.sha256(
+                    _json_bytes(snapshot["model"])).hexdigest()
+            model_hash_ok = (
+                isinstance(snapshot.get("model_hash"), str)
+                and replay_model_hash == snapshot["model_hash"]
+            )
+            if digest == actual and model_hash_ok:
+                head = ((snapshot.get("head_hash"), validate_project_model))
+                with _validation_lock:
+                    known = head in _validated_heads
+                    if known:
+                        _validated_heads.move_to_end(head)
+                if not known and replay_model_hash in _read_validated_models(
+                        snapshot_path.parent):
+                    # Validated at commit time by an earlier process:
+                    # the hash is byte-identity with validated bytes.
+                    known = True
+                if not known:
+                    validate_project_model(snapshot["model"])
+                    _record_validated_model(
+                        snapshot_path.parent, replay_model_hash or "")
+                    with _validation_lock:
+                        _validated_heads[head] = None
+                        if len(_validated_heads) > _VALIDATED_HEAD_LIMIT:
+                            _validated_heads.popitem(last=False)
+                key = (events_path.resolve(), signature, validate_project_model)
+                with _validation_lock:
+                    _verified_revisions[key] = snapshot["revision"]
+                    _verified_revisions.move_to_end(key)
+                    if len(_verified_revisions) > _VALIDATED_HEAD_LIMIT:
+                        _verified_revisions.popitem(last=False)
+                # The snapshot was parsed fresh above, so its model is
+                # already caller-owned: no deepcopy, no shared cache.
+                return (snapshot["revision"], snapshot["model"],
+                        snapshot["head_hash"])
+    events = _read_events(events_path)
+    model = _replay(events, verified=True)
+    if model is None:
+        raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+    expected_revision = len(events)
+    expected_head = events[-1]["event_hash"]
+    try:
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        snapshot = None
+    # Freshness is revision + head hash + model hash. The model hash
+    # guards a snapshot whose keys match but whose model was replaced:
+    # hashing 350 MB is ~1 s, vs seconds to deep-compare two models on
+    # every load (measured 77 s across three boundaries). A mismatch
+    # rewrites the snapshot from the verified events replay.
+    replay_hash = hashlib.sha256(_json_bytes(model)).hexdigest()
+    snapshot_self_ok = (
+        isinstance(snapshot, dict)
+        and isinstance(snapshot.get("model"), dict)
+        and isinstance(snapshot.get("model_hash"), str)
+        and hashlib.sha256(
+            _json_bytes(snapshot["model"])).hexdigest()
+        == snapshot.get("model_hash")
+    )
+    snapshot_fresh = (
+        isinstance(snapshot, dict)
+        and snapshot.get("revision") == expected_revision
+        and snapshot.get("head_hash") == expected_head
+        and isinstance(snapshot.get("model_hash"), str)
+        and replay_hash == snapshot.get("model_hash")
+        and snapshot_self_ok
+    )
+    if not snapshot_fresh:
+        _write_snapshot(snapshot_path, events, model)
+    if signature is not None and _file_signature(events_path) == signature:
+        key = (events_path.resolve(), signature, validate_project_model)
+        with _validation_lock:
+            _verified_revisions[key] = len(events)
+            _verified_revisions.move_to_end(key)
+            if len(_verified_revisions) > _VALIDATED_HEAD_LIMIT:
+                _verified_revisions.popitem(last=False)
+    return len(events), model, events[-1]["event_hash"]
+
+
+def load_reel_projection(project: Path) -> tuple[int, dict[str, Any] | None]:
+    """The reel-scoped rows at the log head, or (revision, None) to fall back.
+
+    Reads only the KB-sized sidecar plus the log tail: no snapshot parse,
+    no validation. The sidecar is written on every commit from the
+    just-validated model, so a revision+head match means its rows are the
+    validated head's. Anything else - missing sidecar, tail mismatch,
+    tampered tail hash - returns None and the caller takes the full
+    verified load. Never raises for store damage; a missing log returns
+    (0, None).
+    """
+    events_path, _, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_SH)
         try:
-            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            snapshot = None
-        if snapshot != expected:
-            _write_snapshot(snapshot_path, events, model)
-        if signature is not None and _file_signature(events_path) == signature:
-            key = (events_path.resolve(), signature, validate_project_model)
-            with _validation_lock:
-                _verified_revisions[key] = len(events)
-                _verified_revisions.move_to_end(key)
-                if len(_verified_revisions) > _VALIDATED_HEAD_LIMIT:
-                    _verified_revisions.popitem(last=False)
-        return len(events), model
+            sidecar = json.loads(
+                events_path.with_name(REEL_PROJECTION_FILE).read_text(
+                    encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0, None
+        if not isinstance(sidecar, dict):
+            return 0, None
+        tail = _read_events_tail(events_path)
+        if tail is None:
+            return 0, None
+        if (tail.get("revision") != sidecar.get("revision")
+                or tail.get("event_hash") != sidecar.get("head_hash")):
+            return 0, None
+        digest = tail.pop("event_hash", None)
+        actual = hashlib.sha256(_json_bytes(tail)).hexdigest()
+        tail["event_hash"] = digest
+        if digest != actual:
+            return 0, None
+        collections = sidecar.get("collections")
+        if not isinstance(collections, dict):
+            return 0, None
+        if (set(collections) != set(REEL_SCOPED_COLLECTIONS)
+                or not all(isinstance(collections[key], list)
+                           for key in REEL_SCOPED_COLLECTIONS)):
+            return 0, None
+        return int(sidecar["revision"]), dict(collections)
 
 
 def project_model_revision(project: Path) -> int:
@@ -250,6 +510,46 @@ def commit_project_model(project: Path, model: dict[str, Any], *, expected_revis
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        # Fast path: when the tail matches the snapshot at the expected
+        # revision, append without scanning GBs of history. The tail hash
+        # is recomputed; a middle tamper changes the head and falls back
+        # to the full verified read, which refuses. A concurrent append
+        # changes the tail revision and raises stale revision below.
+        if expected_revision > 0:
+            try:
+                snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                snapshot = None
+            if (isinstance(snapshot, dict)
+                    and snapshot.get("revision") == expected_revision):
+                tail = _read_events_tail(events_path)
+                if (tail is not None
+                        and tail.get("revision") == expected_revision
+                        and tail.get("event_hash") == snapshot.get("head_hash")):
+                    digest = tail.pop("event_hash", None)
+                    actual = hashlib.sha256(_json_bytes(tail)).hexdigest()
+                    tail["event_hash"] = digest
+                    if digest == actual:
+                        event = {
+                            "revision": expected_revision + 1,
+                            "previous_hash": digest,
+                            "kind": "replace",
+                            "author": author,
+                            "reason": reason,
+                            "schema_version": model["schema_version"],
+                            "payload": model,
+                        }
+                        event["event_hash"] = hashlib.sha256(
+                            _json_bytes(event)).hexdigest()
+                        events_path.parent.mkdir(parents=True, exist_ok=True)
+                        with events_path.open("ab") as stream:
+                            stream.write(_json_bytes(event))
+                            stream.flush()
+                            os.fsync(stream.fileno())
+                        _write_snapshot(snapshot_path, [{
+                            "event_hash": digest,
+                        }] * expected_revision + [event], model)
+                        return expected_revision + 1
         events = _read_events(events_path)
         revision = len(events)
         if revision != expected_revision:
@@ -283,25 +583,21 @@ def append_model_patch(project: Path, patch: dict[str, Any], *, expected_revisio
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        events = _read_events(events_path)
-        revision = len(events)
+        revision, model, head_hash = _load_locked(events_path, snapshot_path)
         if revision != expected_revision:
             raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
-        model = _replay(events, verified=True)
-        if model is None:
-            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
         updated = _apply_patch(model, patch)
         validate_project_model(updated)
-        event = {"revision": revision + 1, "previous_hash": events[-1]["event_hash"],
-                 "kind": "merge_patch", "author": author, "reason": reason,
-                 "schema_version": updated["schema_version"], "payload": patch}
+        event = {"revision": revision + 1, "previous_hash": head_hash,
+                  "kind": "merge_patch", "author": author, "reason": reason,
+                  "schema_version": updated["schema_version"], "payload": patch}
         event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
         with events_path.open("ab") as stream:
             stream.write(_json_bytes(event))
             stream.flush()
             os.fsync(stream.fileno())
-        events.append(event)
-        _write_snapshot(snapshot_path, events, updated)
+        _write_snapshot(snapshot_path, [{"event_hash": head_hash}]
+                        * revision + [event], updated)
         return revision + 1
 
 

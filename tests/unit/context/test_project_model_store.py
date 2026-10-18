@@ -26,6 +26,11 @@ def test_repeated_verified_head_is_validated_once_without_sharing_mutable_data(
         tmp_path, monkeypatch):
     project_model_store._validated_heads.clear()
     commit_project_model(tmp_path, FIXTURE, expected_revision=0)
+    # Exercise the in-process verdict cache, not the persistent
+    # validated-models file (covered by its own test below): an older
+    # store has no such file.
+    (tmp_path / "project_model" / "validated-models.json").unlink(
+        missing_ok=True)
     calls = []
     reads = []
     original = project_model_store.validate_project_model
@@ -45,9 +50,11 @@ def test_repeated_verified_head_is_validated_once_without_sharing_mutable_data(
     first["id"] = "caller-mutated"
     assert load_project_model(tmp_path) == (1, FIXTURE)
     assert len(calls) == 1
-    assert len(reads) == 2
+    # The snapshot fast path bypasses the full history scan when the tail
+    # matches: full reads happen at most twice, never to re-validate.
+    assert len(reads) <= 2
     assert project_model_store.project_model_revision(tmp_path) == 1
-    assert len(reads) == 2
+    assert len(reads) <= 2
     # A verified new head gets its own validation verdict.
     intents = [{**FIXTURE["intents"][0], "constraints": ["changed"]}]
     append_model_patch(tmp_path, {"intents": intents}, expected_revision=1)
@@ -91,7 +98,7 @@ def test_revision_log_replays_and_repairs_snapshot(tmp_path):
     assert len((project / "project_model" / "events.jsonl").read_text(encoding="utf-8").splitlines()) == 2
 
 
-@pytest.mark.parametrize("damage", ["missing", "invalid_json", "stale_revision", "stale_hash", "stale_model"])
+@pytest.mark.parametrize("damage", ["missing", "invalid_json", "stale_revision", "stale_hash"])
 def test_snapshot_damage_is_rebuilt_from_the_saved_event_history(tmp_path, damage):
     project = tmp_path / "project"
     commit_project_model(project, FIXTURE, expected_revision=0, reason="saved baseline")
@@ -118,12 +125,159 @@ def test_snapshot_damage_is_rebuilt_from_the_saved_event_history(tmp_path, damag
 
     assert (revision, model) == (2, updated)
     repaired = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    assert repaired == {
-        "revision": 2,
-        "head_hash": json.loads((project / "project_model" / "events.jsonl").read_text(
-            encoding="utf-8").splitlines()[-1])["event_hash"],
-        "model": updated,
-    }
+    assert repaired["revision"] == 2
+    assert repaired["head_hash"] == json.loads((project / "project_model" / "events.jsonl").read_text(
+        encoding="utf-8").splitlines()[-1])["event_hash"]
+    assert repaired["model"] == updated
+    import hashlib as _hashlib
+    assert repaired["model_hash"] == _hashlib.sha256(json.dumps(
+        updated, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False).encode("utf-8") + b"\n").hexdigest()
+
+
+def test_commit_uses_tail_fast_path_without_full_history_scan(tmp_path, monkeypatch):
+    """The second commit appends via tail + snapshot, not a full replay.
+
+    Bypassing the GB-scale history scan is what takes model maintenance
+    from minutes to seconds. The appended event and snapshot are
+    byte-identical to the slow path: same revision, previous hash chain,
+    and model hash.
+    """
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0, reason="first")
+    reads: list = []
+    original_read = project_model_store._read_events
+    monkeypatch.setattr(project_model_store, "_read_events",
+                        lambda path: (_ for _ in ()).throw(
+                            AssertionError("full history scan on fast path")))
+    second = dict(FIXTURE)
+    second["id"] = "project-demo-2"
+    revision = commit_project_model(project, second, expected_revision=1,
+                                    reason="second")
+    assert revision == 2
+    assert reads == []
+    loaded_revision, loaded = load_project_model(project)
+    assert (loaded_revision, loaded["id"]) == (2, "project-demo-2")
+    events = (project / "project_model" / "events.jsonl").read_text(
+        encoding="utf-8").splitlines()
+    assert len(events) == 2
+    assert original_read(project / "project_model" / "events.jsonl")[1][
+        "previous_hash"] == original_read(
+            project / "project_model" / "events.jsonl")[0]["event_hash"]
+
+
+def test_read_events_tail_handles_lines_longer_than_one_chunk(tmp_path):
+    """A last line spanning several 1 MB chunks returns intact and in order.
+
+    The first tail reader prepended to a bytes buffer per 64 KB chunk -
+    O(n^2) on 340 MB replace lines, hanging the live build past
+    10 minutes. Chunks join once now; a 3 MB line forces the
+    multi-chunk path without a slow test.
+    """
+    from library.tools import project_model_store as store_mod
+    path = tmp_path / "events.jsonl"
+    big_payload = "y" * (3 * 1024 * 1024)
+    first = {"revision": 1, "previous_hash": "0" * 64, "kind": "note",
+             "payload": "x"}
+    first["event_hash"] = "a" * 64
+    second = {"revision": 2, "previous_hash": "a" * 64, "kind": "note",
+              "payload": big_payload}
+    second["event_hash"] = "b" * 64
+    with path.open("w", encoding="utf-8") as stream:
+        stream.write(store_mod._json_bytes(first).decode("utf-8"))
+        stream.write(store_mod._json_bytes(second).decode("utf-8"))
+    tail = store_mod._read_events_tail(path)
+    assert tail is not None
+    assert tail["revision"] == 2
+    assert tail["event_hash"] == "b" * 64
+    assert tail["payload"] == big_payload
+
+
+def test_reel_projection_round_trips_and_falls_back_on_stale_head(tmp_path):
+    """Routing reads frame maps without parsing the 350 MB snapshot.
+
+    The sidecar carries only reel-scoped rows from the just-validated
+    model; a revision+head match against the log tail answers, anything
+    else falls back to the full verified load. A tampered head must not
+    serve stale rows.
+    """
+    from library.tools import project_model_store as store_mod
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0, reason="first")
+    revision, projection = store_mod.load_reel_projection(project)
+    assert revision == 1
+    assert projection is not None
+    assert set(projection) == set(store_mod.REEL_SCOPED_COLLECTIONS)
+    assert projection["clip_uses"] == FIXTURE["clip_uses"]
+    # A head the log no longer carries falls back instead of serving
+    # stale rows.
+    sidecar_path = (project / "project_model"
+                    / store_mod.REEL_PROJECTION_FILE)
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    sidecar["head_hash"] = "0" * 64
+    sidecar_path.write_text(json.dumps(sidecar), encoding="utf-8")
+    assert store_mod.load_reel_projection(project) == (0, None)
+    # A missing sidecar (older stores) also falls back.
+    sidecar_path.unlink()
+    assert store_mod.load_reel_projection(project) == (0, None)
+
+
+def test_validated_model_hashes_persist_across_processes(tmp_path, monkeypatch):
+    """A head validated at commit is not re-validated by later loads.
+
+    The in-process cache dies with every build process; without the
+    file, each of the 4-5 loads per end-to-end build re-validated the
+    same 350 MB head (8.5 s a pass, 36 s in input routing alone). Hash
+    equality is byte-identity with validated bytes; anything else falls
+    back to the full verified read.
+    """
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    validated_file = (project / "project_model" / "validated-models.json")
+    hashes = json.loads(validated_file.read_text(encoding="utf-8"))
+    assert len(hashes) == 1
+    calls = []
+    real_validate = project_model_store.validate_project_model
+    monkeypatch.setattr(
+        project_model_store, "validate_project_model",
+        lambda model: (calls.append(1), real_validate(model))[1])
+    project_model_store._validated_heads.clear()
+    revision, model = load_project_model(project)
+    assert revision == 1
+    assert model["id"] == FIXTURE["id"]
+    assert calls == []
+    # A new head still earns its own validation at commit time.
+    updated = dict(FIXTURE)
+    updated["id"] = "project-demo-2"
+    commit_project_model(project, updated, expected_revision=1)
+    assert len(json.loads(validated_file.read_text(encoding="utf-8"))) == 2
+    assert load_project_model(project)[0] == 2
+    assert len(calls) == 1
+
+
+def test_snapshot_with_matching_keys_but_stale_model_returns_events_replay(tmp_path):
+    """A snapshot whose model was replaced is repaired from the replay.
+
+    Freshness is revision + head + model hash (no 350 MB deep compare on
+    every load). A snapshot with correct keys but a stale model fails the
+    hash check, so load returns the verified events replay and rewrites
+    the snapshot.
+    """
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0, reason="saved baseline")
+    updated = {**FIXTURE, "intents": [
+        {**FIXTURE["intents"][0], "constraints": ["preserve evidence"]}
+    ]}
+    append_model_patch(project, {"intents": updated["intents"]}, expected_revision=1)
+    snapshot_path = project / "project_model" / "snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    snapshot["model"] = FIXTURE
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    revision, model = load_project_model(project)
+
+    assert (revision, model) == (2, updated)
+    assert json.loads(snapshot_path.read_text(encoding="utf-8"))["model"] == updated
 
 
 def test_snapshot_write_failure_after_durable_append_recovers_on_restart(tmp_path, monkeypatch):
@@ -330,6 +484,11 @@ def test_replay_validates_once_not_once_per_event(tmp_path, monkeypatch):
                            expected_revision=revision)
     calls.clear()
     store._validated_heads.clear()
+    # Exercise the replay path, not the persistent validated-models
+    # file (an older store has none): the file would let the fast path
+    # answer without replaying at all.
+    (project / "project_model" / "validated-models.json").unlink(
+        missing_ok=True)
 
     revision, model = load_project_model(project)
 

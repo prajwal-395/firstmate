@@ -1021,3 +1021,43 @@ def test_writer_in_capability_gap_causes_safe_verify_refusal(
     final_state = json.loads(state.read_text(encoding="utf-8"))
     assert "Reel 01 (rebuild staging)" in final_state["timelines"]
     assert "Reel 01" not in final_state["timelines"]
+
+
+def test_placement_revalidation_accepts_fresh_wrappers_of_the_same_project():
+    """Bridge proxies are per-call: the same open project must still place.
+
+    Measured live 2026-10-17: three GetCurrentProject() calls returned
+    three distinct wrappers for one open project, so the old `is`
+    comparison refused every build. The exact-name lookup passes while
+    a genuinely different open project still refuses inside it.
+    Nothing here reaches Resolve.
+    """
+    from library.tools.timeline_ingest import (
+        TimelineIngestError, resolve_project_exactly)
+
+    class _Project:
+        def __init__(self, name):
+            self._name = name
+
+        def GetName(self):
+            return self._name
+
+    class _Manager:
+        def __init__(self, name):
+            self._name = name
+
+        def GetProjectListInCurrentFolder(self):
+            return [self._name]
+
+        def GetCurrentProject(self):
+            return _Project(self._name)
+
+    recorded = _Project("Ren Scratch - exec deep")
+    current = resolve_project_exactly(
+        _Manager("Ren Scratch - exec deep"), "Ren Scratch - exec deep")
+    assert current.GetName() == recorded.GetName() == "Ren Scratch - exec deep"
+    assert current is not recorded
+
+    with pytest.raises(TimelineIngestError):
+        resolve_project_exactly(
+            _Manager("Podcast (field test)"), "Ren Scratch - exec deep")

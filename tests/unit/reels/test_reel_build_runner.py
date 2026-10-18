@@ -2333,6 +2333,105 @@ def test_concurrent_only_reel_asks_run_only_the_selected_reel(
     assert set(ledger["reels"]) == {"Reel 21 - lane-21", "Reel 25 - lane-25"}
 
 
+def test_ask_reuses_handed_master_snapshot_without_resolve(tmp_path, monkeypatch):
+    """The build's master read-back answers ask without a live re-read.
+
+    The handed snapshot produces byte-identical asks to the live-read
+    path (proved by running both against the same fake master), and a
+    corrupt handoff falls back to the live read instead of refusing.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import reel_ledger
+    from library.tools.operations import load_step_module
+    from library.tools.timeline_ingest import snapshot_to_dict
+
+    from library.tools.timeline_ingest import TimelineSnapshot
+
+    project, _moments = _ask_project(tmp_path / "project")
+    live_snapshot = TimelineSnapshot(
+        project_name="Fixture", timeline_name="Master",
+        fps=24000 / 1001, reported_fps=24.0, width=1080, height=1920,
+        start_frame=0, end_frame=100000, clips=())
+
+    live_reads = []
+    handed_dict = snapshot_to_dict(live_snapshot)
+
+    def fake_snapshot(timeline, project_name):
+        live_reads.append(project_name)
+        return live_snapshot
+
+    monkeypatch.setattr(
+        "library.tools.timeline_ingest.snapshot_timeline", fake_snapshot)
+    monkeypatch.setattr(reel_build, "_connect_resolve_project",
+                        lambda name: FakeProject("Fixture", ["Master"]))
+    monkeypatch.setattr(reel_build, "reel_resolution",
+                        lambda folder: (1080, 1920))
+    monkeypatch.setattr(
+        "library.tools.reel_look.resolve_look",
+        lambda *args, **kwargs: {})
+    monkeypatch.setattr(reel_build, "declared_cards", lambda folder: {})
+    monkeypatch.setattr(
+        "library.tools.transcript_corrections.keep_exclusions",
+        lambda folder: [])
+    monkeypatch.setattr(
+        "library.tools.transcript_corrections.keep_insistences",
+        lambda folder: [])
+    monkeypatch.setattr(
+        reel_build, "moment_cuts_and_insistences",
+        lambda *args, **kwargs: ([], []))
+
+    def snap(moment, transcript, **kwargs):
+        return moment, []
+
+    def derive(moment, *args, **kwargs):
+        return [], [], None
+
+    def write(moment, *args, **kwargs):
+        return {"reel_semantic": "semantic", "reel_span": "span",
+                "reel_motion": "motion"}
+
+    monkeypatch.setattr("library.tools.reel_proposal.snap_moment_to_speech",
+                        snap)
+    monkeypatch.setattr(reel_build, "derive_reel_ranges_and_cards", derive)
+    monkeypatch.setattr(reel_build, "write_visual_asks", write)
+    monkeypatch.setattr(reel_ledger, "stored_windows",
+                        lambda moment: ((moment.timeline_start,
+                                         moment.timeline_end), None))
+    monkeypatch.setattr(reel_ledger, "audit_ranges", lambda **kwargs: {
+        "ranges": [], "reel": kwargs["final"]})
+    step = load_step_module("step_7_01_build_reels", "step.py")
+
+    def plan(number, **extra):
+        return step.ask_reels({
+            "project_folder": project,
+            "timeline_transcript": {"segments": []},
+            "only_reels": [number],
+            **extra,
+        })["reel_ask"]
+
+    live = plan(21)
+    assert live_reads == ["Fixture"]
+
+    def no_resolve(*args, **kwargs):
+        raise AssertionError("live Resolve read on the handed path")
+
+    monkeypatch.setattr(
+        "library.tools.timeline_ingest.snapshot_timeline", no_resolve)
+    monkeypatch.setattr(reel_build, "_connect_resolve_project", no_resolve)
+    handed = plan(21, master_snapshot=handed_dict)
+    assert handed == live
+
+    # A corrupt handoff falls back to the live read instead of refusing.
+    monkeypatch.setattr(
+        "library.tools.timeline_ingest.snapshot_timeline", fake_snapshot)
+    monkeypatch.setattr(reel_build, "_connect_resolve_project",
+                        lambda name: FakeProject("Fixture", ["Master"]))
+    corrupt = plan(21, master_snapshot={"clips": "not-a-list"})
+    assert corrupt["reel_asks"][0]["number"] == 21
+    assert live_reads == ["Fixture", "Fixture"]
+
+
 def test_single_reel_build_suppresses_sibling_override_notices(
         tmp_path, monkeypatch):
     from library.tools import captain_edits

@@ -536,3 +536,39 @@ def test_source_out_is_the_played_end_not_the_reported_one(tmp_path):
         total += c.source_out - c.source_in
         cursor = c.timeline_end
     assert total == pytest.approx(clips[-1].timeline_end, abs=1e-12)
+
+
+def test_snapshot_round_trips_through_plain_data():
+    """A recorded snapshot rebuilds byte-identically (minus the derived duration).
+
+    The build hands its already-read master snapshot to the ask step
+    through the build record instead of re-reading the whole timeline;
+    a snapshot that does not parse refuses rather than guessing.
+    """
+    from library.tools.timeline_ingest import (
+        TimelineClip, TimelineSnapshot, snapshot_from_dict,
+        snapshot_to_dict,
+    )
+
+    def clip(i):
+        return TimelineClip(
+            resolve_item_id=f"uid-{i}", track_type="video",
+            track_index=1, track_name="A-Roll", speaker="Ada",
+            source_file="/m/a.MXF", source_in=10.0 + i,
+            source_out=15.0 + i, source_in_frame=240 + 24 * i,
+            source_out_frame=360 + 24 * i, source_frames=100000,
+            timeline_start=0.0 + i, timeline_end=5.0 + i,
+            name=f"clip-{i}")
+
+    snap = TimelineSnapshot(
+        project_name="Ren Scratch - exec deep",
+        timeline_name="GEO Podcast - Synced", fps=24.0,
+        reported_fps=24.0, width=1080, height=1920, start_frame=0,
+        end_frame=100000, clips=(clip(0), clip(1)))
+    rebuilt = snapshot_from_dict(snapshot_to_dict(snap))
+    assert rebuilt == snap
+    assert rebuilt.duration == snap.duration
+    with pytest.raises(TimelineIngestError):
+        snapshot_from_dict({"project_name": "x"})
+    with pytest.raises(TimelineIngestError):
+        snapshot_from_dict("not-a-mapping")

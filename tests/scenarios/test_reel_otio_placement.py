@@ -212,6 +212,32 @@ def test_completed_phase_is_written_to_kpi_ledger(monkeypatch):
          "reel": "Reel 09 - scratch", "placement": "otio"})]
 
 
+def test_averaged_phase_uses_elapsed_not_duration_as_start(monkeypatch):
+    """A per-reel average is already elapsed seconds, not a timestamp.
+
+    Passing it to record_duration subtracts it from the monotonic clock
+    and reports hours (measured 134590 s on a 37-hour-uptime Mac);
+    record_elapsed stores the average itself.
+    """
+    from library.tools import perf_ledger
+    from library.tools.reel_otio_placement import record_elapsed
+
+    rows = []
+    monkeypatch.setattr(
+        perf_ledger, "record",
+        lambda layer, wall_s, **fields: rows.append(
+            (layer, wall_s, fields)))
+    profile = {"timeline_name": "Reel 26 - scratch"}
+
+    record_elapsed(profile, "fusion_comps_s", 0.042)
+
+    assert profile["fusion_comps_s"] == 0.042
+    assert rows == [(
+        "otio_placement.fusion_comps_s", 0.042,
+        {"phase": "fusion_comps_s",
+         "reel": "Reel 26 - scratch", "placement": "otio"})]
+
+
 def test_resolution_mismatch_takes_the_mismatch_route_or_falls_back(
         media, tmp_path):
     # A readable mismatch is the mismatch route's, not a pre-import

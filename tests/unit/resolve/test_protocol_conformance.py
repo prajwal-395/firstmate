@@ -454,6 +454,7 @@ def test_a_missing_checker_is_logged_not_refused_in_production(
     monkeypatch.setattr(protocol_conformance, "SCHEMAS_DIR",
                         tmp_path / "no-such-dir")
     monkeypatch.setattr(protocol_conformance, "_VALIDATORS", {})
+    monkeypatch.setattr(protocol_conformance, "_FAST_VALIDATORS", {})
     # A normal job is accepted despite the checker being absent.
     shape = jobs.prepare("timeline.snapshot",
                          {"project": "Ren Qualification",
@@ -469,7 +470,41 @@ def test_a_missing_checker_is_a_finding_under_pytest(
     monkeypatch.setattr(protocol_conformance, "SCHEMAS_DIR",
                         tmp_path / "no-such-dir")
     monkeypatch.setattr(protocol_conformance, "_VALIDATORS", {})
+    monkeypatch.setattr(protocol_conformance, "_FAST_VALIDATORS", {})
     with pytest.raises(protocol_conformance.ProtocolConformanceError):
         jobs.prepare("timeline.snapshot",
                      {"project": "Ren Qualification",
                       "timeline": "Timeline 1"})
+
+
+def test_dereferenced_project_model_validator_agrees_with_the_original(monkeypatch):
+    """The fast path changes cost, never verdicts or messages.
+
+    Local $refs are inlined once so per-instance registry lookups go
+    away; invalid documents still fall back to the original validator,
+    so the raised detail is byte-identical to the slow path.
+    """
+    _set_mode(monkeypatch, "refuse")
+    monkeypatch.setattr(protocol_conformance, "_FAST_VALIDATORS", {})
+    monkeypatch.setattr(protocol_conformance, "_VALIDATORS", {})
+    model = json.loads((FIXTURES / "project-model.json").read_text(
+        encoding="utf-8"))
+    protocol_conformance.validate(model, "project-model")
+    fast = protocol_conformance._fast_validator("project-model")
+    assert fast is not None
+    assert fast.is_valid(model)
+
+    import copy
+    broken = copy.deepcopy(model)
+    broken["clocks"] = [{"id": 1}]
+    with pytest.raises(
+            protocol_conformance.ProtocolConformanceError) as fast_exc:
+        protocol_conformance.validate(broken, "project-model")
+    original = protocol_conformance._validator("project-model")
+    original_errors = sorted(original.iter_errors(broken),
+                             key=lambda error: list(error.path))
+    original_detail = "; ".join(
+        f"{'/'.join(str(part) for part in error.path) or '<root>'}: "
+        f"{error.message}"
+        for error in original_errors)
+    assert str(fast_exc.value).endswith(original_detail)

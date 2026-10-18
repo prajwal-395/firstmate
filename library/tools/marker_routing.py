@@ -1253,7 +1253,16 @@ def route_project(project_folder, timelines=None) -> list:
                 model_loaded = True
                 try:
                     from library.tools import project_model_store as _pm_store
-                    _revision, model = _pm_store.load_project_model(Path(project_folder))
+                    # Anchors resolve against frame maps and clocks only,
+                    # so the KB-sized projection answers without parsing
+                    # the 350 MB snapshot (36 s per build, measured
+                    # 2026-10-17). A stale or missing sidecar falls back
+                    # to the full verified load below.
+                    _revision, model = _pm_store.load_reel_projection(
+                        Path(project_folder))
+                    if model is None:
+                        _revision, model = _pm_store.load_project_model(
+                            Path(project_folder))
                 except Exception:  # routing remains useful without a model
                     model = None
             identity = (

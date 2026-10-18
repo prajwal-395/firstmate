@@ -98,6 +98,7 @@ from library.tools.resolve_lock import under_lease
 import json
 import math
 import os
+import dataclasses
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -907,6 +908,46 @@ def snapshot_to_dict(snapshot: TimelineSnapshot) -> dict:
     body["clips"] = [asdict(c) for c in snapshot.clips]
     body["duration_seconds"] = snapshot.duration
     return body
+
+
+def snapshot_from_dict(data: Mapping) -> TimelineSnapshot:
+    """Rebuild a snapshot recorded by `snapshot_to_dict`.
+
+    Round-trips exactly (verified by test): the derived `duration_seconds`
+    is dropped, clips come back as a tuple, and anything missing or
+    mistyped refuses instead of guessing. Used to hand one build's
+    already-read master snapshot to the next step in the same run
+    rather than re-reading the whole timeline out of Resolve.
+    """
+    if not isinstance(data, Mapping):
+        raise TimelineIngestError(
+            f"a snapshot mapping is required, got {type(data).__name__}")
+    try:
+        fields = {f.name for f in dataclasses.fields(TimelineSnapshot)}
+        clip_fields = {f.name for f in dataclasses.fields(TimelineClip)}
+        body = {k: v for k, v in data.items()
+                if k in fields and k != "duration_seconds"}
+        raw_clips = body.get("clips") or []
+        if not isinstance(raw_clips, list):
+            raise TimelineIngestError("a snapshot clips list is required")
+        clips = []
+        for row in raw_clips:
+            if not isinstance(row, Mapping):
+                raise TimelineIngestError("a snapshot clip is required")
+            clips.append(TimelineClip(**{
+                k: v for k, v in row.items() if k in clip_fields}))
+        body["clips"] = tuple(clips)
+        missing = fields - set(body) - {"duration_seconds"}
+        if missing:
+            raise TimelineIngestError(
+                f"snapshot is missing {sorted(missing)}")
+        return TimelineSnapshot(**{k: body[k] for k in fields
+                                   if k != "duration_seconds"})
+    except TimelineIngestError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - any shape refusal is precise
+        raise TimelineIngestError(
+            f"a recorded snapshot does not parse: {exc!r}") from exc
 
 
 # ── CLI ──────────────────────────────────────────────────────────────

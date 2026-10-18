@@ -6151,7 +6151,8 @@ def read_visual_answers(project_folder: str, reel_number: int) -> dict:
 
 @under_lease("read master timeline for reel asks", exclusive=False)
 def write_reel_asks_for_project(project_folder: str, transcript: dict,
-                                only=None, name_suffix: str = "") -> dict:
+                                only=None, name_suffix: str = "",
+                                master_snapshot=None) -> dict:
     """Write every approved reel's three visual asks, without building.
 
     What `reel.ask` runs. Reads the approved plan and the master
@@ -6199,18 +6200,33 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             f"timeline_name={master_timeline_name!r}). A reel is cut FROM a "
             f"master timeline, and a near match lands on another project "
             f"(AGENTS.md 5).")
-    project = _connect_resolve_project(resolve_project_name)
-    timeline = None
-    for i in range(1, project.GetTimelineCount() + 1):
-        t = project.GetTimelineByIndex(i)
-        if t.GetName() == master_timeline_name:
-            timeline = t
-            break
-    if not timeline:
-        raise ValueError(
-            f"Could not find master timeline {master_timeline_name}")
-    master_snapshot = snapshot_timeline(
-        timeline, project.GetName())
+    def _read_live_master():
+        live_project = _connect_resolve_project(resolve_project_name)
+        live_timeline = None
+        for i in range(1, live_project.GetTimelineCount() + 1):
+            candidate = live_project.GetTimelineByIndex(i)
+            if candidate.GetName() == master_timeline_name:
+                live_timeline = candidate
+                break
+        if not live_timeline:
+            raise ValueError(
+                f"Could not find master timeline {master_timeline_name}")
+        return snapshot_timeline(live_timeline, live_project.GetName())
+
+    # The build just read this master in the same run: reuse its ranges
+    # rather than re-reading the whole timeline out of Resolve. A
+    # handed snapshot that does not parse falls back to the live read.
+    if hasattr(master_snapshot, "clips") and hasattr(master_snapshot, "fps"):
+        pass
+    elif isinstance(master_snapshot, dict):
+        from library.tools.timeline_ingest import snapshot_from_dict
+        try:
+            master_snapshot = snapshot_from_dict(master_snapshot)
+        except Exception:  # noqa: BLE001 - stale handoff reads live
+            master_snapshot = None
+    if not (hasattr(master_snapshot, "clips")
+            and hasattr(master_snapshot, "fps")):
+        master_snapshot = _read_live_master()
     # The master's own rate: the asks describe seconds the build will
     # play, so they are derived on the timeline's clock, never on an
     # assumed 23.976 (docs/GOLDEN_PROJECTS.md finding 3).
@@ -11178,6 +11194,61 @@ def timelines_to_replace(project, target_names) -> list:
     return found
 
 
+def timelines_by_name(project, target_names) -> dict:
+    """All timelines in one enumeration, keyed by exact name.
+
+    The same exact-name match `timelines_to_replace` performs, but a
+    single project walk for several wanted sets: the debris check asks
+    for stagings and backups back to back with no write between them,
+    so two walks read the same project twice. A caller that writes
+    between its lookups must not share one enumeration - renames move
+    names and a shared read would grade the pre-write project.
+    """
+    wanted = set(target_names)
+    found: dict = {}
+    for index in range(1, project.GetTimelineCount() + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is None:
+            continue
+        try:
+            name = timeline.GetName()
+        except Exception:  # noqa: BLE001 - an unreadable row is no match
+            continue
+        if name in wanted:
+            found.setdefault(name, []).append(timeline)
+    return found
+
+
+def pending_report_from_inventory(project_folder: str, inventory,
+                                  owned_staging_names=()) -> tuple:
+    """Reconcile staging holds against an inventory already taken.
+
+    The names in a `timeline_inventory` read ARE the live census
+    `live_timeline_names` would return, so a build that just took one
+    reconciles its pending promotions off it instead of walking the
+    project again. Never raises and never fails the build: an
+    unreadable holds file is said on stderr and reads as no pending
+    work, the same shape the inline path always returned.
+    """
+    import sys as _sys
+
+    try:
+        from library.tools import staging_holds as _holds
+        live_names = [entry["name"] for entry in (inventory or ())
+                      if isinstance(entry, dict) and entry.get("name")]
+        pending = _holds.pending_promotions(
+            project_folder, timeline_names=live_names)
+        report = _holds.report_pending(
+            project_folder, timeline_names=live_names,
+            owned_staging_names=owned_staging_names)
+    except Exception as pending_unreadable:  # noqa: BLE001
+        print(f"  pending promotions unreadable ({pending_unreadable}) - "
+              f"the reels are unaffected; inspect staging_holds.json",
+              file=_sys.stderr, flush=True)
+        return [], ""
+    return pending, report
+
+
 def assert_deletion_scope(timelines, target_names) -> None:
     """REFUSE to delete a timeline this build did not plan to place.
 
@@ -11855,14 +11926,18 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             operation_start = (timeline_inventory_before
                                if timeline_inventory_before is not None
                                else inventory_before)
+            # One refusal read serves both the attribution and the
+            # closing record: nothing writes between them, so two
+            # walks would read the same project twice.
+            _refusal_inventory = _guard.timeline_inventory(project)
             _provenance.record_unattributed_timeline_changes(
                 review_dir, operation_start,
-                _guard.timeline_inventory(project),
+                _refusal_inventory,
                 operation="build promotion refusal",
                 operation_id=inventory_operation)
             _provenance.finish_timeline_inventory(
                 review_dir, inventory_operation,
-                _guard.timeline_inventory(project))
+                _refusal_inventory)
             raise ReelBuildError(str(changed)) from changed
 
     from library.tools import editor_edit_carry as _editor_carry
@@ -13970,14 +14045,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     staged_names = set(staged_to_final.values())
     # The debris refusal reads live state, so it reads under a SHARED
     # hold: no placement renames underneath the enumeration. Fast -
-    # two enumerations, never the minutes-long census below, which
-    # reads through its own per-timeline holds instead for exactly
-    # this reason.
+    # one enumeration for both wanted sets, never the minutes-long
+    # census below, which reads through its own per-timeline holds
+    # instead for exactly this reason.
+    _backup_names = {backup_name(final) for final in approved_target_names}
     with resolve_lease("build reels debris check", exclusive=False):
-        stale_staging = timelines_to_replace(project, staged_names)
-        stale_backups = timelines_to_replace(
-            project, {backup_name(final)
-                      for final in approved_target_names})
+        _debris_found = timelines_by_name(
+            project, set(staged_names) | _backup_names)
+        stale_staging = [timeline
+                         for name in staged_names
+                         for timeline in _debris_found.get(name, [])]
+        stale_backups = [timeline
+                         for name in _backup_names
+                         for timeline in _debris_found.get(name, [])]
     if stale_staging:
         # A staging this build's own previous run left HELD awaiting
         # the same final - a refused promotion (finding 5), not an
@@ -15084,6 +15164,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # exact project, master revision, and plan inputs only after
                 # this placement owns the Resolve cursor, so stale work is
                 # refused before it creates or changes a staging timeline.
+                # Compared by exact project NAME, never by proxy identity:
+                # the scripting bridge mints a fresh wrapper per
+                # GetCurrentProject() call, so `is` refuses every build
+                # (measured 2026-10-17: three consecutive handles, three
+                # distinct objects, one name).
                 current_project = resolve_project_exactly(
                     resolve.GetProjectManager(), resolve_name)
                 if (current_project.GetName() != resolve_name
@@ -15677,7 +15762,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             f"comps, so a reel that lost them is a reel with a "
                             f"different picture from the one that was planned.")
                     if isinstance(_profile, dict):
-                        _otio.record_duration(
+                        # An elapsed average, not a start timestamp:
+                        # record_duration would subtract it from the
+                        # monotonic clock and report hours (measured
+                        # 134590 s on a 37-hour-uptime Mac).
+                        _otio.record_elapsed(
                             _profile, "fusion_comps_s", _per_reel)
                 # Freeze-tail verification, after the comp pass that the
                 # read-back depends on. The trace dicts are updated in place,
@@ -16387,33 +16476,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # Never fatal: an unreadable holds file must not fail a build
     # whose reels already landed.
     try:
-        from library.tools import staging_holds as _holds
-        try:
-            with resolve_lease("pending promotions census",
-                               exclusive=False):
-                _live_hold_names = _holds.live_timeline_names(project)
-        except Exception as _census_failed:  # noqa: BLE001
-            _live_hold_names = None
-            print(f"  pending-promotion census unavailable "
-                  f"({_census_failed}) - holds report unreconciled "
-                  f"against the live project; a ghost hold would read "
-                  f"as pending",
-                  file=sys.stderr, flush=True)
-        pending_promotions = _holds.pending_promotions(
-            project_folder, timeline_names=_live_hold_names)
-        pending_report = _holds.report_pending(
-            project_folder, timeline_names=_live_hold_names,
-            owned_staging_names=staged_names)
-    except Exception as pending_unreadable:  # noqa: BLE001
-        pending_promotions = []
-        pending_report = ""
-        print(f"  pending promotions unreadable ({pending_unreadable}) - "
-              f"the reels are unaffected; inspect staging_holds.json",
-              file=sys.stderr, flush=True)
-    if pending_report:
-        print(f"  {pending_report}", file=sys.stderr, flush=True)
-
-    try:
         if not (verify and built_reel_names):
             with resolve_lease("build reels inventory reconcile",
                                exclusive=False):
@@ -16424,22 +16486,81 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 operation="reel build",
                 ren_owned_ids=staged_timeline_ids.values(),
                 operation_id=build_inventory_operation)
-        with resolve_lease("build reels inventory finish",
-                           exclusive=False):
-            _inventory_final = _inventory_guard.timeline_inventory(project)
+            # The closing record lands on the same read: nothing writes
+            # to Resolve between the attribution and the finish, so a
+            # second walk would read the same project twice.
+            _inventory_final = _inventory_now
+        else:
+            with resolve_lease("build reels inventory finish",
+                               exclusive=False):
+                _inventory_final = _inventory_guard.timeline_inventory(project)
         _inventory_provenance.finish_timeline_inventory(
             os.path.join(project_folder, "pipeline_output", "review"),
             build_inventory_operation, _inventory_final)
     except Exception as inventory_failed:  # noqa: BLE001
+        # The pending report below still says what it said: the
+        # census falls back to its own live read on this failure
+        # path, exactly as before, then the same refusal raises.
+        try:
+            from library.tools import staging_holds as _holds
+            try:
+                with resolve_lease("pending promotions census",
+                                   exclusive=False):
+                    _live_hold_names = _holds.live_timeline_names(project)
+            except Exception as _census_failed:  # noqa: BLE001
+                _live_hold_names = None
+                print(f"  pending-promotion census unavailable "
+                      f"({_census_failed}) - holds report unreconciled "
+                      f"against the live project; a ghost hold would read "
+                      f"as pending",
+                      file=sys.stderr, flush=True)
+            pending_report = _holds.report_pending(
+                project_folder, timeline_names=_live_hold_names,
+                owned_staging_names=staged_names)
+            pending_promotions = _holds.pending_promotions(
+                project_folder, timeline_names=_live_hold_names)
+        except Exception as pending_unreadable:  # noqa: BLE001
+            pending_report = ""
+            pending_promotions = []
+            print(f"  pending promotions unreadable ({pending_unreadable}) - "
+                  f"the reels are unaffected; inspect staging_holds.json",
+                  file=sys.stderr, flush=True)
+        if pending_report:
+            print(f"  {pending_report}", file=sys.stderr, flush=True)
         raise ReelBuildError(
             f"the reel-build timeline inventory could not be persisted "
             f"({inventory_failed}); timeline ownership cannot be verified.")
     final_build_inventory = build_inventory_before
 
+    # ── PENDING PROMOTIONS, reconciled without a fresh census ──
+    # The holds file is reconciled against the final inventory taken
+    # above - the same live project, seconds old, with no Resolve
+    # write between the two reads - instead of a second full project
+    # walk (`live_timeline_names`). One fewer enumeration on every
+    # build; the failure fallback above keeps the old live read.
+    pending_promotions, pending_report = pending_report_from_inventory(
+        project_folder, _inventory_final, staged_names)
+    if pending_report:
+        print(f"  {pending_report}", file=sys.stderr, flush=True)
+
+    # The master read-back this build placed from, as plain data for
+    # the ask step in the same run (it re-derives from the same ranges
+    # rather than re-reading the whole timeline). Recorded only when
+    # it is a real snapshot: test doubles are not serialized, and the
+    # ask step falls back to its live read without one.
+    from library.tools.timeline_ingest import (
+        TimelineSnapshot, snapshot_to_dict,
+    )
+    master_snapshot_record = (
+        snapshot_to_dict(snapshot)
+        if isinstance(snapshot, TimelineSnapshot) else None)
+
     return {
         "pending_promotions": pending_promotions,
         "timeline_inventory_before": final_build_inventory,
         "timelines_built": built_reel_names,
+        **({"master_snapshot": master_snapshot_record}
+           if isinstance(master_snapshot_record, dict) else {}),
         # Reels this call deliberately did NOT build: a recorded strike
         # covers the whole body, so the reel is dropped WITH the reason
         # (the build-time shape of the no-split rule) and whatever the

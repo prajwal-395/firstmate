@@ -572,6 +572,82 @@ def test_maintain_commits_one_revision_and_partial_rebuild_keeps_siblings(tmp_pa
     validate_project_model(model)
 
 
+def test_maintain_reuses_stored_evidence_when_fingerprint_matches(tmp_path, monkeypatch):
+    """A rebuild with unchanged evidence skips re-migration item-for-item.
+
+    The fingerprint covers catalog digests and lane file stats; a match
+    reuses the stored evidence base instead of re-migrating (58 s on the
+    measured build). The reel fragment still rebuilds, and the merged
+    model validates.
+    """
+    project = tmp_path / "proj"
+    project.mkdir()
+    first = rpm.maintain_from_build(str(project), _record("Reel 01"),
+                                    transcript=_transcript())
+    assert first["status"] == "committed"
+    assert "migrated" in first["evidence"]
+    from library.tools import project_model_store as store
+    _revision, before = store.load_project_model(project)
+    evidence_before = {key: before.get(key) for key in (
+        "assets", "streams", "clocks", "entities", "observations",
+        "identity_links", "masks", "object_classes", "tracks", "relations")}
+
+    calls: list[str] = []
+    from library.tools import project_model_evidence as evidence_mod
+    original = evidence_mod.migrate_project_evidence
+
+    def counted(*args, **kwargs):
+        calls.append("migrate")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(evidence_mod, "migrate_project_evidence", counted)
+    second = rpm.maintain_from_build(str(project), _record("Reel 01"),
+                                     transcript=_transcript())
+    assert second["status"] == "committed"
+    assert "reused stored evidence" in second["evidence"]
+    assert calls == []
+    _revision, after = store.load_project_model(project)
+    for key in evidence_before:
+        assert after.get(key) == evidence_before[key]
+    validate_project_model(after)
+
+
+def test_maintain_commits_reel_only_patch_when_evidence_is_unchanged(tmp_path):
+    """A fingerprint hit appends a KB-sized merge_patch, not a full model.
+
+    The event log grew a 350 MB replace event per build; the patch
+    carries only reel-scoped keys and replays to the identical model.
+    A first build with no stored head still commits a full replace.
+    """
+    import json
+    project = tmp_path / "proj"
+    project.mkdir()
+    first = rpm.maintain_from_build(str(project), _record("Reel 01"),
+                                    transcript=_transcript())
+    assert first["status"] == "committed"
+    events_path = project / "project_model" / "events.jsonl"
+    first_line = events_path.read_text(encoding="utf-8").splitlines()[0]
+    assert json.loads(first_line)["kind"] == "replace"
+
+    second = rpm.maintain_from_build(str(project), _record("Reel 02"),
+                                     transcript=_transcript())
+    assert second["status"] == "committed"
+    assert "reused stored evidence" in second["evidence"]
+    lines = events_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    patch_event = json.loads(lines[1])
+    assert patch_event["kind"] == "merge_patch"
+    assert sorted(patch_event["payload"]) == sorted(rpm.REEL_COMMIT_KEYS)
+    assert len(lines[1].encode("utf-8")) < 1024 * 1024
+    from library.tools import project_model_store as store
+    _revision, model = store.load_project_model(project)
+    assert {row["id"] for row in model["clip_uses"]
+            if row["id"].startswith("use:reel-01:")}
+    assert {row["id"] for row in model["clip_uses"]
+            if row["id"].startswith("use:reel-02:")}
+    validate_project_model(model)
+
+
 def test_maintain_without_placements_refuses_by_name(tmp_path):
     project = tmp_path / "proj"
     project.mkdir()

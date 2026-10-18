@@ -101,6 +101,12 @@ def mode() -> str:
 #: so the schemas are read and compiled once, not per submission.
 _VALIDATORS: dict = {}
 
+#: Dereferenced fast-path validators, keyed by schema name. Local $refs
+#: are inlined once so the per-instance registry lookups and validator
+#: rebuilds go away; see `_inline_local_refs`.
+_FAST_VALIDATORS: dict = {}
+_SENTINEL = object()
+
 
 def _load_schema(schema_name: str):
     """The parsed schema, or None when the checker is unavailable.
@@ -153,6 +159,68 @@ def _validator(schema_name: str):
     return validator
 
 
+def _inline_local_refs(node, defs, seen):
+    """A copy of `node` with local `#/...` refs inlined, cycle-safe.
+
+    Only pure-local JSON-pointer refs are inlined; anything else (a
+    remote ref, a cycle back through an in-progress ref) is left as a
+    `$ref` so semantics never change. The project-model schema that
+    dominates build time carries 100 local refs and no cycles.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/"):
+            if ref in seen:
+                return {"$ref": ref}
+            parts = ref[2:].split("/")
+            target = defs
+            try:
+                for part in parts:
+                    target = target[part.replace("~1", "/").replace("~0", "~")]
+            except (KeyError, TypeError):
+                return dict(node)
+            inlined = _inline_local_refs(target, defs, seen | {ref})
+            merged = {k: v for k, v in node.items() if k != "$ref"}
+            if isinstance(inlined, dict):
+                return {**inlined, **merged}
+            return inlined
+        return {k: _inline_local_refs(v, defs, seen) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_inline_local_refs(v, defs, seen) for v in node]
+    return node
+
+
+def _fast_validator(schema_name: str):
+    """A verdict-identical validator with local refs inlined, or None.
+
+    Returns None when the checker is unavailable (same rules as
+    `_validator`) or the schema needs no inlining help. `is_valid` on
+    the inlined schema short-circuits nothing on valid documents - it
+    still walks everything - but skips ~1M registry lookups and
+    validator rebuilds per 350 MB model. Invalid documents fall back
+    to the original validator so the reported errors are unchanged.
+    """
+    if schema_name in _FAST_VALIDATORS:
+        cached = _FAST_VALIDATORS[schema_name]
+        return None if cached is _SENTINEL else cached
+    schema = _load_schema(schema_name)
+    if schema is None:
+        _FAST_VALIDATORS[schema_name] = _SENTINEL
+        return None
+    try:
+        import jsonschema
+    except ImportError:
+        _FAST_VALIDATORS[schema_name] = _SENTINEL
+        return None
+    flat = _inline_local_refs(schema, schema, frozenset())
+    if flat == schema:
+        _FAST_VALIDATORS[schema_name] = _SENTINEL
+        return None
+    validator = jsonschema.Draft202012Validator(flat)
+    _FAST_VALIDATORS[schema_name] = validator
+    return validator
+
+
 def validate(instance, schema_name: str, *, force_refuse: bool = False) -> None:
     """Validate one payload against the named generated schema.
 
@@ -168,6 +236,13 @@ def validate(instance, schema_name: str, *, force_refuse: bool = False) -> None:
     current = mode()
     if current == OFF and not force_refuse:
         return
+    fast = _fast_validator(schema_name)
+    if fast is not None:
+        try:
+            if fast.is_valid(instance):
+                return
+        except Exception:
+            pass
     validator = _validator(schema_name)
     if validator is None:
         return

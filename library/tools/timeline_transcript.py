@@ -124,6 +124,18 @@ MIC_BLEED_TEXT_SIMILARITY = 0.8
 MIC_BLEED_MIN_LEVEL_DELTA_DB = 6.0
 """Required RMS lead before a track can be called the real microphone."""
 
+MIC_BLEED_CACHE_FILENAME = "mic_bleed_measurements.json"
+"""Where one run's ISO-track measurements wait for the next resolution.
+
+The build resolves mic bleed off the cached ISO WAVs and the verifier
+re-resolves the same transcript minutes later: same rows, same audio,
+same decisions, paid twice. The cache keys each candidate's measurement
+by the inputs that decide it, so a second resolution on unchanged rows
+and unchanged audio reuses the first run's RMS readings instead of
+re-reading the WAVs. A changed row, a rewritten track or a moved
+threshold misses the digest and measures live - never a stale reuse.
+"""
+
 _SILENCE_CODEC = ("-f", "lavfi", "-i",
                   f"anullsrc=r={SAMPLE_RATE}:cl=mono")
 
@@ -831,9 +843,110 @@ def rebind_document(document: dict, snapshot,
     return rebound
 
 
+def _mic_bleed_candidate_key(start: float, end: float,
+                               speakers, passage: str) -> str:
+    """The identity of one mic-bleed comparison, as a cache key.
+
+    The same spelling the resolution record already merges on
+    (`decisions_by_candidate` in `resolve_document_mic_bleed`): the
+    window, both speakers and the passage text. Two candidates share a
+    key exactly when they compare the same words over the same span.
+    """
+    return repr((repr(float(start)), repr(float(end)),
+                 tuple(speakers), passage))
+
+
+def _mic_bleed_digest(rows, audio_tracks) -> str:
+    """What one mic-bleed measurement depends on, hashed.
+
+    The rows' words and timings (what finds candidates), the ISO
+    tracks' identities (what measures them) and the thresholds that
+    judge them. Anything that could change a decision is in the hash,
+    so a hit reuses a measurement that would read identically live.
+    """
+    digest = hashlib.sha256()
+    for row in rows or ():
+        if not isinstance(row, dict):
+            continue
+        words = row.get("words") or ()
+        word_key = tuple(
+            (word.get("word"), word.get("start"), word.get("end"),
+             word.get("timed"))
+            for word in words if isinstance(word, dict))
+        digest.update(repr((
+            row.get("speaker"), row.get("text"),
+            row.get("timeline_start"), row.get("timeline_end"),
+            row.get("source_file"), word_key)).encode("utf-8"))
+    for speaker in sorted((audio_tracks or {}),
+                          key=lambda value: repr(value)):
+        try:
+            track = Path((audio_tracks or {})[speaker])
+            stat = track.stat()
+            identity = (str(track), stat.st_size, stat.st_mtime_ns)
+        except (OSError, TypeError, ValueError):
+            identity = (repr(speaker), "unreadable")
+        digest.update(repr((speaker, identity)).encode("utf-8"))
+    digest.update(repr((
+        SAMPLE_RATE, MIC_BLEED_MIN_WORDS, MIC_BLEED_TEXT_SIMILARITY,
+        MIC_BLEED_MIN_LEVEL_DELTA_DB)).encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _load_mic_bleed_measurements(cache_path,
+                                 digest: str) -> Optional[Dict[str, dict]]:
+    """A previous run's per-candidate measurements, or None.
+
+    None is an ordinary miss - a first run, changed rows, rewritten
+    audio or a moved threshold - and the caller measures live. A
+    corrupt or foreign file reads as a miss, never as data.
+    """
+    try:
+        stored = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(stored, dict) or stored.get("digest") != digest:
+        return None
+    decisions = stored.get("decisions")
+    if not isinstance(decisions, dict):
+        return None
+    out = {}
+    for key, decision in decisions.items():
+        if isinstance(decision, dict):
+            out[str(key)] = decision
+    return out
+
+
+def _store_mic_bleed_measurements(cache_path, digest: str,
+                                 decisions) -> None:
+    """File this run's per-candidate measurements for the next reader.
+
+    Best effort: a cache that cannot land only costs the next run its
+    re-read, so a write failure is silence, never a refusal. Pruned to
+    this run's candidates, keyed as `merge_speakers` looks them up.
+    """
+    try:
+        entries = {}
+        for decision in decisions or ():
+            if not isinstance(decision, dict):
+                continue
+            try:
+                key = _mic_bleed_candidate_key(
+                    decision["start"], decision["end"],
+                    decision["speakers"], decision["passage"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            entries[key] = decision
+        Path(cache_path).write_text(
+            json.dumps({"digest": digest, "decisions": entries}),
+            encoding="utf-8")
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def merge_speakers(
     per_speaker: Dict[Optional[str], List[SpokenSegment]],
     audio_tracks: Optional[Dict[Optional[str], Path]] = None,
+    measured: Optional[Dict[str, dict]] = None,
 ) -> tuple[List[SpokenSegment], List[dict]]:
     """Merge diarized tracks and resolve duplicate mic bleed from audio.
 
@@ -842,6 +955,14 @@ def merge_speakers(
     a clear RMS lead over the same timeline window. Without both tracks,
     or without a meaningful level difference, both passages stay and the
     unresolved measurement is reported.
+
+    `measured` carries a previous run's per-candidate measurements,
+    keyed by `_mic_bleed_candidate_key`. A candidate whose key is
+    present reuses that measurement instead of re-reading the WAVs -
+    the same rows over the same audio measure the same levels, so the
+    second resolution is byte-identical without the second read. A
+    candidate with no entry measures live, so new or changed passages
+    never inherit another passage's reading.
     """
     everything: List[SpokenSegment] = []
     for segments in per_speaker.values():
@@ -879,6 +1000,25 @@ def merge_speakers(
                 "dropped_speaker": None,
             }
             if audio_tracks is not None:
+                reused = (measured or {}).get(_mic_bleed_candidate_key(
+                    start, end, [first.speaker, second.speaker],
+                    first.text))
+                if reused is not None:
+                    # A previous run measured this exact passage over
+                    # these exact tracks: adopt its reading. The
+                    # conflict pass below still runs, so a reused
+                    # reading settles exactly as a fresh one would.
+                    for field in ("status", "reason", "rms_dbfs",
+                                  "winner", "dropped_speaker",
+                                  "level_difference_db", "audio_errors"):
+                        if field in reused:
+                            candidate[field] = reused[field]
+                    if "audio_errors" not in reused:
+                        candidate.pop("audio_errors", None)
+                    if "level_difference_db" not in reused:
+                        candidate.pop("level_difference_db", None)
+                    candidates.append(candidate)
+                    continue
                 levels = {}
                 errors = {}
                 for speaker in (first.speaker, second.speaker):
@@ -1271,7 +1411,29 @@ def resolve_document_mic_bleed(document: dict,
 
     audio_tracks = cached_speaker_audio_tracks(
         project_folder, per_speaker)
-    merged, decisions = merge_speakers(per_speaker, audio_tracks)
+    # One run's ISO-track readings wait beside the transcript for the
+    # next resolution: the build measures, the verifier re-resolves
+    # the same rows over the same audio minutes later. A digest hit
+    # reuses those readings instead of re-reading the WAVs; a miss
+    # (changed rows, rewritten audio, moved thresholds, or no cache
+    # at all) measures live and files its readings for the next run.
+    cache_path = None
+    cache_digest = None
+    cached_measurements = None
+    if project_folder:
+        try:
+            cache_path = (transcript_path(project_folder).parent
+                          / MIC_BLEED_CACHE_FILENAME)
+            cache_digest = _mic_bleed_digest(
+                document.get("segments"), audio_tracks)
+            cached_measurements = _load_mic_bleed_measurements(
+                cache_path, cache_digest)
+        except (OSError, ValueError):
+            cache_path, cache_digest, cached_measurements = None, None, None
+    merged, decisions = merge_speakers(
+        per_speaker, audio_tracks, measured=cached_measurements)
+    if cache_path is not None and cache_digest is not None:
+        _store_mic_bleed_measurements(cache_path, cache_digest, decisions)
     segments = [original_rows[id(segment)] for segment in merged]
 
     # A later build can re-evaluate a previously unresolved candidate

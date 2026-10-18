@@ -216,11 +216,13 @@ def ask_reels(data: dict) -> dict:
     # FORWARDED, not interpreted, for the reason `build_reels` forwards
     # `only_reels`: what a malformed value means is
     # `reel_build.reel_numbers`' to say.
+    handed = (data or {}).get("master_snapshot")
     record = write_reel_asks_for_project(
         project_folder,
         transcript,
         only=(data or {}).get("only_reels"),
-        name_suffix=str((data or {}).get("timeline_name_suffix") or ""))
+        name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
+        master_snapshot=handed if isinstance(handed, dict) else None)
 
     return {"reel_ask": record}
 

@@ -215,6 +215,11 @@ def _run_capabilities(project_folder: str, args) -> int:
         # edit runner closed per step. Restored on every exit - a
         # refusal returns through the stack like any other.
         held.enter_context(event_log.scoped_log(project_folder))
+        # The master read-back the build placed from, handed to `ask`
+        # in memory so it re-derives from the same ranges rather than
+        # re-reading the whole timeline out of Resolve. Same run,
+        # same process, seconds apart - never persisted, never stale.
+        master_snapshot_handoff: dict | None = None
         for spec in capabilities.run_order(processes.REELS):
             op = operations.get(spec.id)
             if op.caller_supplied:
@@ -235,6 +240,11 @@ def _run_capabilities(project_folder: str, args) -> int:
             from library.tools.ren_refusal import RenRefusal
             try:
                 with provenance.observing_operation(project_folder, op.name):
+                    ask_override: dict = {}
+                    if (op.name == "reel.ask"
+                            and isinstance(master_snapshot_handoff, dict)):
+                        ask_override = {"master_snapshot":
+                                        master_snapshot_handoff}
                     result = op.execute(
                         project_folder,
                         skip_captions=args.skip_captions,
@@ -246,7 +256,8 @@ def _run_capabilities(project_folder: str, args) -> int:
                         supersede=args.supersede or None,
                         retain=args.retain or None,
                         rebuild_all=bool(getattr(args, "rebuild_all", False)),
-                        placement_mode=getattr(args, "placement_mode", "auto"))
+                        placement_mode=getattr(args, "placement_mode", "auto"),
+                        **ask_override)
             except RenRefusal as refused:
                 # A step-level refusal with a known next step (the replace
                 # guard's `--allow-drop` declaration): no traceback, exit 4,
@@ -269,6 +280,16 @@ def _run_capabilities(project_folder: str, args) -> int:
                 print(result.error, file=sys.stderr)
                 emit_refusal_result(result.as_refusal())
                 return REFUSAL_EXIT_CODE
+
+            if op.name == "reel.build":
+                # Hand the build's master read-back to `ask` in memory
+                # (see above) and keep it out of the persisted record:
+                # the full rows would bloat pipeline_data.json with a
+                # copy no reader needs (the rule the coherence summary
+                # states in `reel_build`).
+                handed = (result.payload or {}).get("reel_build") or {}
+                if isinstance(handed.get("master_snapshot"), dict):
+                    master_snapshot_handoff = handed.pop("master_snapshot")
 
             # RECORD the capability's result the way a run records one, so
             # the next capability's gathered inputs can carry it and so the
