@@ -321,6 +321,14 @@ foreign_owner() {  # <fakebin> <state>  -> prints the foreign pid
   lib_eval "$1" "fm_session_lock_foreign_owner_live '$2' && printf '%s' \"\$FM_SESSION_LOCK_FOREIGN_OWNER_PID\""
 }
 
+owned_event() {  # <fakebin> <state> <event-session-id>
+  lib_eval "$1" "fm_session_lock_owned_by_self '$2' '$3'"
+}
+
+foreign_owner_event() {  # <fakebin> <state> <event-session-id>
+  lib_eval "$1" "fm_session_lock_foreign_owner_live '$2' '$3' && printf '%s' \"\$FM_SESSION_LOCK_FOREIGN_OWNER_PID\""
+}
+
 test_same_session_id_owns_a_recycled_background_chain() {
   local dir fakebin state got
   dir="$TMP_ROOT/background-session"
@@ -358,6 +366,11 @@ test_same_session_id_owns_a_recycled_background_chain() {
   fi
   FM_TEST_SESSION_ID=S1 FM_TEST_CLAUDE_PID=700 foreign_owner "$fakebin" "$state" >/dev/null \
     || fail "an untrusted id suppressed the foreign-owner verdict"
+  FM_TEST_SESSION_ID=S1 FM_TEST_CLAUDE_PID=700 owned_event "$fakebin" "$state" S1 \
+    || fail "the matching Stop event did not identify its live lock-owning Claude pid"
+  if FM_TEST_SESSION_ID=S1 FM_TEST_CLAUDE_PID=700 foreign_owner_event "$fakebin" "$state" S1 >/dev/null; then
+    fail "the matching Stop event still reported its lock-owning Claude pid as foreign"
+  fi
   printf 'S1:x\n' > "$state/.lock-session"
   FM_TEST_SESSION_ID='S1:x' FM_TEST_CLAUDE_PID=710 owned "$fakebin" "$state" \
     || fail "a trusted id containing a colon did not own the lock"

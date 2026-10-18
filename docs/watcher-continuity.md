@@ -42,6 +42,8 @@ Each adapter:
 - Preserves one child or scheduled retry at a time.
 - Applies bounded exponential retry after an unexpected or failed close.
 
+The OpenCode arm plugin uses the same valid `.fm-secondmate-home` marker scope as the turn-end guard, including marked linked secondmate checkouts; child crew and scout worktrees remain out of scope.
+
 Pi treats an arm child whose process is already gone as an empty slot even while its close event is still pending, so a repair call or a scheduled retry starts a fresh arm instead of answering unchanged.
 A failed follow-up never cancels continuity restoration.
 
@@ -96,10 +98,11 @@ The hook handles the session lock as follows:
 - A live owner the session does not own, an absent lock, or a malformed lock keeps the competing hook inert.
 
 Whether the session owns that lock is the shared `fm_session_lock_owned_by_self` verdict in `bin/fm-session-lock-lib.sh`.
-That verdict accepts either of two cases:
+That verdict accepts any of these cases:
 
 - A recorded pid inside the current harness ancestry.
 - A live lock recorded under this same trusted Claude session id.
+- The recorded pid is the current live Claude model-loop pid and the lock's recorded session id matches both Claude's session id and the current Stop event's session id, even when a recycled Stop helper is outside that pid's ancestry.
 
 With that verdict, a background session keeps arming after its transient helper chain is recycled.
 [`turnend-guard.md`](turnend-guard.md#guard-predicates) owns the Claude guard's behavior when that live owner is genuinely another session.

@@ -178,6 +178,7 @@ GRACE=${FM_GUARD_GRACE:-$(fm_poll_derived_grace)}
 # payload is read so a slow writer can never wedge on a full pipe, and its host
 # is inspected before anything else runs.
 PAYLOAD=$(cat 2>/dev/null || true)
+HOOK_SESSION_ID=$(printf '%s' "$PAYLOAD" | jq -r 'if type == "object" and (.session_id | type) == "string" then .session_id else "" end' 2>/dev/null || true)
 
 # Cursor loads the tracked Claude settings too. Cursor has no asyncRewake, so if
 # a future Cursor build starts firing the Claude-shaped Stop entry, this arm
@@ -211,7 +212,7 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # idle or away home remains byte-for-byte inert. Missing or malformed locks are
 # uncertainty rather than stale-owner evidence and remain inert.
 RECOVER_SESSION_LOCK=0
-if ! fm_session_lock_owned_by_self "$STATE"; then
+if ! fm_session_lock_owned_by_self "$STATE" "$HOOK_SESSION_ID"; then
   LOCK_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   case "$LOCK_PID" in
     ''|*[!0-9]*) exit 0 ;;
@@ -242,7 +243,7 @@ fm_autoarm_record_version "$STATE"
 # before touching any auto-arm state.
 if [ "$RECOVER_SESSION_LOCK" -eq 1 ]; then
   "$SCRIPT_DIR/fm-lock.sh" >/dev/null 2>&1 || exit 0
-  fm_session_lock_owned_by_self "$STATE" || exit 0
+  fm_session_lock_owned_by_self "$STATE" "$HOOK_SESSION_ID" || exit 0
 fi
 
 # --- single-flight generation claim --------------------------------------------
@@ -296,7 +297,7 @@ fm_autoarm_history_append "$STATE" "$MY_GEN" claim firing
 autoarm_commit() {  # <outcome> [marker-file]
   local outcome=$1 marker=${2:-} session_pid recovery rc
   if [ "$outcome" = rewake ]; then
-    fm_session_lock_owned_by_self "$STATE" || return 2
+    fm_session_lock_owned_by_self "$STATE" "$HOOK_SESSION_ID" || return 2
     session_pid=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
     fm_recovery_marker_snapshot "$STATE/.watcher-down" || return 2
     case "$FM_RECOVERY_MARKER_TOKEN" in

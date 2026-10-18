@@ -1433,6 +1433,26 @@ test_active_in_marked_secondmate_home() {
   pass "auto-arm: active in a marked secondmate home"
 }
 
+test_resumed_claude_lock_pid_owns_secondmate_session() {
+  local dir owner out status session_id=resume-session
+  dir=$(make_secondmate_dir "$TMP_ROOT/resumed-owner-secondmate")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable
+  "$FAKE_CLAUDE" -c 'while :; do sleep 1; done' >/dev/null 2>&1 &
+  owner=$!
+  printf '%s\n' "$owner" > "$dir/state/.lock"
+  printf '%s\n' "$session_id" > "$dir/state/.lock-session"
+  out=$(printf '%s\n' '{"session_id":"resume-session","stop_hook_active":false}' \
+    | CLAUDE_PID="$owner" CLAUDE_CODE_SESSION_ID="$session_id" FM_HOME="$dir" \
+      "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-claude-stop-autoarm.sh"' 2>&1)
+  status=$?
+  kill "$owner" 2>/dev/null || true
+  wait "$owner" 2>/dev/null || true
+  expect_code 2 "$status" "a detached Stop helper with the lock-owning Claude pid and session id must arm"
+  [ -e "$dir/state/arm-ran" ] || fail "the resumed session's own lock was treated as foreign"
+  pass "auto-arm: a detached helper recognizes its live lock-owning Claude session id"
+}
+
 test_long_poll_grace_reaches_arm_wrapper() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/long-poll-grace")
@@ -1811,6 +1831,7 @@ test_need_vanished_mid_cycle_closes_quietly
 test_stale_owner_lock_file_does_not_silently_disable_rearm
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
+test_resumed_claude_lock_pid_owns_secondmate_session
 test_long_poll_grace_reaches_arm_wrapper
 test_host_off_flag_keeps_the_arm
 test_host_absent_flag_runs_the_host
