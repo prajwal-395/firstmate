@@ -10,11 +10,18 @@ ordinary placement path; anything less than a complete declaration
 refuses before a timeline exists.
 """
 from __future__ import annotations
+
+from pathlib import Path
 from types import SimpleNamespace
+
 import pytest
+
 from library.tools import reel_ending
 from library.tools.reel_build import (
-    ReelBuildError, _freeze_tail_matches, append_approved_tail)
+    ReelBuildError,
+    _freeze_tail_matches,
+    append_approved_tail,
+)
 from library.tools.reel_ending import ReelEndingError
 
 FPS = 24000 / 1001
@@ -46,9 +53,9 @@ def _tail_declaration(duration=220):
         "tail_hold": "freeze",
         "reason": "test",
         "approved_tail": {
-            "source_file": ("/Users/prajwal/Documents/work_stuff/"
-                            "Lucie consulting/Social Media/podcast "
-                            "media/LCATL0013.MXF"),
+            "source_file": str(Path.home() / "Documents/work_stuff/"
+                                "Lucie consulting/Social Media/podcast "
+                                "media/LCATL0013.MXF"),
             "source_start_frame": 11538,
             "source_duration_frames": duration,
             "source_fps": FPS,
@@ -146,8 +153,8 @@ def test_unsizable_tail_refuses_the_card_plan():
 # post-retime read-back must name the held frame. Expecting the span
 # start refused a correctly placed hold after the Fusion pass.
 
-HELD_FROM = ("/Users/prajwal/Documents/work_stuff/Lucie consulting/"
-             "Social Media/podcast media/LCATL0013.MXF")
+HELD_FROM = str(Path.home() / "Documents/work_stuff/Lucie consulting/"
+                "Social Media/podcast media/LCATL0013.MXF")
 
 
 def _hold_item(source_start, speed=0.0):
@@ -191,8 +198,8 @@ def test_unretimed_span_still_matches_its_start():
 # covers, so the caption spine must cover the tail's master span or the
 # rebuild ships (and verification refuses) uncaptioned speech.
 
-_TAIL_FILE = ("/Users/prajwal/Documents/work_stuff/Lucie consulting/"
-              "Social Media/podcast media/LCATL0013.MXF")
+_TAIL_FILE = str(Path.home() / "Documents/work_stuff/Lucie consulting/"
+                 "Social Media/podcast media/LCATL0013.MXF")
 
 
 def _master_clip(source_file=_TAIL_FILE, source_in_frame=11375,
