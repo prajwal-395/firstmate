@@ -742,7 +742,7 @@ test_matrix_claude_titled_top_rule() {
   # read as a lower unmatched separator, and a visibly empty composer read
   # `unknown` on every cursorless backend, refusing steers, exit, and relaunch.
   local rule title top bottom footer screen ansi typed claude_idle
-  local scrollback short long nonascii flush blank
+  local scrollback short wrapped wrapped_content long nonascii flush blank
   claude_idle=$(printf 'claude\tidle')
   rule='────────────────────────────────────────────────────────────'
   title=' Firstmate operational input 1790546042 '
@@ -774,6 +774,16 @@ test_matrix_claude_titled_top_rule() {
   assert_screen "renamed claude short titled top rule" empty "$CAPS_STYLED_NOID" "$short"
   short="${rule}${title}─"$'\n❯ fix the login bug\n'"$bottom"
   assert_screen "renamed claude short titled top with draft" pending "$CAPS_STYLED_NOID" "$short"
+  wrapped="$top"$'\n❯ This inbox message has a long doorbell payload\nthat wraps onto a second composer row\n'"$bottom"
+  assert_screen "renamed claude wrapped titled composer draft" pending "$CAPS_STYLED_NOID" "$wrapped"
+  wrapped_content=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$wrapped") \
+    || fail "wrapped titled composer content should be extractable"
+  case "$wrapped_content" in
+    *'long doorbell payload'*'second composer row'*) ;;
+    *) fail "wrapped titled composer content lost its payload: $wrapped_content" ;;
+  esac
+  blank="$top"$'\n❯ draft before a blank row\n\ncontinued draft\n'"$bottom"
+  assert_screen "renamed claude blank row stays unproved" unknown "$CAPS_STYLED_NOID" "$blank"
   # A title rule wider than the closing rule remains unproved.
   long="${rule}${rule}${title}─"$'\n❯'"$NBSP"$'\n'"$bottom"
   assert_screen "oversized titled top rule" unknown "$CAPS_STYLED_NOID" "$long"
