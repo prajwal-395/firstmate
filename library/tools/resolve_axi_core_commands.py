@@ -364,11 +364,146 @@ _LOCAL_COMMANDS = frozenset({
 })
 
 def cmd_capabilities(args) -> int:
-    """Answer operation capability questions from edit-algebra evidence."""
+    """Discover operations and answer focused questions from registry evidence."""
     from library.tools import edit_algebra
     from library.tools.native_mcp import capabilities as native_capabilities
 
     requested = getattr(args, "operation", "") or ""
+    query = (getattr(args, "search", "") or "").strip()
+    as_json = bool(getattr(args, "json", False))
+
+    def purpose_text(op) -> str:
+        if op.note:
+            return op.note
+        if op.id == "overlay.resize":
+            return "Resize an existing overlay graphic, logo, title, or lower third."
+        if op.id.startswith("overlay."):
+            return f"{op.id.removeprefix('overlay.').replace('_', ' ')} an overlay graphic."
+        return f"{op.id.replace('.', ' ').replace('_', ' ')} operation."
+
+    def concise_purpose(op) -> str:
+        purpose = purpose_text(op)
+        return purpose if len(purpose) <= 120 else purpose[:117] + "..."
+
+    def operation_detail(op_id: str) -> dict:
+        data = edit_algebra.capability(op_id)
+        entry = edit_algebra.status(op_id)
+        if data is None or entry is None:
+            return {}
+        registered = {backend["id"]: backend
+                      for backend in data["backends"]}
+        known_backends = sorted({
+            backend.backend
+            for status in edit_algebra.OP_STATUS.values()
+            for backend in status.backends
+        })
+        all_backends = []
+        for backend_id in known_backends:
+            backend = registered.get(backend_id)
+            if backend is None:
+                all_backends.append({
+                    "id": backend_id, "eligible": False,
+                    "reason": "operation is not registered with this executor",
+                })
+            else:
+                eligible = backend["production_enabled"]
+                all_backends.append({
+                    **backend, "eligible": eligible,
+                    "reason": ("qualified for production" if eligible else
+                               "implemented, but lacks live qualification"),
+                })
+        operation = edit_algebra.ALGEBRA[op_id]
+        return {
+            **data,
+            "schema": entry.param_schema,
+            "purpose": purpose_text(operation),
+            "expected_effect": operation.note or (
+                f"Apply {op_id} to {entry.state_domains[0]} state; "
+                f"verify with {entry.verification_contract}."),
+            "eligible_backends": [backend["id"] for backend in all_backends
+                                  if backend["eligible"]],
+            "backends": all_backends,
+            "prerequisites": {
+                "resolve_capabilities": data["required_resolve_capabilities"],
+                "media_types": data["media_types"],
+                "timeline_conditions": data["timeline_conditions"],
+            },
+            "recovery_limits": {
+                "inverse": data["inverse_recovery"],
+                "qualified_backends": data["recovery_capability"]["proven_backends"],
+                "qualification_evidence": data["recovery_capability"]["proven_evidence"],
+            },
+            "qualification_evidence": sorted({
+                evidence for backend in all_backends
+                for evidence in backend.get("qualification_evidence", [])
+            }),
+        }
+
+    def render(payload: dict) -> int:
+        if as_json:
+            sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
+        else:
+            sys.stdout.write(_capabilities_toon(payload) + "\n")
+        return 0
+
+    def search_text(op) -> str:
+        words = [op.id, op.domain, op.note, *op.required]
+        if op.id.startswith("overlay."):
+            words.extend(("overlay", "graphic", "logo", "lower", "third",
+                          "title", "on-screen", "element"))
+            action = op.id.removeprefix("overlay.").replace("_", " ")
+            words.extend((action, "size dimensions") if action == "resize" else ())
+        if op.id.startswith("clip."):
+            words.extend(("video", "shot", "footage", "clip"))
+        if op.id.startswith("caption"):
+            words.extend(("subtitle", "text", "styling"))
+        return " ".join(words).casefold()
+
+    if query:
+        stop_words = {"a", "an", "and", "existing", "for", "in",
+                      "of", "the", "to", "with"}
+        terms = [term.casefold() for term in query.split()
+                 if term.casefold() not in stop_words]
+        rows = []
+        for op in edit_algebra.ops():
+            status = edit_algebra.status(op.id)
+            haystack = search_text(op)
+            matches = [term in haystack for term in terms]
+            score = sum(matches)
+            if score and all(matches):
+                rows.append((score, op.id, status, op))
+        if not rows:
+            for op in edit_algebra.ops():
+                status = edit_algebra.status(op.id)
+                score = sum(term in search_text(op) for term in terms)
+                if score:
+                    rows.append((score, op.id, status, op))
+        rows.sort(key=lambda row: (-row[0], row[1]))
+        result_rows = [{
+            "id": op.id,
+            "purpose": concise_purpose(op),
+            "implemented": status.compilable,
+            "production_enabled": status.production_enabled,
+        } for _, _, status, op in rows[:10]]
+        return render({"query": query, "matches": result_rows})
+
+    if not requested:
+        rows = [{
+            "id": op.id,
+            "purpose": concise_purpose(op),
+            "implemented": edit_algebra.status(op.id).compilable,
+            "production_enabled": edit_algebra.status(op.id).production_enabled,
+        } for op in edit_algebra.ops()]
+        rows.extend({
+            "id": f"axi:{name}", "purpose": "AXI command",
+            "implemented": bool(ids) and all(
+                edit_algebra.status(op_id).compilable for op_id in ids),
+            "production_enabled": bool(ids) and all(
+                edit_algebra.status(op_id).production_enabled for op_id in ids),
+        } for name, ids in edit_algebra.AXI_OPERATION_MAP.items())
+        rows.sort(key=lambda row: row["id"])
+        return render({"operations": rows})
+
     if requested.startswith("native_mcp."):
         name = requested.removeprefix("native_mcp.")
         result = native_capabilities()["delegated_tools"].get(name)
@@ -409,18 +544,56 @@ def cmd_capabilities(args) -> int:
         if payload is None:
             return fail(f"unknown capability {requested!r}",
                         f"{TOOL} capabilities")
+    if requested in edit_algebra.OP_STATUS:
+        payload = operation_detail(requested)
+    elif requested in edit_algebra.AXI_OPERATION_MAP:
+        op_ids = edit_algebra.AXI_OPERATION_MAP[requested]
+        if len(op_ids) == 1:
+            payload = operation_detail(op_ids[0])
+            payload["id"] = requested
+            payload["algebra_operations"] = list(op_ids)
+    return render(payload)
+
+
+def _capabilities_toon(payload: dict) -> str:
+    """Render compact discovery tables without embedding the whole registry."""
+    if "operations" in payload:
+        rows = payload["operations"]
+        return table("operations", rows,
+                     ["id", "purpose", "implemented", "production_enabled"])
+    if "matches" in payload:
+        return (kv_block("search", {"query": payload["query"]}) + "\n"
+                + table("matches", payload["matches"],
+                        ["id", "purpose", "implemented", "production_enabled"]))
+    parts = [kv_block("capability", {
+        "id": payload.get("id"), "purpose": payload.get("purpose", ""),
+        "implemented": payload.get("implemented", False),
+        "live_qualified": payload.get("live_qualified", False),
+        "production_enabled": payload.get("production_enabled", False),
+    })]
+    if "schema" in payload:
+        parts.append(table("inputs", [{"schema": json.dumps(
+            payload["schema"], sort_keys=True, separators=(",", ":"))}], ["schema"]))
+        parts.append(kv_block("prerequisites", {
+            "resolve_capabilities": ", ".join(payload["prerequisites"]["resolve_capabilities"]),
+            "media_types": ", ".join(payload["prerequisites"]["media_types"]),
+            "timeline_conditions": "; ".join(payload["prerequisites"]["timeline_conditions"]),
+        }))
+        parts.append(table("backends", payload.get("backends", []),
+                           ["id", "implemented", "live_qualified",
+                            "production_enabled", "eligible", "reason"]))
+        parts.append(kv_block("verification", {
+            "expected_effect": payload.get("expected_effect", ""),
+            "contract": payload.get("verification", ""),
+            "recovery_limits": json.dumps(payload["recovery_limits"],
+                                           sort_keys=True, separators=(",", ":")),
+            "qualification_evidence": ", ".join(payload.get("qualification_evidence", [])) or "none",
+            "measured_performance": json.dumps(payload.get("measured_cost"),
+                                                sort_keys=True, separators=(",", ":")),
+        }))
     else:
-        payload = {
-            "operations": {
-                name: {"algebra_operations": list(ids)}
-                for name, ids in edit_algebra.AXI_OPERATION_MAP.items()
-            },
-            "algebra": {op.id: edit_algebra.capability(op.id)
-                        for op in edit_algebra.ops()},
-            "native_mcp": native_capabilities(),
-        }
-    sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
-    return 0
+        parts.append(kv_block("details", payload))
+    return "\n".join(parts)
 
 
 _SHADOW_READ_COMMANDS = frozenset({
@@ -7985,6 +8158,10 @@ def build_parser() -> Parser:
     p = subs.add_parser("capabilities", help="evidence-backed AXI and edit-algebra capability registry")
     p.add_argument("operation", nargs="?", default="",
                    help="AXI operation id, native_mcp.<tool>, or algebra op id")
+    p.add_argument("--search", default="",
+                   help="search operation names and purpose text")
+    p.add_argument("--json", action="store_true",
+                   help="emit structured JSON instead of concise TOON")
     p.set_defaults(func=cmd_capabilities)
 
     p = subs.add_parser("timeline", help="list timelines or get one by "

@@ -77,7 +77,8 @@ from library.tools.resolve_axi import (
 def test_capabilities_query_is_derived_from_algebra_and_qualification_evidence(capsys):
     from types import SimpleNamespace
 
-    assert cmd_capabilities(SimpleNamespace(operation="clip.move_across_tracks")) == 0
+    assert cmd_capabilities(SimpleNamespace(
+        operation="clip.move_across_tracks", json=True)) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["algebra_operations"] == []
     assert answer["available"] is False
@@ -90,7 +91,7 @@ def test_capabilities_include_native_mcp_delegation_and_restrictions(capsys):
     from types import SimpleNamespace
 
     assert cmd_capabilities(SimpleNamespace(
-        operation="native_mcp.get_scripting_api")) == 0
+        operation="native_mcp.get_scripting_api", json=True)) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["implemented"] is True
     assert answer["production_enabled"] is False
@@ -110,7 +111,7 @@ def test_capability_registry_maps_only_declared_algebra_ops():
 
 
 def test_capabilities_cli_is_local_and_answers_without_resolve(capsys):
-    assert resolve_axi.main(["capabilities", "clip.move"]) == 0
+    assert resolve_axi.main(["capabilities", "clip.move", "--json"]) == 0
     answer = json.loads(capsys.readouterr().out)
     assert answer["id"] == "clip.move"
     assert answer["supported_backend"] == ["reel_touchup"]
