@@ -50,14 +50,11 @@ vs rebuild from what the fix changes, and records the reason:
 The default is rebuild (today's behaviour): anything the classifier
 cannot place - ambiguous, unrouted, unknown-step, unplaced, or a step
 outside both tables - rebuilds, with the reason saying why no patch was
-claimed. A patch is claimed only for a note routed to exactly one step
-whose decision is about existing items, or for a typed edit spec whose
-operations all stay inside them - a spec places itself by its own
-anchors, so a note typed in chat needs no marker frame. A typed
-timeline program (an `edit_program` over the reel's items) is a patch
-when every op is one the guarded path restores, and REFUSED otherwise:
-no rebuild re-chooses an op that names an item by id. `ren revise`
-(`library/tools/revise.py`) is the caller that acts on the verdict.
+claimed. A patch is claimed for notes routed to one step about existing
+items. A typed timeline program is sent to the execution router and is a
+patch only when a production-qualified backend is selected; unsupported and
+unqualified requests are refused with the router's reason. `ren revise`
+(`library/tools/revise.py`) submits the resulting `EditRequest` through AXI.
 
 `python3 -m library.tools.feedback_patch report --project <dir>` prints
 the verdict for every routed note of a project (read-only).
@@ -142,15 +139,12 @@ def _edit_spec_owners(evidence: dict) -> list:
 
 
 def _decide_program(operations: list, steps: list) -> dict:
-    """A timeline program: a patch when every op is one the guarded
-    patch path can restore (`feedback_patch_apply.SUPPORTED_OPS`).
+    """Route a semantic timeline program through the shared capability router.
 
-    Its ops name items already on the reel by unique id, so there is no
-    plan for a rebuild to re-choose; a program with an op outside the
-    restorable families is refused by naming it, never rebuilt around.
+    This classifier does not maintain an execution allowlist. In-place
+    execution is eligible only when the shared router names a safe backend.
     """
     from library.tools import edit_request, execution_router
-    from library.tools.feedback_patch_apply import SUPPORTED_OPS
 
     try:
         normalized = [edit_request._program_op_to_operation(operation, index)
@@ -160,31 +154,19 @@ def _decide_program(operations: list, steps: list) -> dict:
         return {"verdict": VERDICT_REFUSED,
                 "reason": f"the timeline program is invalid: {exc}",
                 "steps": steps, "execution": None}
-    ops = [operation["op"] for operation in normalized]
     try:
         routing = execution_router.route_compiled_edit(
-            {"operations": normalized}).as_dict()
+            {"operations": normalized},
+            context={"require_qualified": True}).as_dict()
     except execution_router.RoutingRefused as exc:
         return {"verdict": VERDICT_REFUSED,
                 "reason": f"the shared execution planner refused this edit: {exc}",
                 "steps": steps, "execution": None}
-    outside = sorted({op for op in ops if op not in SUPPORTED_OPS})
-    if not outside:
-        return {
-            "verdict": VERDICT_PATCH,
-            "reason": (
-                "the typed timeline program edits only items already on "
-                f"the reel ({', '.join(dict.fromkeys(ops))}) - nothing in "
-                f"it re-chooses the plan's selection or order"),
-            "steps": steps,
-            "execution": routing,
-        }
     return {
-        "verdict": VERDICT_REFUSED,
+        "verdict": VERDICT_PATCH,
         "reason": (
-            f"the timeline program carries {', '.join(outside)}, which the "
-            f"patch path cannot restore and no rebuild re-chooses - state "
-            f"it as a touch-up (`ren touch`) instead"),
+            "the shared execution router selected "
+            f"{routing['backend']} for the typed timeline program"),
         "steps": steps,
         "execution": routing,
     }

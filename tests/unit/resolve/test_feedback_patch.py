@@ -16,8 +16,10 @@ from dataclasses import asdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from library.tools import feedback_patch  # noqa: E402
-from library.tools import marker_routing  # noqa: E402
+from library.tools import (
+    feedback_patch,
+    marker_routing,
+)
 
 
 def _raw(text: str, frame=712, source: str = "timeline_marker") -> dict:
@@ -176,16 +178,40 @@ def _program_note(ops: list) -> dict:
                 for op in ops]}}
 
 
-def test_a_program_over_existing_items_is_a_patch():
+def test_unqualified_program_is_refused_even_when_feedback_patch_can_restore():
     verdict = feedback_patch.decide(
         _program_note(["clip.set_property", "clip.set_enabled"]))
-    assert verdict["verdict"] == feedback_patch.VERDICT_PATCH
+    assert verdict["verdict"] == feedback_patch.VERDICT_REFUSED
+    assert "clip.set_enabled" in verdict["reason"]
 
 
-def test_a_program_the_patch_path_cannot_restore_is_refused_not_rebuilt():
-    """Catches: a timeline program falling to the rebuild default, where
-    nothing re-chooses its ops - they would silently never happen."""
+def test_program_routing_requires_a_qualified_executor():
+    """No compile-only backend can authorize a normal revise operation."""
     verdict = feedback_patch.decide(
         _program_note(["clip.set_property", "clip.delete"]))
     assert verdict["verdict"] == feedback_patch.VERDICT_REFUSED
     assert "clip.delete" in verdict["reason"]
+
+
+def test_program_accepts_any_router_selected_backend(monkeypatch):
+    """The old feedback-patch operation list no longer selects outcomes."""
+    from types import SimpleNamespace
+
+    from library.tools import execution_router
+
+    routed = {}
+
+    def route(compiled, *, context=None):
+        routed["operations"] = compiled["operations"]
+        routed["context"] = context
+        return SimpleNamespace(as_dict=lambda: {"backend": "qualified_backend"})
+
+    monkeypatch.setattr(execution_router, "route_compiled_edit", route)
+    verdict = feedback_patch.decide(
+        _program_note(["clip.delete", "clip.set_enabled"]))
+
+    assert verdict["verdict"] == feedback_patch.VERDICT_PATCH
+    assert verdict["execution"]["backend"] == "qualified_backend"
+    assert routed["context"] == {"require_qualified": True}
+    assert [op["op"] for op in routed["operations"]] == [
+        "clip.delete", "clip.set_enabled"]

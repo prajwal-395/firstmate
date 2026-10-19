@@ -2,9 +2,9 @@
 
 Every part of this already existed and nothing called the parts in
 order; a person had to type `ren spec prepare`, answer a handshake file,
-run `ren spec proposal` and `ren spec resolve`, hand-write the ops and
-scope JSON `feedback_patch_flow` takes, and then pick between that, a
-touch-up and a rebuild themselves. This module is the order:
+run `ren spec proposal` and `ren spec resolve`, hand-write execution
+requests, and then pick an editing workflow themselves. This module is the
+order:
 
 1. **Note.** From chat (`ren revise <p> "<note>"`), which becomes a new
    durable note (`edit_spec._write_request_note`); from a delivered
@@ -24,35 +24,21 @@ touch-up and a rebuild themselves. This module is the order:
    spec that asks anything returns EXACTLY ONE question and changes
    nothing - no ledger row, no outcome, no timeline write. The answer
    (`--answer`) is translated again under the same note id.
-4. **Route.** `feedback_patch.decide` over the spec's own typed
-   operations (`marker_routing.edit_spec_operations`):
+4. **Route.** A timeline program becomes an `EditRequest`; AXI prepares,
+   routes, executes and verifies it using the qualified backend. A program
+   with no safe backend is refused with the router's reason. Typed planning
+   clauses still use their owning planners and the scoped rebuild path.
 
-   * a timeline program over items already on the reel, every op one the
-     guarded patch path restores -> PATCH IN PLACE through
-     `feedback_patch_flow.handle_note`, with the ops and the scope JSON
-     generated here from the program and the reel's recorded generation.
-     The patch path is live only on Ren Qualification
-     (`feedback_patch_apply.require_qualification`); on any other
-     project the same ops go through `ren touch` (staged beside the reel,
-     promoted, carried by the next rebuild) - the guard is honoured, not
-     routed around;
-   * typed clauses -> a SCOPED REBUILD: the owners the spec names re-run
-     (`edit_spec.routes_for`), then only the note's reel is built;
-   * a program nothing here can execute -> refused, by name.
-
-5. **Verify and record.** A patch is verified by its read-back
-   (`feedback_patch_holds`, the scope diff in `guarded_apply`) and
-   recorded through `marker_resolution`, which writes the outcome
-   (`feedback_outcomes`). A touch or a rebuild is recorded as addressed,
-   unverified - no check in `marker_resolution.CHECKS` proves either, and
-   none is invented. The reply is a change summary that names the REGION
-   - reel, rows and the seconds the change spans.
+5. **Verify and record.** A direct edit is complete only when the AXI
+   receipt proves its requested postconditions and commit. Planning clauses
+   still use a scoped rebuild; without request-specific verification the
+   revision is recorded as unverified. The reply names the affected region.
 
 A revision is one durable record per note under
 `pipeline_output/llm_requests/revise/`, so the verb resumes where it
 stopped: `ren revise <p>` alone continues the newest open one. A landed
-patch or touch records the generation it landed at and the scope it
-touched; a program planned against an older generation is refused naming
+semantic edit records the generation it landed at and the scope it
+changed; a program planned against an older generation is refused naming
 the revisions that landed since (and which of them changed the same
 targets), and a landing over a retranslated base records the revisions
 it supersedes.
@@ -61,7 +47,6 @@ it supersedes.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import copy
 import datetime as dt
 import json
@@ -83,12 +68,13 @@ STATUS_PROPOSED = "proposed"
 STATUS_PATCHED = "patched"
 STATUS_TOUCHED = "touched"
 STATUS_REBUILT = "rebuilt"
+STATUS_UNVERIFIED = "unverified"
 STATUS_REFUSED = "refused"
 STATUS_INCOMPLETE = "incomplete"
-FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT, STATUS_REFUSED)
+FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT,
+            STATUS_UNVERIFIED, STATUS_REFUSED)
 
 ROUTE_PATCH = "patch"
-ROUTE_TOUCH = "touch"
 ROUTE_REBUILD = "rebuild"
 
 _ENGINE = Path(__file__).resolve().parents[2]
@@ -374,12 +360,12 @@ def scope_for(operations: list[dict]) -> dict:
     """
     clips, frames, clip_markers = [], [], []
     for op in operations:
+        if op.get("unique_id"):
+            clips.append(str(op["unique_id"]))
         if op["op"] in ("marker.add", "marker.delete"):
             frames.append(int(op["frame"]))
         elif op["op"] in ("clip_marker.add", "clip_marker.delete"):
             clip_markers.append([str(op["unique_id"]), int(op["frame"])])
-        elif op.get("unique_id"):
-            clips.append(str(op["unique_id"]))
     return {"clips": list(dict.fromkeys(clips)),
             "marker_frames": list(dict.fromkeys(frames)),
             "clip_markers": clip_markers}
@@ -500,8 +486,14 @@ def region_summary(reel: str, snapshot: dict, operations: list[dict]) -> dict:
         hit = items.get(str(op.get("unique_id")))
         if hit is None:
             frame = op.get("frame")
-            changes.append({"op": op["op"], "row": "timeline markers",
-                            "item": "", "frame": frame})
+            target = str(op.get("unique_id") or "")
+            if target:
+                rows.append(f"target {target}")
+            changes.append({"op": op["op"],
+                            "row": (f"target {target}" if target
+                                    else "timeline"),
+                            "item": str(op.get("name") or ""),
+                            "frame": frame})
             continue
         row, _position, name, clip = hit
         label = f"{row} {name}".strip()
@@ -526,7 +518,7 @@ def region_summary(reel: str, snapshot: dict, operations: list[dict]) -> dict:
     count = len({c["item"] + str(c.get("start_frame")) for c in changes
                  if c.get("start_frame") is not None})
     what = _what_changed(changes)
-    where = (f"on {', '.join(rows)}" if rows else "on the timeline markers")
+    where = (f"on {', '.join(rows)}" if rows else "on the timeline")
     when = (f" from {_clock(region['start_seconds'])} to "
             f"{_clock(region['end_seconds'])}"
             if "start_seconds" in region else "")
@@ -551,38 +543,15 @@ def _what_changed(changes: list[dict]) -> str:
     if switched:
         parts.append("Switched " + ("on" if switched[0]["enabled"]
                                     else "off"))
-    markers = [c for c in changes if c["row"] == "timeline markers"]
+    markers = [c for c in changes if c["op"].startswith("marker.")]
     if markers:
         parts.append(f"Changed {len(markers)} timeline marker(s)")
+    if not parts:
+        operations = list(dict.fromkeys(c["op"] for c in changes))
+        parts.extend(operations)
     return "; ".join(parts) or "Changed"
 
 
-def _touch_edits(snapshot: dict, operations: list[dict]) -> list[dict]:
-    """The ops as `ren touch` edits: an item by its row and position."""
-    items = _items(snapshot)
-    edits: dict = {}
-    for op in operations:
-        hit = items.get(str(op.get("unique_id")))
-        if op["op"] not in ("clip.set_property", "clip.set_enabled") \
-                or hit is None:
-            raise ReviseRefused(
-                f"{op['op']} has no touch-up form on this project",
-                "outside Ren Qualification an in-place change goes through "
-                "`ren touch`, which states items by row and position and "
-                "carries property writes and switches only",
-                "state the change as a property or an on/off switch, or "
-                "make it in Resolve by hand")
-        row, position, _name, _clip = hit
-        if op["op"] == "clip.set_enabled":
-            edits[(row, position, "enabled")] = {
-                "op": "set_enabled", "row": row, "item": position,
-                "enabled": bool(op["enabled"])}
-            continue
-        edit = edits.setdefault((row, position, "properties"), {
-            "op": "set_properties", "row": row, "item": position,
-            "properties": {}})
-        edit["properties"][op["key"]] = op["value"]
-    return list(edits.values())
 
 
 # ── 5. Execute, verify, record ──────────────────────────────────────
@@ -596,47 +565,6 @@ def _run_engine(argv: list[str]) -> int:
         encoding="utf-8", check=False)
     return completed.returncode
 
-
-@contextlib.contextmanager
-def _live_timeline(project: str, timeline_name: str):
-    """The open Resolve project and the reel, under the exclusive lease.
-
-    Refuses rather than switches: the open project must already be the
-    one this project names, so a revision never moves Resolve off what
-    the captain has open.
-    """
-    from library.tools import edit_spec, marker_feedback, resolve_lock
-
-    expected = edit_spec._resolve_project_name(project)
-    with resolve_lock.resolve_lease(
-            "ren revise: patch a note in place", exclusive=True,
-            project=expected, timeline=timeline_name):
-        resolve = marker_feedback.connect_resolve()
-        live = resolve.GetProjectManager().GetCurrentProject()
-        if live is None or live.GetName() != expected:
-            raise ReviseRefused(
-                f"Resolve has {live.GetName() if live else 'no project'!r} "
-                f"open, not {expected!r}",
-                "a patch writes the project this note belongs to and never "
-                "switches the one in front of the editor",
-                f"open {expected!r} in Resolve, then run `ren revise` again")
-        timeline = next(
-            (candidate for candidate in (
-                live.GetTimelineByIndex(index) for index in
-                range(1, int(live.GetTimelineCount() or 0) + 1))
-             if candidate and candidate.GetName() == timeline_name), None)
-        if timeline is None:
-            raise ReviseRefused(
-                f"no timeline named exactly {timeline_name!r} in {expected!r}",
-                "a reel is addressed by its exact listed name",
-                "name the reel exactly as Resolve lists it")
-        with resolve_lock.cursor_excursion(live, timeline, purpose="patch"):
-            yield live, timeline
-
-
-def _chat_reply(*, summary: str, **_ignored) -> dict:
-    """A chat note has no marker to answer beside: the reply is the chat."""
-    return {"channel": "chat", "summary": summary}
 
 
 def _note_for(project: str, record: dict) -> dict:
@@ -652,15 +580,14 @@ def _note_for(project: str, record: dict) -> dict:
 def _patch(project: str, record: dict, spec: dict, verdict: dict,
            options: dict) -> dict:
     from library.tools import assignment_spine as spine
-    from library.tools import edit_spec, feedback_patch_flow
-    from library.tools.resolved.jobs import QUALIFICATION_PROJECT
+    from library.tools import edit_request, edit_spec, resolve_axi_core
 
     program = spec["program"]
     reel = program.get("reel") or record["reel"]
     if not reel:
         raise ReviseRefused(
             "the timeline program names no reel",
-            "a patch is made on one reel's items",
+            "a semantic edit request needs one exact timeline",
             "answer the translation again naming the reel")
     head, snapshot = _recorded_reel(project, reel)
     operations = _program_ops(spec)
@@ -696,81 +623,59 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
     if missing:
         raise ReviseRefused(
             f"the program names items {reel} does not carry: {missing}",
-            "a patch edits only items already on the reel",
-            "answer the translation again from the listed items")
+            "the recorded timeline no longer contains the requested targets",
+            "answer the translation again from the listed timeline items")
+
     change = region_summary(reel, snapshot, operations)
-    qualification = (edit_spec._resolve_project_name(project)
-                     == QUALIFICATION_PROJECT)
+    request = edit_request.from_edit_program(
+        program, project=project, timeline=reel,
+        originator={"kind": "human", "name": "ren revise",
+                    "detail": record.get("note", "")})
     record["assignment_id"] = spine.attach_revision(
         project, reel, request=record["note"])["assignment_id"]
     act = spine.begin_revision(project, record["assignment_id"], reel)
     edit_spec.record_spec(project, spec)
     note = _note_for(project, record)
     try:
-        if qualification:
-            route = ROUTE_PATCH
-            live = options.get("live") or _live_timeline
-            with live(project, reel) as (resolve_project, timeline):
-                flow = feedback_patch_flow.handle_note(
-                    routed_note=note, project_folder=project,
-                    operations=operations, scope=scope,
-                    idempotency_key=f"revise:{record['revise_id']}",
-                    project=resolve_project, timeline=timeline,
-                    decide=lambda _note: verdict,
-                    change_summary=change["summary"],
-                    write_reply=(_chat_reply if note.get("frame") is None
-                                 else None),
-                    **(options.get("patch_overrides") or {}))
-            verification = {"state": "timeline_readback",
-                            "record": flow["record"]}
-            receipt = (flow.get("receipt") or {}).get("patch") or {}
-            landed_generation = receipt.get("generation")
-            if type(landed_generation) is not int:
-                # A receipt that does not name its generation: read what
-                # the reel holds now rather than guessing.
-                landed_generation = _recorded_reel(
-                    project, reel)[0].generation
-            status = STATUS_PATCHED
-        else:
-            route = ROUTE_TOUCH
-            moment = spine._moment_for_timeline(project, reel)
-            if moment is None:
-                raise ReviseRefused(
-                    f"{reel} is not a proposed reel of this project",
-                    "a touch-up is addressed by reel number",
-                    "name a reel the project proposed")
-            edits = _touch_edits(snapshot, operations)
-            code = (options.get("run") or _run_engine)(
-                ["touch-reel", project, str(int(moment.number)),
-                 "--edits", json.dumps(edits)])
-            if code != 0:
-                raise ReviseRefused(
-                    f"`ren touch` did not complete on {reel} (exit {code})",
-                    "the touch-up refused or failed and changed nothing "
-                    "it could not restore; its reason is printed above",
-                    f"follow that fix, then run `ren revise "
-                    f"{shlex.quote(project)} --id {record['revise_id']}`")
-            verification = {"state": "touch_readback",
-                            "record": _addressed(
-                                project, note, "touched in place",
-                                verdict["reason"], change["summary"])}
-            # A touch stages beside the reel without recording a shadow
-            # generation: the head it applied onto is the honest mark.
-            landed_generation = head.generation
-            status = STATUS_TOUCHED
+        prepared = resolve_axi_core.prepare_edit_request(request)
+        record["edit_request"] = request.to_dict()
+        record["preparation"] = prepared
+        receipt = resolve_axi_core.submit_edit_request(
+            request, authorized=True, owner="ren revise")
+        if isinstance(receipt.get("result"), dict):
+            receipt = receipt["result"]
+        lifecycle = receipt.get("lifecycle") or {}
+        stage = lifecycle.get("stage")
+        verified = (receipt.get("status") == "already_satisfied"
+                    or (receipt.get("status") == "committed"
+                        and stage in {"VERIFIED", "COMMITTED"}))
+        if not verified:
+            raise ReviseRefused(
+                f"AXI returned without verified completion on {reel}: "
+                f"status={receipt.get('status')!r}, stage={stage!r}, "
+                f"detail={receipt.get('error') or receipt.get('message') or ''}",
+                "ren revise completes only when AXI verifies the requested "
+                "postconditions and commits the result",
+                f"inspect the AXI receipt, then run `ren revise "
+                f"{shlex.quote(project)} --id {record['revise_id']} "
+                "--retranslate` if the request needs replanning")
+        route = ROUTE_PATCH
+        verification = {"state": "axi_verified", "receipt": receipt}
+        landed_generation = receipt.get("generation", head.generation)
+        status = STATUS_PATCHED
+        _addressed(project, note, "revised through AXI",
+                   verdict["reason"], change["summary"])
     except Exception as exc:
         spine.end_act(act, ok=False, detail=str(exc))
-        if isinstance(exc, RenRefusal) or not isinstance(exc, RuntimeError):
+        if isinstance(exc, RenRefusal):
             raise
-        # The guard refused, restored or could not verify: the flow has
-        # already recorded the note's outcome as blocked, with this reason.
         raise ReviseRefused(
-            f"the patch on {reel} did not land verified: {exc}",
-            "a patch is kept only when its read-back proves it and nothing "
-            "outside its scope moved; anything else was restored",
-            f"look at {reel} in Resolve, then run `ren revise "
+            f"AXI could not complete the requested edit on {reel}: {exc}",
+            "the semantic request was prepared and routed before execution; "
+            "an unsupported or unqualified backend is refused before write",
+            f"inspect the routing or preparation detail, then run `ren revise "
             f"{shlex.quote(project)} --id {record['revise_id']} "
-            f"--retranslate`") from exc
+            "--retranslate` after the capability is available") from exc
     spine.end_act(act, ok=True, detail=change["summary"])
     base = _program_base(program)
     priors = [entry for entry in record.get("prior_bases", [])
@@ -782,7 +687,8 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
          if entry["overlap"]]
         if floor is not None and base is not None else [])
     return {"status": status, "route": route, "change": change,
-            "verification": verification, "landed_generation": landed_generation,
+            "verification": verification,
+            "landed_generation": landed_generation,
             "scope": scope, "supersedes": supersedes}
 
 
@@ -825,8 +731,7 @@ def rebuild_commands(project: str, record: dict, spec: dict, *,
 
 
 def _shown(argv: list) -> str:
-    verb = {"run": "edit", "build-reels": "build",
-            "touch-reel": "touch"}[argv[0]]
+    verb = {"run": "edit", "build-reels": "build"}[argv[0]]
     return "ren " + " ".join([verb, *(shlex.quote(a) for a in argv[1:])])
 
 
@@ -870,9 +775,9 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
             return {"status": STATUS_INCOMPLETE, "route": ROUTE_REBUILD,
                     "change": change, "commands": [_shown(a) for a in commands],
                     "failed_command": _shown(argv), "exit_code": code}
-    return {"status": STATUS_REBUILT, "route": ROUTE_REBUILD,
+    return {"status": STATUS_UNVERIFIED, "route": ROUTE_REBUILD,
             "change": change, "commands": [_shown(a) for a in commands],
-            "verification": {"state": "not_checked",
+            "verification": {"state": "not_proven",
                              "record": _addressed(
                                  project, note,
                                  f"rebuilt from {', '.join(owners) or 'the ledger'}",
@@ -889,6 +794,8 @@ def _result(project: str, record: dict) -> dict:
         STATUS_AWAITING: "Translating the note.",
         STATUS_QUESTION: (record.get("question") or {}).get("question"),
         STATUS_PROPOSED: "Here is what would change; nothing is changed yet.",
+        STATUS_UNVERIFIED: ("The scoped rebuild ran, but the requested "
+                            "outcome has no request-specific verification."),
         STATUS_REFUSED: record.get("refusal"),
         STATUS_INCOMPLETE: (f"The rebuild stopped at "
                             f"`{record.get('failed_command')}`."),
@@ -967,36 +874,17 @@ def advance(project, revise_id: str, *, answer: str = "",
                                       project, record, spec,
                                       preview=preview)]
         elif classification["route"] == ROUTE_PATCH:
-            # VC-07/VC-08: the proposed program as one typed edit
-            # request, prepared against the recorded reel - read-only,
-            # so `--plan` still changes nothing. A program that does
-            # not convert never fails the plan; it only leaves the
-            # explanation unset.
-            try:
-                from library.tools import edit_preparation, edit_request
+            from library.tools import edit_request, resolve_axi_core
 
-                _reel = ((spec.get("program") or {}).get("reel")
-                         or record["reel"])
-                _head, _snapshot = _recorded_reel(project, _reel)
-                _request = edit_request.from_edit_program(
-                    spec["program"], project=project,
-                    timeline=_reel,
-                    originator={"kind": "human", "name": "ren revise",
-                                "detail": record.get("note", "")})
-                _prepared = edit_preparation.prepare(
-                    _request, base_snapshot=_snapshot,
-                    base_generation=_head.generation)
-                record["edit_request"] = _request.to_dict()
-                record["preparation"] = {
-                    "ready": _prepared.ready,
-                    "no_write_needed": _prepared.no_write_needed,
-                    "refusals": list(_prepared.refusals),
-                    "assumptions": list(_prepared.assumptions),
-                    "affected": _prepared.affected.as_dict(),
-                    "explanation": edit_preparation.explain(_prepared),
-                }
-            except Exception:  # noqa: BLE001, S110 - annotation, never the plan
-                pass
+            _reel = ((spec.get("program") or {}).get("reel")
+                     or record["reel"])
+            _request = edit_request.from_edit_program(
+                spec["program"], project=project, timeline=_reel,
+                originator={"kind": "human", "name": "ren revise",
+                            "detail": record.get("note", "")})
+            record["edit_request"] = _request.to_dict()
+            record["preparation"] = resolve_axi_core.prepare_edit_request(
+                _request)
         _status(record, STATUS_PROPOSED)
         return _result(project, _save(project, record))
     act = (_patch if classification["route"] == ROUTE_PATCH else _rebuild)
@@ -1024,9 +912,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren revise",
         description="Turn an editor's note into a verified change: "
-                    "translate it, show what would change, then patch "
-                    "the reel in place, touch it up or rebuild only what "
-                    "the note reaches.")
+                    "translate it, show what would change, then let AXI "
+                    "route a semantic edit or run a scoped rebuild.")
     parser.add_argument("project", help="project folder path")
     parser.add_argument("note", nargs="?", default="",
                         help="what to change, in the editor's own words")
