@@ -487,6 +487,40 @@ def test_rust_worker_still_refuses_a_wrong_target_for_borrowing_jobs(monkeypatch
     assert "may only target 'Ren Qualification'" in reply["error"]
 
 
+def test_qualification_workspace_cleanup_retires_only_registered_files(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv(qp.MEDIA_ROOT_ENV, str(tmp_path / "qualification"))
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(tmp_path / "locks"))
+    workspace = tmp_path / "rq-owned-run"
+    workspace.mkdir()
+    artifact = workspace / "shadow.sqlite3"
+    artifact.write_bytes(b"qualification database")
+
+    result = qp._finish_qualification_workspace(
+        workspace, "owned-run", passed=True)
+
+    assert result["status"] == "complete"
+    assert not workspace.exists()
+    assert Path(result["manifest"]).is_file()
+
+
+def test_qualification_workspace_cleanup_refuses_an_unknown_symlink(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv(qp.MEDIA_ROOT_ENV, str(tmp_path / "qualification"))
+    workspace = tmp_path / "rq-unknown-run"
+    workspace.mkdir()
+    outside = tmp_path / "captain-file"
+    outside.write_bytes(b"preserve")
+    (workspace / "unknown-link").symlink_to(outside)
+
+    with pytest.raises(ValueError, match="unknown broker workspace symlink"):
+        qp._finish_qualification_workspace(
+            workspace, "unknown-run", passed=True)
+
+    assert outside.read_bytes() == b"preserve"
+    assert (workspace / "unknown-link").is_symlink()
+
+
 def test_rust_worker_keeps_the_open_project_gate_for_other_kinds(monkeypatch):
     """Defect: the mirror exemption must not leak - a non-borrowing
     qualification job on the captain's project is still refused."""

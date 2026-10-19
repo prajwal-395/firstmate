@@ -119,7 +119,8 @@ def _pool_proxy_by_id(project, item_id: str):
 def retire_captain_task_timeline(
         resolve, project, *, project_name: str, timeline_name: str,
         item_id: str, backup_path: str, journal_path: str,
-        expected_inventory: list[dict]) -> dict:
+        expected_inventory: list[dict],
+        qualification_run_stamp: str = "") -> dict:
     """Retire one exact timeline under the 2026-10-19 authority.
 
     This is the named extension of proof cleanup for the captain's task.
@@ -137,8 +138,15 @@ def retire_captain_task_timeline(
         raise ProofRemovalRefused(
             f"expected project {project_name!r}, found "
             f"{project.GetName()!r}. Nothing was removed.")
-    authority = captain_task_timeline_authority(
-        project_name, timeline_name, item_id)
+    if qualification_run_stamp:
+        from library.tools.proof_cleanup import (
+            qualification_workflow_timeline_authority,
+        )
+        authority = qualification_workflow_timeline_authority(
+            project_name, timeline_name, item_id, qualification_run_stamp)
+    else:
+        authority = captain_task_timeline_authority(
+            project_name, timeline_name, item_id)
     before = timeline_inventory(project)
     if before != expected_inventory:
         raise ProofRemovalRefused(

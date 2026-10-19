@@ -87,8 +87,10 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
     source.write_bytes(b"fixture")
     output_dir = qp.media_dir() / "workflow-runs" / "run-1" / "exports"
     output_dir.mkdir(parents=True)
+    run_stamp = "20261019T120000123456Z"
     params = {"project": "Ren Qualification", "source_copy": str(source),
-              "timeline": "Q Workflow Test", "source_start": 0.0,
+              "timeline": f"Q Workflow {run_stamp} 1",
+              "run_stamp": run_stamp, "source_start": 0.0,
               "source_end": 15.0, "output_dir": str(output_dir),
               "output_name": "Q_Workflow_Test", "timeout_seconds": 600,
               "source_sha256": hashlib.sha256(b"fixture").hexdigest()}
@@ -107,6 +109,55 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
         qw.prepare_broker_job({**params, "source_end": 46.0})
     with pytest.raises(JobRefused, match="SHA-256 hex digest"):
         qw.prepare_broker_job({**params, "source_sha256": "z" * 64})
+
+
+def test_successful_cleanup_preserves_evidence_and_shared_reusable_files(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv(qp.MEDIA_ROOT_ENV, str(tmp_path / "qualification"))
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(tmp_path / "locks"))
+    run_stamp = "20261019T120000123456Z"
+    root = qp.media_dir() / "workflow-runs" / run_stamp
+    project_file = root / "run-1" / "projects" / "analysis" / "pipeline_data.json"
+    export_file = root / "exports" / "render.mp4"
+    report = root / "qualification-report.json"
+    perf = root / "perf_ledger.jsonl"
+    shared_source = qp.real_media_dir() / "source.mxf"
+    semantic = qp.media_dir() / "semantic-measurements" / "measurement.json"
+    for path in (project_file, export_file, report, perf, shared_source, semantic):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("owned fixture", encoding="utf-8")
+    qw._register_shared_artifact(root, run_stamp, shared_source,
+                                 kind="qualification_source_copy",
+                                 dependency="source-hash")
+    qw._register_shared_artifact(root, run_stamp, semantic,
+                                 kind="semantic_measurement",
+                                 dependency="shared-cache")
+
+    result = qw._retire_successful_run_files(root, run_stamp)
+
+    assert result["status"] == "complete"
+    assert not project_file.exists()
+    assert not export_file.exists()
+    assert report.is_file() and perf.is_file()
+    assert shared_source.is_file() and semantic.is_file()
+
+
+def test_qualification_timeline_authority_requires_exact_run_identity():
+    from library.tools.proof_cleanup import (
+        ProofRemovalRefused,
+        qualification_workflow_timeline_authority,
+    )
+
+    run_stamp = "20261019T120000123456Z"
+    row = qualification_workflow_timeline_authority(
+        "Ren Qualification", f"Q Workflow {run_stamp} 1", "timeline-uid",
+        run_stamp)
+
+    assert row["item_id"] == "timeline-uid"
+    with pytest.raises(ProofRemovalRefused, match="not an exact timeline"):
+        qualification_workflow_timeline_authority(
+            "Ren Qualification", f"Q Workflow {run_stamp} 1 copy",
+            "timeline-uid", run_stamp)
 
 
 def test_workflow_analysis_runs_the_full_composition_unskipped(

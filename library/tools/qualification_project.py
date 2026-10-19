@@ -55,8 +55,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools.resolve_lock import under_lease
@@ -64,6 +66,7 @@ from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
 FPS = 24
 WIDTH, HEIGHT = 1920, 1080
+FAILED_REPRODUCTION_TTL_DAYS = 7
 
 #: The synthetic clips: name, seconds, ffmpeg video source, tone (Hz).
 MEDIA = (
@@ -772,6 +775,218 @@ def _check(results: list, name: str, ok: bool, detail) -> None:
     results.append({"check": name, "ok": bool(ok), "detail": detail})
 
 
+def _finish_qualification_workspace(directory: Path, run_id: str, *,
+                                   passed: bool, pinned: bool = False) -> dict:
+    """Track the private broker files and retire them only after clean exit."""
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools.event_log import CLEANUP_JOB, emit, emit_once
+
+    owner = media_dir()
+    from library.tools.project_layout import Area, ProjectLayout
+    ProjectLayout(owner).write_dir(Area.LOGS)
+    records = []
+    for base, dirs, files in os.walk(directory, followlinks=False):
+        for name in dirs:
+            if (Path(base) / name).is_symlink():
+                raise lifecycle.LifecycleRefused(
+                    f"unknown broker workspace symlink: {Path(base) / name}")
+        for name in files:
+            path = Path(base) / name
+            if path.suffix.lower() in {".drt", ".drp", ".otio"}:
+                raise lifecycle.LifecycleRefused(
+                    f"protected recovery archive in broker workspace: {path}")
+            identity = lifecycle.FileIdentity.capture(path)
+            relative = path.relative_to(directory).as_posix()
+            record = lifecycle.ArtifactRecord(
+                artifact_id=lifecycle.stable_artifact_id(
+                    "qualification-project", run_id, run_id,
+                    "qualification_broker_working", relative),
+                kind="qualification_broker_working",
+                project_id="qualification-project", run_id=run_id,
+                job_id=run_id, path=str(path),
+                created_at=datetime.now(UTC).isoformat(), identity=identity,
+                retention_class="temporary", dependencies=(),
+                pinned=False,
+                regenerable=True,
+                regeneration_method="ren qualification qualify")
+            lifecycle.register_artifact(str(owner), record)
+            lifecycle.transition_artifact(
+                str(owner), record.artifact_id, lifecycle.COMPLETED,
+                reason="qualification broker exited")
+            records.append(record)
+    emit(str(owner), "qualification_run_lifecycle", task=run_id,
+         run_id=run_id, job_id=run_id,
+         state="completed" if passed else "failed",
+         finished_at=datetime.now(UTC).isoformat(),
+         workspace=str(directory), pinned=bool(pinned and not passed))
+    if not passed:
+        for record in records:
+            lifecycle.transition_artifact(
+                str(owner), record.artifact_id, lifecycle.FAILED,
+                reason="qualification check failed")
+            lifecycle.transition_artifact(
+                str(owner), record.artifact_id, lifecycle.RECOVERY_HOLD,
+                reason="failed qualification reproduction retained")
+        return {"status": "recovery_hold", "workspace": str(directory),
+                "artifacts": [record.artifact_id for record in records]}
+
+    manifest_path = (owner / "qualification-workspaces"
+                     / f"{run_id}-cleanup-manifest.json")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {"run_id": run_id, "workspace": str(directory),
+                "artifacts": [{"artifact_id": record.artifact_id,
+                               "path": record.path,
+                               "identity": record.identity.__dict__}
+                              for record in records],
+                "status": "planned"}
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                             encoding="utf-8")
+    lifecycle.schedule_cleanup_job(
+        str(owner), event_id=f"qualification-project:{run_id}",
+        project_id="qualification-project", run_id=run_id, job_id=run_id,
+        reason="successful qualification broker workspace")
+    for record in records:
+        lifecycle.transition_artifact(
+            str(owner), record.artifact_id, lifecycle.DISPOSABLE,
+            reason="successful qualification broker workspace")
+    manifest["status"] = "applying"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                             encoding="utf-8")
+    removed = [lifecycle.purge_file(str(owner), record, str(directory))
+               for record in records]
+    for base, dirs, _ in os.walk(directory, topdown=False):
+        if Path(base) == directory:
+            continue
+        Path(base).rmdir()
+    directory.rmdir()
+    manifest["status"] = "complete"
+    manifest["removed"] = removed
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                             encoding="utf-8")
+    emit_once(
+        str(owner), CLEANUP_JOB,
+        f"cleanup:qualification-project:{run_id}:complete",
+        task=run_id,
+        lifecycle_event_id=f"qualification-project:{run_id}",
+        project_id="qualification-project", run_id=run_id, job_id=run_id,
+        reason="all registered broker workspace files retired",
+        state="complete")
+    return {"status": "complete", "manifest": str(manifest_path),
+            "removed": removed}
+
+
+def set_qualification_project_pin(run_id: str, *, pinned: bool) -> dict:
+    """Pin or unpin one exact failed qualification broker workspace."""
+    from library.tools.event_log import emit, read_events
+
+    owner = media_dir()
+    run_events = [event for event in read_events(str(owner))
+                  if event.get("type") == "qualification_run_lifecycle"
+                  and event.get("fields", {}).get("run_id") == run_id]
+    if not run_events:
+        raise QualificationError("qualification run has no lifecycle record")
+    latest = run_events[-1]["fields"]
+    if latest.get("state") not in {"failed", "recovery_hold"}:
+        raise QualificationError("only a failed or held run can be pinned")
+    emit(str(owner), "qualification_run_lifecycle", task=run_id,
+         run_id=run_id, job_id=run_id, state=latest["state"],
+         workspace=latest.get("workspace"),
+         finished_at=latest.get("finished_at"), pinned=bool(pinned),
+         reason="explicit reproduction retention pin update")
+    return {"run_id": run_id, "pinned": bool(pinned)}
+
+
+def _expire_failed_qualification_workspaces() -> list[dict]:
+    """Expire only registered, unpinned broker files after seven days."""
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools.event_log import emit, read_events
+
+    owner = media_dir()
+    latest_by_run = {}
+    for event in read_events(str(owner)):
+        if event.get("type") == "qualification_run_lifecycle":
+            fields = event.get("fields", {})
+            if fields.get("workspace"):
+                latest_by_run[fields["run_id"]] = fields
+    results = []
+    for run_id, run in latest_by_run.items():
+        if (run.get("state") != "failed" or run.get("pinned")
+                or not run.get("finished_at")):
+            continue
+        finished = datetime.fromisoformat(run["finished_at"])
+        if (datetime.now(UTC) - finished).total_seconds() \
+                < FAILED_REPRODUCTION_TTL_DAYS * 86400:
+            continue
+        workspace = Path(run["workspace"]).resolve()
+        if (workspace.parent != Path("/tmp") or not workspace.is_dir()
+                or not workspace.name.startswith(f"rq-{run_id}-")):
+            results.append({"run_id": run_id, "status": "refused",
+                            "detail": "recorded workspace identity is invalid"})
+            continue
+        try:
+            records = lifecycle._latest_artifacts(str(owner))
+            owned = {artifact_id: row for artifact_id, row in records.items()
+                     if row.get("run_id") == run_id
+                     and row.get("kind") == "qualification_broker_working"}
+            owned_paths = {Path(row["path"]).resolve()
+                           for row in owned.values()}
+            unknown = []
+            for base, dirs, files in os.walk(workspace, followlinks=False):
+                for name in dirs + files:
+                    path = Path(base) / name
+                    if (path.is_symlink()
+                            or (path.is_file()
+                                and path.resolve() not in owned_paths)):
+                        unknown.append(str(path))
+            if unknown:
+                raise lifecycle.LifecycleRefused(
+                    f"unregistered workspace resources: {unknown[:3]}")
+            manifest_path = (owner / "qualification-workspaces"
+                             / f"{run_id}-cleanup-manifest.json")
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest = {"run_id": run_id, "workspace": str(workspace),
+                        "artifacts": [{"artifact_id": artifact_id,
+                                       "path": row["path"],
+                                       "identity": row["identity"]}
+                                      for artifact_id, row in owned.items()],
+                        "status": "planned"}
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                                     encoding="utf-8")
+            removed = []
+            for artifact_id, row in owned.items():
+                if row["state"] != lifecycle.RECOVERY_HOLD:
+                    continue
+                record_data = {key: value for key, value in row.items()
+                               if key in lifecycle.ArtifactRecord.__dataclass_fields__}
+                record_data["identity"] = lifecycle.FileIdentity(
+                    **record_data["identity"])
+                record_data["dependencies"] = tuple(record_data["dependencies"])
+                record = lifecycle.ArtifactRecord(**record_data)
+                lifecycle.transition_artifact(
+                    str(owner), artifact_id, lifecycle.DISPOSABLE,
+                    reason="failed qualification reproduction retention expired")
+                removed.append(lifecycle.purge_file(
+                    str(owner), record, str(workspace)))
+            for base, _, _ in os.walk(workspace, topdown=False):
+                if Path(base) != workspace:
+                    Path(base).rmdir()
+            workspace.rmdir()
+            manifest["status"] = "complete"
+            manifest["removed"] = removed
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n",
+                                     encoding="utf-8")
+            emit(str(owner), "qualification_run_lifecycle", task=run_id,
+                 run_id=run_id, job_id=run_id, state="expired",
+                 finished_at=run["finished_at"], pinned=False,
+                 reason="unpinning retention period elapsed")
+            results.append({"run_id": run_id, "status": "expired",
+                            "removed": removed})
+        except Exception as exc:  # noqa: BLE001 - unknown state stays held
+            results.append({"run_id": run_id, "status": "refused",
+                            "detail": str(exc)})
+    return results
+
+
 def qualify_broker(resolve, project, socket: Path) -> list:
     """Each broker property, judged against the live qualification project."""
     from library.tools.resolve_lock import assert_current_timeline
@@ -871,11 +1086,20 @@ def qualify_broker(resolve, project, socket: Path) -> list:
 
 
 @under_lease("ren qualification qualify")
-def qualify() -> dict:
+def qualify(*, pin_failure: bool = False) -> dict:
     """Reset the project, then qualify ren-resolved against it, live."""
     from library.tools.marker_feedback import connect_resolve
     media = ensure_media()
-    directory = Path(tempfile.mkdtemp(prefix="rq", dir="/tmp"))
+    expired_workspaces = _expire_failed_qualification_workspaces()
+    run_id = uuid.uuid4().hex
+    directory = Path(tempfile.mkdtemp(prefix=f"rq-{run_id}-", dir="/tmp"))
+    from library.tools.event_log import emit
+    emit(str(media_dir()), "qualification_run_lifecycle", task=run_id,
+         run_id=run_id, job_id=run_id, state="active",
+         workspace=str(directory), started_at=datetime.now(UTC).isoformat(),
+         pinned=bool(pin_failure))
+    found, problems, results = {}, [], []
+    cleanup = {"status": "not_started"}
     try:
         resolve = connect_resolve()
         with borrowed(resolve) as found:
@@ -886,9 +1110,24 @@ def qualify() -> dict:
                 with _broker(directory) as socket:
                     results = qualify_broker(resolve, project, socket)
     finally:
-        shutil.rmtree(directory, ignore_errors=True)
+        passed = not problems and bool(results) and all(
+            result["ok"] for result in results)
+        try:
+            cleanup = _finish_qualification_workspace(
+                directory, run_id, passed=passed,
+                pinned=bool(pin_failure and not passed))
+        except Exception as exc:  # noqa: BLE001 - ownership uncertainty holds
+            cleanup = {"status": "recovery_hold", "detail": str(exc),
+                       "workspace": str(directory)}
+            emit(str(media_dir()), "qualification_run_lifecycle", task=run_id,
+                 run_id=run_id, job_id=run_id, state="recovery_hold",
+                 workspace=str(directory), pinned=bool(pin_failure),
+                 finished_at=datetime.now(UTC).isoformat(),
+                 reason="workspace cleanup could not prove safe retirement")
     return {"restored": found, "build_problems": problems,
             "checks": results,
+            "run_id": run_id, "cleanup": cleanup,
+            "expired_workspaces": expired_workspaces,
             "passed": not problems and bool(results)
             and all(r["ok"] for r in results)}
 
@@ -914,13 +1153,27 @@ def main(argv=None) -> int:
         description=f"The {QUALIFICATION_PROJECT!r} project live tests use.")
     parser.add_argument("verb", choices=("media", "reset", "qualify", "workflow",
                                          "pm-e2e"))
+    parser.add_argument("--pin-failure", action="store_true",
+                        help="retain failed qualification broker files")
+    parser.add_argument("--unpin-failure",
+                        help="release a failed broker workspace pin by run id")
     args = parser.parse_args(argv)
+    if args.unpin_failure:
+        try:
+            result = set_qualification_project_pin(
+                args.unpin_failure, pinned=False)
+        except Exception as exc:  # noqa: BLE001 - command reports refusal
+            print(json.dumps({"pinned": False, "error": str(exc)}, indent=2),
+                  file=sys.stderr)
+            return 1
+        print(json.dumps(result, indent=2))
+        return 0
     if args.verb == "media":
         report = {name: str(path) for name, path in ensure_media().items()}
     elif args.verb == "reset":
         report = reset()
     else:
-        report = qualify()
+        report = qualify(pin_failure=args.pin_failure)
     print(json.dumps(report, indent=2, default=str))
     return 0 if args.verb != "qualify" or report["passed"] else 1
 
