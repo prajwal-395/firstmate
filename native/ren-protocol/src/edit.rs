@@ -372,6 +372,9 @@ pub enum EditOp {
     },
     #[serde(rename = "overlay.entry_motion")]
     OverlayEntryMotion { unique_id: ClipId, frames: i64 },
+    /// Rebind the media windows on a freeze-hold tail without changing its picture.
+    #[serde(rename = "hold.repair_window")]
+    HoldRepairWindow { unique_id: ClipId },
 
     // ── projected captain edits (domain: picture_transform) ─────────
     /// Hold one Edit-page transform property.
@@ -492,6 +495,7 @@ impl EditOp {
             EditOp::OverlaySwapPixels { .. } => "overlay.swap_pixels",
             EditOp::OverlayResize { .. } => "overlay.resize",
             EditOp::OverlayEntryMotion { .. } => "overlay.entry_motion",
+            EditOp::HoldRepairWindow { .. } => "hold.repair_window",
             EditOp::TransformOverride { .. } => "transform_override",
             EditOp::SpanRetime { .. } => "span_retime",
             EditOp::DropFragment { .. } => "drop_fragment",

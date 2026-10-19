@@ -774,7 +774,7 @@ def picture_runs(tracks) -> list[tuple[int, int]]:
         SINGLETON_NAMES,
     )
 
-    layer_names = ((set(SINGLETON_NAMES) - {B_ROLL})
+    layer_names = ((set(SINGLETON_NAMES) - {"B-Roll"})
                    | set(ROLE_ROW_BASE.values()))
 
     def is_layer(name):

@@ -416,13 +416,13 @@ def test_a_conflicting_proposal_fails_evaluation_with_the_reason(project):
     root = uj.record_commit(project, parent=None, intent="first",
                             changes=[], agent="reel_touchup",
                             timeline="Reel 01")
-    master = uj.record_commit(project, parent=root["id"], intent="master",
-                              changes=_move_change("clip_001", 50),
-                              agent="editor", timeline="Reel 01")
     candidate = uj.record_commit(project, parent=root["id"],
                                  intent="candidate",
                                  changes=_move_change("clip_001", 60),
                                  agent="colourist", timeline="Reel 01")
+    master = uj.record_commit(project, parent=root["id"], intent="master",
+                              changes=_move_change("clip_001", 50),
+                              agent="editor", timeline="Reel 01")
     uj.record_branch(project, name="alt", base=root["id"],
                      timeline="Reel 01", note="candidate line")
     recorded = permissions.record_proposal(
@@ -550,8 +550,8 @@ def _propose_and_accept(project, author="client", approver="director",
     return accepted["fields"]["queue_entry"]
 
 
-def test_a_passing_entry_merges_under_an_authorized_actor(project):
-    """The full federated path: propose, approve, evaluate, merge.
+def test_a_passing_entry_needs_verified_materialization(project):
+    """A semantic merge proposal is not reported as applied before read-back.
 
     Defect caught: a seam where the accept submits but the executor
     cannot land it - the approval evaporates between the lanes. A
@@ -563,10 +563,11 @@ def test_a_passing_entry_merges_under_an_authorized_actor(project):
     entry_id = _propose_and_accept(project)
     decided = uj.evaluate_batch(project, [entry_id])
     assert decided[0]["status"] == uj.ENTRY_EVALUATED_PASS
-    merged = uj.merge_passing(project, [entry_id], actor="director")
-    assert merged[0]["status"] == uj.ENTRY_MERGED
-    assert uj.read_commit(
-        project, merged[0]["merge_commit"])["second_parent"] is not None
+    prepared = uj.merge_passing(project, [entry_id], actor="director")
+    assert prepared[0]["status"] == uj.ENTRY_MATERIALIZATION_REQUIRED
+    proposal = uj.read_commit(project, prepared[0]["merge_proposal"])
+    assert proposal["second_parent"] is not None
+    assert proposal["status"] == "prepared"
 
 
 def test_queue_execution_needs_merge_level(project):

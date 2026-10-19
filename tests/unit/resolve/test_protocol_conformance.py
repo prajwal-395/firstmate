@@ -359,6 +359,7 @@ _EXAMPLE_OPS = {
     "overlay.resize": {"unique_id": "clip_1", "width": 100,
                        "height": 100},
     "overlay.entry_motion": {"unique_id": "clip_1", "frames": 10},
+    "hold.repair_window": {"unique_id": "clip_1"},
     "transform_override": {"unique_id": "clip_1", "key": "Pan",
                            "value": 0.5},
     "span_retime": {"unique_id": "clip_1", "percent": 1.5},

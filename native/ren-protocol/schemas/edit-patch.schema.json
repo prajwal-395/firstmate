@@ -1720,6 +1720,23 @@
           ]
         },
         {
+          "description": "Rebind the media windows on a freeze-hold tail without changing its picture.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "hold.repair_window"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
           "description": "Hold one Edit-page transform property.",
           "type": "object",
           "properties": {

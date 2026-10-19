@@ -594,6 +594,13 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/ast_cache.py',
         # Version-store closure verifies retained timeline DRT contents.
         'library/tools/resolve_archive.py',
+        'library/tools/accepted_edit_replay.py',
+        'library/tools/creative_revision.py',
+        'library/tools/direct_transaction.py',
+        'library/tools/hold_window_repair.py',
+        'library/tools/reel_component_manifest.py',
+        'library/tools/structural_patch.py',
+        'library/tools/versions/reproducibility.py',
         # Imported by the declared temporal-index step: the FI-14
         # camera/subject evidence reader, so a fix here changes what
         # the cached rows resolve through it.
@@ -1119,6 +1126,13 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
         # Version-store closure verifies retained timeline DRT contents.
         'library/tools/resolve_archive.py',
+        'library/tools/accepted_edit_replay.py',
+        'library/tools/creative_revision.py',
+        'library/tools/direct_transaction.py',
+        'library/tools/hold_window_repair.py',
+        'library/tools/reel_component_manifest.py',
+        'library/tools/structural_patch.py',
+        'library/tools/versions/reproducibility.py',
     ),
     "step_1_02_catalog_footage": (
         # The AXI CLI shell imports its shared core; keep that transitive
@@ -1669,6 +1683,16 @@ STEP_IMPLEMENTATION_DEPS = {
         # camera/subject evidence reader, so a fix here changes what
         # the cached catalog rows resolve through it.
         'library/tools/motion_evidence.py',
+        # Creative-revision and Resolve recovery records are imported by
+        # catalog's shared identity closure; fixes to their readers must
+        # invalidate the cached preflight result.
+        'library/tools/accepted_edit_replay.py',
+        'library/tools/creative_revision.py',
+        'library/tools/direct_transaction.py',
+        'library/tools/hold_window_repair.py',
+        'library/tools/reel_component_manifest.py',
+        'library/tools/structural_patch.py',
+        'library/tools/versions/reproducibility.py',
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/transaction_receipt.py",
@@ -2211,8 +2235,22 @@ STEP_IMPLEMENTATION_DEPS = {
         # camera/subject evidence reader, so a fix here changes what
         # the cached rows resolve through it.
         'library/tools/motion_evidence.py',
+        'library/tools/accepted_edit_replay.py',
+        'library/tools/creative_revision.py',
+        'library/tools/direct_transaction.py',
+        'library/tools/hold_window_repair.py',
+        'library/tools/reel_component_manifest.py',
+        'library/tools/structural_patch.py',
+        'library/tools/versions/reproducibility.py',
     ),
     "step_1_04_temporal_index": (
+        "library/tools/accepted_edit_replay.py",
+        "library/tools/creative_revision.py",
+        "library/tools/direct_transaction.py",
+        "library/tools/hold_window_repair.py",
+        "library/tools/reel_component_manifest.py",
+        "library/tools/structural_patch.py",
+        "library/tools/versions/reproducibility.py",
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
         # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request

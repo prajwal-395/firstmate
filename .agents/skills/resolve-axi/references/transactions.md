@@ -22,6 +22,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `grade.node_add` | `unique_id`, `node_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_remove` | `unique_id`, `node_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_set` | `unique_id`, `node_index`, `params` | yes | yes | no | no | post-write snapshot checked by _verify_grade_node_set |
+| `hold.repair_window` | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.add` | `frame`, `color`, `name` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.delete` | `frame` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `mask.create` | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_create |

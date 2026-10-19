@@ -528,6 +528,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         item: true, has_apply: false,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse clears the animation") },
     },
+    OpDeclaration {
+        id: "hold.repair_window", domain: "fusion",
+        required: &["unique_id"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous window") },
+    },
     // ── projected captain edits (domain: picture_transform) ─────────
     OpDeclaration {
         id: "transform_override", domain: "picture_transform",

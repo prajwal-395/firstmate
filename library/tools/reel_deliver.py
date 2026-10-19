@@ -376,6 +376,47 @@ def _proposal_moments(project_folder: str) -> list:
             "run `ren propose <project>` again to republish the plan") from None
 
 
+def _built_names_for(project_folder: str, number: int,
+                    plan_name: str) -> list[str]:
+    """Names verification promoted for a reel, or its last staged name.
+
+    Build output names staging timelines before promotion; normalize that
+    recorded staging suffix so read-only preview addresses the final name.
+    """
+    from library.tools.project_layout import ProjectLayout
+
+    path = ProjectLayout(project_folder).pipeline_data_path
+    if not Path(path).is_file():
+        return []
+    try:
+        state = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    from library.tools import capability_outputs
+
+    head = f"Reel {int(number):02d} -"
+    verification = capability_outputs.read(
+        state, "reel.verify").get("reel_verification") or {}
+    verified = [name for name in
+                verification.get("timelines_verified") or []
+                if isinstance(name, str) and name.startswith(head)]
+    if verified:
+        return list(dict.fromkeys(verified))
+    build = capability_outputs.read(state, "reel.build").get(
+        "reel_build") or {}
+    from library.tools.resolve_bin_layout import STAGING_TIMELINE_SUFFIX
+
+    names = []
+    for name in build.get("timelines_built") or []:
+        if not isinstance(name, str) or not name.startswith(head):
+            continue
+        if name.endswith(STAGING_TIMELINE_SUFFIX):
+            name = name[:-len(STAGING_TIMELINE_SUFFIX)]
+        if name not in names:
+            names.append(name)
+    return names
+
+
 def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
     """The reel's declared name, used only as an output-name fallback.
 

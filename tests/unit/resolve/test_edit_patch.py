@@ -758,14 +758,16 @@ def test_a_frame_addressed_write_past_a_ripple_conflicts(world, monkeypatch):
 
 
 def test_merge_patches_checks_both_orders_and_revalidates_merged_state(world):
-    _project, _timeline, _item, store, base = world
+    _project, _timeline, item, store, base = world
     snapshot = store.snapshot(base)
-    left = _patch("left-marker", base.generation, [
-        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "left"}],
-        ["markers"], [[10, 11]])
-    right = _patch("right-marker", base.generation, [
-        {"op": "marker.add", "frame": 30, "color": "Red", "name": "right"}],
-        ["markers"], [[30, 31]])
+    left = _patch("left-zoom-x", base.generation, [
+        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+         "key": "ZoomX", "value": 1.2}],
+        ["picture_transform"], [[0, 48]], capability="reel.set_properties")
+    right = _patch("right-zoom-y", base.generation, [
+        {"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+         "key": "ZoomY", "value": 1.1}],
+        ["picture_transform"], [[0, 48]], capability="reel.set_properties")
 
     proposal = patch_algebra.merge_patches(left, right, snapshot,
                                           merged_base=snapshot)

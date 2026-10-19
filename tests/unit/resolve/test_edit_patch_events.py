@@ -133,9 +133,15 @@ def test_a_log_failure_never_takes_down_a_commit(world, monkeypatch):
     """
     project, timeline, item, store, base = world
 
-    def _boom(*args, **kwargs):
-        raise OSError("disk gone")
-    monkeypatch.setattr(event_log, "emit", _boom)
+    emit = event_log.emit
+
+    def fail_optional_observation(project_folder, event_type, **fields):
+        if (event_type == event_log.EDIT_TRANSACTION_STAGE
+                and fields.get("stage") == "observed"):
+            raise OSError("disk gone")
+        return emit(project_folder, event_type, **fields)
+
+    monkeypatch.setattr(event_log, "emit", fail_optional_observation)
     receipt = _apply(_marker_patch("p1", base, item),
                      project, timeline, store)
     assert receipt["status"] == "committed", receipt

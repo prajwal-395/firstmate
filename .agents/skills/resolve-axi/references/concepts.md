@@ -50,6 +50,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `grade.node_remove` | `unique_id`, `node_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_reorder` | `unique_id`, `from_index`, `to_index` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_set` | `unique_id`, `node_index`, `params` | yes | yes | no | no | post-write snapshot checked by _verify_grade_node_set |
+| `hold.repair_window` | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `look` | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.add` | `frame`, `color`, `name` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.delete` | `frame` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |

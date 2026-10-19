@@ -535,6 +535,18 @@
   ],
   [
     "library/tools/composed_edit.py",
+    "rename_candidate_set",
+    "SetName",
+    1
+  ],
+  [
+    "library/tools/composed_edit.py",
+    "rename_candidate_set",
+    "SetName",
+    2
+  ],
+  [
+    "library/tools/composed_edit.py",
     "apply_window",
     "SetInput",
     1
@@ -562,6 +574,18 @@
     "conform_comp_windows",
     "ImportFusionComp",
     1
+  ],
+  [
+    "library/tools/composed_edit.py",
+    "conform_comp_windows",
+    "DeleteFusionCompByName",
+    2
+  ],
+  [
+    "library/tools/composed_edit.py",
+    "conform_comp_windows",
+    "ImportFusionComp",
+    2
   ],
   [
     "library/tools/composed_edit.py",
@@ -1254,6 +1278,18 @@
     1
   ],
   [
+    "library/tools/hold_window_repair.py",
+    "_reimport_sibling",
+    "LoadFusionCompByName",
+    1
+  ],
+  [
+    "library/tools/hold_window_repair.py",
+    "_reimport_sibling",
+    "ImportFusionComp",
+    1
+  ],
+  [
     "library/tools/marker_capture.py",
     "grab_still",
     "DeleteStills",
@@ -1675,15 +1711,21 @@
   ],
   [
     "library/tools/reel_build.py",
-    "promote_staged_reels",
+    "recover_interrupted_promotions",
     "SetName",
     1
   ],
   [
     "library/tools/reel_build.py",
-    "promote_staged_reels",
+    "recover_interrupted_promotions",
     "SetName",
     2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "cleanup_disposable_candidates",
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/reel_build.py",
@@ -1870,18 +1912,6 @@
     "_import_entry_comp",
     "ImportFusionComp",
     1
-  ],
-  [
-    "library/tools/reel_touchup.py",
-    "_promote",
-    "SetName",
-    1
-  ],
-  [
-    "library/tools/reel_touchup.py",
-    "_promote",
-    "SetName",
-    2
   ],
   [
     "library/tools/resolve_axi_core_commands.py",

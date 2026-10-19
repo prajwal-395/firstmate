@@ -222,7 +222,9 @@ def _load_model(project: str) -> dict | None:
         return None
 
 
-def reel_model_slice(model: dict, reel_slug: str) -> dict | None:
+def reel_model_slice(model: dict, reel_slug: str,
+                     timeline_names=(),
+                     canonical_timeline_name: str = "") -> dict | None:
     """The model narrowed to one reel, or None when it has no uses.
 
     A reel's clock is matched by the timeline it names, read as the
@@ -240,10 +242,14 @@ def reel_model_slice(model: dict, reel_slug: str) -> dict | None:
     Renders, receipts and NLE bindings describe other outputs, not this
     timeline, and are dropped.
     """
+    known_names = {str(name) for name in timeline_names if name}
     clocks = {row["id"] for row in model.get("clocks") or []
-              if isinstance(row, dict) and _slug(_final_name(str(
-                  (row.get("domain") or {}).get("timeline_id") or "")))
-              == reel_slug}
+              if isinstance(row, dict)
+              and ((timeline_name := str(
+                  (row.get("domain") or {}).get("timeline_id") or ""))
+                   and (timeline_name in known_names
+                        or _final_name(timeline_name) in known_names
+                        or _slug(_final_name(timeline_name)) == reel_slug))}
     uses = [row for row in model.get("clip_uses") or []
             if isinstance(row, dict)
             and (row.get("timeline_interval") or {}).get("clock_id")
@@ -251,6 +257,23 @@ def reel_model_slice(model: dict, reel_slug: str) -> dict | None:
     if not uses:
         return None
     kept = {row["id"] for row in uses}
+    relevant_clock_ids = {
+        str(interval["clock_id"])
+        for use in uses
+        for interval in (use.get("source_interval"),
+                         use.get("timeline_interval"))
+        if isinstance(interval, dict) and interval.get("clock_id")
+    }
+    sliced_clocks = []
+    for row in model.get("clocks") or []:
+        if not isinstance(row, dict) or row.get("id") not in relevant_clock_ids:
+            continue
+        clock = dict(row)
+        if row["id"] in clocks and canonical_timeline_name:
+            domain = dict(clock.get("domain") or {})
+            domain["timeline_id"] = canonical_timeline_name
+            clock["domain"] = domain
+        sliced_clocks.append(clock)
     edits = []
     for edit in model.get("edits") or []:
         targets = [t for t in edit.get("target_ids") or [] if t in kept]
@@ -264,7 +287,7 @@ def reel_model_slice(model: dict, reel_slug: str) -> dict | None:
     frame_maps = [row for row in model.get("frame_maps") or []
                   if isinstance(row, dict) and row.get("to_clock") in clocks]
     sliced = dict(model)
-    sliced.update(clip_uses=uses, edits=edits, effects=effects,
+    sliced.update(clocks=sliced_clocks, clip_uses=uses, edits=edits, effects=effects,
                   frame_maps=frame_maps, renders=[], receipts=[],
                   nle_bindings=[])
     return sliced
@@ -298,8 +321,17 @@ def _slice_digest(sliced: dict) -> tuple[str, list[dict]]:
             info = os.stat(path)
             stat = [info.st_size, info.st_mtime_ns]
         media.append({"asset": asset.get("id"), "path": path, "stat": stat})
-    payload = {key: sliced.get(key) for key in (
-        "clip_uses", "edits", "effects", "frame_maps", "clocks")}
+    payload = {
+        "clip_uses": [{key: use.get(key) for key in (
+            "id", "asset_id", "source_interval", "timeline_interval", "role")}
+                      for use in sliced.get("clip_uses") or []],
+        "edits": [{key: edit.get(key) for key in (
+            "operation", "target_ids", "before", "after")}
+                  for edit in sliced.get("edits") or []],
+        "effects": sliced.get("effects") or [],
+        "frame_maps": sliced.get("frame_maps") or [],
+        "clocks": sliced.get("clocks") or [],
+    }
     payload["assets"] = assets
     payload["media"] = media
     return _digest(payload), media
@@ -330,14 +362,31 @@ def _review_dir(project: str) -> str:
 
 
 def _ren_snapshot_digest(project: str, timeline: str) -> str:
-    """The newest Ren-verified snapshot of the timeline, or ""."""
+    """The newest Ren snapshot's picture state, independent of Resolve ids.
+
+    Candidate promotion remints both the timeline and each item identity;
+    those ids locate objects for edits but do not alter the frames a
+    preview draws. Keep all measured timeline and item properties in the
+    digest while dropping those ephemeral identities.
+    """
     from library.tools import plan_provenance
     try:
         doc = plan_provenance.read_provenance(_review_dir(project)) or {}
     except (OSError, ValueError):
         return ""
     table = doc.get(plan_provenance.REN_TIMELINE_SNAPSHOTS_KEY) or {}
-    return str((table.get(timeline) or {}).get("sha256") or "")
+    snapshot = (table.get(timeline) or {}).get("snapshot")
+    if not isinstance(snapshot, dict):
+        return ""
+    content = dict(snapshot)
+    timeline_state = dict(content.get("timeline") or {})
+    timeline_state.pop("unique_id", None)
+    content["timeline"] = timeline_state
+    content["items"] = [
+        {key: value for key, value in item.items() if key != "unique_id"}
+        for item in content.get("items") or () if isinstance(item, dict)
+    ]
+    return _digest(content)
 
 
 def expected_length(project: str, target: dict,
@@ -387,7 +436,7 @@ def content_key(project: str, target: dict, engine: str,
     hashes = plan_provenance.reel_content_hashes(
         _review_dir(project), target["timeline"])
     signatures = {k: hashes.get(k) or "" for k in (
-        "derivation", "carried", "caption_binding", "footage_binding")}
+        "carried", "caption_binding", "footage_binding")}
     basis: dict[str, Any] = {
         "spec": PREVIEW_SPEC,
         "engine": engine,
@@ -397,9 +446,13 @@ def content_key(project: str, target: dict, engine: str,
         "ren_snapshot": _ren_snapshot_digest(project, target["timeline"]),
     }
     if engine == "filmcraft" and sliced is not None:
-        basis["model_slice"], basis["media"] = _slice_digest(sliced)
+        # The Ren-verified timeline snapshot is the authority for the
+        # picture that will be watched. Project Model row/clock IDs are
+        # regenerated during an unchanged candidate promotion, so they
+        # cannot participate in preview identity.
+        _model_digest, basis["media"] = _slice_digest(sliced)
     recorded = (any(signatures.values()) or basis["ren_snapshot"]
-                or basis.get("model_slice"))
+                or basis.get("media"))
     return {"key": _digest(basis) if recorded else None, "basis": basis}
 
 
@@ -676,7 +729,17 @@ def preview_reel(project: str, target: dict, *, engine: str = "auto",
                 "outcome": "not_built",
                 "detail": "approved but not built yet - run `ren build`"}
     model = _load_model(project)
-    sliced = (reel_model_slice(model, target["slug"])
+    build = _build_record(project)
+    timeline_names = {target["timeline"]}
+    timeline_names.update(
+        name for name in (build.get("timelines_built") or [])
+        if isinstance(name, str)
+        and name.startswith(f"Reel {int(target['number']):02d} -"))
+    staged = (build.get("staged_timelines") or {}).get(target["timeline"])
+    if staged:
+        timeline_names.add(str(staged))
+    sliced = (reel_model_slice(model, target["slug"], timeline_names,
+                               canonical_timeline_name=target["timeline"])
               if model is not None else None)
     chosen, headless_why = choose_engine(engine, sliced)
     expected = expected_length(project, target, sliced)

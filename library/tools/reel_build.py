@@ -15419,6 +15419,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # staging and promotion leaves the protection, not the hole; a
     # rebuild re-takes the same names and the window restarts.
     from library.tools import staging_holds as _holds
+    from library.tools.timeline_ingest import (
+        TimelineSnapshot as _TimelineSnapshot,
+        snapshot_to_dict as _snapshot_to_dict,
+    )
     for _final, _staging in staged_to_final.items():
         _candidate_id = candidate_id_by_staging[_staging]
         _parent = next((entry.get("unique_id") for entry in
@@ -15432,9 +15436,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"reel:{promotion_target_by_name[_final]}:v"
             f"{_history[-1]['version']}" if _history else
             f"unversioned:{_parent or 'unknown'}")
-        from library.tools.timeline_ingest import snapshot_to_dict
         _parent_snapshot = live_snapshots.get(
             promotion_target_by_name[_final])
+        if isinstance(_parent_snapshot, _TimelineSnapshot):
+            _parent_snapshot = _snapshot_to_dict(_parent_snapshot)
         _holds.record_candidate(project_folder, {
             "candidate_id": _candidate_id,
             "transaction_id": _candidate_transaction_id,
@@ -15442,8 +15447,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "candidate_name": _staging,
             "parent_approved_revision": _parent_revision,
             "parent_approved_timeline_id": str(_parent or ""),
-            "parent_snapshot": (snapshot_to_dict(_parent_snapshot)
-                                if _parent_snapshot is not None else None),
+            "parent_snapshot": _parent_snapshot,
             "destination_timeline": promotion_target_by_name[_final],
             "owning_transaction": _candidate_transaction_id,
             "verified_snapshot": None,

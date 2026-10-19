@@ -48,6 +48,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `grade.node_remove` | `grade.node_add` | False | none |
 | `grade.node_reorder` | `none` | True | the inverse swaps the nodes back |
 | `grade.node_set` | `none` | True | the inverse carries the previous node grade |
+| `hold.repair_window` | `none` | True | the inverse carries the previous window |
 | `look` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `marker.add` | `marker.delete` | False | none |
 | `marker.delete` | `marker.add` | False | re-adds the deleted marker's fields |
