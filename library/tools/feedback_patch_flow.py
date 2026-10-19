@@ -176,22 +176,15 @@ def default_reply_writer(*, project, timeline, routed_note: dict,
 
 def _find_item(timeline, unique_id: str):
     """The timeline item carrying `unique_id`, or None. Read, never guess."""
+    from library.tools import timeline_addressing
+
     for track_type in ("video", "audio"):
         try:
-            count = int(timeline.GetTrackCount(track_type) or 0)
-        except Exception:  # noqa: BLE001 - an unreadable track is skipped
+            return timeline_addressing.resolve_item(
+                timeline, {"resolve_item_id": unique_id,
+                           "track_type": track_type}).item
+        except timeline_addressing.TargetNotFound:
             continue
-        for index in range(1, count + 1):
-            try:
-                items = timeline.GetItemListInTrack(track_type, index) or []
-            except Exception:  # noqa: BLE001 - same
-                continue
-            for item in items:
-                try:
-                    if str(item.GetUniqueId() or "") == unique_id:
-                        return item
-                except Exception:  # noqa: BLE001 - same
-                    continue
     return None
 
 

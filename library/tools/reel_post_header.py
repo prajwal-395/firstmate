@@ -767,12 +767,25 @@ GRAPHIC_ROW_BASE = "Semantic"
 
 
 def picture_runs(tracks) -> list[tuple[int, int]]:
-    """Contiguous (start, end) record-frame runs of picture on V1/V2."""
+    """Contiguous picture spans, derived from named reel track roles."""
+    from library.tools.timeline_layout import (
+        B_ROLL,
+        ROLE_ROW_BASE,
+        SINGLETON_NAMES,
+    )
+
+    layer_names = ((set(SINGLETON_NAMES) - {B_ROLL})
+                   | set(ROLE_ROW_BASE.values()))
+
+    def is_layer(name):
+        return (name in layer_names or any(
+            name.startswith(base + " ") for base in ROLE_ROW_BASE.values()))
+
     spans = sorted(
         (int(c["record_in"]), int(c["record_out"]))
         for t in tracks or ()
         if str(t.get("type", "")).lower().startswith("v")
-        and int(t["index"]) in (1, 2)
+        and not is_layer(str(t.get("name") or ""))
         for c in (t.get("clips") or ()))
     runs: list[list[int]] = []
     for start, end in spans:
@@ -784,8 +797,8 @@ def picture_runs(tracks) -> list[tuple[int, int]]:
 
 
 def touch_spec(project_folder: str, reel_number: int, tracks, *,
-               fps: float, draw_gain: float, width: int = 1080,
-               height: int = 1920, disable_graphics: bool = True,
+               fps: float, draw_gain: float, width: int,
+               height: int, disable_graphics: bool,
                render=render_still) -> dict:
     """The `touch-reel` spec that puts this reel's header on its final.
 
@@ -806,7 +819,8 @@ def touch_spec(project_folder: str, reel_number: int, tracks, *,
             f"{HOOKS_FILE}; the hook is the model's to write")
     runs = picture_runs(tracks)
     if not runs:
-        raise PostHeaderError(f"reel {reel_number} plays no picture on V1/V2")
+        raise PostHeaderError(
+            f"reel {reel_number} has no named picture-role track with clips")
     png = _still_for(declared, hook["hook"], width, height, fps,
                      project_folder, render=render)
     video = [t for t in tracks if str(t.get("type", "")).lower()

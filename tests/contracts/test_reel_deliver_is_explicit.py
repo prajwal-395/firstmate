@@ -119,7 +119,7 @@ def test_deliver_refuses_an_unknown_or_unapproved_reel(tmp_path):
         reel_deliver.timeline_name_for_reel(folder, 4)
 
 
-def test_deliver_prefers_the_promoted_name_from_verification(tmp_path):
+def test_delivery_output_fallback_comes_from_approved_plan(tmp_path):
     from library.tools import reel_deliver
 
     folder = _project_with_proposal(tmp_path, approved=(26,))
@@ -130,7 +130,7 @@ def test_deliver_prefers_the_promoted_name_from_verification(tmp_path):
                 "timelines_built": [
                     f"{plan_name}r (rebuild staging)"]}},
             "reel.verify": {"reel_verification": {
-                "timelines_verified": [plan_name]}},
+                "timelines_verified": [plan_name + " (alternate)"]}},
         },
     }
     (Path(folder) / "pipeline_data.json").write_text(
@@ -211,10 +211,14 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
     folder = _project_with_proposal(tmp_path)
     timeline = MagicMock()
     timeline.GetName.return_value = "Reel 03 - hook"
+    timeline.GetUniqueId.return_value = "timeline-03"
     timeline.GetSetting.return_value = "30"
     timeline.GetStartFrame.return_value = 0
     timeline.GetEndFrame.return_value = 299
     project = MagicMock()
+    project.GetName.return_value = "project"
+    project.GetTimelineCount.return_value = 1
+    project.GetTimelineByIndex.return_value = timeline
     project.GetCurrentTimeline.return_value = timeline
     render = MagicMock()
 
@@ -228,8 +232,6 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
           # advertisement depends on whether Resolve happens to be
           # reachable on the runner (2026-10-10).
           patch.object(reel_deliver, "check_render", return_value=[]),
-          patch("library.tools.execution.resolve_render._find_timeline",
-                return_value=timeline),
           patch("library.tools.execution.resolve_render.render_timeline",
                 render),
           patch.object(reel_deliver, "overlay_staleness",
@@ -259,6 +261,7 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
 
     timeline = MagicMock()
     timeline.GetName.return_value = "Reel 03 - hook"
+    timeline.GetUniqueId.return_value = "timeline-03"
     timeline.GetSetting.return_value = "30"
     timeline.GetStartFrame.return_value = 0
     timeline.GetEndFrame.return_value = 299  # 300 frames @ 30fps = 10s
@@ -270,6 +273,7 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
     prior = MagicMock()
     prior.GetName.return_value = "GEO Podcast - Synced"
     project = MagicMock()
+    project.GetName.return_value = "project"
     project.GetCurrentTimeline.return_value = prior
     project.GetTimelineCount.return_value = 2
     project.GetTimelineByIndex.side_effect = [timeline, prior]
@@ -277,8 +281,11 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
     calls = {}
 
     def fake_render(timeline_name="", output_dir="", output_name="",
-                    fmt="", codec="", timeout_seconds=0):
-        calls.update(timeline_name=timeline_name, output_dir=output_dir,
+                    fmt="", codec="", timeout_seconds=0, timeline_id="",
+                    expected_project_name=""):
+        calls.update(timeline_name=timeline_name, timeline_id=timeline_id,
+                     expected_project_name=expected_project_name,
+                     output_dir=output_dir,
                      output_name=output_name, fmt=fmt, codec=codec)
         raw_path = Path(output_dir) / f"{output_name}.mp4"
         raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -348,6 +355,8 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
         full = reel_deliver.deliver_reel(folder, 3)
 
     assert calls["timeline_name"] == "Reel 03 - hook"
+    assert calls["timeline_id"] == "timeline-03"
+    assert calls["expected_project_name"] == "project"
     assert calls["output_dir"].endswith("pipeline_output/scratch")
     # The captain's cursor never moved: deliver names a handle and
     # `render_timeline` selects under its own lease.
@@ -360,3 +369,33 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
     assert full["render"]["raw_output_path"].endswith(
         "pipeline_output/scratch/Reel 03 - hook_pre_master.mp4")
     assert Path(full["report_path"]).is_file()
+
+
+def test_delivery_uses_recorded_live_timeline_id_not_staging_name(tmp_path):
+    from library.tools import reel_deliver
+
+    folder = _project_with_proposal(tmp_path, approved=(26,))
+    plan_name = reel_deliver._proposal_moments(folder)[0].timeline_name
+    state = {
+        "capability_outputs": {
+            "reel.build": {"reel_build": {
+                "timelines_built": [plan_name + "askr"],
+                "staged_timelines": {plan_name: plan_name + "askr"},
+                "staged_timeline_ids": {plan_name + "askr": "live-26"},
+            }},
+        },
+    }
+    (Path(folder) / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+    assert reel_deliver._recorded_timeline_id_for_reel(
+        folder, plan_name) == "live-26"
+
+    live = MagicMock()
+    live.GetUniqueId.return_value = "live-26"
+    live.GetName.return_value = plan_name
+    project = MagicMock()
+    project.GetName.return_value = "Test"
+    project.GetTimelineCount.return_value = 1
+    project.GetTimelineByIndex.return_value = live
+    assert reel_deliver._live_timeline_for_reel(
+        project, folder, 26, "stale staging alias", "Test") is live

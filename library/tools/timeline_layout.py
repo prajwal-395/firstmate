@@ -525,3 +525,45 @@ def plan_layout(material: dict) -> TrackPlan:
 
     return TrackPlan(video_tracks=video, audio_tracks=audio,
                      material=material)
+
+
+def resolve_live_track(timeline, plan: TrackPlan, role: str,
+                       media_type: str = VIDEO, occupant: str = ""):
+    """Resolve a planned semantic row to its current Resolve index.
+
+    The plan supplies the row's role and occupant; Resolve indices are
+    re-read from the live row names so inserted/reordered tracks cannot
+    silently redirect a write. Multiple rows of a role require an
+    occupant or are refused.
+    """
+    from library.tools.timeline_addressing import (
+        AmbiguousTarget,
+        TargetNotFound,
+    )
+
+    specs = [row for row in (plan.video_tracks if media_type == VIDEO
+                             else plan.audio_tracks)
+             if row.role == role and
+             (not occupant or row.occupant == occupant)]
+    if not specs:
+        raise TargetNotFound(
+            f"track role {role!r} occupant {occupant!r} is absent from the plan")
+    if len(specs) != 1:
+        raise AmbiguousTarget(
+            f"track role {role!r} has {len(specs)} planned rows; specify an occupant")
+    expected = specs[0]
+    try:
+        count = int(timeline.GetTrackCount(media_type) or 0)
+        live = [(index, str(timeline.GetTrackName(media_type, index) or ""))
+                for index in range(1, count + 1)]
+    except Exception as exc:
+        raise TargetNotFound(
+            f"could not inspect live {media_type} track roles: {exc}") from exc
+    matches = [index for index, name in live if name == expected.name]
+    if not matches:
+        raise TargetNotFound(
+            f"planned {role!r} row {expected.name!r} is absent from the live timeline")
+    if len(matches) != 1:
+        raise AmbiguousTarget(
+            f"{len(matches)} live {media_type} tracks are named {expected.name!r}")
+    return matches[0]

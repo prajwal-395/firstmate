@@ -377,13 +377,10 @@ def _proposal_moments(project_folder: str) -> list:
 
 
 def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
-    """The EXACT Resolve timeline name for one reel number.
+    """The reel's declared name, used only as an output-name fallback.
 
-    Refuses when the reel is unnamed (no number given), unknown to the
-    plan, or not approved by the captain. Prefers the name the build
-    actually placed (the build record's `timelines_built`, which carries
-    the `name_suffix` when one was used) over the plan's own name, and
-    refuses on ambiguity rather than guessing between the two.
+    The live Resolve target is resolved by persistent identity in
+    `_live_timeline_for_reel`; build staging names are never destinations.
     """
     if reel is None:
         raise DeliverRefused(
@@ -418,65 +415,44 @@ def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
             "to deliver",
             "get the captain's approval on this reel first, then deliver")
 
-    plan_name = moment.timeline_name
-    candidates = _built_names_for(project_folder, number, plan_name)
-    if len(candidates) > 1:
-        raise DeliverRefused(
-            f"reel {number} has {len(candidates)} built names "
-            f"({', '.join(sorted(candidates))})",
-            "a suffixed rebuild beside the plan's own name - guessing "
-            "would render the wrong timeline",
-            "name the timeline explicitly with --timeline-name")
-    if candidates:
-        return candidates[0]
-    return plan_name
+    return moment.timeline_name
 
 
-def _built_names_for(project_folder: str, number: int,
-                     plan_name: str) -> list:
-    """What verification promoted for this reel, else what build staged.
-
-    A successful `reel.verify` record has the exact promoted names. Before
-    that exists, read the build record's `timelines_built` and convert its
-    staging suffix, preserving the plan name as the fallback for an
-    unbuilt reel.
-    """
+def _recorded_timeline_id_for_reel(project_folder: str,
+                                  plan_name: str) -> str | None:
+    """Return the last build's live timeline identity for this plan name."""
     from library.tools.project_layout import ProjectLayout
 
     path = ProjectLayout(project_folder).pipeline_data_path
     if not Path(path).is_file():
-        return []
+        return None
     try:
         state = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return []
+        return None
     from library.tools import capability_outputs
-    head = f"Reel {int(number):02d} -"
-    verification = capability_outputs.read(
-        state, "reel.verify").get("reel_verification") or {}
-    verified = [name for name in
-                verification.get("timelines_verified") or []
-                if isinstance(name, str) and name.startswith(head)]
-    if verified:
-        return list(dict.fromkeys(verified))
     build = capability_outputs.read(state, "reel.build").get(
         "reel_build") or {}
-    # `timelines_built` names what was in Resolve when the BUILD node
-    # returned: the staging containers, which `verify_reels` then
-    # renames onto their finals. A staging name is never a delivery
-    # target, so it reads back as the final it was staged toward -
-    # otherwise every reel built by `ren build` delivered a timeline
-    # promotion had already renamed (golden conversation, 2026-10-02).
-    from library.tools.resolve_bin_layout import STAGING_TIMELINE_SUFFIX
-    names = []
-    for name in build.get("timelines_built") or []:
-        if not isinstance(name, str) or not name.startswith(head):
-            continue
-        if name.endswith(STAGING_TIMELINE_SUFFIX):
-            name = name[:-len(STAGING_TIMELINE_SUFFIX)]
-        if name not in names:
-            names.append(name)
-    return names
+    staging_name = (build.get("staged_timelines") or {}).get(plan_name)
+    identity = (build.get("staged_timeline_ids") or {}).get(staging_name)
+    return str(identity) if identity else None
+
+
+def _live_timeline_for_reel(project, project_folder: str, reel: int,
+                            plan_name: str, expected_project_name: str):
+    """Resolve the delivery target by live Resolve identity, fail closed."""
+    from library.tools import timeline_addressing
+    try:
+        timeline_id = _recorded_timeline_id_for_reel(project_folder,
+                                                      plan_name)
+        return timeline_addressing.resolve_timeline(
+            project, project_name=expected_project_name,
+            timeline_id=timeline_id, timeline_name=plan_name)
+    except timeline_addressing.AddressingError as exc:
+        raise DeliverRefused(
+            f"reel {reel} has no unique live timeline", str(exc),
+            "refresh the reel build identity or resolve duplicate timeline "
+            "names in Resolve, then deliver again") from exc
 
 
 def render_file_name(timeline_name: str, naming: str, ext: str) -> str:
@@ -876,9 +852,6 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     layout = ProjectLayout(project_folder)
     dest_dir = output_dir or str(layout.write_dir(Area.EXPORTS))
     os.makedirs(dest_dir, exist_ok=True)
-    out_name = (file_name.strip() if file_name and file_name.strip()
-                else render_file_name(timeline_name, settings["naming"],
-                                      settings["extension"]))
 
     from library.tools import reel_build
     from library.tools.execution import resolve_render
@@ -899,7 +872,14 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         # under its own lease, so selecting here would walk the cursor
         # twice. Nothing here moves the cursor, so there is nothing to
         # put back afterwards either.
-        timeline = resolve_render._find_timeline(project, timeline_name)
+        timeline = _live_timeline_for_reel(
+            project, project_folder, int(reel), timeline_name, resolve_name)
+        timeline_name = timeline.GetName()
+        from library.tools.timeline_addressing import timeline_address
+        live_identity = timeline_address(timeline, resolve_name)
+        out_name = (file_name.strip() if file_name and file_name.strip()
+                    else render_file_name(timeline_name, settings["naming"],
+                                          settings["extension"]))
         timeline_fps, timeline_start, timeline_end = _timeline_clock(
             timeline)
         expected_seconds = _timeline_expected_seconds(timeline)
@@ -938,6 +918,8 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     raw_dir = str(layout.write_dir(Area.SCRATCH, step="deliver-reel"))
     report = resolve_render.render_timeline(
         timeline_name=timeline.GetName(),
+        timeline_id=live_identity.timeline_id,
+        expected_project_name=resolve_name,
         output_dir=raw_dir,
         output_name=os.path.splitext(out_name)[0] + "_pre_master",
         fmt=settings["format"],

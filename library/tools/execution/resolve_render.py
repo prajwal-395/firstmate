@@ -75,10 +75,17 @@ def _find_timeline(project, timeline_name: str):
     )
 
 
-def _select_timeline(project, timeline_name: str):
+def _select_timeline(project, timeline_name: str, timeline_id: str = "",
+                     expected_project_name: str = ""):
     """Make *timeline_name* current, or raise if it does not exist."""
-    timeline = _find_timeline(project, timeline_name)
-    if timeline_name:
+    if timeline_id:
+        from library.tools.timeline_addressing import resolve_timeline
+        timeline = resolve_timeline(
+            project, project_name=(expected_project_name or project.GetName()),
+            timeline_id=timeline_id, timeline_name=timeline_name)
+    else:
+        timeline = _find_timeline(project, timeline_name)
+    if timeline_name or timeline_id:
         # Establishing the cursor IS a write to instance-global state:
         # through the guard, under a lease, like every other cursor
         # move - an unleased select walked the cursor out from under a
@@ -148,6 +155,8 @@ def _render_timeline_under_lease(
     fmt: str = "mp4",
     codec: str = "H264",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeline_id: str = "",
+    expected_project_name: str = "",
     resolve_override=None,
 ) -> dict:
     """Queue, start and await a render of the timeline. Returns a report.
@@ -164,7 +173,8 @@ def _render_timeline_under_lease(
     if not project:
         raise RenderError("No project is open in Resolve")
 
-    timeline = _select_timeline(project, timeline_name)
+    timeline = _select_timeline(project, timeline_name, timeline_id,
+                                expected_project_name)
     timeline_name = timeline.GetName()
     output_name = output_name or timeline_name
 
@@ -360,6 +370,8 @@ def render_timeline(
     fmt: str = "mp4",
     codec: str = "H264",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeline_id: str = "",
+    expected_project_name: str = "",
 ) -> dict:
     """Render under both leases, then validate the file after they release."""
     if not output_dir:
@@ -368,6 +380,8 @@ def render_timeline(
 
     render = _render_timeline_under_lease(
         timeline_name=timeline_name,
+        timeline_id=timeline_id,
+        expected_project_name=expected_project_name,
         output_dir=output_dir,
         output_name=output_name,
         fmt=fmt,
@@ -381,6 +395,8 @@ def render_timeline_under_existing_lease(
     *, timeline_name: str, output_dir: str, output_name: str,
     resolve, fmt: str = "mp4", codec: str = "H264",
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeline_id: str = "",
+    expected_project_name: str = "",
 ) -> dict:
     """Queue a render inside an existing broker-owned exclusive lease.
 
@@ -399,6 +415,8 @@ def render_timeline_under_existing_lease(
     render_body = _render_timeline_under_lease.__wrapped__
     return render_body(
         timeline_name=timeline_name, output_dir=output_dir,
+        timeline_id=timeline_id,
+        expected_project_name=expected_project_name,
         output_name=output_name, fmt=fmt, codec=codec,
         timeout_seconds=timeout_seconds, resolve_override=resolve)
 
