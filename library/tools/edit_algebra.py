@@ -1972,9 +1972,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "gain"),
         merge="replace",
         inverse=_self("the inverse carries the previous dB"),
-        note="Per-clip gain in dB. OTIO writes and reads levels during the "
-             "build, but no candidate-preserving semantic adapter exists "
-             "yet."),
+        note="Per-clip gain in dB through an isolated OTIO candidate; exact "
+             "source and record start, full timeline preservation and OTIO "
+             "level read-back are required."),
     "audio.pan": AlgebraOp(
         id="audio.pan", domain="audio_mix",
         required=("unique_id", "pan"),
@@ -2989,10 +2989,10 @@ _ROUTE_EVALUATION = {
     },
     "audio.gain": {
         "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities"],
-        "available": ["OTIO mix writes and reads gain in the build path"],
-        "gaps": ["SetProperty(Volume) is not a working measured writer", "deliver_audio_mix replaces the timeline and is not a candidate semantic adapter", "no rendered audio acceptance evidence for this request path"],
+        "available": ["reel_touchup maps the exact audio item to a one-target OTIO round-trip; candidate promotion requires full timeline preservation and fresh OTIO level read-back"],
+        "gaps": ["SetProperty(Volume) is not a working measured writer", "a target must match one audio item by exact source path and record start", "full timeline snapshot must be unchanged, so candidates that lose Fusion/CDL/editor state are discarded", "no rendered audio acceptance evidence for this request path"],
         "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins", "Resolve Fairlight UI-independent controls"],
-        "next": "Evaluate remaining scripted routes, then expose the fastest safe route on a protected candidate and verify rendered audio.",
+        "next": "Run the deferred live qualification with rendered audio evidence, recovery and preservation checks before enabling normal routing.",
     },
     "audio.fade": {
         "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities"],
@@ -3036,6 +3036,12 @@ _WORKFLOW_EVIDENCE = {
 }
 
 _IMPLEMENTATION_EVIDENCE = {
+    ("audio.gain", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_audio_gain",
+        "library/tools/execution/deliver_audio_mix.py:deliver_semantic_gain",
+        "library/tools/execution/deliver_audio_mix.py:deliver_mix",
+        "library/tools/otio_mix.py:audio_op_target",
+    ),
     ("audio.fade", "reel_touchup"): (
         "library/tools/edit_execution_adapters.py:_touchup",
         "library/tools/reel_touchup.py:_op_audio_fade",
@@ -3073,6 +3079,8 @@ _IMPLEMENTATION_EVIDENCE = {
 }
 
 _BACKEND_OPERATION_LIMITATIONS = {
+    ("audio.gain", "reel_touchup"):
+        ("one audio-only request; requested dB must be in the OTIO range; exact source path and record start must identify one item; full candidate snapshot must match before and after; no independent rendered-audio evidence is recorded yet",),
     ("audio.fade", "reel_touchup"):
         ("one audio-only request; fade durations are frame-rounded at the timeline rate; every audio item's native fades must match on source/staging before write and all unrelated fade values must read unchanged afterward; no independent rendered-audio evidence is recorded yet",),
     ("clip.trim", "resolve_axi"):
@@ -3118,7 +3126,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "audio.fade", "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "audio.gain", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but

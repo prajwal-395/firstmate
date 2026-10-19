@@ -97,6 +97,62 @@ def _caption_fix(context) -> dict:
     ], "caption_fix", "no compensating action; operation remains unqualified")
 
 
+def _audio_gain(context) -> dict:
+    import math
+
+    from library.tools import otio_mix, project_registry
+    from library.tools.execution.deliver_audio_mix import deliver_semantic_gain
+
+    operation = context.operation
+    if len(context.request.operations) != 1:
+        raise ValueError(
+            "audio.gain currently requires a single-operation request")
+    row, _index = _target_position(
+        context.snapshot, str(operation["unique_id"]))
+    if not row.startswith("A"):
+        raise ValueError("audio.gain target must be an audio-track item")
+    clip = next(
+        clip for track in context.snapshot["tracks"]
+        for clip in track["clips"]
+        if clip["unique_id"] == operation["unique_id"])
+    gain_db = float(operation["db"])
+    if not math.isfinite(gain_db):
+        raise ValueError("audio.gain dB value must be finite")
+    if not otio_mix.MIN_VOLUME_DB <= gain_db <= otio_mix.MAX_VOLUME_DB:
+        raise ValueError(
+            f"audio.gain dB value must be in [{otio_mix.MIN_VOLUME_DB}, "
+            f"{otio_mix.MAX_VOLUME_DB}] dB")
+    project_path = project_registry.resolve_project_path(
+        context.request.project)
+    project = project_registry.get_project(
+        context.request.project if project_path is None else str(project_path))
+    project_folder = (str(project.project_root) if project_path is None
+                      else str(project_path.parent))
+    target = otio_mix.audio_op_target(
+        "audio.gain", {"db": gain_db}, clip,
+        fps=float(context.snapshot["reported_fps"]))
+    report = deliver_semantic_gain(
+        project_folder, project.resolve.project_name,
+        context.request.timeline, target,
+        fps=float(context.snapshot["reported_fps"]))
+    return {
+        "status": "committed", "backend": "reel_touchup", "mutated": True,
+        "operation_id": "audio.gain", "request_id": context.request.id,
+        "readback": report,
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "audio.gain", "passed": True},),
+                "evidence": {"strict_otio_candidate": report},
+            },
+            "recovery": {
+                "status": "recorded",
+                "action": "source timeline retained until candidate preservation and OTIO read-back pass",
+            },
+        },
+    }
+
+
 def _touchup(context) -> dict:
     from library.tools import project_registry, reel_proposal, reel_touchup
 
@@ -225,6 +281,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.ripple", "reel_touchup"): _touchup,
         ("clip.slip", "reel_touchup"): _touchup,
         ("audio.fade", "reel_touchup"): _touchup,
+        ("audio.gain", "reel_touchup"): _audio_gain,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

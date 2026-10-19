@@ -208,7 +208,7 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
         raise RuntimeError(
             f"mix_intent cannot be honoured: {exc}. A declared level "
             f"the build cannot read must refuse, never mix past it.")
-    if _pins:
+    if _pins and targets_override is None:
         from library.tools.timeline_transcript import (
             transcript_path as _transcript_path,
         )
@@ -293,8 +293,7 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
                 (track, clip, start)
                 for track, clip, start, _frames in otio_mix.audio_clips(otio)
                 if otio_mix.clip_media_path(clip) == target["source_file"]
-                and abs(start - int(target["start_frame"]))
-                <= otio_mix.MATCH_TOLERANCE_FRAMES
+                and start == int(target["start_frame"])
             ]
             if len(matches) != 1:
                 ambiguous.append({"target": target.get("label", "?"),
@@ -426,5 +425,68 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             "kept the source timeline")
         return report
 
-    media_pool.DeleteTimelines([timeline])
+    retired = media_pool.DeleteTimelines([timeline])
+    if strict_preservation and not retired:
+        _refuse_picture_drift(project, media_pool, timeline, imported, name)
+        report["timeline"] = timeline
+        report["timeline_name"] = name
+        report["delivered"] = False
+        report["reason"] = (
+            "Resolve refused to retire the original timeline after candidate "
+            "verification; discarded the candidate and kept the source")
+        return report
     return report
+
+
+def deliver_semantic_gain(project_folder: str, project_name: str,
+                          timeline_name: str, target: dict, *,
+                          fps: float) -> dict:
+    """Apply one semantic gain through a guarded OTIO candidate round-trip."""
+    from library.tools.resolve_lock import under_lease
+    from library.tools.resource_leases import (
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
+
+    @under_lease(f"semantic audio gain on {timeline_name}")
+    def _apply() -> dict:
+        with resource_lease(
+                LeaseDeclaration(
+                    read=frozenset({ResourceRef("project", project_name)}),
+                    write=frozenset({ResourceRef("timeline", timeline_name)}),
+                    exclusive=frozenset({ResourceRef("timeline", timeline_name)}),
+                ), purpose=f"semantic audio gain on {timeline_name}"):
+            from library.tools.reel_build import _connect_resolve
+
+            resolve = _connect_resolve()
+            project = resolve.GetProjectManager().GetCurrentProject()
+            if project is None or project.GetName() != project_name:
+                raise RuntimeError(
+                    f"Resolve active project is not {project_name!r}")
+            matches = []
+            for index in range(
+                    1, int(project.GetTimelineCount() or 0) + 1):
+                candidate = project.GetTimelineByIndex(index)
+                if candidate is not None and candidate.GetName() == timeline_name:
+                    matches.append(candidate)
+            if len(matches) != 1:
+                raise RuntimeError(
+                    f"timeline {timeline_name!r} resolved to {len(matches)} items")
+            timeline = matches[0]
+            report = deliver_mix(
+                resolve, project, project.GetMediaPool(), timeline, {}, fps=fps,
+                project_folder=project_folder, targets_override=[target],
+                strict_preservation=True)
+            applied = report.get("applied") or []
+            if (not report.get("delivered")
+                    or report.get("full_preservation_verified") is not True
+                    or report.get("complaints") or len(applied) != 1
+                    or applied[0].get("matched_start_frame")
+                    != target["start_frame"]):
+                raise RuntimeError(
+                    "strict OTIO audio candidate was not fully verified: "
+                    f"{report.get('reason') or report.get('complaints') or report}")
+            return report
+
+    return _apply()
