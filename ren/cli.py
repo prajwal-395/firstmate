@@ -158,6 +158,9 @@ def main(argv=None) -> int:
             print(refused.render(), file=sys.stderr)
             emit_refusal_result(refused)
             return REFUSAL_EXIT_CODE
+    if verb.builtin == "storage":
+        from library.tools import storage_cli
+        return storage_cli.main(rest)
     if verb.builtin == "support-bundle":
         from library.tools.ren_refusal import (
             REFUSAL_EXIT_CODE,

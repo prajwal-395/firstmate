@@ -1,5 +1,7 @@
 # Ren customer docs
 
+Storage lifecycle operations are documented in [Cleanup lifecycle](../CLEANUP_LIFECYCLE.md).
+
 Ren is an agent-driven video editor for macOS. You drive it from a chat
 harness - Claude Code, OpenCode or Codex - that is signed in with its
 subscription account. The harness calls the `ren` command; Ren answers
