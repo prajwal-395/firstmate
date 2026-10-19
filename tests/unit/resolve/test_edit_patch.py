@@ -757,6 +757,39 @@ def test_a_frame_addressed_write_past_a_ripple_conflicts(world, monkeypatch):
         patch_algebra.REBASE
 
 
+def test_merge_patches_checks_both_orders_and_revalidates_merged_state(world):
+    _project, _timeline, _item, store, base = world
+    snapshot = store.snapshot(base)
+    left = _patch("left-marker", base.generation, [
+        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "left"}],
+        ["markers"], [[10, 11]])
+    right = _patch("right-marker", base.generation, [
+        {"op": "marker.add", "frame": 30, "color": "Red", "name": "right"}],
+        ["markers"], [[30, 31]])
+
+    proposal = patch_algebra.merge_patches(left, right, snapshot,
+                                          merged_base=snapshot)
+
+    assert proposal["mergeable"] is True
+    assert len(proposal["operations"]) == 2
+
+
+def test_merge_patches_refuses_frame_writes_past_a_ripple(world):
+    _project, _timeline, _item, store, base = world
+    snapshot = store.snapshot(base)
+    ripple = _patch("ripple", base.generation, [
+        {"op": "marker.add", "frame": 10, "color": "Blue", "name": "cut"}],
+        ["markers"], [[10, 20]])
+    later_frame = _patch("later-frame", base.generation, [
+        {"op": "marker.add", "frame": 30, "color": "Red", "name": "note"}],
+        ["markers"], [[30, 31]])
+
+    proposal = patch_algebra.merge_patches(ripple, later_frame, snapshot)
+
+    assert proposal["mergeable"] is False
+    assert "not independently composable" in proposal["reason"]
+
+
 def test_a_clip_addressed_write_past_a_ripple_rebases_through_carry(world):
     """Defect: a ripple edit composed with a later frame-addressed edit
     conflicts even when the later edit's target is a clip that did move

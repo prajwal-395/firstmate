@@ -152,7 +152,9 @@ def test_preview_conflicts_without_recording(tmp_path):
         project, left=clashing, right=candidate_a)
 
     assert preview["mergeable"] is False
-    assert preview["conflicts"] == ["clip_001"]
+    assert any(conflict.get("entity")
+               and conflict.get("property") == "record_start"
+               for conflict in preview["conflicts"])
     assert len(uj.list_commits(project)) == before
 
 
@@ -238,7 +240,7 @@ def test_evaluate_passes_what_merges_and_names_what_does_not(tmp_path):
     measured facts, a clashing one fails naming the clips - and no
     commit is created, because evaluation reads."""
     project, master, candidate_a, _b = _lined_project(tmp_path)
-    root = uj.read_commit(project, master)["parent"]
+    _root = uj.read_commit(project, master)["parent"]
     # The master side moves clip_009 after the root, so a candidate
     # touching clip_009 clashes while one touching clip_001 passes.
     # (A candidate extending the master is a fast-forward - it cannot
@@ -307,36 +309,68 @@ def test_evaluate_refuses_decided_entries(tmp_path):
         uj.merge_passing(project, [fresh["id"]])
 
 
-def test_merge_passes_in_order_and_splits_the_batch(tmp_path):
-    """Both candidates pass solo evaluation; the first merges, and the
-    second - now conflicting with the first's landed changes - is
-    rejected naming clip_001 while the first stays merged. The batch
-    split names its candidate."""
+def test_merge_pass_requires_verified_materialization_before_next_entry(tmp_path):
+    """A semantic proposal is not a landed merge; the next entry is
+    re-evaluated against the new head after verified promotion."""
     project, master, entry_a, entry_b = _queued_pair(tmp_path)
     uj.evaluate_batch(project)
 
-    done = uj.merge_passing(project)
+    (prepared,) = uj.merge_passing(project)
 
-    by_branch = {e["branch"]: e for e in done}
-    assert by_branch["variant faster-intro"]["status"] == uj.ENTRY_MERGED
-    assert by_branch["variant emotional-intro"]["status"] == uj.ENTRY_REJECTED
-    assert "clip_001" in by_branch["variant emotional-intro"]["merge_error"]
+    assert prepared["status"] == uj.ENTRY_MATERIALIZATION_REQUIRED
+    assert uj.read_queue_entry(project, entry_b["id"])["status"] == \
+        uj.ENTRY_EVALUATED_PASS
+    with pytest.raises(QueueRefused, match="needs verified materialization"):
+        uj.merge_passing(project, [entry_b["id"]])
+
+    proposal = uj.read_commit(project, prepared["merge_proposal"])
+
+    class Timeline:
+        def __init__(self, name, unique_id):
+            self.name, self.unique_id = name, unique_id
+
+        def GetName(self):
+            return self.name
+
+        def GetUniqueId(self):
+            return self.unique_id
+
+    materialized = uj.materialize_merge(
+        project, proposal, source=Timeline("Reel 01 - lab", "source"),
+        candidate=Timeline("candidate", "candidate-a"),
+        revalidate=lambda _source, _candidate, _changes: {
+            "targets": True, "preconditions": True,
+            "base_commit": proposal["parent"]},
+        apply=lambda _candidate, _changes: None,
+        verify=lambda _source, _candidate, _changes: {
+            "modified": True, "preserved": True, "native_readback": "readback",
+            "base_commit": proposal["parent"],
+            "modified_components": ["timeline_structure"],
+            "preserved_components": ["markers"]},
+        promote=lambda _candidate: {"promoted": ["Reel 01 - lab"]})
     merged = uj.read_queue_entry(project, entry_a["id"])
     assert merged["status"] == uj.ENTRY_MERGED
     commit = uj.read_commit(project, merged["merge_commit"])
+    assert commit["id"] == materialized["id"]
     assert commit["parent"] == master
     assert commit["second_parent"] == merged["candidate"]
     assert commit["timeline"] == "Reel 01 - lab"
+
+    (stale,) = uj.merge_passing(project, [entry_b["id"]])
+    assert stale["status"] == uj.ENTRY_STALE
+    (re_evaluated,) = uj.evaluate_batch(project, [entry_b["id"]])
+    assert re_evaluated["status"] == uj.ENTRY_EVALUATED_FAIL
+    assert "clip_001" in re_evaluated["evaluation"]["reason"]
     kinds = [e["type"] for e in event_log.read_events(project)]
+    assert kinds.count("merge_prepared") == 1
     assert kinds.count("merge_merged") == 1
-    assert kinds.count("merge_rejected") == 1
 
 
 def test_stale_branch_refuses_until_re_evaluated(tmp_path):
     """A commit landing on the branch after evaluation makes the merge
     refuse as stale - and only a re-evaluation (fresh snapshots) clears
     it, never a retry."""
-    project, master, entry_a, _b = _queued_pair(tmp_path)
+    project, _master, entry_a, _b = _queued_pair(tmp_path)
     uj.evaluate_batch(project, [entry_a["id"]])
     uj.record_commit(
         project, parent=entry_a["candidate"], intent="late planning",
@@ -353,8 +387,8 @@ def test_stale_branch_refuses_until_re_evaluated(tmp_path):
         uj.merge_passing(project, [entry_a["id"]])
 
     uj.evaluate_batch(project, [entry_a["id"]])
-    (merged,) = uj.merge_passing(project, [entry_a["id"]])
-    assert merged["status"] == uj.ENTRY_MERGED
+    (prepared,) = uj.merge_passing(project, [entry_a["id"]])
+    assert prepared["status"] == uj.ENTRY_MATERIALIZATION_REQUIRED
 
 
 def test_re_recorded_branch_refuses_on_digest(tmp_path):

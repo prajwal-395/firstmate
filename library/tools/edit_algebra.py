@@ -2513,6 +2513,19 @@ ALGEBRA: dict[str, AlgebraOp] = {
 }
 
 
+def temporal_effect(operation_id: str) -> str:
+    """Return the declared timeline effect for an algebra operation.
+
+    Consumers that plan merges must use this declaration rather than
+    guessing from an operation name or the size of its frame span.
+    Unknown operations are deliberately not treated as local.
+    """
+    operation = ALGEBRA.get(str(operation_id))
+    if operation is None:
+        raise KeyError(f"unknown edit algebra operation {operation_id!r}")
+    return operation.temporal
+
+
 # ── Verify functions for the structural ops ───────────────────────────
 #
 # Each judges an after-snapshot: did the op's effect land? They are pure

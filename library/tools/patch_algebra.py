@@ -132,12 +132,15 @@ def _strictest(*semantics: str) -> str:
 
 def compose(earlier, later, base: dict) -> Composition:
     """How `later` lands once `earlier` has; both planned on `base`."""
+    a_sem = _semantics_dict(earlier)
+    b_sem = _semantics_dict(later)
+    if a_sem is None or b_sem is None:
+        return Composition(CONFLICT,
+                           "a patch capability has no declared merge semantics")
     rust = edit_backend.rust()
     if rust is not None:
         from library.tools.perf_ledger import count_call, span
         count_call("edit_core_calls")
-        a_sem = _semantics_dict(earlier)
-        b_sem = _semantics_dict(later)
         snapshot = edit_backend.snapshot_handle(
             base, later["operations"] if isinstance(later, dict)
             else later.operations)
@@ -148,6 +151,57 @@ def compose(earlier, later, base: dict) -> Composition:
     return _compose_python(earlier, later, base)
 
 
+def merge_patches(left, right, base: dict, *, merged_base: dict | None = None):
+    """Evaluate two branch patches without claiming to materialize them.
+
+    Both execution orders are checked: a merge is order-independent only
+    when each patch remains valid after the other. The returned operations
+    are a semantic proposal; callers must apply them to a protected
+    candidate and verify native read-back before recording an applied merge.
+    """
+    left = edit_patch.EditPatch.from_dict(left)
+    right = edit_patch.EditPatch.from_dict(right)
+    if (left.project, left.timeline) != (right.project, right.timeline):
+        return {"mergeable": False, "reason": "patches address different timelines",
+                "conflicts": ["timeline"], "operations": []}
+    if left.base_generation != right.base_generation:
+        return {"mergeable": False,
+                "reason": "patches were prepared against different base generations",
+                "conflicts": ["base_generation"], "operations": []}
+    forward = compose(left, right, base)
+    reverse = compose(right, left, base)
+    unsafe = {CONFLICT, SERIALIZE, REBASE}
+    conflicts = []
+    for order, result in (("left then right", forward),
+                          ("right then left", reverse)):
+        if result.verdict in unsafe:
+            conflicts.append({"order": order, "verdict": result.verdict,
+                              "reason": result.reason})
+    if conflicts:
+        return {"mergeable": False,
+                "reason": "patches are not independently composable",
+                "conflicts": conflicts, "operations": []}
+    if merged_base is not None:
+        # The merged state is authoritative for target and precondition
+        # checks. Missing or stale targets are an ambiguity, not a license
+        # to replay a patch against its old snapshot.
+        try:
+            edit_patch.validate(left, merged_base)
+            edit_patch.validate(right, merged_base)
+        except (edit_patch.PatchRefused, KeyError, ValueError) as refused:
+            return {"mergeable": False,
+                    "reason": f"patch target or precondition failed on merged state: {refused}",
+                    "conflicts": [{"kind": "merged_state_validation",
+                                   "reason": str(refused)}], "operations": []}
+    operations = [dict(op) for op in left.operations]
+    for operation in right.operations:
+        if operation not in operations:
+            operations.append(dict(operation))
+    return {"mergeable": True, "reason": "", "conflicts": [],
+            "operations": operations, "left": left.to_dict(),
+            "right": right.to_dict(), "base_generation": left.base_generation}
+
+
 def _compose_python(earlier, later, base: dict) -> Composition:
     """The composition, in Python (the selectable fallback)."""
     earlier = edit_patch.EditPatch.from_dict(earlier)
@@ -155,6 +209,9 @@ def _compose_python(earlier, later, base: dict) -> Composition:
     if (earlier.project, earlier.timeline) != (later.project, later.timeline):
         return Composition(COMMUTE, "they address different timelines")
     a, b = semantics_of(earlier), semantics_of(later)
+    if a is None or b is None:
+        return Composition(CONFLICT,
+                           "a patch capability has no declared merge semantics")
     found = [Composition(COMMUTE, "no write of one meets a write of the "
                                   "other")]
 

@@ -237,6 +237,103 @@ def test_a_conflicting_merge_is_refused_by_name(tmp_path):
                for c in uj.list_commits(project))
 
 
+def test_changes_to_different_properties_of_one_entity_compose(tmp_path):
+    project = _project(tmp_path)
+    root = _root(project)
+    moved = uj.record_commit(
+        project, parent=root["id"], intent="move", changes=_move_change(
+            "clip_001", 50), agent="reel_touchup", timeline="Reel 01 - lab")
+    trimmed = timeline_diff.diff_timelines(
+        _tracks_with("clip_001"),
+        [{"type": "video", "index": 1, "name": "V1", "clips": [{
+            "name": "clip_001", "record_in": 0, "record_out": 100,
+            "duration": 100, "source_in_frame": 10,
+            "source_out_frame": 110, "left_offset": 0, "right_offset": 0}]}])
+    trimmed = uj.record_commit(
+        project, parent=root["id"], intent="trim", changes=trimmed,
+        agent="reel_touchup", timeline="Reel 01 - lab")
+
+    merge = uj.merge_commits(project, timeline="Reel 01 - lab",
+                             left=moved["id"], right=trimmed["id"])
+
+    assert {change["op"] for change in merge["changes"]} == {
+        timeline_diff.OP_MOVE, timeline_diff.OP_TRIM}
+    assert merge["artifacts"]["materialization"] == "semantic_only"
+
+
+def test_delete_versus_modify_is_a_property_aware_conflict(tmp_path):
+    project = _project(tmp_path)
+    root = _root(project)
+    removed = timeline_diff.diff_timelines(
+        _tracks_with("clip_001"),
+        [{"type": "video", "index": 1, "name": "V1", "clips": []}])
+    left = uj.record_commit(project, parent=root["id"], intent="remove",
+                            changes=removed, agent="reel_touchup",
+                            timeline="Reel 01 - lab")
+    right = uj.record_commit(project, parent=root["id"], intent="move",
+                             changes=_move_change("clip_001", 50),
+                             agent="reel_touchup", timeline="Reel 01 - lab")
+
+    try:
+        uj.merge_commits(project, timeline="Reel 01 - lab",
+                         left=left["id"], right=right["id"])
+    except uj.MergeConflict as conflict:
+        assert "clip_001" in str(conflict)
+        assert conflict.args[1][0]["property"] == "$entity"
+    else:
+        raise AssertionError("delete versus modify must refuse the merge")
+
+
+def test_merge_materialization_records_only_verified_candidate(tmp_path):
+    project = _project(tmp_path)
+    root = _root(project)
+    left = uj.record_commit(project, parent=root["id"], intent="left",
+                            changes=_move_change("clip_001", 50),
+                            agent="reel_touchup", timeline="Reel 01 - lab")
+    right = uj.record_commit(project, parent=root["id"], intent="right",
+                             changes=_move_change("clip_002", 60),
+                             agent="reel_touchup", timeline="variant")
+    proposal = uj.merge_commits(project, timeline="Reel 01 - lab",
+                                left=left["id"], right=right["id"])
+
+    class Timeline:
+        def __init__(self, name, unique_id):
+            self.name, self.unique_id = name, unique_id
+
+        def GetName(self):
+            return self.name
+
+        def GetUniqueId(self):
+            return self.unique_id
+
+    source = Timeline("Reel 01 - lab", "source-id")
+    candidate = Timeline("merge-candidate", "candidate-id")
+    applied = []
+    result = uj.materialize_merge(
+        project, proposal, source=source, candidate=candidate,
+        revalidate=lambda _source, _candidate, _changes: {
+            "targets": True, "preconditions": True,
+            "base_commit": left["id"]},
+        apply=lambda timeline, changes: applied.extend(changes),
+        verify=lambda _source, _candidate, _changes: {
+            "modified": True, "preserved": True, "native_readback": "read-42",
+            "base_commit": left["id"],
+            "visuals_uncertain": True,
+            "modified_components": ["timeline_structure"],
+            "preserved_components": ["markers", "grades"]},
+        promote=lambda _candidate: {"promoted": ["Reel 01 - lab"]},
+        approve=lambda _evidence: {"approved": True,
+                                   "review_id": "visual-review-1"})
+
+    assert len(applied) == 1
+    assert len(result["artifacts"]["merge_result_changes"]) == 2
+    assert result["artifacts"]["materialization"] == "verified"
+    assert result["parent"] == left["id"]
+    assert result["second_parent"] == right["id"]
+    assert result["result_revision"] == result["revision_id"]
+    assert result["artifacts"]["verification"]["approval"]["approved"]
+
+
 def test_a_fast_forward_merge_is_the_descendant(tmp_path):
     """A chain of touches on one reel merges forward, not refused.
 

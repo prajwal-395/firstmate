@@ -214,12 +214,11 @@ class CommitRecordError(RuntimeError):
 
 
 class MergeConflict(RuntimeError):
-    """Two commits that change the same clip cannot be merged.
+    """Two creative changes cannot be safely composed.
 
-    The conflict is BY NAME: the clips both sides changed are named in
-    the message, so the captain sees what collides, not just that
-    something does. Non-fatal to the touch that caused it - the journal
-    is the way back - but it is RAISED, not swallowed.
+    Conflicts identify the target and affected property where possible.
+    Unidentifiable or ambiguous legacy changes are refused instead of
+    being resolved by clip name.
     """
 
 
@@ -416,6 +415,9 @@ def record_commit(project_folder, *, parent: str | None,
         "evaluation": dict(evaluation or {}),
         "artifacts": dict(artifacts or {}),
     }
+    materialization = content["artifacts"].get("materialization")
+    commit_status = {"semantic_only": "prepared",
+                     "verified": "verified"}.get(materialization, "recorded")
     if second_parent is not None:
         content["second_parent"] = second_parent
     commit_id = _commit_id(content)
@@ -427,6 +429,7 @@ def record_commit(project_folder, *, parent: str | None,
         # the commit it duplicates.
         return read_commit(project_folder, commit_id)
     commit = dict(content)
+    commit["status"] = commit_status
     commit["format"] = COMMIT_FORMAT
     commit["id"] = commit_id
     commit["recorded_at"] = _now()
@@ -445,20 +448,28 @@ def record_commit(project_folder, *, parent: str | None,
     if parent:
         parent_record = read_commit(project_folder, str(parent))
         parent_revision = parent_record.get("revision_id")
+    second_parent_revision = None
+    if second_parent:
+        second_parent_record = read_commit(project_folder, str(second_parent))
+        second_parent_revision = second_parent_record.get("revision_id")
     existing_revision = (creative_revision.get(project_folder, revision_id)
                          if revision_id else None)
     revision = creative_revision.create(
         project_folder, revision_id=revision_id,
         **({} if existing_revision else {
-            "parents": [parent_revision] if parent_revision else (),
+            "parents": [revision for revision in
+                        (parent_revision, second_parent_revision)
+                        if revision],
             "author": str(agent), "intent": str(intent),
             "operations": [dict(change) for change in changes or ()
                            if isinstance(change, Mapping)],
             "affected_entities": [str(timeline)] if timeline else (),
-            "status": "recorded",
+            "status": commit_status,
         }),
         refs={"creative_commit": {"commit_id": commit_id}})
     commit["revision_id"] = revision["revision_id"]
+    if materialization == "verified":
+        commit["result_revision"] = revision["revision_id"]
     store.write_record(path, commit, prefix=".commit-")
     return commit
 
@@ -510,7 +521,8 @@ def latest_commit_for_timeline(project_folder, timeline: str) -> dict | None:
     timeline's history into another's.
     """
     commits = [c for c in list_commits(project_folder)
-               if c.get("timeline") == timeline]
+               if c.get("timeline") == timeline
+               and c.get("status", "recorded") != "prepared"]
     return commits[-1] if commits else None
 
 
@@ -536,6 +548,7 @@ def record_touch_commit(project_folder, *, journal: Mapping,
     before_tracks = (journal.get("before") or {}).get("tracks") or []
     after_tracks = (journal.get("after") or {}).get("tracks") or []
     changes = timeline_diff.diff_timelines(before_tracks, after_tracks)
+    changes = _attach_stable_entities(changes, before_tracks, after_tracks)
     summary = timeline_diff.summarize(changes)
     edits = list((spec or {}).get("edits") or ())
     intent = (str((spec or {}).get("note") or "").strip()
@@ -562,6 +575,49 @@ def record_touch_commit(project_folder, *, journal: Mapping,
         changes=changes, agent="reel_touchup", timeline=timeline,
         evaluation=evaluation, artifacts=artifacts,
         revision_id=journal.get("revision_id"))
+
+
+def _attach_stable_entities(changes: Sequence[Mapping], *track_sets) -> list[dict]:
+    """Carry Resolve item ids into measured commit changes when unique.
+
+    The timeline diff remains the source of changed properties. This
+    adapter adds the live item identity from the before/after reads so
+    later merges do not have to treat a media name as an entity id.
+    """
+    by_row_name: dict[tuple[str, str], list[Mapping]] = {}
+    for tracks in track_sets:
+        for track in tracks or ():
+            kind = str(track.get("type") or "")
+            index = track.get("index")
+            row = ("V" if kind.lower().startswith("v") else "A") + str(index)
+            for clip in track.get("clips") or ():
+                if clip.get("unique_id"):
+                    by_row_name.setdefault(
+                        (row, str(clip.get("name") or "")), []).append(clip)
+
+    enriched = []
+    for change in changes:
+        result = dict(change)
+        row, name = str(change.get("row") or ""), str(change.get("item") or "")
+        states = [state for state in (change.get("before"), change.get("after"))
+                  if isinstance(state, Mapping)]
+        candidates = by_row_name.get((row, name), ())
+        matched = []
+        for clip in candidates:
+            for state in states:
+                pairs = (("start", "record_in"), ("end", "record_out"),
+                         ("source_in", "source_in_frame"),
+                         ("source_out", "source_out_frame"))
+                if all(state.get(state_key) is None
+                       or clip.get(clip_key) == state.get(state_key)
+                       for state_key, clip_key in pairs):
+                    matched.append(str(clip["unique_id"]))
+                    break
+        identities = set(matched)
+        if len(identities) == 1:
+            result["entity_id"] = next(iter(identities))
+        enriched.append(result)
+    return enriched
 
 
 def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
@@ -672,9 +728,9 @@ def revert_commit(project_folder, commit_id: str, note: str = "",
 # branch's timeline starts identical to its base and diverges as it is
 # edited. A merge combines two commits on one timeline: each side's
 # changes since their common ancestor are diffed (the commits' recorded
-# `timeline_diff` changes), and if the changed clip names overlap the
-# merge is refused naming the conflicts. Otherwise the merged changes
-# are the union, recorded as a merge commit with both parents.
+# `timeline_diff` changes); conflicting writes to one entity/property
+# are refused. Otherwise a semantic proposal is recorded with both
+# parents and remains prepared until a candidate is verified.
 
 BRANCH_FORMAT = "creative_branch/1"
 BRANCH_DIRNAME = "branches"
@@ -941,16 +997,257 @@ def _changes_since(project_folder, commit_id: str, ancestor_id: str) -> list:
     return changes
 
 
+def _change_target(change: Mapping) -> tuple | None:
+    """Stable target key for a recorded change, or None when ambiguous."""
+    operation = change.get("operation")
+    operation_id = change.get("algebra_operation")
+    if operation_id and isinstance(operation, Mapping):
+        from library.tools import edit_algebra
+        spec = edit_algebra.ALGEBRA.get(str(operation_id))
+        if spec is not None:
+            key = spec.key(operation)
+            if key and len(key) > 1:
+                target = key[:-1] if operation_id == "clip.set_property" else key
+                return tuple(str(part) for part in target)
+    entity = change.get("entity_id", change.get("unique_id"))
+    if entity:
+        return ("entity", str(entity))
+    # timeline_diff/1 predates native entity ids. Row-qualified names are
+    # kept for compatibility; repeated names are rejected as ambiguous.
+    row, item = change.get("row"), change.get("item")
+    if row and item:
+        return ("legacy", str(row), str(item))
+    return None
+
+
+def _change_properties(change: Mapping) -> frozenset[str]:
+    explicit = change.get("properties")
+    if explicit:
+        return frozenset(str(value) for value in explicit)
+    operation_id = change.get("algebra_operation")
+    operation = change.get("operation")
+    if operation_id and isinstance(operation, Mapping):
+        from library.tools import edit_algebra
+        spec = edit_algebra.ALGEBRA.get(str(operation_id))
+        if spec is not None:
+            key = spec.key(operation)
+            if operation_id == "clip.set_property" and key and len(key) > 1:
+                return frozenset({str(key[-1])})
+            return frozenset({"$write"})
+    return {
+        "move": frozenset({"record_start", "record_end"}),
+        "trim": frozenset({"source_in", "source_out"}),
+        "j_cut": frozenset({"left_offset", "right_offset"}),
+        "remove": frozenset({"$entity"}),
+        "add": frozenset({"$entity"}),
+        "replace": frozenset({"$entity"}),
+    }.get(str(change.get("op") or ""), frozenset({"$unknown"}))
+
+
+def _change_value(change: Mapping, property_name: str):
+    operation_id = change.get("algebra_operation")
+    operation = change.get("operation")
+    if operation_id and isinstance(operation, Mapping):
+        if operation_id == "clip.set_property":
+            return operation.get("value")
+        return {key: value for key, value in operation.items()
+                if key not in {"unique_id"}}
+    if property_name == "$entity":
+        return change.get("after")
+    after = change.get("after") or {}
+    key = {"record_start": "start", "record_end": "end"}.get(
+        property_name, property_name)
+    return after.get(key)
+
+
+def _temporal_effect(change: Mapping) -> str:
+    declared = change.get("temporal_effect")
+    operation_id = change.get("algebra_operation")
+    if operation_id:
+        try:
+            from library.tools import edit_algebra
+            actual = edit_algebra.temporal_effect(str(operation_id))
+        except KeyError:
+            return "unknown"
+        if declared:
+            order = {"local": 0, "ripple": 1, "global": 2}
+            declared = str(declared)
+            if declared not in order or order[declared] < order[actual]:
+                return "unknown"
+            return declared
+        return actual
+    if declared:
+        return str(declared) if declared in {"local", "ripple", "global"} else "unknown"
+    return "local"
+
+
+def _is_frame_addressed(change: Mapping) -> bool:
+    if change.get("frame_addressed") is True:
+        return True
+    operation = change.get("operation")
+    if isinstance(operation, Mapping):
+        return "frame" in operation or "record_frame" in operation
+    return False
+
+
+def _change_frame_span(change: Mapping) -> tuple[int, int] | None:
+    spans = change.get("affected_spans")
+    if spans:
+        try:
+            return min(int(span[0]) for span in spans), max(
+                int(span[1]) for span in spans)
+        except (TypeError, ValueError, IndexError):
+            return None
+    frame = change.get("frame")
+    if frame is None and isinstance(change.get("operation"), Mapping):
+        operation = change["operation"]
+        frame = operation.get("frame", operation.get("record_frame"))
+    if frame is not None:
+        try:
+            frame = int(frame)
+        except (TypeError, ValueError):
+            return None
+        return frame, frame + 1
+    return None
+
+
+def _merge_change_conflicts(left_changes: Sequence[Mapping],
+                            right_changes: Sequence[Mapping]) -> list[dict]:
+    """Compare writes by entity and property, not by clip-name overlap."""
+    conflicts = []
+    left_targets, right_targets = {}, {}
+    for label, changes, index in (("left", left_changes, left_targets),
+                                  ("right", right_changes, right_targets)):
+        for change in changes:
+            target = _change_target(change)
+            if target is None:
+                conflicts.append({"side": label, "entity": None,
+                                  "property": "$identity",
+                                  "reason": "change has no target identity"})
+                continue
+            index.setdefault(target, []).append(change)
+    for target in sorted(set(left_targets) & set(right_targets), key=str):
+        left_rows, right_rows = left_targets[target], right_targets[target]
+        if target[0] == "legacy" and (len(left_rows) > 1 or len(right_rows) > 1):
+            conflicts.append({"entity": target, "property": "$identity",
+                              "reason": "repeated legacy clip name is ambiguous"})
+            continue
+        for left in left_rows:
+            for right in right_rows:
+                left_props = _change_properties(left)
+                right_props = _change_properties(right)
+                if "$unknown" in left_props or "$unknown" in right_props:
+                    conflicts.append({
+                        "entity": target, "property": "$identity",
+                        "reason": "change property semantics are undeclared"})
+                    continue
+                operation_id = left.get("algebra_operation")
+                right_operation_id = right.get("algebra_operation")
+                if operation_id or right_operation_id:
+                    from library.tools import edit_algebra
+                    left_spec = edit_algebra.ALGEBRA.get(str(operation_id))
+                    right_spec = edit_algebra.ALGEBRA.get(str(right_operation_id))
+                    if ((left_spec and left_spec.merge == "exclusive")
+                            or (right_spec and right_spec.merge == "exclusive")):
+                        if (operation_id == right_operation_id
+                                and left.get("operation") == right.get("operation")):
+                            continue
+                        conflicts.append({
+                            "entity": target, "property": "$write",
+                            "reason": "an exclusive algebra operation meets another write"})
+                        continue
+                if "$entity" in left_props or "$entity" in right_props:
+                    if ("$entity" in left_props and "$entity" in right_props
+                            and left.get("op") == right.get("op")
+                            and left.get("after") == right.get("after")):
+                        continue
+                    conflicts.append({
+                        "entity": target, "property": "$entity",
+                        "reason": "delete/add/replace meets a modification"})
+                    continue
+                for prop in sorted(left_props & right_props):
+                    if _change_value(left, prop) != _change_value(right, prop):
+                        conflicts.append({
+                            "entity": target, "property": prop,
+                            "reason": "both branches write different values"})
+    for ripple_side, ripple_changes, frame_changes in (
+            ("left", left_changes, right_changes),
+            ("right", right_changes, left_changes)):
+        for ripple in ripple_changes:
+            effect = _temporal_effect(ripple)
+            if effect in {"unknown", "global"} and frame_changes:
+                conflicts.append({
+                    "entity": _change_target(ripple),
+                    "property": "temporal_effect",
+                    "reason": ("operation has no temporal-effect declaration"
+                               if effect == "unknown" else
+                               "global temporal effect meets another change")})
+                continue
+            if effect != "ripple":
+                continue
+            boundary = ripple.get("ripple_from_frame")
+            if boundary is None:
+                boundary = _change_frame_span(ripple)
+                boundary = boundary[0] if boundary else None
+            if boundary is None and frame_changes:
+                conflicts.append({
+                    "entity": _change_target(ripple),
+                    "property": "temporal_effect",
+                    "reason": "ripple boundary is unavailable for revalidation"})
+                continue
+            for framed in frame_changes:
+                span = _change_frame_span(framed)
+                past_boundary = (span is not None and span[1] > int(boundary))
+                if _is_frame_addressed(framed) and (
+                        span is None or past_boundary):
+                    conflicts.append({
+                        "side": ripple_side,
+                        "entity": _change_target(framed),
+                        "property": "timeline_frame",
+                        "reason": "frame-addressed edit needs re-anchoring after ripple"})
+    return conflicts
+
+
+def _compose_recorded_changes(left_changes: Sequence[Mapping],
+                              right_changes: Sequence[Mapping]) -> list[dict]:
+    """Union independently written properties, dropping identical writes."""
+    merged = [dict(change) for change in left_changes]
+    for change in right_changes:
+        duplicate = any(
+            _change_target(existing) == _change_target(change)
+            and _change_properties(existing) == _change_properties(change)
+            and all(_change_value(existing, prop) == _change_value(change, prop)
+                    for prop in _change_properties(change))
+            for existing in merged)
+        if not duplicate:
+            merged.append(dict(change))
+    return merged
+
+
+def _incoming_changes(left_changes: Sequence[Mapping],
+                      right_changes: Sequence[Mapping]) -> list[dict]:
+    """Changes to apply to a candidate copied from the left parent."""
+    incoming = []
+    for change in right_changes:
+        already_held = any(
+            _change_target(existing) == _change_target(change)
+            and _change_properties(existing) == _change_properties(change)
+            and all(_change_value(existing, prop) == _change_value(change, prop)
+                    for prop in _change_properties(change))
+            for existing in left_changes)
+        if not already_held:
+            incoming.append(dict(change))
+    return incoming
+
+
 def merge_commits(project_folder, *, timeline: str, left: str, right: str,
                   note: str = "", actor=None) -> dict:
     """Merge two commits on one timeline. Returns the merge commit.
 
-    Each side's changes since their common ancestor are diffed (reusing
-    the commits' recorded `timeline_diff` changes). If the changed clip
-    names overlap, the merge is REFUSED naming the conflicts - two
-    commits that change the same clip cannot be silently combined.
-    Otherwise the merged changes are the union, recorded as a merge
-    commit with both parents.
+    Each side's changes since their common ancestor are compared by
+    target and property. The returned merge commit is a semantic proposal
+    only; `materialize_merge` is required before any result is counted as
+    applied.
 
     A fast-forward (one commit is the ancestor of the other) merges to
     the descendant: the merged changes are the descendant's changes
@@ -984,22 +1281,186 @@ def merge_commits(project_folder, *, timeline: str, left: str, right: str,
         # merge brings in, and no conflict is possible.
         descendant = right if common == left else left
         merged = _changes_since(project_folder, descendant, common)
+        incoming = merged
     else:
         left_changes = _changes_since(project_folder, left, common)
         right_changes = _changes_since(project_folder, right, common)
-        left_names = {c.get("item") for c in left_changes if c.get("item")}
-        right_names = {c.get("item") for c in right_changes if c.get("item")}
-        conflicts = sorted(left_names & right_names)
+        conflicts = _merge_change_conflicts(left_changes, right_changes)
         if conflicts:
-            raise MergeConflict(
-                f"conflicting changes to: {', '.join(conflicts)}",
-                conflicts)
-        merged = left_changes + right_changes
+            detail = "; ".join(
+                f"{entry.get('entity')!r}.{entry.get('property')} "
+                f"({entry.get('reason')})" for entry in conflicts)
+            raise MergeConflict(f"conflicting merge writes: {detail}", conflicts)
+        merged = _compose_recorded_changes(left_changes, right_changes)
+        incoming = _incoming_changes(left_changes, right_changes)
     intent = note or f"merge {right[:12]} into {left[:12]}"
     return record_commit(
         project_folder, parent=left, second_parent=right,
         intent=intent, changes=merged, agent="creative_merge",
-        timeline=timeline)
+        timeline=timeline,
+        artifacts={"common_ancestor": common,
+                   "incoming_changes": incoming,
+                   "materialization": "semantic_only"})
+
+
+def _write_merge_candidate(project_folder, proposal_id: str,
+                           lifecycle_record: Mapping,
+                           validation: Mapping | None = None) -> str:
+    import hashlib
+
+    from library.tools.versions import store
+
+    transaction_key = hashlib.sha256(
+        str(lifecycle_record["transaction_id"]).encode("utf-8")).hexdigest()
+    path = os.path.join(str(project_folder), "pipeline_output", "review",
+                        "merge_materializations",
+                        f"{transaction_key}.json")
+    store.write_record(path, {
+        "format": "creative_merge_materialization/1",
+        "proposal_commit": proposal_id,
+        "candidate": dict(lifecycle_record),
+        "validation": dict(validation or {}),
+        "updated_at": _now(),
+    }, prefix=".merge-materialization-")
+    return path
+
+
+def materialize_merge(project_folder, proposal: Mapping, *, source,
+                      candidate, revalidate, apply, verify, promote,
+                      approve=None) -> dict:
+    """Apply a semantic merge to a protected candidate and record proof.
+
+    `revalidate(source, candidate, changes)` confirms stable targets,
+    operation preconditions and the base commit against the merged state.
+    `apply(candidate, changes)` performs the native edit. `verify(source,
+    candidate, changes)` must independently read Resolve back and return
+    modified/preserved component evidence plus a native read-back token.
+    `approve(evidence)` is required when semantic or visual uncertainty is
+    reported. `promote(candidate)` must use the existing guarded promotion path and
+    report the promoted final name. A failed step leaves the proposal
+    semantic-only and never produces an applied merge record.
+    """
+    if proposal.get("agent") != "creative_merge" or not proposal.get("second_parent"):
+        raise MergeConflict("materialization requires a two-parent merge proposal")
+    if (proposal.get("artifacts") or {}).get("materialization") != "semantic_only":
+        raise MergeConflict("merge proposal is already materialized or has unknown status")
+    from library.tools.composed_edit import CandidateLifecycle, promote_candidates
+
+    head = latest_commit_for_timeline(
+        project_folder, str(proposal.get("timeline") or ""))
+    if head is None or head.get("id") != proposal.get("parent"):
+        raise MergeConflict(
+            "merge proposal base is no longer the current recorded timeline head")
+    merge_result = list(proposal.get("changes") or ())
+    changes = list((proposal.get("artifacts") or {}).get(
+        "incoming_changes") or merge_result)
+    lifecycle = CandidateLifecycle.create(
+        source, candidate, str(proposal.get("timeline") or ""), changes)
+    if not lifecycle.source_id or lifecycle.source_id == lifecycle.candidate_id:
+        raise MergeConflict(
+            "merge materialization requires a distinct, identified protected candidate")
+    lifecycle_path = _write_merge_candidate(
+        project_folder, proposal["id"], lifecycle.as_dict())
+    try:
+        validation = revalidate(source, candidate, changes)
+    except Exception as refused:
+        lifecycle.state = "stale"
+        _write_merge_candidate(
+            project_folder, proposal["id"], lifecycle.as_dict(),
+            {"error": str(refused)})
+        raise MergeConflict(
+            f"merge target or precondition revalidation failed ({refused})") \
+            from refused
+    if (not isinstance(validation, Mapping)
+            or validation.get("targets") is not True
+            or validation.get("preconditions") is not True
+            or validation.get("base_commit") != proposal.get("parent")):
+        lifecycle.state = "stale"
+        _write_merge_candidate(project_folder, proposal["id"],
+                               lifecycle.as_dict(),
+                               validation if isinstance(validation, Mapping)
+                               else {})
+        raise MergeConflict(
+            "merge targets or preconditions no longer hold on the candidate base")
+    _write_merge_candidate(project_folder, proposal["id"],
+                           lifecycle.as_dict(), validation)
+    lifecycle.mark_applying()
+    _write_merge_candidate(project_folder, proposal["id"],
+                           lifecycle.as_dict(), validation)
+    try:
+        apply(candidate, changes)
+    except Exception:
+        lifecycle.state = "application_failed"
+        _write_merge_candidate(project_folder, proposal["id"],
+                               lifecycle.as_dict(), validation)
+        raise
+    lifecycle.mark_applied()
+    _write_merge_candidate(project_folder, proposal["id"],
+                           lifecycle.as_dict(), validation)
+    try:
+        evidence = verify(source, candidate, changes)
+    except Exception:
+        lifecycle.state = "verification_failed"
+        _write_merge_candidate(project_folder, proposal["id"],
+                               lifecycle.as_dict(), validation)
+        raise
+    if not isinstance(evidence, Mapping):
+        lifecycle.state = "verification_failed"
+        _write_merge_candidate(project_folder, proposal["id"],
+                               lifecycle.as_dict(), validation)
+        raise MergeConflict("merge verification returned no native read-back evidence")
+    if (evidence.get("modified") is not True
+            or evidence.get("preserved") is not True
+            or not evidence.get("native_readback")
+            or evidence.get("base_commit") != proposal.get("parent")
+            or not evidence.get("modified_components")
+            or not evidence.get("preserved_components")):
+        lifecycle.state = "verification_failed"
+        _write_merge_candidate(project_folder, proposal["id"],
+                               lifecycle.as_dict(), validation)
+        raise MergeConflict(
+            "merge candidate did not prove its base plus modified and preserved native components")
+    if evidence.get("semantics_uncertain") or evidence.get("visuals_uncertain"):
+        approval = approve(evidence) if callable(approve) else None
+        if not isinstance(approval, Mapping) or approval.get("approved") is not True:
+            lifecycle.state = "approval_required"
+            _write_merge_candidate(project_folder, proposal["id"],
+                                   lifecycle.as_dict(), validation)
+            raise MergeConflict(
+                "merge semantics or visuals are uncertain and were not approved")
+        evidence = {**dict(evidence), "approval": dict(approval)}
+    lifecycle.mark_verified(modified=True, preserved=True,
+                            evidence=dict(evidence))
+    _write_merge_candidate(project_folder, proposal["id"],
+                           lifecycle.as_dict(), validation)
+    promotion_result, lifecycle_records = promote_candidates(
+        [lifecycle], lambda: promote(candidate),
+        on_update=lambda records: _write_merge_candidate(
+            project_folder, proposal["id"], records[0], validation))
+    if not lifecycle_records or lifecycle_records[0].get("state") != "promoted":
+        raise MergeConflict("verified merge candidate was not confirmed promoted")
+    promoted = dict(proposal)
+    promoted = record_commit(
+        project_folder, parent=proposal["parent"],
+        second_parent=proposal["second_parent"],
+        intent=str(proposal.get("intent") or "verified creative merge"),
+        changes=changes, agent="creative_merge", timeline=proposal["timeline"],
+        artifacts={
+            "materialization": "verified",
+            "proposal_commit": proposal["id"],
+            "merge_result_changes": merge_result,
+            "candidate_record": lifecycle_path,
+            "candidate": lifecycle_records[0],
+            "verification": dict(evidence),
+            "promotion": promotion_result,
+        })
+    promoted["result_revision"] = promoted["revision_id"]
+    for entry in list_queue_entries(
+            project_folder, status=ENTRY_MATERIALIZATION_REQUIRED):
+        if entry.get("merge_proposal") == proposal.get("id"):
+            complete_merge_queue_entry(project_folder, entry["id"],
+                                       promoted["id"])
+    return promoted
 
 
 # ── Cherry-picks: replay a commit's changes as a new commit ──────
@@ -1189,7 +1650,7 @@ def merge_preview(project_folder, *, left: str, right: str) -> dict:
     compared against the master in one pass, and only the verdict is
     recorded - the merge itself waits for `merge_passing`, which
     re-verifies freshness first. Returns `mergeable` with the merged
-    changes (or the conflicts by name), the common ancestor, and
+    changes (or conflicts by entity and property), the common ancestor, and
     whether the merge is a fast-forward. Unreadable commits propagate
     `UndoRefused` from the read; unmergeable pairs report their reason
     instead of raising, because an evaluation that threw on the first
@@ -1211,26 +1672,29 @@ def merge_preview(project_folder, *, left: str, right: str) -> dict:
                 "conflicts": [], "merged_changes": []}
     if common == left or common == right:
         descendant = right if common == left else left
+        changes = _changes_since(project_folder, descendant, common)
         return {"mergeable": True, "reason": "",
                 "common": common, "fast_forward": True,
                 "conflicts": [],
-                "merged_changes": _changes_since(
-                    project_folder, descendant, common)}
+                "merged_changes": changes, "incoming_changes": changes}
     left_changes = _changes_since(project_folder, left, common)
     right_changes = _changes_since(project_folder, right, common)
-    left_names = {c.get("item") for c in left_changes if c.get("item")}
-    right_names = {c.get("item") for c in right_changes if c.get("item")}
-    conflicts = sorted(left_names & right_names)
+    conflicts = _merge_change_conflicts(left_changes, right_changes)
     if conflicts:
+        detail = "; ".join(
+            f"{entry.get('entity')!r}.{entry.get('property')} "
+            f"({entry.get('reason')})" for entry in conflicts)
         return {"mergeable": False,
-                "reason": f"conflicting changes to: "
-                          f"{', '.join(conflicts)}",
+                "reason": f"conflicting merge writes: {detail}",
                 "common": common, "fast_forward": False,
                 "conflicts": conflicts, "merged_changes": []}
     return {"mergeable": True, "reason": "",
             "common": common, "fast_forward": False,
             "conflicts": [],
-            "merged_changes": left_changes + right_changes}
+            "merged_changes": _compose_recorded_changes(left_changes,
+                                                        right_changes),
+            "incoming_changes": _incoming_changes(left_changes,
+                                                    right_changes)}
 
 
 # ── The merge queue ───────────────────────────────────────────────
@@ -1256,6 +1720,7 @@ QUEUE_FILENAME = "entry.json"
 ENTRY_QUEUED = "queued"
 ENTRY_EVALUATED_PASS = "evaluated_pass"
 ENTRY_EVALUATED_FAIL = "evaluated_fail"
+ENTRY_MATERIALIZATION_REQUIRED = "materialization_required"
 ENTRY_MERGED = "merged"
 ENTRY_REJECTED = "rejected"
 ENTRY_STALE = "stale"
@@ -1473,14 +1938,22 @@ def evaluate_batch(project_folder, entry_ids=None) -> list:
                     "`merge-queue <project> list --status queued`")
     decided = []
     for entry in entries:
+        master = latest_commit_for_timeline(
+            project_folder, entry.get("master_timeline") or "")
+        if master is None:
+            raise QueueRefused(
+                f"master timeline {entry.get('master_timeline')!r} has no head",
+                "a merge evaluation must be based on the current recorded master",
+                "record or recover the master timeline head")
+        entry["master"] = master["id"]
         preview = merge_preview(
-            project_folder, left=entry["master"],
+            project_folder, left=master["id"],
             right=entry["candidate"])
         branch_record = read_branch(project_folder, entry["branch"])
         evaluation = {
             "verdict": "pass" if preview["mergeable"] else "fail",
             "reason": preview.get("reason") or "",
-            "evaluated_master": entry["master"],
+            "evaluated_master": master["id"],
             "common": preview.get("common"),
             "fast_forward": bool(preview.get("fast_forward")),
             "branch_digest": _branch_digest(branch_record),
@@ -1505,18 +1978,18 @@ def evaluate_batch(project_folder, entry_ids=None) -> list:
 
 
 def merge_passing(project_folder, entry_ids=None, actor=None) -> list:
-    """Merge the passing entries into the next version, in order.
+    """Prepare one passing entry for verified materialization.
 
-    Each entry merges against the CURRENT head of its master timeline
-    - re-read per entry, so the head moves as siblings land and a
-    later candidate meets the batch's earlier merges, not the master
-    it was evaluated against. Two gates per entry, in this order:
+    Each entry is checked against the CURRENT head of its master timeline.
+    A pending semantic proposal blocks the next entry until it is
+    materialized; later entries are re-evaluated against the resulting
+    master. Two gates per entry, in this order:
     freshness (the branch digest and tip sequence must read as they
     did at evaluation - a branch that changed after evaluation goes
     stale and waits for a re-evaluation, it never merges); then the
-    merge itself, where a conflict with the moving head rejects THIS
-    entry with the clips named and the batch continues. A merge commit
-    is the next version: both parents recorded, agent creative_merge.
+    merge itself, where a conflict with the current head rejects THIS
+    entry with the entity and property named. A prepared proposal is not
+    a merge commit applied to the master.
     Entries that never passed evaluation refuse by name.
 
     `actor` is the permissions lane's hook: who may merge into the
@@ -1526,6 +1999,14 @@ def merge_passing(project_folder, entry_ids=None, actor=None) -> list:
     """
     from library.tools import event_log
 
+    pending = list_queue_entries(
+        project_folder, status=ENTRY_MATERIALIZATION_REQUIRED)
+    if pending:
+        raise QueueRefused(
+            f"merge proposal {pending[0].get('merge_proposal', '')[:12]} "
+            "needs verified materialization before another queue merge",
+            "a semantic merge record is not an applied timeline",
+            "materialize and verify the candidate, then continue the queue")
     if actor is not None:
         from library.tools import fabric_permissions as _permissions
         _permissions.require(project_folder, actor, _permissions.MERGE,
@@ -1575,6 +2056,19 @@ def merge_passing(project_folder, entry_ids=None, actor=None) -> list:
                 "is gone",
                 "recover the master's commits from the project's git "
                 "history")
+        if evaluation.get("evaluated_master") != head["id"]:
+            entry["status"] = ENTRY_STALE
+            entry["evaluation"]["reason"] = (
+                "the master changed after evaluation - re-evaluate before "
+                "materializing this candidate")
+            _write_queue_entry(project_folder, entry)
+            event_log.emit(
+                str(project_folder), "merge_stale",
+                task=entry.get("submitted_by") or "",
+                entry=entry["id"], branch=entry["branch"],
+                reason=entry["evaluation"]["reason"])
+            merged.append(entry)
+            continue
         try:
             merge_commit = merge_commits(
                 project_folder, timeline=entry.get("master_timeline") or "",
@@ -1596,16 +2090,55 @@ def merge_passing(project_folder, entry_ids=None, actor=None) -> list:
                 reason=reason)
             merged.append(entry)
             continue
-        entry["status"] = ENTRY_MERGED
-        entry["merge_commit"] = merge_commit["id"]
+        entry["status"] = ENTRY_MATERIALIZATION_REQUIRED
+        entry["merge_proposal"] = merge_commit["id"]
         _write_queue_entry(project_folder, entry)
         event_log.emit(
-            str(project_folder), "merge_merged",
+            str(project_folder), "merge_prepared",
             task=entry.get("submitted_by") or "",
             entry=entry["id"], branch=entry["branch"],
-            merge_commit=merge_commit["id"])
+            merge_proposal=merge_commit["id"])
         merged.append(entry)
+        # The current approved master has not moved. One proposal can be
+        # prepared at a time; the next candidate must be re-evaluated after
+        # this one is actually materialized and verified.
+        break
     return merged
+
+
+def complete_merge_queue_entry(project_folder, entry_id: str,
+                               materialized_commit_id: str) -> dict:
+    """Mark a queued merge applied only after verified candidate promotion."""
+    from library.tools import event_log
+
+    entry = read_queue_entry(project_folder, entry_id)
+    if entry.get("status") != ENTRY_MATERIALIZATION_REQUIRED:
+        raise QueueRefused(
+            f"merge queue entry {entry_id[:12]} is {entry.get('status')!r}, "
+            "not awaiting materialization")
+    commit = read_commit(project_folder, materialized_commit_id)
+    artifacts = commit.get("artifacts") or {}
+    proposal = read_commit(project_folder, str(entry.get("merge_proposal") or ""))
+    if (commit.get("agent") != "creative_merge"
+            or commit.get("status") != "verified"
+            or artifacts.get("materialization") != "verified"
+            or artifacts.get("proposal_commit") != entry.get("merge_proposal")
+            or commit.get("parent") != proposal.get("parent")
+            or commit.get("second_parent") != entry.get("candidate")
+            or proposal.get("second_parent") != entry.get("candidate")
+            or not commit.get("result_revision")):
+        raise QueueRefused(
+            "the supplied commit is not the verified result of this merge proposal")
+    entry["status"] = ENTRY_MERGED
+    entry["merge_commit"] = commit["id"]
+    entry["result_revision"] = commit.get("result_revision") or commit.get("revision_id")
+    _write_queue_entry(project_folder, entry)
+    event_log.emit(
+        str(project_folder), "merge_merged",
+        task=entry.get("submitted_by") or "", entry=entry["id"],
+        branch=entry["branch"], merge_commit=commit["id"],
+        result_revision=entry["result_revision"])
+    return entry
 
 
 # ── Capture: the touch's side ────────────────────────────────────
