@@ -778,9 +778,20 @@ def _is_generated(rel_path: str) -> bool:
 
 def _is_recovery_archive_path(rel_path: str) -> bool:
     path = Path(rel_path)
-    return (path.parent == Path("pipeline_output") / "review"
-            / store.DRT_RECOVERY_DIRNAME
-            and path.suffix.lower() == ".drt")
+    recovery_root = (Path("pipeline_output") / "review"
+                     / store.DRT_RECOVERY_DIRNAME)
+    if path.suffix.lower() != ".drt":
+        return False
+    if path.parent == recovery_root:
+        return True
+    try:
+        parts = path.relative_to(recovery_root).parts
+    except ValueError:
+        return False
+    digest = path.stem
+    return (len(parts) == 3 and parts[:2] == ("objects", "sha256")
+            and len(digest) == 64
+            and all(char in "0123456789abcdef" for char in digest))
 
 
 def merge_variations(project_folder: str, source_branch: str,

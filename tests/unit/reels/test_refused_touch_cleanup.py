@@ -335,6 +335,49 @@ def test_the_recovery_archive_export_writes_the_builds_destination(tmp_path):
         "recovery_archives"
     assert relative.suffix == ".drt"
     assert Path(result["path"]).stat().st_size > 0
+    assert result["content_id"] == f"sha256:{result['sha256']}"
+    assert result["bytes"] == Path(result["path"]).stat().st_size
+    assert store.verify_recovery_archive(Path(result["path"]),
+                                         result["content_id"])
+
+
+def test_content_addressed_recovery_archive_is_portable_and_immutable(tmp_path):
+    from library.tools.versions import store
+
+    folder = _bare_folder(tmp_path)
+    source = folder / "candidate.drt"
+    source.write_bytes(b"Resolve archive bytes")
+    published = store.store_recovery_archive_content(source, str(folder))
+    object_path = Path(published["path"])
+
+    assert object_path.is_relative_to(folder)
+    assert object_path.name == published["content_id"].removeprefix(
+        "sha256:") + ".drt"
+    assert store.is_drt_recovery_archive(object_path, folder)
+    assert object_path.read_bytes() == source.read_bytes()
+    assert store.verify_recovery_archive(object_path, published["content_id"])
+
+    object_path.write_bytes(b"corrupt")
+    with pytest.raises(RuntimeError, match="corrupt"):
+        store.store_recovery_archive_content(source, str(folder))
+
+
+def test_version_archive_receipt_cannot_be_replaced(tmp_path):
+    from library.tools.versions import reel_versions, store
+
+    folder = _bare_folder(tmp_path)
+    archive = folder / "timeline.drt"
+    archive.write_bytes(b"archive")
+    receipt = {"path": str(archive),
+               "content_id": store.recovery_archive_content_id(archive)}
+    entry = reel_versions.record(folder, "Reel 01", kind="build", rows={})
+    reel_versions.attach_recovery_archive(
+        folder, "Reel 01", entry["version"], receipt)
+
+    with pytest.raises(reel_versions.ReelVersionsUnreadable,
+                       match="immutable recovery archive receipt"):
+        reel_versions.attach_recovery_archive(
+            folder, "Reel 01", entry["version"], {"path": "replacement"})
 
 
 def test_custom_script_recovery_archives_keep_each_run(tmp_path):

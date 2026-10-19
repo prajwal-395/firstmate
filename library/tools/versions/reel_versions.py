@@ -187,6 +187,19 @@ def attach_recovery_archive(project_folder, final: str, version: int,
     history = list(document["reels"].get(final) or ())
     for entry in history:
         if int(entry.get("version", 0)) == int(version):
+            prior = entry.get("recovery_archive")
+            if prior is not None and dict(prior) != dict(receipt):
+                raise ReelVersionsUnreadable(
+                    f"{final!r} version {version} already has an immutable "
+                    "recovery archive receipt.")
+            content_id = receipt.get("content_id")
+            archive_path = receipt.get("path") or receipt.get("archive_path")
+            if (content_id is not None
+                    and (not archive_path or not store.verify_recovery_archive(
+                        archive_path, content_id))):
+                raise ReelVersionsUnreadable(
+                    f"{final!r} version {version} recovery archive "
+                    "does not match its content identity.")
             entry["recovery_archive"] = dict(receipt)
             document["reels"][final] = history
             _write(project_folder, document)

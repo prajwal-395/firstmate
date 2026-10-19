@@ -253,14 +253,79 @@ def is_committable_text(path: Path) -> bool:
 
 
 def is_drt_recovery_archive(path: Path, project_root: Path) -> bool:
-    """Whether this is one of the explicitly committed reel recovery files."""
+    """Whether this is an explicitly committed recovery archive object."""
     try:
         relative = path.relative_to(project_root)
     except ValueError:
         return False
-    return (relative.parent == Path("pipeline_output") / "review"
-            / DRT_RECOVERY_DIRNAME
-            and relative.suffix.lower() == ".drt")
+    recovery_root = Path("pipeline_output") / "review" / DRT_RECOVERY_DIRNAME
+    if relative.suffix.lower() != ".drt":
+        return False
+    if relative.parent == recovery_root:
+        return True
+    parts = relative.parts[len(recovery_root.parts):]
+    digest = Path(parts[-1]).stem if len(parts) == 3 else ""
+    return (len(parts) == 3 and parts[:2] == ("objects", "sha256")
+            and len(digest) == 64
+            and all(char in "0123456789abcdef" for char in digest))
+
+
+def recovery_archive_content_id(path: Path) -> str:
+    """Return the immutable SHA-256 identity of a non-empty recovery archive."""
+    digest = _sha256(Path(path))
+    if Path(path).stat().st_size == 0:
+        raise ValueError("Resolve recovery archive is empty")
+    return f"sha256:{digest}"
+
+
+def verify_recovery_archive(path: Path, content_id: str) -> bool:
+    """Check a portable archive against its recorded content identity."""
+    if not isinstance(content_id, str) or not content_id.startswith("sha256:"):
+        return False
+    try:
+        return recovery_archive_content_id(Path(path)) == content_id
+    except OSError:
+        return False
+
+
+def store_recovery_archive_content(path: Path, project_folder: str) -> dict:
+    """Optionally publish an archive into the project's immutable CAS.
+
+    The ordinary named `.drt` export remains the recovery path. This
+    content-addressed copy is opt-in so existing repositories and recovery
+    behavior do not change until its storage trade-offs are accepted.
+    """
+    source = Path(path)
+    content_id = recovery_archive_content_id(source)
+    digest = content_id.removeprefix("sha256:")
+    root = Path(project_folder) / "pipeline_output" / "review" / \
+        DRT_RECOVERY_DIRNAME / "objects" / "sha256"
+    root.mkdir(parents=True, exist_ok=True)
+    destination = root / f"{digest}.drt"
+    if destination.exists():
+        if not verify_recovery_archive(destination, content_id):
+            raise RuntimeError(
+                f"content-addressed recovery object is corrupt: {destination}")
+    else:
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=root, prefix=".drt-object-",
+                                         delete=False) as handle:
+            temporary = Path(handle.name)
+        try:
+            import shutil
+            shutil.copyfile(source, temporary)
+            if not verify_recovery_archive(temporary, content_id):
+                raise RuntimeError("recovery archive changed while copying")
+            try:
+                os.link(temporary, destination)
+            except FileExistsError:
+                if not verify_recovery_archive(destination, content_id):
+                    raise RuntimeError(
+                        f"content-addressed recovery object is corrupt: {destination}")
+        finally:
+            temporary.unlink(missing_ok=True)
+    return {"content_id": content_id, "path": str(destination),
+            "bytes": destination.stat().st_size}
 
 
 def _recovery_archive_stem(timeline_name: str) -> str:
@@ -359,7 +424,10 @@ def export_timeline_recovery_archive(
             if staged.stat().st_size == 0:
                 raise RuntimeError("Resolve left an empty .drt file")
             os.replace(staged, destination)
-        result.update({"archived": True, "path": str(destination)})
+        result.update({"archived": True, "path": str(destination),
+                       "content_id": recovery_archive_content_id(destination),
+                       "sha256": _sha256(destination),
+                       "bytes": destination.stat().st_size})
     except Exception as exc:  # noqa: BLE001 - preserve promotion
         result["reason"] = f"DRT export failed: {exc!r}"
     return result
@@ -478,6 +546,8 @@ def _export_reel_recovery_archives(
                     "timeline_id": timeline_id,
                     "archive_path": str(archive_path),
                     "archive_sha256": _sha256(archive_path),
+                    "content_id": recovery_archive_content_id(archive_path),
+                    "archive_bytes": archive_path.stat().st_size,
                     "inventory_sha256": hashlib.sha256(json.dumps(
                         snapshot, sort_keys=True, separators=(",", ":"),
                         ensure_ascii=False, default=str).encode(
