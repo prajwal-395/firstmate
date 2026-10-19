@@ -85,6 +85,10 @@ def test_undo_plan_names_touch_inverse_and_refusal_for_incompatible_changes(
         tmp_path):
     folder = tmp_path / "project"
     folder.mkdir()
+    (folder / "project.yaml").write_text(
+        "slug: undo-test\nname: Undo Test\n"
+        "resolve:\n  project_name: undo-test\n",
+        encoding="utf-8")
     rows = {"video:Semantic": [{"name": "first", "start": 0,
                                 "end": 10}]}
     reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
@@ -427,6 +431,11 @@ def test_undo_refuses_to_replay_a_caption_with_unreadable_source_trim(
 
 
 def _write_plan(folder, reel_one_end):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "project.yaml").write_text(
+        "slug: undo-test\nname: Undo Test\n"
+        "resolve:\n  project_name: undo-test\n",
+        encoding="utf-8")
     path = folder / "pipeline_output" / "review" / "reel_proposals_v2.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     moments = [

@@ -12396,7 +12396,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     for final, rows in sorted(rows_by_final.items()):
         existing = _versions.versions_of(project_folder, final)
         transaction_entry = next((entry for entry in existing
-                                  if entry.get("promotion_transaction_id")
+                                  if transaction_id is not None
+                                  and entry.get("promotion_transaction_id")
                                   == transaction_id), None)
         if transaction_entry is not None:
             written.append(transaction_entry)

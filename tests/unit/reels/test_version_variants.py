@@ -604,7 +604,8 @@ def test_a_built_variant_records_what_it_contains(project_folder):
     entry = choice.build_for(project_folder, 9, " (j-cut)")
     assert entry["timeline"] == JCUT
     assert entry["watch"] == "the join under the question"
-    assert entry["rows"]["video:V1"]["count"] == 2
+    assert entry["rows_digest"] == choice.rounds.digest_rows(rows(2))
+    assert choice._rows_for_build(project_folder, entry)["video:V1"]["count"] == 2
     written = pathlib.Path(choice.builds_path_for(project_folder))
     assert json.loads(written.read_text(encoding="utf-8"))["builds"][JCUT]["reel"] == 9
     # Rebuilding replaces the record: two row snapshots for one live
@@ -612,7 +613,10 @@ def test_a_built_variant_records_what_it_contains(project_folder):
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(7))
     assert len(choice.builds_for_reel(project_folder, 9)) == 1
     assert (
-        choice.build_for(project_folder, 9, " (j-cut)")["rows"]["video:V1"]["count"]
+        choice._rows_for_build(
+            project_folder,
+            choice.build_for(project_folder, 9, " (j-cut)"),
+        )["video:V1"]["count"]
         == 7
     )
 
@@ -906,6 +910,8 @@ def test_the_collected_names_are_read_before_the_delete(project_folder):
     older = f"{JCUT} (archived round 001)"
     choice.record_build(project_folder, 9, REEL, " (tight)", rows(1))
     choice.record_build(project_folder, 9, REEL, " (loose)", rows(1))
+    choice.record_approval(project_folder, 9, " (loose)",
+                           "the loose framing breathes")
     project = _project(
         [
             FakeTimeline(REEL),
@@ -946,6 +952,8 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected(project_fol
     older = f"{JCUT} (archived round 001)"
     choice.record_build(project_folder, 9, REEL, " (tight)", rows(1))
     choice.record_build(project_folder, 9, REEL, " (loose)", rows(1))
+    choice.record_approval(project_folder, 9, " (loose)",
+                           "the loose framing breathes")
     project = _project(
         [
             FakeTimeline(REEL),
@@ -1061,7 +1069,8 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     assert "lands the joke" in entry["choice"]["why"]
     # The round carries the CHOSEN cut's rows, so the next round can be
     # diffed against it with Resolve closed.
-    assert entry["rows"]["video:V1"]["count"] == 4
+    assert entry["rows_digest"] == choice.rounds.digest_rows(rows(4))
+    assert entry["row_count"] == 1
     assert "lands the joke" in choice.render_choice(report)
     # The build record stops claiming what is no longer alive.
     assert choice.builds_for_reel(project_folder, 9) == []

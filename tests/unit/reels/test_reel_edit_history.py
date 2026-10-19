@@ -102,7 +102,8 @@ class TestAppendOnlyHistory:
             "ren", "ren", "ren", "captain"]
         assert entries[0]["plan_version"] == {
             "plan_content_hash": "abc"}
-        assert entries[1]["refs"] == {"version": 1}
+        assert entries[1]["refs"]["version"] == 1
+        assert entries[1]["refs"]["revision_id"]
         assert entries[3]["frame_delta"] == -575
 
     def test_recording_never_overwrites(self, tmp_path):

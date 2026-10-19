@@ -200,7 +200,11 @@ BLIND_SPOT_TEXT = (
 
 def gitignore_body() -> str:
     """Render the allow-list .gitignore."""
-    return GITIGNORE_HEADER + "*\n" + "".join(f"!{p}\n" for p in ALLOW_LIST)
+    return (GITIGNORE_HEADER + "*\n"
+            + "".join(f"!{p}\n" for p in ALLOW_LIST)
+            # Advisory lock files coordinate project-local declarations;
+            # they are process state, never versioned project data.
+            + "/pipeline_output/review/*.lock\n")
 
 
 # ── Text-first staging (D7, with the approved `.drt` exception) ────

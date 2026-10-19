@@ -303,8 +303,11 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     built_with = dict((provenance or {}).get("built_with") or {})
     for final, rows in (rows_by_final or {}).items():
         choice = (choices or {}).get(final)
-        revision_id = str((choice or {}).get("revision_id") or
-                          uuid.uuid4())
+        chosen_revision_id = str((choice or {}).get("revision_id") or "")
+        # A choice is a new promoted state whose parent is the approved
+        # variant build. Reusing the build's id would mutate its intent and
+        # operations, violating immutable revision identity.
+        revision_id = str(uuid.uuid4())
         entry = {
             "promoted_at": moment,
             "built_at": built_at.get(final, ""),
@@ -322,10 +325,10 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
 
         creative_revision.create(
             project_folder, revision_id=revision_id,
-            # This is the same canonical revision that the per-reel
-            # version ledger links below. Keep identity-defining facts
-            # identical there: a round and a reel version are two indexes
-            # of one promotion, not competing descriptions of it.
+            parents=[chosen_revision_id] if chosen_revision_id else (),
+            # A regular build uses the canonical revision that the per-reel
+            # version ledger links below. A choice instead gets its own
+            # promotion revision with the approved build as its parent.
             intent="variant choice" if choice else "build",
             operations=[{"kind": "choice" if choice else "build"}],
             affected_entities=[str(final)],

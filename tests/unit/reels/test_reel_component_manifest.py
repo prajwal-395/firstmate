@@ -46,11 +46,17 @@ def _assembly(final: str) -> dict:
 
 def _project_with_assembly(tmp_path, final: str = FINAL) -> object:
     from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_look import _slug
 
     layout = ProjectLayout(str(tmp_path))
     _write(
         layout.read_path(Area.ASSEMBLY_MANIFEST, "assembly_manifest.json"),
         _assembly(final),
+    )
+    _write(
+        layout.read_dir(Area.SCRATCH) / "reel_look" /
+        f"{_slug(final)}_fusion_manifest.json",
+        {"format": "fusion_manifest/1", "tracks": []},
     )
     return layout
 

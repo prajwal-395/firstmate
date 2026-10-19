@@ -1849,10 +1849,11 @@ def test_commit_nodes_carry_each_commit_with_its_lineage(tmp_path,
     project = _graph_project(tmp_path, monkeypatch)
     first = _record_commit(project, "Reel 1", "tighten opening",
                            _move("clip_001"))
+    second = _record_commit(project, "Reel 1", "trim tail",
+                            _move("clip_002"), parent=first["id"])
     merged = uj.merge_commits(
         str(project), timeline="Reel 1", left=first["id"],
-        right=_record_commit(project, "Reel 1", "trim tail",
-                             _move("clip_002"), parent=first["id"])["id"])
+        right=second["id"])
     reverted = uj.revert_commit(str(project), first["id"])
 
     graph = project_graph.build_graph(str(project))
@@ -1863,7 +1864,10 @@ def test_commit_nodes_carry_each_commit_with_its_lineage(tmp_path,
     assert nodes[first["id"]]["payload"]["timeline"] == "Reel 1"
     assert nodes[first["id"]]["payload"]["change_counts"] == {"move": 1}
     assert nodes[merged["id"]]["payload"]["second_parent"] is not None
-    assert nodes[reverted["id"]]["payload"]["parent"] == merged["id"]
+    # A semantic merge proposal is prepared evidence, not a materialized
+    # timeline head. Revert follows the verified second commit until the
+    # proposal is materialized.
+    assert nodes[reverted["id"]]["payload"]["parent"] == second["id"]
     assert nodes[reverted["id"]]["payload"]["agent"] == "creative_revert"
 
 

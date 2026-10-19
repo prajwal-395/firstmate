@@ -236,7 +236,27 @@ def _scan_collection(lines: list[str], collection: str,
         event = json.loads(line)
         payload = event.get("payload") or {}
         row = None
-        for candidate in payload.get(collection, []) or []:
+        touched_collection = False
+        candidates = (payload.get(collection, [])
+                      if isinstance(payload, dict) else [])
+        if event.get("kind") == "record_changes" and isinstance(payload, list):
+            touched_collection = any(
+                isinstance(change, dict)
+                and change.get("collection") == collection
+                for change in payload)
+            candidates = [change.get("record") for change in payload
+                          if isinstance(change, dict)
+                          and change.get("collection") == collection
+                          and change.get("id") == row_id
+                          and change.get("operation") != "delete"]
+            deleted = any(isinstance(change, dict)
+                          and change.get("collection") == collection
+                          and change.get("id") == row_id
+                          and change.get("operation") == "delete"
+                          for change in payload)
+        else:
+            deleted = False
+        for candidate in candidates or []:
             if isinstance(candidate, dict) and candidate.get("id") == row_id:
                 row = candidate
         if event.get("kind") == "replace" and row is None:
@@ -255,6 +275,21 @@ def _scan_collection(lines: list[str], collection: str,
                               "change": "removed"})
                 last_hash = None
                 gone = True
+            elif row is None and deleted and last_hash is not None and not gone:
+                chain.append({"revision": event.get("revision"),
+                              "event_hash": event.get("event_hash"),
+                              "author": event.get("author"),
+                              "reason": event.get("reason"),
+                              "change": "removed"})
+                last_hash = None
+                gone = True
+            elif (row is None and touched_collection and last_hash is not None
+                  and not gone):
+                chain.append({"revision": event.get("revision"),
+                              "event_hash": event.get("event_hash"),
+                              "author": event.get("author"),
+                              "reason": event.get("reason"),
+                              "change": "carried"})
             continue
         digest = _row_digest(row)
         change = "added" if last_hash is None else (
@@ -314,10 +349,34 @@ def observation_history(project: Path, obs_id: str) -> list[dict[str, Any]]:
         event = json.loads(line)
         payload = event.get("payload") or {}
         rows: dict[str, dict] = {}
-        for key in ("observations", "events", "provenance"):
-            for row in payload.get(key, []) or []:
-                if isinstance(row, dict) and isinstance(row.get("id"), str):
-                    rows[row["id"]] = row
+        if isinstance(payload, dict):
+            for key in ("observations", "events", "provenance"):
+                for row in payload.get(key, []) or []:
+                    if isinstance(row, dict) and isinstance(row.get("id"), str):
+                        rows[row["id"]] = row
+        deleted = (event.get("kind") == "record_changes"
+                   and isinstance(payload, list)
+                   and any(isinstance(change, dict)
+                           and change.get("collection") in
+                           ("observations", "events", "provenance")
+                           and change.get("id") == obs_id
+                           and change.get("operation") == "delete"
+                           for change in payload))
+        touched_collection = (event.get("kind") == "record_changes"
+                              and isinstance(payload, list)
+                              and any(isinstance(change, dict)
+                                      and change.get("collection") in
+                                      ("observations", "events", "provenance")
+                                      for change in payload))
+        if (event.get("kind") == "record_changes" and isinstance(payload, list)):
+            for change in payload:
+                if (isinstance(change, dict)
+                        and change.get("collection") in
+                        ("observations", "events", "provenance")
+                        and change.get("id") == obs_id
+                        and change.get("operation") != "delete"
+                        and isinstance(change.get("record"), dict)):
+                    rows[obs_id] = change["record"]
         if event.get("kind") == "replace" and obs_id not in rows:
             model = payload if isinstance(payload, dict) else {}
             for collection in ("observations", "events", "provenance"):
@@ -337,6 +396,20 @@ def observation_history(project: Path, obs_id: str) -> list[dict[str, Any]]:
                                   "change": "removed"})
                     last_hash = None
                     gone = True
+            elif deleted and last_hash is not None and not gone:
+                chain.append({"revision": event.get("revision"),
+                              "event_hash": event.get("event_hash"),
+                              "author": event.get("author"),
+                              "reason": event.get("reason"),
+                              "change": "removed"})
+                last_hash = None
+                gone = True
+            elif touched_collection and last_hash is not None and not gone:
+                chain.append({"revision": event.get("revision"),
+                              "event_hash": event.get("event_hash"),
+                              "author": event.get("author"),
+                              "reason": event.get("reason"),
+                              "change": "carried"})
             continue
         digest = hashlib.sha256(json.dumps(
             rows[obs_id], sort_keys=True, separators=(",", ":"),

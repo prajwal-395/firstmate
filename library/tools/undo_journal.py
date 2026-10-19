@@ -2935,7 +2935,7 @@ def _connect(resolve_name: str):
 
 def _resolve_name(project_folder: str) -> str:
     from library.tools.project_registry import get_project
-    return get_project(project_folder).resolve.project_name
+    return get_project(str(project_folder)).resolve.project_name
 
 
 def undo_touch(project_folder: str, entry_id: str, *, connect=None,
@@ -4229,8 +4229,15 @@ def explain_undo(project_folder: str, *, final: str = "", act: str = "",
                 "editor_changes_authorized": False})
             continue
         history = reel_versions.versions_of(project_folder, name)
+        prior = (reel_versions.state_before(
+            project_folder, name, int(target["version"]))
+                 if kind != "touch" else None)
+        lower_bound = (int(prior["version"]) if prior else
+                       int(target["version"]))
         later = [entry for entry in history
-                 if int(entry["version"]) > int(target["version"])]
+                 if lower_bound <= int(entry["version"]) < int(target["version"])
+                 or (kind == "touch"
+                     and int(entry["version"]) > int(target["version"]))]
         intervening = [
             {"version": int(entry["version"]), "kind": entry["kind"],
              "status": ("already reversed" if entry.get("undone_by")
@@ -4242,8 +4249,6 @@ def explain_undo(project_folder: str, *, final: str = "", act: str = "",
                        "outside the inverse projection; otherwise refuses")
             entry_id = (journal or {}).get("id") or target.get("journal")
         else:
-            prior = reel_versions.state_before(
-                project_folder, name, int(target["version"]))
             mechanism = "semantic replay of the prior plan and later live touches"
             if prior and isinstance(prior.get("recovery_archive"), Mapping):
                 mechanism += "; verified native archive is the fallback"

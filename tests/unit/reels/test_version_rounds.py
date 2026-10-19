@@ -100,10 +100,9 @@ def _rows(count, frames):
         "count": count, "frames": frames}}
 
 
-def test_a_promotion_stamps_the_round_with_the_rows_it_promoted(tmp_path):
-    """The rows are the payload that makes a round diff free: stored
-    here, `versions.rounds` answers off disk with no Resolve and long after
-    the timeline itself has been retired and collected."""
+def test_a_promotion_stamps_the_round_with_a_rows_reference(tmp_path):
+    """Round stamps retain compact row summaries; immutable snapshots
+    are addressed by digest instead of copying timeline rows into rounds."""
     project = tmp_path / "project"
     (project / "pipeline_output" / "review").mkdir(parents=True)
     stamped = rv.stamp_promotion(
@@ -114,11 +113,15 @@ def test_a_promotion_stamps_the_round_with_the_rows_it_promoted(tmp_path):
     entry = stamped["reels"]["Reel 09 - x"]
     assert entry["source"] == rv.SOURCE_STAMPED
     assert entry["built_with"] == "abc123"
-    assert entry["rows"]["video:SpeakerOne"]["count"] == 3
+    assert entry["row_count"] == 1
+    assert entry["item_count"] == 3
+    assert entry["rows_digest"] == rv.digest_rows(_rows(3, 30))
+    assert "rows" not in entry
 
     document = rv.read_rounds(str(project))
-    assert document["rounds"][-1]["reels"]["Reel 09 - x"]["rows"] \
-        ["video:SpeakerOne"]["frames"] == 30
+    stamped_entry = document["rounds"][-1]["reels"]["Reel 09 - x"]
+    assert stamped_entry["rows_digest"] == entry["rows_digest"]
+    assert "rows" not in stamped_entry
 
 
 def test_an_unreadable_rounds_file_refuses_rather_than_starting_empty(
