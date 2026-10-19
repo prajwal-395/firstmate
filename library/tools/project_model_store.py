@@ -6,8 +6,8 @@ deterministic, atomically replaced cache which can always be replayed.
 """
 from __future__ import annotations
 
-import fcntl
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -38,6 +38,8 @@ def _file_signature(path: Path) -> tuple | None:
 STORE_DIR = "project_model"
 EVENTS_FILE = "events.jsonl"
 SNAPSHOT_FILE = "snapshot.json"
+CHECKPOINT_FILE = "checkpoint.json"
+CHECKPOINT_INTERVAL = 32
 PARITY_FILE = "parity-report.json"
 PIPELINE_PROJECTION_KEY = "project_model_projection"
 EVIDENCE_COLLECTIONS = (
@@ -46,6 +48,11 @@ EVIDENCE_COLLECTIONS = (
     "interpretations", "coordinate_spaces", "time_transforms", "space_transforms",
     "query_results", "evaluation_policies", "provenance",
 )
+
+_COLLECTION_KEYS = frozenset(EVIDENCE_COLLECTIONS) | frozenset({
+    "clocks", "clip_uses", "edits", "effects", "frame_maps", "intents",
+    "nle_bindings", "receipts", "renders", "timeline_states",
+})
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -153,6 +160,28 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
     return events
 
 
+def _read_events_after(path: Path, *, revision: int, head_hash: str,
+                      offset: int) -> list[dict[str, Any]]:
+    """Read and verify only the event suffix anchored by a trusted checkpoint."""
+    result = []
+    previous = head_hash
+    with path.open("rb") as stream:
+        stream.seek(offset)
+        for expected_revision, raw in enumerate(stream, revision + 1):
+            if not raw.strip():
+                continue
+            event = json.loads(raw.decode("utf-8"))
+            digest = event.pop("event_hash", None)
+            if event.get("revision") != expected_revision or event.get("previous_hash") != previous:
+                raise ValueError(f"broken project model event chain at revision {expected_revision}")
+            if digest != hashlib.sha256(_json_bytes(event)).hexdigest():
+                raise ValueError(f"project model event hash mismatch at revision {expected_revision}")
+            event["event_hash"] = digest
+            previous = digest
+            result.append(event)
+    return result
+
+
 def _apply_patch(model: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     result = dict(model)
     for key, value in patch.items():
@@ -172,6 +201,8 @@ def _replay(events: list[dict[str, Any]], *, verified: bool = False) -> dict[str
             model = event["payload"]
         elif event["kind"] == "merge_patch" and model is not None:
             model = _apply_patch(model, event["payload"])
+        elif event["kind"] == "record_changes" and model is not None:
+            model = _apply_record_changes(model, event["payload"])
         else:
             raise ValueError(f"invalid event kind or order at revision {event['revision']}")
     # One validation for the replayed model, not one per event: every
@@ -198,6 +229,68 @@ def _replay(events: list[dict[str, Any]], *, verified: bool = False) -> dict[str
                     if len(_validated_heads) > _VALIDATED_HEAD_LIMIT:
                         _validated_heads.popitem(last=False)
     return model
+
+
+def _replay_suffix(model: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    for event in events:
+        if event["kind"] == "replace":
+            model = event["payload"]
+        elif event["kind"] == "merge_patch":
+            model = _apply_patch(model, event["payload"])
+        elif event["kind"] == "record_changes":
+            model = _apply_record_changes(model, event["payload"])
+        else:
+            raise ValueError(f"invalid event kind at revision {event['revision']}")
+    validate_project_model(model)
+    return model
+
+
+def _apply_record_changes(model: dict[str, Any], changes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Apply stable-ID collection edits while preserving canonical row order."""
+    result = dict(model)
+    for change in changes:
+        collection = change["collection"]
+        operation = change["operation"]
+        record_id = change["id"]
+        rows = {row["id"]: row for row in result.get(collection, [])}
+        if operation == "delete":
+            if record_id not in rows:
+                raise ValueError(f"record {record_id!r} does not exist in {collection}")
+            del rows[record_id]
+        elif operation in ("append", "update"):
+            record = change["record"]
+            if operation == "append" and record_id in rows:
+                raise ValueError(f"record {record_id!r} already exists in {collection}")
+            if operation == "update" and record_id not in rows:
+                raise ValueError(f"record {record_id!r} does not exist in {collection}")
+            if record["id"] != record_id:
+                raise ValueError("record change id must match record id")
+            rows[record_id] = record
+        else:
+            raise ValueError(f"unknown record operation {operation!r}")
+        result[collection] = [rows[key] for key in sorted(rows)]
+    return result
+
+
+def _event_scopes(event: dict[str, Any]) -> set[tuple[str, str | None]]:
+    """Return conservative write scopes; legacy collection patches overlap all rows."""
+    if event["kind"] == "record_changes":
+        return {(change["collection"], change["id"])
+                for change in event["payload"]}
+    if event["kind"] == "merge_patch":
+        return {(key, None) for key in event["payload"]}
+    if event["kind"] == "replace":
+        return {("*", None)}
+    return {("*", None)}
+
+
+def _scopes_overlap(left: set[tuple[str, str | None]],
+                    right: set[tuple[str, str | None]]) -> bool:
+    return any(a_collection == "*" or b_collection == "*"
+               or (a_collection == b_collection
+                   and (a_id is None or b_id is None or a_id == b_id))
+               for a_collection, a_id in left
+               for b_collection, b_id in right)
 
 
 #: Collections small enough to ride a sidecar: the routing cascade
@@ -257,23 +350,23 @@ def _reel_projection(model: dict[str, Any]) -> dict[str, Any]:
             for key in REEL_SCOPED_COLLECTIONS}
 
 
-def _write_snapshot(path: Path, events: list[dict[str, Any]], model: dict[str, Any]) -> None:
+def _write_snapshot(path: Path, events: list[dict[str, Any]], model: dict[str, Any],
+                    *, revision: int | None = None) -> None:
     # Every caller holds the store lock and passes the model it just
     # validated, so recording its hash extends that verdict to future
     # processes: see VALIDATED_MODELS_FILE.
+    revision = len(events) if revision is None else revision
     model_hash = hashlib.sha256(_json_bytes(model)).hexdigest()
     _atomic_write(path, _json_bytes({
-        "revision": len(events),
+        "revision": revision,
         "head_hash": events[-1]["event_hash"],
         "model": model,
         "model_hash": model_hash,
     }))
     _record_validated_model(path.parent, model_hash)
-    _atomic_write(path.with_name(REEL_PROJECTION_FILE), _json_bytes({
-        "revision": len(events),
-        "head_hash": events[-1]["event_hash"],
-        "collections": _reel_projection(model),
-    }))
+    _write_reel_projection(path, revision, events[-1]["event_hash"], model)
+    _write_checkpoint(path, events[-1], model,
+                      force=not path.with_name(CHECKPOINT_FILE).exists())
     # Every caller has just validated this exact model while holding
     # the store lock. Preserve that verdict for the head we wrote too,
     # not only heads subsequently loaded from disk.
@@ -284,11 +377,55 @@ def _write_snapshot(path: Path, events: list[dict[str, Any]], model: dict[str, A
         head = (events[-1]["event_hash"], validate_project_model)
         _validated_heads[head] = None
         _validated_heads.move_to_end(head)
-        _verified_revisions[key] = len(events)
+        _verified_revisions[key] = revision
         _verified_revisions.move_to_end(key)
         for cache in (_validated_heads, _verified_revisions):
             if len(cache) > _VALIDATED_HEAD_LIMIT:
                 cache.popitem(last=False)
+
+
+def _write_reel_projection(snapshot_path: Path, revision: int, head_hash: str,
+                           model: dict[str, Any]) -> None:
+    _atomic_write(snapshot_path.with_name(REEL_PROJECTION_FILE), _json_bytes({
+        "revision": revision, "head_hash": head_hash,
+        "collections": _reel_projection(model),
+    }))
+
+
+def _write_checkpoint(snapshot_path: Path, head: dict[str, Any],
+                      model: dict[str, Any], *, force: bool = False) -> None:
+    revision = head["revision"]
+    checkpoint_path = snapshot_path.with_name(CHECKPOINT_FILE)
+    if revision % CHECKPOINT_INTERVAL and not force and checkpoint_path.exists():
+        return
+    events_path = snapshot_path.with_name(EVENTS_FILE)
+    payload = {"revision": revision, "head_hash": head["event_hash"],
+               "event_offset": events_path.stat().st_size,
+               "model": model,
+               "model_hash": hashlib.sha256(_json_bytes(model)).hexdigest()}
+    payload["checkpoint_hash"] = hashlib.sha256(_json_bytes(payload)).hexdigest()
+    _atomic_write(checkpoint_path, _json_bytes(payload))
+
+
+def migrate_project_model_checkpoint(project: Path) -> int:
+    """Create an acceleration checkpoint without modifying historical events."""
+    events_path, snapshot_path, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        events = _read_events(events_path)
+        if not events:
+            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+        model = _replay(events, verified=True)
+        if model is None:
+            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
+        payload = {"revision": len(events), "head_hash": events[-1]["event_hash"],
+                   "event_offset": events_path.stat().st_size, "model": model,
+                   "model_hash": hashlib.sha256(_json_bytes(model)).hexdigest()}
+        payload["checkpoint_hash"] = hashlib.sha256(_json_bytes(payload)).hexdigest()
+        _atomic_write(snapshot_path.with_name(CHECKPOINT_FILE), _json_bytes(payload))
+        _record_validated_model(snapshot_path.parent, payload["model_hash"])
+        return len(events)
 
 
 def load_project_model(project: Path) -> tuple[int, dict[str, Any]]:
@@ -368,6 +505,55 @@ def _load_locked(events_path: Path, snapshot_path: Path
                 # already caller-owned: no deepcopy, no shared cache.
                 return (snapshot["revision"], snapshot["model"],
                         snapshot["head_hash"])
+    # A checkpoint is a verified replay boundary. It keeps recovery bounded
+    # when the ordinary head snapshot is missing or stale, without rewriting
+    # or renumbering any historical event hashes.
+    try:
+        checkpoint = json.loads(
+            snapshot_path.with_name(CHECKPOINT_FILE).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        checkpoint = None
+    if isinstance(checkpoint, dict):
+        checkpoint_hash = checkpoint.pop("checkpoint_hash", None)
+        log_tail = _read_events_tail(events_path)
+        checkpoint_ok = (
+            checkpoint_hash == hashlib.sha256(_json_bytes(checkpoint)).hexdigest()
+            and type(checkpoint.get("revision")) is int
+            and isinstance(checkpoint.get("head_hash"), str)
+            and type(checkpoint.get("event_offset")) is int
+            and checkpoint["event_offset"] <= events_path.stat().st_size
+            and log_tail is not None
+            and log_tail.get("revision", 0) >= checkpoint.get("revision", 0)
+            and (log_tail.get("revision") != checkpoint.get("revision")
+                 or log_tail.get("event_hash") == checkpoint.get("head_hash"))
+            and isinstance(checkpoint.get("model"), dict)
+            and checkpoint.get("model_hash") == hashlib.sha256(
+                _json_bytes(checkpoint["model"])).hexdigest()
+            and checkpoint["model_hash"] in _read_validated_models(snapshot_path.parent)
+        )
+        suffix = None
+        if checkpoint_ok:
+            try:
+                suffix = _read_events_after(
+                    events_path, revision=checkpoint["revision"],
+                    head_hash=checkpoint["head_hash"],
+                    offset=checkpoint["event_offset"])
+            except (OSError, ValueError):
+                checkpoint_ok = False
+        if checkpoint_ok and suffix is not None:
+            if suffix:
+                model = _replay_suffix(checkpoint["model"], suffix)
+                revision = checkpoint["revision"] + len(suffix)
+                head_hash = suffix[-1]["event_hash"]
+            else:
+                model = checkpoint["model"]
+                revision = checkpoint["revision"]
+                head_hash = checkpoint["head_hash"]
+            if revision > 0:
+                _write_snapshot(snapshot_path, [{"event_hash": head_hash,
+                                                 "revision": revision}], model,
+                                revision=revision)
+                return revision, model, head_hash
     events = _read_events(events_path)
     model = _replay(events, verified=True)
     if model is None:
@@ -575,7 +761,8 @@ def commit_project_model(project: Path, model: dict[str, Any], *, expected_revis
 
 
 def append_model_patch(project: Path, patch: dict[str, Any], *, expected_revision: int,
-                       author: str = "ren", reason: str = "") -> int:
+                       author: str = "ren", reason: str = "",
+                       allow_rebase: bool = True) -> int:
     """Append a deterministic JSON merge patch over the current model."""
     if not isinstance(patch, dict):
         raise TypeError("project model patch must be an object")
@@ -584,20 +771,100 @@ def append_model_patch(project: Path, patch: dict[str, Any], *, expected_revisio
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         revision, model, head_hash = _load_locked(events_path, snapshot_path)
+        checked: list[dict[str, Any]] = []
         if revision != expected_revision:
-            raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
+            if not allow_rebase or expected_revision > revision:
+                raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
+            events = _read_events(events_path)
+            for prior in events[expected_revision:]:
+                checked.append({"revision": prior["revision"],
+                                "event_hash": prior["event_hash"]})
+                if _scopes_overlap({(key, None) for key in patch},
+                                   _event_scopes(prior)):
+                    raise RuntimeError(
+                        f"stale project model revision {expected_revision}; "
+                        f"conflicting update at revision {prior['revision']}")
         updated = _apply_patch(model, patch)
         validate_project_model(updated)
         event = {"revision": revision + 1, "previous_hash": head_hash,
                   "kind": "merge_patch", "author": author, "reason": reason,
-                  "schema_version": updated["schema_version"], "payload": patch}
+                  "schema_version": updated["schema_version"], "payload": patch,
+                  "rebase_checked": checked}
         event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
         with events_path.open("ab") as stream:
             stream.write(_json_bytes(event))
             stream.flush()
             os.fsync(stream.fileno())
-        _write_snapshot(snapshot_path, [{"event_hash": head_hash}]
-                        * revision + [event], updated)
+        _write_snapshot(snapshot_path, [{"event_hash": head_hash}, event], updated,
+                        revision=revision + 1)
+        return revision + 1
+
+
+def commit_project_model_records(
+        project: Path, changes: list[dict[str, Any]], *, expected_revision: int,
+        author: str = "ren", reason: str = "", allow_rebase: bool = True) -> int:
+    """Append record-level collection changes, rebasing only disjoint scopes.
+
+    ``changes`` contains append/update/delete operations keyed by stable ID.
+    On a stale base the global revision remains authoritative, but the write
+    may proceed if every intervening event is provably disjoint. The event
+    records the exact intervening heads considered during that decision.
+    """
+    if not changes:
+        return expected_revision
+    normalized = sorted(changes, key=lambda item: (
+        item["collection"], item["id"], item["operation"]))
+    seen: set[tuple[str, str]] = set()
+    for change in normalized:
+        if change["collection"] not in _COLLECTION_KEYS:
+            raise ValueError(f"not a Project Model collection: {change['collection']!r}")
+        if not isinstance(change["id"], str) or not change["id"]:
+            raise ValueError("record changes require a non-empty stable id")
+        key = (change["collection"], change["id"])
+        if key in seen:
+            raise ValueError(f"record changed more than once: {key!r}")
+        seen.add(key)
+        if change["operation"] not in ("append", "update", "delete"):
+            raise ValueError(f"unknown record operation {change['operation']!r}")
+        if change["operation"] != "delete" and change["record"]["id"] != change["id"]:
+            raise ValueError("record change id must match record id")
+    requested_scope = _event_scopes({"kind": "record_changes", "payload": normalized})
+    events_path, snapshot_path, lock_path = _paths(Path(project))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        revision, model, head_hash = _load_locked(events_path, snapshot_path)
+        if expected_revision > revision:
+            raise RuntimeError(
+                f"stale project model revision {expected_revision}; current revision is {revision}")
+        checked: list[dict[str, Any]] = []
+        if revision != expected_revision:
+            if not allow_rebase:
+                raise RuntimeError(
+                    f"stale project model revision {expected_revision}; current revision is {revision}")
+            current_events = _read_events(events_path)
+            for prior in current_events[expected_revision:]:
+                checked.append({"revision": prior["revision"],
+                                "event_hash": prior["event_hash"]})
+                if _scopes_overlap(requested_scope, _event_scopes(prior)):
+                    raise RuntimeError(
+                        f"project model record conflict at revision {prior['revision']}")
+            head_hash = current_events[-1]["event_hash"]
+        updated = _apply_record_changes(model, normalized)
+        validate_project_model(updated)
+        event = {"revision": revision + 1,
+                 "previous_hash": head_hash,
+                 "kind": "record_changes", "author": author, "reason": reason,
+                 "schema_version": updated["schema_version"],
+                 "payload": normalized, "rebase_checked": checked}
+        event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
+        with events_path.open("ab") as stream:
+            stream.write(_json_bytes(event))
+            stream.flush()
+            os.fsync(stream.fileno())
+        _write_snapshot(snapshot_path, [{"event_hash": head_hash,
+                                        "revision": revision}, event], updated,
+                        revision=revision + 1)
         return revision + 1
 
 
@@ -612,42 +879,30 @@ def merge_evidence_records(project: Path, *, observations: list[dict[str, Any]],
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        current_events = _read_events(events_path)
-        revision = len(current_events)
-        if revision != expected_revision:
-            raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
-        model = _replay(current_events, verified=True)
-        if model is None:
-            raise FileNotFoundError(f"no canonical Project Model in {events_path}")
-        changed = False
-        for key, rows in (("observations", observations),
-                          ("events", events_to_merge or []),
-                          ("provenance", provenance or [])):
-            by_id = {row["id"]: row for row in model.get(key, [])}
-            for row in rows:
-                old = by_id.get(row["id"])
-                if old != row:
-                    by_id[row["id"]] = row
-                    changed = True
-            model[key] = list(by_id.values())
-        if not changed:
+        model = _load_locked(events_path, snapshot_path)[1]
+        changes = []
+        for collection, rows in (("observations", observations),
+                                 ("events", events_to_merge or []),
+                                 ("provenance", provenance or [])):
+            existing = {row["id"]: row for row in model.get(collection, [])}
+            rows_by_id = {row["id"]: row for row in rows}
+            for record_id in sorted(rows_by_id):
+                row = rows_by_id[record_id]
+                prior = existing.get(row["id"])
+                if prior == row:
+                    continue
+                changes.append({"collection": collection,
+                                "operation": "update" if prior is not None else "append",
+                                "id": row["id"], "record": row})
+        if not changes:
+            revision, _, _ = _load_locked(events_path, snapshot_path)
+            if revision != expected_revision:
+                raise RuntimeError(
+                    f"stale project model revision {expected_revision}; current revision is {revision}")
             return revision
-        validate_project_model(model)
-        patch = {key: model[key] for key in
-                 ("observations", "events", "provenance")}
-        event = {"revision": revision + 1,
-                 "previous_hash": current_events[-1]["event_hash"],
-                 "kind": "merge_patch", "author": author,
-                 "reason": reason, "schema_version": model["schema_version"],
-                 "payload": patch}
-        event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
-        with events_path.open("ab") as stream:
-            stream.write(_json_bytes(event))
-            stream.flush()
-            os.fsync(stream.fileno())
-        current_events.append(event)
-        _write_snapshot(snapshot_path, current_events, model)
-        return revision + 1
+    return commit_project_model_records(
+        project, changes, expected_revision=expected_revision,
+        author=author, reason=reason, allow_rebase=False)
 
 
 def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
@@ -655,14 +910,12 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
                          reason: str = "capability evidence update") -> int:
     """CAS-merge evidence collections, preserving all other model state."""
     validate_project_model(evidence_model)
-    events_path, snapshot_path, lock_path = _paths(Path(project))
+    events_path, _snapshot_path, lock_path = _paths(Path(project))
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         events = _read_events(events_path)
         revision = len(events)
-        if revision != expected_revision:
-            raise RuntimeError(f"stale project model revision {expected_revision}; current revision is {revision}")
         model = _replay(events, verified=True)
         if model is None:
             raise FileNotFoundError(f"no canonical Project Model in {events_path}")
@@ -670,19 +923,24 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
             raise ValueError("evidence update belongs to a different Project Model")
         if evidence_model["schema_version"] != model["schema_version"]:
             raise ValueError("evidence update uses a different Project Model schema version")
-        patch: dict[str, list[dict[str, Any]]] = {}
+        changes: list[dict[str, Any]] = []
         for key in EVIDENCE_COLLECTIONS:
-            incoming = evidence_model.get(key, [])
+            incoming_by_id = {row["id"]: row
+                              for row in evidence_model.get(key, [])}
+            incoming = [incoming_by_id[record_id]
+                        for record_id in sorted(incoming_by_id)]
             if not incoming:
                 continue
             if key == "query_results":
-                merged_rows = list(model.get(key, []))
+                by_id = {row["id"]: row for row in model.get(key, [])}
                 for row in incoming:
-                    if row not in merged_rows:
-                        merged_rows.append(row)
-                if merged_rows != model.get(key, []):
-                    model[key] = merged_rows
-                    patch[key] = merged_rows
+                    old = by_id.get(row["id"])
+                    if old != row:
+                        changes.append({"collection": key, "operation": "append",
+                                        "id": row["id"], "record": row}
+                                       if old is None else
+                                       {"collection": key, "operation": "update",
+                                        "id": row["id"], "record": row})
                 continue
             by_id = {row["id"]: row for row in model.get(key, [])}
             for row in incoming:
@@ -691,25 +949,22 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
                 if isinstance(old.get("metadata"), dict) and isinstance(row.get("metadata"), dict):
                     merged["metadata"] = {**old["metadata"], **row["metadata"]}
                 by_id[row["id"]] = merged
-            merged_rows = list(by_id.values())
-            if merged_rows != model.get(key, []):
-                model[key] = merged_rows
-                patch[key] = merged_rows
-        if not patch:
+            for row in incoming:
+                merged = by_id[row["id"]]
+                old = next((candidate for candidate in model.get(key, [])
+                            if candidate["id"] == row["id"]), None)
+                if old != merged:
+                    changes.append({"collection": key,
+                                    "operation": "update" if old is not None else "append",
+                                    "id": row["id"], "record": merged})
+        if not changes:
+            if revision != expected_revision:
+                raise RuntimeError(
+                    f"stale project model revision {expected_revision}; current revision is {revision}")
             return revision
-        validate_project_model(model)
-        event = {"revision": revision + 1,
-                 "previous_hash": events[-1]["event_hash"],
-                 "kind": "merge_patch", "author": author, "reason": reason,
-                 "schema_version": model["schema_version"], "payload": patch}
-        event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
-        with events_path.open("ab") as stream:
-            stream.write(_json_bytes(event))
-            stream.flush()
-            os.fsync(stream.fileno())
-        events.append(event)
-        _write_snapshot(snapshot_path, events, model)
-        return revision + 1
+    return commit_project_model_records(
+        project, changes, expected_revision=expected_revision,
+        author=author, reason=reason, allow_rebase=True)
 
 
 def commit_evidence_import(project: Path, evidence_model: dict[str, Any], *,

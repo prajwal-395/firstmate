@@ -11,6 +11,7 @@ from library.tools.project_model_store import (
     append_model_patch,
     commit_evidence_import,
     commit_project_model,
+    commit_project_model_records,
     load_project_model,
     merge_evidence_records,
     parity_report,
@@ -380,6 +381,117 @@ def test_capability_evidence_merge_appends_one_revision_and_stale_writer_refuses
         encoding="utf-8").splitlines()) == 2
 
 
+def test_record_change_events_are_small_sorted_and_replay_with_legacy_history(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    changed = {**FIXTURE["observations"][0], "id": "obs-small-edit"}
+    assert commit_project_model_records(project, [{
+        "collection": "observations", "operation": "append",
+        "id": changed["id"], "record": changed,
+    }], expected_revision=1) == 2
+    event = project_model_store._read_events(
+        project / "project_model" / "events.jsonl")[-1]
+    assert event["kind"] == "record_changes"
+    assert event["payload"] == [{
+        "collection": "observations", "operation": "append",
+        "id": changed["id"], "record": changed,
+    }]
+    assert len(project_model_store._json_bytes(event)) < len(
+        project_model_store._json_bytes({"observations": FIXTURE["observations"]}))
+    revision, model = load_project_model(project)
+    assert revision == 2
+    assert model["observations"] == sorted(
+        [*FIXTURE["observations"], changed], key=lambda row: row["id"])
+
+
+def test_record_change_update_and_delete_are_keyed_by_stable_id(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    existing = FIXTURE["observations"][0]
+    updated = {**existing, "confidence": 0.7}
+    commit_project_model_records(project, [{
+        "collection": "observations", "operation": "update",
+        "id": existing["id"], "record": updated,
+    }], expected_revision=1)
+    commit_project_model_records(project, [{
+        "collection": "observations", "operation": "delete",
+        "id": existing["id"],
+    }], expected_revision=2)
+    observations = load_project_model(project)[1]["observations"]
+    assert existing["id"] not in {row["id"] for row in observations}
+
+
+def test_record_rebase_accepts_disjoint_and_refuses_overlapping_changes(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    obs = {**FIXTURE["observations"][0], "id": "obs-independent"}
+    commit_project_model_records(project, [{
+        "collection": "observations", "operation": "append",
+        "id": obs["id"], "record": obs,
+    }], expected_revision=1)
+    intent = {**FIXTURE["intents"][0], "id": "intent-independent"}
+    assert commit_project_model_records(project, [{
+        "collection": "intents", "operation": "append",
+        "id": intent["id"], "record": intent,
+    }], expected_revision=1) == 3
+    tail = project_model_store._read_events(
+        project / "project_model" / "events.jsonl")[-1]
+    assert tail["rebase_checked"] == [{
+        "revision": 2,
+        "event_hash": project_model_store._read_events(
+            project / "project_model" / "events.jsonl")[1]["event_hash"],
+    }]
+    overlap = {**FIXTURE["observations"][0], "id": obs["id"]}
+    with pytest.raises(RuntimeError, match="record conflict"):
+        commit_project_model_records(project, [{
+            "collection": "observations", "operation": "append",
+            "id": overlap["id"], "record": overlap,
+        }], expected_revision=2)
+
+
+def test_editorial_patch_rebases_over_unrelated_evidence_record(tmp_path):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    observation = {**FIXTURE["observations"][0], "id": "obs-concurrent"}
+    merge_evidence_records(project, observations=[observation],
+                           expected_revision=1)
+    intent = {**FIXTURE["intents"][0], "id": "intent-concurrent"}
+    assert append_model_patch(
+        project, {"intents": [*FIXTURE["intents"], intent]},
+        expected_revision=1, reason="non-overlapping editorial update") == 3
+    event = project_model_store._read_events(
+        project / "project_model" / "events.jsonl")[-1]
+    assert [entry["revision"] for entry in event["rebase_checked"]] == [2]
+
+
+def test_checkpoint_bounds_replay_and_preserves_old_event_hashes(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    for revision in range(1, project_model_store.CHECKPOINT_INTERVAL):
+        append_model_patch(project, {"intents": FIXTURE["intents"]},
+                           expected_revision=revision)
+    events_path = project / "project_model" / "events.jsonl"
+    hashes_before = [event["event_hash"] for event in
+                     project_model_store._read_events(events_path)]
+    checkpoint_path = project / "project_model" / project_model_store.CHECKPOINT_FILE
+    assert checkpoint_path.is_file()
+    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert checkpoint["revision"] == project_model_store.CHECKPOINT_INTERVAL
+    assert project_model_store.migrate_project_model_checkpoint(project) == checkpoint[
+        "revision"]
+    assert [event["event_hash"] for event in
+            project_model_store._read_events(events_path)] == hashes_before
+
+    append_model_patch(project, {"intents": FIXTURE["intents"]},
+                       expected_revision=checkpoint["revision"])
+    (project / "project_model" / "snapshot.json").unlink()
+    monkeypatch.setattr(project_model_store, "_read_events", lambda _path: pytest.fail(
+        "checkpoint recovery must not replay history before its checkpoint"))
+    revision, model = load_project_model(project)
+    assert revision == checkpoint["revision"] + 1
+    assert model == FIXTURE
+
+
 def test_evidence_import_cas_preserves_timeline_state_and_edit_history(tmp_path):
     project = tmp_path / "project"
     assert commit_project_model(project, FIXTURE, expected_revision=0) == 1
@@ -490,7 +602,7 @@ def test_replay_validates_once_not_once_per_event(tmp_path, monkeypatch):
     (project / "project_model" / "validated-models.json").unlink(
         missing_ok=True)
 
-    revision, model = load_project_model(project)
+    revision, _model = load_project_model(project)
 
     assert revision == 6
     assert calls, "the replayed model must still be validated"
