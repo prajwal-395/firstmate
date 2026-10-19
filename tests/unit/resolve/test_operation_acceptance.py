@@ -97,3 +97,22 @@ def test_lifecycle_stops_at_applied_when_acceptance_fails():
     assert receipt["lifecycle"]["stage"] == "APPLIED"
     assert receipt["verified"]["status"] == "failed"
     assert receipt["committed"]["status"] == "readback_persisted_unverified"
+
+
+def test_acceptance_distinguishes_missing_evidence_from_failed_measurement():
+    result = operation_acceptance.evaluate(
+        {"op": "clip.move"}, readback_passed=True,
+        evidence={"target_identity": False})
+    assert "target_identity" in result["failed"]
+    assert "unrelated_items_unchanged" in result["missing"]
+
+
+def test_audio_changes_require_independent_render_evidence():
+    result = operation_acceptance.evaluate(
+        {"op": "audio.gain"}, readback_passed=True,
+        evidence={"target_identity": True, "requested_audio_span": True,
+                  "audio_parameters_match_request": True,
+                  "unrelated_items_unchanged": True})
+    assert not result["passed"]
+    assert result["audio_source"] == "independent_audio_render"
+    assert "audio_render_matches_request" in result["missing"]

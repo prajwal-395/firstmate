@@ -7,13 +7,21 @@ to claim success, never an implicit pass.
 
 from __future__ import annotations
 
-
 _OVERLAY_VISUAL = (
     "projected_geometry_matches_request", "rendered_pixels_match_request",
     "bounding_box_matches_request", "inside_safe_zone", "not_clipped",
     "occlusion_acceptable", "no_unexpected_black_frames",
     "motion_matches_request",
 )
+
+_STRUCTURAL_CHECKS = {
+    "operation_readback_matches_request", "target_identity",
+    "requested_source_in_out", "requested_record_span",
+    "requested_record_or_source_position", "duration_preserved",
+    "requested_track", "target_absent", "source_identity",
+    "requested_source_identity", "record_span_preserved",
+    "requested_timeline_span", "asset_identity", "requested_size",
+}
 
 
 def contract_for(op_id: str, operation: dict | None = None) -> dict:
@@ -46,6 +54,21 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     elif op_id == "clip.replace":
         checks = ["target_identity", "requested_source_identity",
                   "record_span_preserved", "unrelated_items_unchanged"]
+    elif op_id in {"audio.gain", "audio.fade"}:
+        checks = ["target_identity", "requested_audio_span",
+                  "audio_parameters_match_request", "unrelated_items_unchanged",
+                  "audio_render_matches_request", "no_clipping",
+                  "no_unintended_silence"]
+        return {"id": f"acceptance:{op_id}", "operation": op_id,
+                "checks": checks, "structural_source": "timeline_readback",
+                "audio_source": "independent_audio_render"}
+    elif op_id == "transition":
+        checks = ["target_identity", "requested_timeline_span",
+                  "transition_parameters_match_request",
+                  "unrelated_items_unchanged", "rendered_transition_matches_request"]
+        return {"id": f"acceptance:{op_id}", "operation": op_id,
+                "checks": checks, "structural_source": "timeline_readback",
+                "visual_source": "independent_render"}
     else:
         checks = ["operation_readback_matches_request",
                   "unrelated_items_unchanged"]
@@ -64,27 +87,27 @@ def evaluate(operation: dict, *, readback_passed: bool,
              evidence: dict | None = None) -> dict:
     """Evaluate one contract; absent evidence is explicitly reported."""
     evidence = evidence or {}
-    op_id = operation.get("acceptance_op", operation["op"])
+    op_id = operation.get("acceptance_op") or operation["op"]
     contract = contract_for(op_id, operation)
     results = []
     for check in contract["checks"]:
-        if check in {"operation_readback_matches_request", "target_identity",
-                     "requested_source_in_out", "requested_record_span",
-                     "requested_record_or_source_position", "duration_preserved",
-                     "requested_track", "target_absent", "source_identity",
-                     "requested_source_identity", "record_span_preserved",
-                     "requested_timeline_span", "asset_identity",
-                     "unrelated_items_unchanged"}:
-            passed = (evidence[check] is True if check in evidence else
-                      readback_passed if check != "unrelated_items_unchanged" else False)
-            # The algebra verifier is operation-specific, so its success
-            # establishes the matching structural clause. Collateral diff
-            # is separate and must be measured by a capable caller.
+        if check in evidence:
+            passed = evidence[check] is True
+            status = "passed" if passed else "failed"
+        elif check in _STRUCTURAL_CHECKS:
+            passed = readback_passed
+            status = "passed" if passed else "failed"
+        elif check == "unrelated_items_unchanged":
+            passed = False
+            status = "missing"
         else:
-            passed = evidence.get(check) is True
+            passed = False
+            status = "missing"
         results.append({"check": check, "passed": bool(passed),
-                        "evidence": evidence.get(check)})
+                        "status": status, "evidence": evidence.get(check)})
     return {**contract, "passed": all(row["passed"] for row in results),
             "results": results,
             "missing": [row["check"] for row in results
-                        if not row["passed"] and row["evidence"] is None]}
+                        if row["status"] == "missing"],
+            "failed": [row["check"] for row in results
+                       if row["status"] == "failed"]}
