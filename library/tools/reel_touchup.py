@@ -1593,6 +1593,98 @@ def _op_audio_fade(edit, position, tracks, spans, changes, insertions,
     return False
 
 
+def _op_native_transition(edit, position, tracks, spans, changes,
+                          insertions, removals, moves, exclude, notes,
+                          in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    incoming_index = edit.get("item")
+    if not row.startswith("V") or incoming_index is None:
+        raise TouchupRefused(
+            f"edit {position} (`native_transition`) needs a video row and "
+            "incoming item index",
+            "native transitions join two adjacent video items",
+            "address the exact incoming video item")
+    try:
+        cut = int(edit["cut_frame"])
+        duration = int(edit["duration_frames"])
+        outgoing_uid = str(edit["outgoing_unique_id"])
+        incoming_uid = str(edit["incoming_unique_id"])
+    except (KeyError, TypeError, ValueError) as invalid:
+        raise TouchupRefused(
+            f"edit {position} (`native_transition`) needs exact carrier ids, "
+            "cut frame and duration frames",
+            "an addressless cut cannot safely select a transition target",
+            "provide outgoing/incoming ids and positive duration frames") from invalid
+    if duration < 1 or not outgoing_uid or not incoming_uid:
+        raise TouchupRefused(
+            f"edit {position} (`native_transition`) has invalid duration or "
+            "empty item identity",
+            "Resolve AddTransition needs two identified clips and a duration",
+            "provide non-empty item ids and a positive frame duration")
+    matching = [
+        (track, index, clip)
+        for track in tracks
+        if _row_of(track["type"], int(track["index"])) == row
+        for index, clip in enumerate(track.get("clips") or ())
+        if clip.get("unique_id") in {outgoing_uid, incoming_uid}
+    ]
+    outgoing = [(index, clip) for _track, index, clip in matching
+                if clip.get("unique_id") == outgoing_uid]
+    incoming = [(index, clip) for _track, index, clip in matching
+                if clip.get("unique_id") == incoming_uid]
+    if len(outgoing) != 1 or len(incoming) != 1:
+        raise TouchupRefused(
+            f"edit {position} transition carrier ids matched "
+            f"{len(outgoing)} outgoing and {len(incoming)} incoming clips",
+            "the exact cut is ambiguous or no longer on the named track",
+            "re-read the timeline and address both adjacent clips again")
+    out_index, out_clip = outgoing[0]
+    in_index, in_clip = incoming[0]
+    if (in_index != out_index + 1 or in_index != int(incoming_index)
+            or int(out_clip["record_out"]) != cut
+            or int(in_clip["record_in"]) != cut + 1):
+        raise TouchupRefused(
+            f"edit {position} transition ids do not form the exact cut "
+            f"{row}@{cut}",
+            "the outgoing/incoming pair must be adjacent at the named frame",
+            "re-read the adjacent items and provide their exact cut frame")
+    raw_type = str(edit["transition_type"])
+    category = str(edit["category"])
+    alignment = str(edit.get("alignment", "center"))
+    from library.tools import native_ops
+
+    canonical = native_ops.native_canonical(raw_type)
+    if canonical is None:
+        native_ops.refuse_native_transition(raw_type, category)
+        raise TouchupRefused(
+            f"edit {position} native transition {raw_type!r} is not granted",
+            "the requested Resolve transition has no measured native route",
+            "choose a granted transition type")
+    if category not in native_ops.granted_categories(canonical):
+        raise TouchupRefused(
+            f"edit {position} {raw_type!r} is not granted in {category!r}",
+            "the native type/category pair has not been measured as available",
+            "choose a granted category for this type")
+    if alignment != "center":
+        raise TouchupRefused(
+            f"edit {position} alignment {alignment!r} is unsupported",
+            "only centered transition placement has an exact-cut verifier",
+            "use center alignment")
+    in_place.append({
+        "kind": "native_transition", "row": row,
+        "item_index": in_index, "record_frame": int(in_clip["record_in"]),
+        "cut_frame": cut, "outgoing_unique_id": outgoing_uid,
+        "incoming_unique_id": incoming_uid,
+        "duration_frames": duration,
+        "transition_type": native_ops.resolve_transition_name(canonical),
+        "category": category, "alignment": alignment,
+    })
+    notes.append(
+        f"edit {position}: add {raw_type} at exact {row}@{cut} cut "
+        f"for {duration} frames on staged timeline")
+    return False
+
+
 def _op_entry_motion(edit, position, tracks, spans, changes,
                      insertions, removals, moves, exclude, notes,
                      in_place) -> bool:
@@ -1805,6 +1897,7 @@ _OP_HANDLERS = {
     "add_row": _op_add_row,
     "set_enabled": _op_set_enabled,
     "audio_fade": _op_audio_fade,
+    "native_transition": _op_native_transition,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
     "slip": _op_slip,
@@ -2852,6 +2945,17 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             "in-place change; composition could otherwise replace audio "
             "items and lose their fade state",
             "submit one audio.fade operation by itself")
+    transitions = [entry for entry in qualification.in_place
+                   if entry.get("kind") == "native_transition"]
+    if transitions and (
+            len(transitions) != 1 or len(qualification.in_place) != 1
+            or qualification.changes or qualification.insertions
+            or qualification.removals or qualification.moves
+            or qualification.new_rows):
+        raise TouchupRefused(
+            "transition must be the only edit in a touch-up request",
+            "the native transition is qualified only on an unchanged staged cut",
+            "submit one exact-cut transition by itself")
     if (qualification.gate_class == COMPOSED_STILL_RESIZE
             and resolve_app is None):
         from library.tools.reel_build import _connect_resolve
@@ -3114,6 +3218,7 @@ def _apply_in_place(project: Any, staged: Any,
     """
 
     applied: dict = {"properties": [], "enabled": [], "audio_fades": [],
+                     "transitions": [],
                      "entry_motion": [], "hold_windows": []}
     if not qualification.in_place:
         return applied
@@ -3133,6 +3238,105 @@ def _apply_in_place(project: Any, staged: Any,
                 f"timeline disagree. Nothing further is written "
                 f"and the approved timeline stands.")
         item = hits[0]
+        if entry.get("kind") == "native_transition":
+            if source is None:
+                raise TouchupRefused(
+                    "transition has no approved source timeline handle",
+                    "the exact staged cut cannot be compared to its source",
+                    "execute the transition through staged reel touch-up")
+            track_index = int(row[1:])
+
+            def track_state(timeline, _track_index=track_index):
+                live = timeline.GetItemListInTrack(
+                    "video", _track_index) or []
+                state = []
+                for clip in live:
+                    identity = str(clip.GetUniqueId() or "")
+                    values = (clip.GetStart(), clip.GetEnd())
+                    if not identity or any(value is None for value in values):
+                        raise ValueError(
+                            "transition carrier item identity or span is unreadable")
+                    state.append((identity, int(values[0]), int(values[1])))
+                return live, state
+
+            try:
+                _source_items, source_state = track_state(source)
+                _staged_items, staged_state = track_state(staged)
+            except Exception as failed:
+                raise TouchupRefused(
+                    f"transition carrier read-back failed ({failed})",
+                    "staging must prove the source track and exact cut before writing",
+                    "re-read the outgoing and incoming items") from failed
+            if source_state != staged_state:
+                raise TouchupRefused(
+                    "transition staging changed video track identity or spans",
+                    "the candidate must preserve the complete addressed track",
+                    "discard the candidate and retry from an unchanged timeline")
+            outgoing_uid = str(entry["outgoing_unique_id"])
+            incoming_uid = str(entry["incoming_unique_id"])
+            outgoing = [index for index, row_state in enumerate(staged_state)
+                        if row_state[0] == outgoing_uid]
+            incoming = [index for index, row_state in enumerate(staged_state)
+                        if row_state[0] == incoming_uid]
+            if (len(outgoing) != 1 or len(incoming) != 1
+                    or incoming[0] != outgoing[0] + 1
+                    or staged_state[outgoing[0]][2] != int(entry["cut_frame"])
+                    or staged_state[incoming[0]][1] != int(entry["cut_frame"]) + 1):
+                raise TouchupRefused(
+                    "staged transition carrier no longer forms the named exact cut",
+                    "outgoing and incoming identities must remain adjacent at promotion",
+                    "re-read the timeline and plan the exact cut again")
+            from library.tools.resolve_api_capabilities import callable_method
+
+            add_transition = callable_method(item, "AddTransition")
+            if add_transition is None:
+                raise TouchupRefused(
+                    "Resolve does not expose TimelineItem.AddTransition on staging",
+                    "the required native transition API is unavailable",
+                    "use a Resolve version with the documented transition API")
+            duration = int(entry["duration_frames"])
+            payload = {
+                "type": str(entry["transition_type"]),
+                "category": str(entry["category"]),
+                "position": "start", "alignment": "center",
+                "duration": duration,
+            }
+            try:
+                placed = add_transition(payload)
+                if placed is None or placed is False:
+                    raise ValueError("AddTransition returned no transition item")
+                name = str(placed.GetName())
+                start = int(placed.GetStart())
+                end = int(placed.GetEnd())
+                actual_duration = int(placed.GetDuration())
+            except Exception as failed:
+                raise TouchupError(
+                    f"AddTransition failed on staging ({failed}); approved "
+                    "timeline remains untouched") from failed
+            expected_start = int(entry["cut_frame"]) - duration // 2
+            expected_end = expected_start + duration - 1
+            if (name.casefold() != payload["type"].casefold()
+                    or actual_duration != duration
+                    or start != expected_start or end != expected_end):
+                raise TouchupError(
+                    f"staged transition read back {name!r} at [{start}, {end}] "
+                    f"({actual_duration} frames), expected {payload['type']!r} "
+                    f"at [{expected_start}, {expected_end}] ({duration} frames); "
+                    "approved timeline remains untouched")
+            after_state = track_state(staged)[1]
+            if after_state != source_state:
+                raise TouchupError(
+                    "staged native transition changed video item identities or "
+                    "spans outside the named effect")
+            applied["transitions"].append({
+                "row": row, "cut_frame": int(entry["cut_frame"]),
+                "outgoing_unique_id": outgoing_uid,
+                "incoming_unique_id": incoming_uid,
+                "type": name, "category": payload["category"],
+                "record_in": start, "record_out": end,
+                "duration_frames": actual_duration, "verified": True,
+            })
+            continue
         if entry.get("kind") == "audio_fade":
             if source is None:
                 raise TouchupRefused(
@@ -3635,6 +3839,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
     """Guard, swap names, carry markers, close the journal, delete the
     replaced generation, close the signature."""
     from library.tools import plan_provenance as _provenance
+    from library.tools import reel_read as _read
     from library.tools import reel_replace_guard as _guard
     from library.tools import reel_signoff as _signoff
     from library.tools.reel_build import (
@@ -3683,6 +3888,71 @@ def _promote(project_folder: str, project: Any, pool: Any,
         receipt["audio_fade_promotion_readback"] = {
             "before": len(before), "after": len(after),
             "target": key, "verified": True,
+        }
+
+    transition_entries = [entry for entry in qualification.in_place
+                          if entry.get("kind") == "native_transition"]
+    if transition_entries:
+        if len(transition_entries) != 1:
+            raise TouchupError(
+                "transition promotion needs exactly one exact-cut target")
+        entry = transition_entries[0]
+        recorded = (receipt.get("in_place") or {}).get("transitions") or []
+        if len(recorded) != 1 or recorded[0].get("verified") is not True:
+            raise TouchupError(
+                "transition has no exact staged AddTransition read-back")
+        row = str(entry["row"]).upper()
+        outgoing_uid = str(entry["outgoing_unique_id"])
+        incoming_uid = str(entry["incoming_unique_id"])
+        cut = int(entry["cut_frame"])
+        source_tracks = _read.read_tracks(originals[final])
+        staged_tracks = _read.read_tracks(staged_found[staging])
+
+        def find_cut(tracks):
+            matches = [
+                [clip for clip in track.get("clips") or ()]
+                for track in tracks
+                if _row_of(track["type"], int(track["index"])) == row
+            ]
+            if len(matches) != 1:
+                return None
+            clips = matches[0]
+            out = [index for index, clip in enumerate(clips)
+                   if clip.get("unique_id") == outgoing_uid]
+            inc = [index for index, clip in enumerate(clips)
+                   if clip.get("unique_id") == incoming_uid]
+            if (len(out) != 1 or len(inc) != 1
+                    or inc[0] != out[0] + 1
+                    or int(clips[out[0]]["record_out"]) != cut
+                    or int(clips[inc[0]]["record_in"]) != cut + 1):
+                return None
+            return clips[out[0]], clips[inc[0]]
+
+        source_cut = find_cut(source_tracks)
+        staged_cut = find_cut(staged_tracks)
+        if source_cut is None or staged_cut is None or source_cut != staged_cut:
+            raise TouchupError(
+                "the approved and staged timelines no longer share the exact "
+                "outgoing/incoming cut; transition promotion refused")
+        wanted_start = cut - int(entry["duration_frames"]) // 2
+        wanted_end = wanted_start + int(entry["duration_frames"]) - 1
+        if (recorded[0].get("outgoing_unique_id") != outgoing_uid
+                or recorded[0].get("incoming_unique_id") != incoming_uid
+                or recorded[0].get("cut_frame") != cut
+                or recorded[0].get("record_in") != wanted_start
+                or recorded[0].get("record_out") != wanted_end
+                or recorded[0].get("duration_frames")
+                != int(entry["duration_frames"])):
+            raise TouchupError(
+                "transition promotion read-back does not match the exact "
+                "requested cut, type and duration")
+        receipt["transition_promotion_readback"] = {
+            "outgoing_unique_id": outgoing_uid,
+            "incoming_unique_id": incoming_uid,
+            "cut_frame": cut,
+            "record_in": wanted_start,
+            "record_out": wanted_end,
+            "verified": True,
         }
 
     live_full = _guard.full_timeline_snapshot(

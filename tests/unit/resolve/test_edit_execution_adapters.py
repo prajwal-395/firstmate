@@ -293,6 +293,140 @@ def test_audio_fade_stages_native_frames_and_preserves_other_item_fades(
     assert receipt["audio_fades"][0]["verified"] is True
 
 
+def test_transition_adapter_resolves_exact_adjacent_cut(monkeypatch):
+    from library.tools import project_registry, reel_proposal, reel_touchup
+
+    operation = {
+        "op": "transition",
+        "carrier": {
+            "outgoing_unique_id": "clip-out",
+            "incoming_unique_id": "clip-in",
+            "cut_frame": 99,
+        },
+        "transition": {
+            "type": "cross_dissolve", "category": "simple",
+            "duration_frames": 12, "alignment": "center",
+        },
+    }
+    context = _context(operation)
+    context.snapshot["tracks"] = [{
+        "type": "video", "index": 3, "clips": [
+            {"unique_id": "clip-out", "record_in": 40, "record_out": 99,
+                "source_in_frame": 0, "source_out_frame": 59, "duration": 60},
+            {"unique_id": "clip-in", "record_in": 100, "record_out": 159,
+                "source_in_frame": 0, "source_out_frame": 59, "duration": 60},
+        ],
+    }]
+    monkeypatch.setattr(project_registry, "resolve_project_path",
+                        lambda _project: Path("/tmp/project/project.yaml"))
+    proposal = SimpleNamespace(number=1, timeline_name="Reel 01 - opening")
+    monkeypatch.setattr(reel_proposal, "proposal_path",
+                        lambda _folder: "/tmp/project/proposal.json")
+    monkeypatch.setattr(reel_proposal, "read_proposal",
+                        lambda _path: [proposal])
+    calls = []
+    monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
+        calls.append(spec) or {"transaction": {
+            "verification": {"status": "verified"}}}))
+
+    adapters._touchup(context)
+
+    assert calls[0]["edits"] == [{
+        "op": "native_transition", "row": "V3", "item": 1,
+        "outgoing_unique_id": "clip-out", "incoming_unique_id": "clip-in",
+        "cut_frame": 99, "transition_type": "cross_dissolve",
+        "category": "simple", "duration_frames": 12,
+        "alignment": "center",
+    }]
+
+
+def test_transition_qualification_refuses_a_different_or_nonadjacent_cut():
+    from library.tools import reel_touchup
+
+    tracks = [{
+        "type": "video", "index": 3, "clips": [
+            {"unique_id": "clip-out", "record_in": 40, "record_out": 99,
+                "duration": 60},
+            {"unique_id": "clip-in", "record_in": 100, "record_out": 159,
+                "duration": 60},
+        ],
+    }]
+    edit = {
+        "row": "V3", "item": 1,
+        "outgoing_unique_id": "clip-out", "incoming_unique_id": "clip-in",
+        "cut_frame": 98, "transition_type": "Cross Dissolve",
+        "category": "simple", "duration_frames": 12,
+    }
+
+    with pytest.raises(reel_touchup.TouchupRefused, match="exact cut"):
+        reel_touchup._op_native_transition(
+            edit, 1, tracks, [], [], [], [], [], set(), [], [])
+
+
+def test_transition_addition_is_staged_and_reads_back_exact_cut(monkeypatch):
+    from library.tools import reel_read, reel_touchup, resolve_api_capabilities
+
+    class Clip:
+        def __init__(self, uid, start, end):
+            self.uid, self.start, self.end = uid, start, end
+
+        def GetUniqueId(self):
+            return self.uid
+
+        def GetStart(self):
+            return self.start
+
+        def GetEnd(self):
+            return self.end
+
+        def AddTransition(self, payload):
+            assert payload == {
+                "type": "Cross Dissolve", "category": "simple",
+                "position": "start", "alignment": "center", "duration": 12,
+            }
+            return SimpleNamespace(
+                GetName=lambda: "Cross Dissolve",
+                GetStart=lambda: 93,
+                GetEnd=lambda: 104,
+                GetDuration=lambda: 12,
+            )
+
+    class Timeline:
+        def __init__(self):
+            self.items = [Clip("clip-out", 40, 99), Clip("clip-in", 100, 159)]
+
+        def GetItemListInTrack(self, track_type, index):
+            assert (track_type, index) == ("video", 3)
+            return list(self.items)
+
+    source, staged = Timeline(), Timeline()
+    monkeypatch.setattr(reel_read, "live_items", lambda timeline: [{
+        "type": "video", "index": 3, "items": timeline.items,
+    }])
+    monkeypatch.setattr(resolve_api_capabilities, "callable_method",
+                        lambda obj, name: getattr(obj, name, None))
+    entry = {
+        "kind": "native_transition", "row": "V3", "item_index": 1,
+        "record_frame": 100, "cut_frame": 99,
+        "outgoing_unique_id": "clip-out", "incoming_unique_id": "clip-in",
+        "duration_frames": 12, "transition_type": "Cross Dissolve",
+        "category": "simple", "alignment": "center",
+    }
+
+    receipt = reel_touchup._apply_in_place(
+        None, staged,
+        reel_touchup.Qualification("composed", in_place=[entry]),
+        "/tmp/comps", "journal-1", source=source)
+
+    assert receipt["transitions"] == [{
+        "row": "V3", "cut_frame": 99,
+        "outgoing_unique_id": "clip-out", "incoming_unique_id": "clip-in",
+        "type": "Cross Dissolve", "category": "simple",
+        "record_in": 93, "record_out": 104,
+        "duration_frames": 12, "verified": True,
+    }]
+
+
 def test_slip_touchup_keeps_record_span_and_refuses_source_overrun():
     from library.tools import reel_touchup
 

@@ -2429,10 +2429,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         span=lambda op, base: None,
         verify=lambda op, after: None,
         key=lambda op: ("plan", "transition"), merge="ordered",
-        inverse=_never("a planner re-run has no timeline inverse (C-04)"),
-        note="Planning carrier only. Native AddTransition has a guarded "
-             "command and build path, but no semantic candidate adapter "
-             "with promotion verification."),
+        inverse=_never("transition deletion has no qualified compensation"),
+        note="A semantic transition names outgoing and incoming item ids, "
+             "their exact cut frame, and a granted native type. The staged "
+             "adapter verifies the returned transition span before promotion."),
     "shot_selection": AlgebraOp(
         id="shot_selection", domain="timeline_structure",
         required=("plan",),
@@ -3023,9 +3023,9 @@ _ROUTE_EVALUATION = {
     },
     "transition": {
         "inspected": ["native scripting", "Fusion build path", "OTIO"],
-        "available": ["AddTransition is used by guarded AXI command and native build applicator"],
-        "gaps": ["algebra operation is a planning carrier, not an exact target cut", "no protected candidate semantic adapter", "OTIO retention does not prove exact placement"],
-        "next": "Define exact cut identity and apply/read back on staging before promotion.",
+        "available": ["reel_touchup applies a granted AddTransition type to the exact incoming item on a staged timeline and verifies the returned span against the named cut and duration"],
+        "gaps": ["only centered transitions with an explicit frame duration are supported", "the adapter uses returned native transition span evidence; normal routing remains disabled until live qualification verifies audio/video output and recovery"],
+        "next": "Run the deferred live qualification with visual/audio evidence and recovery checks before enabling normal routing.",
         "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins"],
     },
 }
@@ -3041,6 +3041,11 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/execution/deliver_audio_mix.py:deliver_semantic_gain",
         "library/tools/execution/deliver_audio_mix.py:deliver_mix",
         "library/tools/otio_mix.py:audio_op_target",
+    ),
+    ("transition", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_native_transition",
+        "library/tools/reel_touchup.py:_apply_in_place",
     ),
     ("audio.fade", "reel_touchup"): (
         "library/tools/edit_execution_adapters.py:_touchup",
@@ -3081,6 +3086,8 @@ _IMPLEMENTATION_EVIDENCE = {
 _BACKEND_OPERATION_LIMITATIONS = {
     ("audio.gain", "reel_touchup"):
         ("one audio-only request; requested dB must be in the OTIO range; exact source path and record start must identify one item; full candidate snapshot must match before and after; no independent rendered-audio evidence is recorded yet",),
+    ("transition", "reel_touchup"):
+        ("exact outgoing/incoming unique ids and cut frame are required; only granted native transition types, centered alignment and explicit frame durations are accepted; AddTransition must return a span covering the exact named cut; no independent rendered audio/video evidence is recorded yet",),
     ("audio.fade", "reel_touchup"):
         ("one audio-only request; fade durations are frame-rounded at the timeline rate; every audio item's native fades must match on source/staging before write and all unrelated fade values must read unchanged afterward; no independent rendered-audio evidence is recorded yet",),
     ("clip.trim", "resolve_axi"):
@@ -3126,7 +3133,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "audio.fade", "audio.gain", "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "audio.gain", "transition", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but
@@ -3576,7 +3583,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     # Plan deliveries: read by planners, never written to Resolve.
     "angle_plan": SAFETY_READ_ONLY,
     "plan_change": SAFETY_READ_ONLY,
-    "transition": SAFETY_READ_ONLY,
+    "transition": SAFETY_COMPLEX_LOCALIZED,
     "shot_selection": SAFETY_READ_ONLY,
     "speech_selection": SAFETY_READ_ONLY,
     "story_pacing": SAFETY_READ_ONLY,

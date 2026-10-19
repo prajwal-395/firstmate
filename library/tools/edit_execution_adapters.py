@@ -179,6 +179,58 @@ def _touchup(context) -> dict:
                      if track["type"] == "video"), default=0) + 1
         edit = {"op": "add_row", "row": f"V{index}",
                 "name": str(operation["name"])}
+    elif operation_id == "transition":
+        from collections.abc import Mapping
+
+        from library.tools.reel_touchup import _row_of
+
+        if len(request.operations) != 1:
+            raise ValueError(
+                "transition currently requires a single-operation request")
+        carrier = operation["carrier"]
+        transition = operation["transition"]
+        if not isinstance(carrier, Mapping) or not isinstance(transition, Mapping):
+            raise ValueError("transition needs carrier and transition objects")
+        outgoing_uid = str(carrier["outgoing_unique_id"])
+        incoming_uid = str(carrier["incoming_unique_id"])
+        cut_frame = int(carrier["cut_frame"])
+        locations = [
+            (track, index, clip)
+            for track in context.snapshot["tracks"]
+            for index, clip in enumerate(track["clips"])
+            if clip["unique_id"] in {outgoing_uid, incoming_uid}
+        ]
+        outgoing = [row for row in locations
+                    if row[2]["unique_id"] == outgoing_uid]
+        incoming = [row for row in locations
+                    if row[2]["unique_id"] == incoming_uid]
+        if len(outgoing) != 1 or len(incoming) != 1:
+            raise ValueError(
+                "transition carrier ids must each resolve exactly once")
+        out_track, out_index, out_clip = outgoing[0]
+        in_track, in_index, in_clip = incoming[0]
+        if (_row_of(out_track["type"], int(out_track["index"]))
+                != _row_of(in_track["type"], int(in_track["index"]))
+                or out_track["type"] != "video"
+                or in_track["type"] != "video"
+                or in_index != out_index + 1
+                or int(out_clip["record_out"]) != cut_frame
+                or int(in_clip["record_in"]) != cut_frame + 1):
+            raise ValueError(
+                "transition carrier must identify adjacent video items at "
+                "the exact named cut frame")
+        edit = {
+            "op": "native_transition",
+            "row": _row_of(in_track["type"], int(in_track["index"])),
+            "item": in_index,
+            "outgoing_unique_id": outgoing_uid,
+            "incoming_unique_id": incoming_uid,
+            "cut_frame": cut_frame,
+            "transition_type": str(transition["type"]),
+            "category": str(transition["category"]),
+            "duration_frames": int(transition["duration_frames"]),
+            "alignment": str(transition.get("alignment", "center")),
+        }
     elif operation_id == "overlay.add":
         media = operation.get("file", operation.get("media"))
         if not media or not operation.get("duration"):
@@ -282,6 +334,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.slip", "reel_touchup"): _touchup,
         ("audio.fade", "reel_touchup"): _touchup,
         ("audio.gain", "reel_touchup"): _audio_gain,
+        ("transition", "reel_touchup"): _touchup,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

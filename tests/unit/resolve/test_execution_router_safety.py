@@ -123,10 +123,10 @@ def test_unrepresentable_operation_is_refused():
         route_compiled_edit([{"op": "audio.pan", "unique_id": "a-1", "pan": 0.0}])
 
 
-def test_plan_delivery_is_refused_on_the_write_path():
+def test_transition_is_refused_by_normal_write_routing():
     assert (edit_algebra.safety_class("transition")
-            == edit_algebra.SAFETY_READ_ONLY)
-    with pytest.raises(RoutingRefused, match="plan deliveries"):
+            == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
+    with pytest.raises(RoutingRefused, match="no production-qualified executor"):
         route_compiled_edit([{"op": "transition", "carrier": "c",
                               "transition": "cut"}])
 
