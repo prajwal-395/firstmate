@@ -11629,9 +11629,14 @@ recoverable where a deletion is not.
 """
 
 
-def staging_name(final_name: str) -> str:
-    """The staging container a rebuild of `final_name` is placed into."""
-    return f"{final_name}{STAGING_SUFFIX}"
+def staging_name(final_name: str, *, candidate_id: str | None = None) -> str:
+    """The uniquely identified staging container for a candidate.
+
+    Keep the conventional prefix readable by Resolve and the reel parser;
+    an opaque token distinguishes concurrent candidates for one reel.
+    """
+    identity = f" [candidate-{candidate_id}]" if candidate_id else ""
+    return f"{final_name}{identity}{STAGING_SUFFIX}"
 
 
 def destage(name: str) -> str:
@@ -11642,7 +11647,13 @@ def destage(name: str) -> str:
             f"{STAGING_SUFFIX!r}. Promotion renames only what the build "
             f"staged; anything else under that name is not this build's "
             f"to move.")
-    return name[: -len(STAGING_SUFFIX)]
+    final = name[: -len(STAGING_SUFFIX)]
+    marker = " [candidate-"
+    if marker in final:
+        base, identity = final.rsplit(marker, 1)
+        if identity.endswith("]") and identity[:-1]:
+            return base
+    return final
 
 
 def backup_name(final_name: str) -> str:
@@ -11979,6 +11990,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          accept_editor_changes=None,
                          timeline_inventory_before=None,
                          staged_timeline_ids=None,
+                         candidate_ids_by_staging=None,
+                         parent_snapshots_by_final=None,
                          archive_retiring: bool = False,
                          resolve=None,
                          allow_cursor_excursion: bool = True) -> dict:
@@ -12223,6 +12236,29 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"REFUSING to promote {final!r}: retiring timeline identity "
                 "is missing, ambiguous, or reused; nothing was renamed.",
                 failure_class=PromotionFailure.CONFLICT)
+        candidate_key = (candidate_ids_by_staging or {}).get(
+            staged_to_final.get(final, ""))
+        if candidate_key:
+            expected_snapshot = (parent_snapshots_by_final or {}).get(final)
+            if not isinstance(expected_snapshot, dict):
+                raise PromotionFailure(
+                    f"REFUSING to promote {final!r}: the approved timeline "
+                    "was not snapshotted before candidate preparation; "
+                    "nothing was renamed.",
+                    failure_class=PromotionFailure.CONFLICT)
+            from library.tools import reel_divergence as _parent_check
+            from library.tools.timeline_ingest import (
+                snapshot_timeline as _snapshot_parent,
+            )
+            current_snapshots, unread = _parent_check.snapshots_for(
+                project, [final], snapshot_fn=_snapshot_parent)
+            if (unread.get(final)
+                    or current_snapshots.get(final) != expected_snapshot):
+                raise PromotionFailure(
+                    f"REFUSING to promote {final!r}: the approved timeline "
+                    "changed after candidate preparation or could not be "
+                    "read; the candidate is stale and remains staged.",
+                    failure_class=PromotionFailure.CONFLICT)
     assert_deletion_scope(list(originals.values()), set(finals))
     if timeline_inventory_before is not None:
         try:
@@ -12678,7 +12714,25 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             staged_to_final[final], ""),
     } for final in ok_finals]
     candidate_lifecycles = []
+    from library.tools import staging_holds as _candidate_store
     for row in rename_rows:
+        _candidate_key = str((candidate_ids_by_staging or {}).get(
+            row["staging"]) or "")
+        if _candidate_key:
+            from library.tools.reel_replace_guard import full_timeline_snapshot
+            _verified_snapshot = full_timeline_snapshot(
+                row["candidate"], project, project_folder)
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": _candidate_key,
+                "resolve_timeline_id": str(row["candidate_id"]),
+                "verified_snapshot": _verified_snapshot,
+            }, transition="verified")
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": _candidate_key,
+            }, transition="ready")
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": _candidate_key,
+            }, transition="promoting")
         lifecycle = _CandidateLifecycle.create(
             row["original"], row["candidate"], row["final"])
         lifecycle.mark_applied()
@@ -12694,6 +12748,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             candidate_lifecycles,
             lambda: _rename_candidate_set(rename_rows))
     except _CandidatePromotionError as failed_rename:
+        for row in rename_rows:
+            _candidate_key = str((candidate_ids_by_staging or {}).get(
+                row["staging"]) or "")
+            if _candidate_key:
+                _candidate_store.record_candidate(project_folder, {
+                    "candidate_id": _candidate_key,
+                }, transition="promotion_failed")
         raise PromotionFailure(
             f"REFUSING to promote: the shared candidate name swap failed "
             f"({failed_rename}). Approved generations remain identifiable; "
@@ -12702,6 +12763,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     for row in rename_rows:
         final = row["final"]
         staging = row["staging"]
+        _candidate_key = str((candidate_ids_by_staging or {}).get(
+            staging) or "")
+        if _candidate_key:
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": _candidate_key,
+                "candidate_name": final,
+            }, transition="promoted")
         if row["original"] is not None:
             print(f"Retired {final} to {row['backup']}", flush=True)
         print(f"Promoted {staging} to {final}", flush=True)
@@ -13415,6 +13483,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         _thesis_error = _thesis.ThesisRefused(_thesis_refused, ok_finals)
         _thesis_error.markers = carried_markers
         raise _thesis_error
+    for _row in rename_rows:
+        _candidate_key = str((candidate_ids_by_staging or {}).get(
+            _row["staging"]) or "")
+        if _candidate_key:
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": _candidate_key,
+            }, transition="retired")
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
             "candidate_lifecycles": candidate_lifecycle_records,
             "replace_reports": replace_reports,
@@ -14416,8 +14491,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # In BUILD order, not set order: everything downstream - the gate
     # scope, the promotion order, the record - reads this mapping's
     # order, and a run must report reels in the order it built them.
-    staged_to_final = {built_name(m, name_suffix): staging_name(built_name(m, name_suffix))
-                       for m in building}
+    import uuid as _uuid
+    _candidate_transaction_id = _uuid.uuid4().hex
+    candidate_id_by_staging = {}
+    staged_to_final = {}
+    for _moment in building:
+        _build_name = built_name(_moment, name_suffix)
+        _candidate_id = _uuid.uuid4().hex
+        _staging = staging_name(_build_name, candidate_id=_candidate_id)
+        candidate_id_by_staging[_staging] = _candidate_id
+        staged_to_final[_build_name] = _staging
     promotion_staged_to_final = {
         promotion_target_by_name[final]: staging
         for final, staging in staged_to_final.items()}
@@ -14459,7 +14542,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             timeline.GetName() for timeline in stale_staging
             if _final_of_staging.get(timeline.GetName()) is not None
             and (_held.get(timeline.GetName()) or {}).get("awaiting")
-            == _final_of_staging[timeline.GetName()]})
+            == _final_of_staging[timeline.GetName()]
+            and (_held.get(timeline.GetName()) or {}).get(
+                "transaction_id") == _candidate_transaction_id})
         _foreign = sorted({
             timeline.GetName() for timeline in stale_staging
             if timeline.GetName() not in set(_reclaimable)})
@@ -14634,11 +14719,41 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # rebuild re-takes the same names and the window restarts.
     from library.tools import staging_holds as _holds
     for _final, _staging in staged_to_final.items():
+        _candidate_id = candidate_id_by_staging[_staging]
+        _parent = next((entry.get("unique_id") for entry in
+                        build_inventory_before
+                        if entry.get("name") ==
+                        promotion_target_by_name[_final]), None)
+        from library.tools.versions import reel_versions as _reel_versions
+        _history = _reel_versions.versions_of(
+            project_folder, promotion_target_by_name[_final])
+        _parent_revision = (
+            f"reel:{promotion_target_by_name[_final]}:v"
+            f"{_history[-1]['version']}" if _history else
+            f"unversioned:{_parent or 'unknown'}")
+        _holds.record_candidate(project_folder, {
+            "candidate_id": _candidate_id,
+            "transaction_id": _candidate_transaction_id,
+            "resolve_timeline_id": None,
+            "candidate_name": _staging,
+            "parent_approved_revision": _parent_revision,
+            "parent_approved_timeline_id": str(_parent or ""),
+            "parent_snapshot": live_snapshots.get(
+                promotion_target_by_name[_final]),
+            "destination_timeline": promotion_target_by_name[_final],
+            "owning_transaction": _candidate_transaction_id,
+            "verified_snapshot": None,
+        }, transition="created")
         _holds.take_hold(
             project_folder, _staging,
             awaiting=promotion_target_by_name[_final],
             reason="staged rebuild awaiting promotion",
-            taken_by="rebuild_reels_in_project")
+            taken_by="rebuild_reels_in_project",
+            candidate_id=_candidate_id,
+            transaction_id=_candidate_transaction_id)
+        _holds.record_candidate(project_folder, {
+            "candidate_id": _candidate_id,
+        }, transition="prepared")
 
     # The project's transition-element declaration, resolved ONCE - the
     # element is measured here rather than per reel, so a declaration
@@ -16487,6 +16602,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         for entry in inventory_at_staging
         if entry["name"] in set(staged_to_final.values())
     }
+    for _staging, _candidate_id in candidate_id_by_staging.items():
+        _timeline_id = staged_timeline_ids.get(_staging)
+        if _timeline_id:
+            _holds.record_candidate(project_folder, {
+                "candidate_id": _candidate_id,
+                "resolve_timeline_id": str(_timeline_id),
+            }, transition="edited")
     # The replace guard's declaration, normalised against the finals
     # THIS call stages - so the `verify_reels` node promotes with the
     # same declaration the build was given rather than re-deriving one,
@@ -16715,6 +16837,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     accept_editor_changes=declared_accept_editor_changes,
                     timeline_inventory_before=build_inventory_before,
                     staged_timeline_ids=staged_timeline_ids,
+                    candidate_ids_by_staging=candidate_id_by_staging,
+                    parent_snapshots_by_final={
+                        final: live_snapshots.get(final)
+                        for final in promotion_staged_to_final},
                     archive_retiring=True)
         finally:
             _commit_promotion_s = time.time() - _promote_started_at

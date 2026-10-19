@@ -84,6 +84,29 @@ LOCK_FILENAME = "staging_holds.lock"
 
 VERSION = 1
 
+# Candidate records share the existing per-project durability boundary
+# with holds.  They are keyed by an opaque candidate id; Resolve names
+# are descriptive metadata and never the record key.
+CANDIDATE_STATES = frozenset({
+    "created", "prepared", "edited", "verified", "ready",
+    "promoting", "promoted", "retired", "failed", "stale",
+    "verification_failed", "promotion_failed",
+})
+_CANDIDATE_NEXT = {
+    "created": {"prepared", "failed"},
+    "prepared": {"edited", "failed", "stale"},
+    "edited": {"verified", "verification_failed", "failed", "stale"},
+    "verified": {"ready", "verification_failed", "stale"},
+    "ready": {"promoting", "stale", "failed"},
+    "promoting": {"promoted", "promotion_failed", "failed"},
+    "promoted": {"retired"},
+    "promotion_failed": {"retired"},
+    "verification_failed": {"retired"},
+    "failed": {"retired"},
+    "stale": {"retired"},
+    "retired": set(),
+}
+
 
 class HoldsUnreadable(RuntimeError):
     """The holds file exists but cannot be parsed, and this says so."""
@@ -204,7 +227,8 @@ def _read_holds_unlocked(project_folder: str) -> dict:
             if isinstance(entry, dict)}
 
 
-def _write_holds(project_folder: str, holds: dict) -> None:
+def _write_holds(project_folder: str, holds: dict, *,
+                 candidates: dict | None = None) -> None:
     """Write the hold set atomically: temp file plus rename.
 
     Two lanes stage at once often enough (Reel 13 and Reel 28 ran in
@@ -218,7 +242,14 @@ def _write_holds(project_folder: str, holds: dict) -> None:
     path = holds_path_for(project_folder)
     parent = os.path.dirname(path)
     os.makedirs(parent, exist_ok=True)
+    if candidates is None:
+        try:
+            with open(path, encoding="utf-8") as current:
+                candidates = json.load(current).get("candidates", {})
+        except (OSError, ValueError, AttributeError):
+            candidates = {}
     doc = {"version": VERSION, "holds": holds,
+           "candidates": candidates,
            "updated_at": _now().isoformat()}
     fd, tmp = tempfile.mkstemp(dir=parent, prefix=".staging_holds_",
                                suffix=".tmp")
@@ -235,9 +266,70 @@ def _write_holds(project_folder: str, holds: dict) -> None:
         raise
 
 
+def _read_candidates_unlocked(project_folder: str) -> dict:
+    path = holds_path_for(project_folder)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise HoldsUnreadable(
+            f"the candidate state at {path} cannot be read ({unreadable})") from unreadable
+    records = data.get("candidates", {}) if isinstance(data, dict) else None
+    if not isinstance(records, dict):
+        raise HoldsUnreadable(
+            f"the candidate state at {path} has no candidates mapping")
+    return records
+
+
+def candidate_records(project_folder: str) -> dict:
+    """Return durable candidates keyed by opaque candidate id."""
+    with _holds_lock(project_folder, shared=True):
+        return _read_candidates_unlocked(project_folder)
+
+
+def record_candidate(project_folder: str, record: dict, *,
+                     transition: str | None = None) -> dict:
+    """Persist one candidate and its append-only state transition.
+
+    The id is the identity. Resolve timeline names remain API-boundary
+    assertions and may change during promotion without changing identity.
+    """
+    candidate_id = str(record.get("candidate_id") or "").strip()
+    if not candidate_id:
+        raise ValueError("candidate record needs candidate_id")
+    if transition is not None and transition not in CANDIDATE_STATES:
+        raise ValueError(f"unknown candidate state {transition!r}")
+    with _holds_lock(project_folder):
+        holds = _read_holds_unlocked(project_folder)
+        candidates = _read_candidates_unlocked(project_folder)
+        prior = candidates.get(candidate_id)
+        now = _now().isoformat()
+        merged = dict(prior or {})
+        merged.update(record)
+        history = list(merged.get("transitions") or [])
+        if transition is not None:
+            previous = history[-1]["state"] if history else None
+            if previous is not None and transition not in _CANDIDATE_NEXT[previous]:
+                raise ValueError(
+                    f"candidate {candidate_id!r} cannot transition "
+                    f"from {previous!r} to {transition!r}")
+            history.append({"state": transition, "at": now})
+            merged["status"] = transition
+        elif prior is None:
+            raise ValueError("new candidate record needs an initial transition")
+        merged["transitions"] = history
+        merged["updated_at"] = now
+        candidates[candidate_id] = merged
+        _write_holds(project_folder, holds, candidates=candidates)
+        return dict(merged)
+
+
 def take_hold(project_folder: str, staging_name: str, *,
               awaiting: str | None = None, reason: str = "",
-              taken_by: str = "") -> dict:
+              taken_by: str = "", candidate_id: str = "",
+              transaction_id: str = "") -> dict:
     """Hold `staging_name` against the sweep until it is promoted.
 
     `awaiting` names the final timeline this staging promotes into,
@@ -254,10 +346,20 @@ def take_hold(project_folder: str, staging_name: str, *,
         raise ValueError("take_hold needs a staging timeline name.")
     with _holds_lock(project_folder):
         holds = _read_holds_unlocked(project_folder)
+        existing = holds.get(staging_name)
+        if (existing and transaction_id
+                and existing.get("transaction_id")
+                and existing["transaction_id"] != transaction_id):
+            raise HoldsUnreadable(
+                f"REFUSING to claim staging {staging_name!r}: it belongs "
+                f"to transaction {existing['transaction_id']!r}, not "
+                f"{transaction_id!r}. No timeline was changed.")
         entry = {"awaiting": awaiting,
                  "taken_at": _now().isoformat(),
                  "reason": reason,
-                 "taken_by": taken_by}
+                 "taken_by": taken_by,
+                 "candidate_id": candidate_id or None,
+                 "transaction_id": transaction_id or None}
         holds[staging_name] = entry
         _write_holds(project_folder, holds)
     return dict(entry)
