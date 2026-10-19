@@ -1582,6 +1582,24 @@ class _PendingSwap:
     position: int = 0
 
 
+def _is_native_still(pool_item: Any) -> bool:
+    """Whether a pool item is a native Resolve still (PNG image).
+
+    The same predicate `still_placement.place_still_exact` enforces:
+    Resolve's `AppendToTimeline` takes no duration for image items, so
+    a still insertion can never ride the normal one-call placement -
+    its duration arrives through the still-duration preference route
+    instead. Anything unreadable answers False, keeping the normal
+    route: a caller that cannot prove a still gets the video path.
+    """
+    try:
+        kind = pool_item.GetClipProperty("Type")
+        path = pool_item.GetClipProperty("File Path")
+    except Exception:  # noqa: BLE001 - unreadable is not a still
+        return False
+    return kind == "Still" and str(path or "").lower().endswith(".png")
+
+
 # ── The rederiver that is only a stand-in ────────────────────────────
 
 
@@ -1827,6 +1845,13 @@ def check_source_lengths(pool: Any,
     """
     for item in pending:
         mpi = pool_item_for_path(pool, item.media)
+        if _is_native_still(mpi):
+            # A still holds one source frame by nature; its timeline
+            # duration arrives through the still-duration preference
+            # route (`still_placement.place_still_exact`), never from
+            # source frames - so there is no span to judge here. The
+            # placed duration is judged by a re-read after placement.
+            continue
         needed = int(item.left_offset) + int(item.duration)
         frames = _pool_source_frames(mpi)
         if frames is not None and needed > frames and mpi.ReplaceClip(
@@ -2140,6 +2165,81 @@ def _plan_post_edit_counts(tracks: Sequence[Mapping],
             "restate the plan against the live timeline (`ren drift "
             "<project>` shows it), then re-run `ren touch`")
     return counts
+
+
+def _place_still_insertions(project_folder: str, project: Any,
+                            pool: Any, staged: Any, final: str,
+                            still_insertions: Sequence, *,
+                            resolve_app=None) -> list:
+    """Place still insertions at exact durations on the staging copy.
+
+    Each still rides the still-duration preference route
+    (`still_placement.place_still_exact`) - the composition's one-call
+    placement cannot carry a duration for image items - then takes its
+    declared treatment through the same `treat_insertion` read-back
+    the video batch uses. In record order, so two stills land
+    deterministically. Anything that does not place, or does not take
+    its treatment, raises `TouchupError`: the staging stands for
+    diagnosis and the approved timeline was never touched.
+    """
+    if resolve_app is None:
+        from library.tools.reel_build import _connect_resolve
+        resolve_app = _connect_resolve()
+    from library.tools.still_placement import place_still_exact
+    try:
+        fps = float(staged.GetSetting("timelineFrameRate"))
+    except (TypeError, ValueError, AttributeError) as unreadable:
+        raise TouchupError(
+            f"the staging timeline's frame rate is unreadable "
+            f"({unreadable}); the approved timeline stands") from unreadable
+    placed = []
+    for entry in sorted(still_insertions,
+                        key=lambda item: (int(item.record_frame),
+                                          int(item.track_index))):
+        started = time.time()
+        result = place_still_exact(
+            resolve_app, project, pool, staged, entry.media_pool_item,
+            int(entry.duration), int(entry.record_frame),
+            int(entry.track_index), fps, timeline_name=final)
+        treatment = _ce.treat_insertion(
+            result["item"], entry,
+            write_context={"project_folder": project_folder})
+        placed.append({"row": entry.row,
+                       "record_frame": int(entry.record_frame),
+                       "duration": int(entry.duration),
+                       "name": entry.name,
+                       "seconds": round(time.time() - started, 3),
+                       "treatment": treatment})
+    return placed
+
+
+def _assert_still_insertions(tracks: Sequence[Mapping],
+                             still_insertions: Sequence) -> None:
+    """Every placed still must read back at its planned span.
+
+    Judged off a fresh track read - never off the placement's return
+    value. A still that landed short (the preference route missed) or
+    not at all fails the touchup by name instead of promoting a
+    timeline whose logo ends mid-reel.
+    """
+    spans: dict = {}
+    for track in tracks or ():
+        try:
+            row = _row_of(track["type"], int(track["index"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        spans[row] = [(int(c["record_in"]), int(c["record_out"]))
+                      for c in (track.get("clips", []) or ())]
+    for entry in still_insertions:
+        want = (int(entry.record_frame),
+                int(entry.record_frame) + int(entry.duration))
+        if want not in (spans.get(str(entry.row).upper()) or ()):
+            raise TouchupError(
+                f"the still on {entry.row} at {want[0]} for "
+                f"{entry.duration}f did not read back at its planned "
+                f"span (row now holds "
+                f"{spans.get(str(entry.row).upper())}) - the staging "
+                f"stands and the approved timeline was never touched.")
 
 
 def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
@@ -2776,6 +2876,26 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
 
     insertions = _resolve_insertions(
         pool, staged, qualification.insertions)
+    # A native still never rides the composition's one-call placement:
+    # `AppendToTimeline` takes no duration for image items, so each
+    # still insertion is placed after the composition through the
+    # still-duration preference route and judged by a re-read, like
+    # the still resize - without disturbing the video batch. Scoped
+    # to the no-length-change class: a played-length change plus a
+    # still insertion is refused rather than sequenced by guesswork.
+    still_insertions = [entry for entry in insertions
+                        if _is_native_still(entry.media_pool_item)]
+    insertions = [entry for entry in insertions
+                  if not _is_native_still(entry.media_pool_item)]
+    if still_insertions and qualification.gate_class != COMPOSED:
+        raise TouchupRefused(
+            f"{len(still_insertions)} still insertion(s) in a "
+            f"{qualification.gate_class} change",
+            "still insertions ride only the no-length-change class - "
+            "sequencing a preference-route placement around a ripple "
+            "or a re-derivation is unproven",
+            "state the change without a played-length edit, then "
+            "re-run `ren touch`")
     changes = list(qualification.changes)
 
     # Vacate the removal spans FIRST, on the staging copy: the
@@ -2858,6 +2978,12 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # re-read; this second read checks the whole row reads back
     # as the plan says it should.
     verify_started = time.time()
+    if still_insertions:
+        receipt["still_insertions"] = _place_still_insertions(
+            project_folder, project, pool, staged, final,
+            still_insertions, resolve_app=resolve_app)
+        staged_tracks = _read.read_tracks(staged)
+        _assert_still_insertions(staged_tracks, still_insertions)
     staged_tracks = _read.read_tracks(staged)
     receipt["verification_read"] = _summarise_rows(staged_tracks)
     receipt["verify_seconds"] = round(

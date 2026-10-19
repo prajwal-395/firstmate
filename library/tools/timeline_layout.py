@@ -95,12 +95,17 @@ SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
 #: "Captions" is the reel caption row's retired name; it still denotes
 #: a layer wherever it survives. "Motion Graphics" is the speaker lower
 #: thirds' row (`speaker_identity.TRACK_NAME`): without it a master
-#: carrying lower thirds would read as a third camera.
+#: carrying lower thirds would read as a third camera. "Corner Logo"
+#: is the touch-placed corner-bug overlay row (`reel_touchup` adds it
+#: on top): a layer, not a camera - without it a marker anchors to the
+#: logo still instead of the picture under it, and a future build
+#: would read the bug as an angle.
 SINGLETON_NAMES = frozenset({
     "B-Roll", "Subject Grade", "Frame", "Subtitles", "Captions",
     "Transitions",
     "Explainer", "Semantic", "Motion Graphics", "Generator Effects",
     "Timed Text", "Post Header", "Safe Zones", "Music", "SFX",
+    "Corner Logo",
 })
 
 #: The standard names of the two rows above, and of the TV frame's row.
