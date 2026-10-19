@@ -185,39 +185,9 @@ A note whose `anchor.selector` is empty is REJECTED.
 
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
-Production Resolve control goes through AXI: discover capabilities from current state, execute guarded operations, verify read-back, and report only what evidence supports. Preserve approved edits; never issue uncontrolled direct mutations or overlap writers. One Resolve instance and its broker/lease are the shared execution authority. Details belong to [the resolve-axi skill](.agents/skills/resolve-axi/SKILL.md), [custom script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md), and the owning modules: `library/tools/resolve_axi.py`, `library/tools/edit_algebra.py`, `library/tools/edit_patch.py`, `library/tools/resolve_lock.py`, `library/tools/resolved/client.py`, `library/tools/timeline_shadow.py`, `library/tools/shadow_watcher.py`, `library/tools/resolve_transform.py`, `library/tools/comp_media_window.py`, `library/tools/build_sweep.py`, `library/tools/master_markers.py`, `library/tools/staging_holds.py`, `library/tools/resolve_organization.py`, `library/tools/orphan_removal.py`, and `library/steps/step_6_01_render/resolve_build_timeline.py`.
+AXI is the only production boundary for Resolve inspection and mutation. Discover the requested operation and its current availability through AXI, use its guarded execution path, then verify the request against fresh read-back and visual or audio evidence where needed. Preserve approved edits; a successful call is not verified editorial completion.
 
-### Connection
-
-### Process isolation
-
-### One Resolve, many writers
-
-### Judge every Resolve call by what it returns
-
-### Transitions go through Fusion or Resolve itself.
-
-### Stabilization is the memory ceiling, and it runs last
-
-### Fusion .comp files - NEVER
-
-### Fusion .comp files - ALWAYS
-
-### Frame mapping
-
-### Default transition values
-
-### Tracks
-
-### Media pool and audio
-
-### The mix goes through OTIO, and it goes in at placement time
-
-### Visual verification
-
-### Reading a killed build off disk
-
-### Organising the pool
+One Resolve instance and its broker/lease coordinate every writer. Never mutate through a direct API, MCP or UI path, overlap writers, or promote an unverified result. Use the [resolve-axi skill](.agents/skills/resolve-axi/SKILL.md) for discovery, execution and recovery; its generated references derive from `library/tools/edit_algebra.py`. Custom scripts follow [the AXI script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md). Pipeline-owned composition and render details belong to [davinci_resolve_pipeline](.agents/skills/davinci_resolve_pipeline/SKILL.md) and their owning modules.
 
 ## 6. The spine contract
 

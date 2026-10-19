@@ -25,5 +25,4 @@ Use the owning pipeline step or `ren` capability for builds and renders. For a c
 
 - `references/fusion_gotchas.md` - composition constraints.
 - `references/visual_verify.md` - local render-frame inspection guidance.
-- `references/step_data_flow.md` - pipeline ownership and data flow.
-- `references/api_patterns.md` - AXI routing for Resolve control.
+- `references/api_patterns.md` - AXI is the production boundary; discover each requested operation from current capability evidence.

@@ -188,9 +188,12 @@ it whenever the goal is about what is IN the footage.
   user's editorial intent here; delegate target resolution, Resolve API,
   MCP, UI, transaction and recovery mechanics to AXI. Confirm the exact
   project and timeline from live state. A command return is provisional:
-  report an edit only after its receipt and task-specific read-back
-  establish the requested result. An unchecked rebuild is not a verified
-  edit. Resolve mechanics and their invariants live in
+  report completion only after its receipt and request-specific read-back
+  establish the requested result, with visual or audio evidence when
+  structure cannot prove it. Execution success is not editorial success.
+  An incomplete, refused or unverified change is never reported as
+  delivered. An unchecked rebuild is not a verified edit. Resolve
+  mechanics and their invariants live in
   `.agents/skills/resolve-axi/SKILL.md`.
 - To read a built reel as a report, call `library/tools/reel_read.py`,
   never invent a new probe.
@@ -388,20 +391,19 @@ happened next:
 |---|---|
 | `awaiting_translation` | Answer the `LLM_REQUEST_READY` file exactly as below, then run `ren revise <project>` again |
 | `question` | Ask the person `reply` (it is exactly one question), then `ren revise <project> --answer "<their words>"` |
-| `patched` / `touched` | Done: the reel was changed in place; `reply` names the reel, rows and seconds |
-| `rebuilt` | The owning steps rebuilt that reel. Check the operation receipt and requested result before reporting it as done |
-| `incomplete` | The rebuild stopped; fix what it printed, then `ren revise <project>` |
+| `patched` / `touched` | A change was applied. Check its AXI receipt and requested result before reporting completion |
+| `rebuilt` | The owning steps rebuilt that reel. Check the operation receipt and requested result before reporting completion |
+| `incomplete` | The request did not complete. Inspect actual state and the refusal or failure; do not report delivery or retry until its recovery path is clear |
 | `refused` | Nothing changed; tell the person `reply` |
 
-A change to things already on a reel (a caption's or overlay's size or
-position, an overlay off, a marker) is a local edit request; a change to
-what plays or in what order is an editorial revision. Use `ren revise`
-for the request, and use `resolve-axi` for Resolve operation discovery,
-execution and verification. A plan is not an applied edit. A staged
-timeline is not a promoted reel, and a promoted reel is not delivered
-until the signed-off export and its checks exist. `--plan` stops after
-showing what would change. Changing a signed-off reel asks first
-(`needs_question`), like a rebuild.
+A change to a reel's contents or arrangement is an editorial revision;
+use `ren revise` for the user's request. For any Resolve operation,
+discover and execute through AXI; do not choose a backend or raw Resolve
+command in the editorial plan. A plan is not an applied edit, an applied
+edit is not verified completion, a staged timeline is not a promoted
+reel, and a promoted reel is not delivered until the signed-off export
+and its checks exist. `--plan` stops after showing what would change.
+Changing a signed-off reel asks first (`needs_question`), like a rebuild.
 
 The steps `ren revise` composes remain available one by one. Link the
 existing note id for a pulled marker; a direct chat or CLI request creates
