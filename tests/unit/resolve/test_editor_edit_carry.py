@@ -4,12 +4,12 @@ History: docs/evidence/resolve_test_history.md#test_editor_edit_carry.
 """
 import copy
 import json
+import threading
+import time
 from contextlib import ExitStack, nullcontext
 from unittest.mock import patch
 
 import pytest
-import threading
-import time
 
 
 @pytest.fixture(autouse=True)
@@ -1280,7 +1280,6 @@ def test_source_partition_splits_overlay_and_defers_its_cut_segments():
     edits, uncarried = carry.derive_edits(record)
 
     assert uncarried == []
-    split = next(edit for edit in edits if edit["kind"] == "split")
     cuts = [edit for edit in edits if edit["kind"] == "cut"]
     assert [(edit["source_in_frame"], edit["source_out_frame"])
             for edit in cuts] == [(400, 500), (800, 900)]
@@ -2088,7 +2087,10 @@ def test_carrying_waits_for_a_touchup_on_the_staging():
     gone. On origin/main the carry returns before the holder releases.
     """
     from library.tools.resource_leases import (
-        LeaseDeclaration, ResourceRef, resource_lease)
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
     from tests.resolve_double import make_project
     staging = FakeTimeline(STAGING)
     project = make_project("Podcast")
@@ -2127,6 +2129,7 @@ def _composed_staging():
 
 def _mock_compose(monkeypatch, calls):
     from types import SimpleNamespace
+
     import library.tools.composed_edit as ce
 
     def fake_apply(**kwargs):
@@ -2168,7 +2171,10 @@ def test_a_composed_edit_waits_for_a_touchup_on_the_staging(
     from library.tools import editor_edit_carry as carry_mod
     from library.tools.resolve_lock import assume_sole_writer
     from library.tools.resource_leases import (
-        LeaseDeclaration, ResourceRef, resource_lease)
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
     calls = []
     _mock_compose(monkeypatch, calls)
     project, staging = _composed_staging()
@@ -2247,3 +2253,30 @@ def test_the_guard_finds_a_rerendered_still_by_row_and_span():
     assert guard._change_is_carried(change, {"items": [rebuilt]})
     assert not guard._change_is_carried(
         change, {"items": [{**rebuilt, "transform": {"Tilt": 1836.0}}]})
+
+
+def test_replacement_refuses_an_observed_grade_lost_on_staging(tmp_path):
+    item = {
+        "name": "closing shot", "source_identity": "media:closing",
+        "source_in_frame": 100, "source_out_frame": 200,
+        "color": {"cdl": {"saturation": 1.2}, "luts": []},
+        "fusion": {"comp_count": 0, "comp_names": [],
+                   "media_windows": [], "mattes": None},
+        "composite": {},
+    }
+    detection = {"first_contact": False, "detected": [], "pending": []}
+    with pytest.raises(guard.ReplaceGuardRefused, match="color"):
+        guard.protect_editor_changes(
+            str(tmp_path), FINAL, {"items": [item]}, {"items": [item]},
+            {"items": [{**item, "color": {"cdl": {}, "luts": []}}]},
+            detection=detection)
+
+
+def test_replacement_report_never_claims_full_native_preservation(tmp_path):
+    detection = {"first_contact": False, "detected": [], "pending": []}
+    result = guard.protect_editor_changes(
+        str(tmp_path), FINAL, {"items": []}, {"items": []}, {"items": []},
+        detection=detection)
+    assert result["preservation"]["full_preservation"] is False
+    assert set(result["preservation"]["contract"].values()) <= {
+        "supported", "unsupported", "partially_observable"}

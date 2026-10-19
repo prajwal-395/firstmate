@@ -147,6 +147,68 @@ PRESERVATION_FIELDS = (
     "duration", "enabled", "transform", "composite", "fusion", "color",
     "clip_color", "flags", "markers",
 )
+
+# This is the replacement boundary's honest statement of what the shared
+# Resolve reader can prove.  In particular, reading a grade/Fusion summary
+# is not the same as being able to copy the native object and its full state.
+# Keep the matrix alongside the guard that decides whether replacement is
+# safe; docs/evidence/edit_preservation.md explains the evidence and limits.
+PRESERVATION_CONTRACT = {
+    "source_identity_and_windows": "supported",
+    "placement_duration_and_track": "supported",
+    "linked_groups": "unsupported",
+    "transform_and_crop": "partially_observable",
+    "enabled_state": "supported",
+    "clip_and_timeline_markers": "partially_observable",
+    "grades_and_node_state": "partially_observable",
+    "fusion_comps_and_animation": "partially_observable",
+    "audio_effects_automation_and_routing": "unsupported",
+    "manual_edits": "partially_observable",
+    "signoffs": "supported",
+}
+
+
+def _has_native_payload(value) -> bool:
+    """Whether a read contains non-default native state worth preserving."""
+    if value is None or value is False or value == 0 or value == "" \
+            or value == []:
+        return False
+    if isinstance(value, dict):
+        return any(_has_native_payload(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_has_native_payload(item) for item in value)
+    return True
+
+
+def _native_state_losses(live: dict, staged: dict) -> list[str]:
+    """Find observed grade/Fusion/composite state lost on matching media.
+
+    These properties are read only partially and have no qualified native
+    copy operation. If the retiring item has a non-empty value, replacement
+    must either read the same value on its matching source passage or refuse.
+    """
+    losses = []
+    observed = ("color", "fusion", "composite")
+    staged_by_passage = defaultdict(list)
+    for item in staged.get("items", ()):
+        key = (item.get("source_identity"), item.get("source_in_frame"),
+               item.get("source_out_frame"))
+        staged_by_passage[key].append(item)
+    for item in live.get("items", ()):
+        key = (item.get("source_identity"), item.get("source_in_frame"),
+               item.get("source_out_frame"))
+        values = {field: item.get(field) for field in observed
+                  if _has_native_payload(item.get(field))}
+        if not values:
+            continue
+        candidates = staged_by_passage.get(key, ())
+        if len(candidates) != 1 or any(
+                not _same_preservation_value(field, value,
+                                             candidates[0].get(field))
+                for field, value in values.items()):
+            label = item.get("name") or item.get("source_identity") or "item"
+            losses.extend(f"{label}: {field}" for field in values)
+    return losses
 #: The transform properties stored in the project resolution's unit.
 UNIT_EPOCH_KEYS = ("Pan", "Tilt")
 TIMELINE_SETTING_KEYS = (
@@ -1117,6 +1179,15 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
     if detection is None:
         detection = detect_editor_changes(
             project_folder, final, live, staged_initial)
+    native_losses = _native_state_losses(live, staged_after)
+    if native_losses:
+        raise ReplaceGuardRefused(
+            f"REFUSING to replace {final!r}: observed native Resolve state "
+            "is absent or different on the matching staged passage. "
+            "This state has no qualified carry operation, so nothing was "
+            "renamed. Resolve the grade, Fusion, or composite difference "
+            "and verify it before replacing the timeline.\n  " +
+            "\n  ".join(native_losses))
     first_contact = detection["first_contact"]
     detected = detection["detected"]
     pending = detection["pending"]
@@ -1171,6 +1242,16 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
             f"\nTo accept this loss deliberately, pass "
             f"--accept-editor-changes {final!r}.")
     return {"first_contact": first_contact, "detected": detected,
+            "preservation": {
+                "contract": dict(PRESERVATION_CONTRACT),
+                # Partial and unsupported properties are present in the
+                # matrix by design. Never turn a successful partial read
+                # into a claim that every Resolve-native property survived.
+                "full_preservation": all(
+                    value == "supported"
+                    for value in PRESERVATION_CONTRACT.values()),
+                "observed_native_losses": native_losses,
+            },
             "carried_edits": carried_edits,
             "carried": [record["id"] for record in carried],
             "touch_replaced": touch_replaced,
