@@ -54,6 +54,7 @@ PIXEL_CENTROID_TOLERANCE = 2.0
 
 def verify_rendered_frames(frames: Sequence[dict], *, expected_bbox=None,
                            safe_zone=None, motion=None,
+                           expected_boxes=None,
                            forbidden_mask_path: Optional[str] = None,
                            black_threshold: int = 4) -> dict:
     """Independently inspect rendered overlay frames and measured geometry.
@@ -66,6 +67,13 @@ def verify_rendered_frames(frames: Sequence[dict], *, expected_bbox=None,
     from PIL import Image, ImageChops, ImageStat
 
     findings, skipped, measured = [], [], []
+    mask = None
+    if forbidden_mask_path:
+        try:
+            with Image.open(forbidden_mask_path) as source_mask:
+                mask = source_mask.convert("L")
+        except (OSError, ValueError) as exc:
+            skipped.append({"reason": f"occlusion mask unavailable: {exc}"})
     for index, row in enumerate(frames):
         path = row.get("path")
         if not path:
@@ -77,27 +85,34 @@ def verify_rendered_frames(frames: Sequence[dict], *, expected_bbox=None,
         except (OSError, ValueError) as exc:
             skipped.append({"frame": index, "reason": f"cannot decode rendered frame: {exc}"})
             continue
-        bbox = image.getchannel("A").point(
+        alpha_channel = image.getchannel("A")
+        alpha_bbox = alpha_channel.point(
             lambda value: 255 if value >= ALPHA_INK_THRESHOLD else 0).getbbox()
-        if bbox is None:
+        if alpha_bbox is None:
             skipped.append({"frame": index, "reason": "render contains no measurable alpha ink"})
             continue
-        bbox = tuple(map(int, bbox))
-        measured.append({"frame": index, "size": image.size, "bbox": bbox})
-        if forbidden_mask_path:
-            try:
-                with Image.open(forbidden_mask_path) as source_mask:
-                    mask = source_mask.convert("L")
-                if mask.size != image.size:
-                    raise ValueError("occlusion mask dimensions differ from render")
-                alpha = image.getchannel("A").point(
-                    lambda value: 255 if value >= ALPHA_INK_THRESHOLD else 0)
-                overlap = ImageStat.Stat(ImageChops.multiply(alpha, mask)).mean[0]
-                if overlap > 0:
+        bbox = tuple(map(int, alpha_bbox))
+        alpha_ink = image.getchannel("A").point(
+            lambda value: 255 if value >= ALPHA_INK_THRESHOLD else 0)
+        rgb_mean = tuple(float(value) for value in ImageStat.Stat(
+            image.convert("RGB")).mean)
+        evidence = {"frame": index, "size": image.size, "bbox": bbox,
+                    "alpha_ink_pixels": int(ImageStat.Stat(alpha_ink).sum[0] / 255),
+                    "alpha_mean": float(ImageStat.Stat(image.getchannel("A")).mean[0]),
+                    "rgb_mean": rgb_mean}
+        measured.append(evidence)
+        if mask is not None:
+            if mask.size != image.size:
+                skipped.append({"frame": index,
+                                "reason": "occlusion mask dimensions differ from render"})
+            else:
+                forbidden = mask.point(lambda value: 255 if value >= 128 else 0)
+                overlap_pixels = int(ImageStat.Stat(
+                    ImageChops.multiply(alpha_ink, forbidden)).sum[0] / 255)
+                evidence["occlusion_overlap_pixels"] = overlap_pixels
+                if overlap_pixels:
                     findings.append({"frame": index, "check": "occlusion_acceptable",
-                                     "overlap_mean": overlap})
-            except (OSError, ValueError) as exc:
-                skipped.append({"frame": index, "reason": f"occlusion mask unavailable: {exc}"})
+                                     "overlap_pixels": overlap_pixels})
         if expected_bbox is not None and tuple(expected_bbox) != bbox:
             findings.append({"frame": index, "check": "bounding_box_matches_request",
                              "expected": tuple(expected_bbox), "actual": bbox})
@@ -108,25 +123,60 @@ def verify_rendered_frames(frames: Sequence[dict], *, expected_bbox=None,
                                  "safe_zone": tuple(safe_zone), "actual": bbox})
         if bbox[0] <= 0 or bbox[1] <= 0 or bbox[2] >= image.width or bbox[3] >= image.height:
             findings.append({"frame": index, "check": "not_clipped", "actual": bbox})
-        rgb = image.convert("RGB").crop(bbox)
-        if all(channel <= black_threshold for channel in ImageStat.Stat(rgb).mean):
+        # A transparent overlay commonly has black RGB under transparent
+        # pixels. Only classify a black frame when alpha covers the whole
+        # output; sparse alpha artwork is not a black video frame.
+        if (evidence["alpha_mean"] >= 254.0
+                and all(channel <= black_threshold for channel in rgb_mean)):
             findings.append({"frame": index, "check": "no_unexpected_black_frames",
-                             "reason": "rendered frame is black"})
+                             "reason": "rendered frame is black",
+                             "rgb_mean": rgb_mean})
     if motion is not None:
-        expected = motion.get("expected_centres")
+        expected = motion.get("expected_boxes", motion.get("expected_centres"))
         tolerance = float(motion.get("tolerance_px", 2.0))
         if not expected or len(expected) != len(measured):
             skipped.append({"reason": "motion expectation does not match measured frames"})
         else:
-            for row, centre in zip(measured, expected):
+            for row, geometry in zip(measured, expected):
                 x0, y0, x1, y1 = row["bbox"]
-                actual = ((x0 + x1) / 2, (y0 + y1) / 2)
-                gap = ((actual[0] - centre[0]) ** 2 + (actual[1] - centre[1]) ** 2) ** 0.5
-                if gap > tolerance:
-                    findings.append({"frame": row["frame"], "check": "motion_matches_request",
-                                     "expected": tuple(centre), "actual": actual,
-                                     "gap_px": gap})
-    occlusion_status = ("measured" if forbidden_mask_path and not any(
+                values = tuple(map(float, geometry))
+                actual = (x0, y0, x1, y1)
+                if len(values) == 2:
+                    centre = ((x0 + x1) / 2, (y0 + y1) / 2)
+                    gap = ((centre[0] - values[0]) ** 2
+                           + (centre[1] - values[1]) ** 2) ** 0.5
+                    if gap > tolerance:
+                        findings.append({"frame": row["frame"],
+                                         "check": "motion_matches_request",
+                                         "expected_centre": values,
+                                         "actual_bbox": actual, "gap_px": gap})
+                elif len(values) == 4:
+                    gaps = tuple(a - b for a, b in zip(actual, values))
+                    if max(map(abs, gaps)) > tolerance:
+                        findings.append({"frame": row["frame"],
+                                         "check": "motion_matches_request",
+                                         "expected_bbox": values,
+                                         "actual_bbox": actual,
+                                         "edge_gaps_px": gaps})
+                else:
+                    skipped.append({"frame": row["frame"],
+                                    "reason": "motion geometry must be a centre or box"})
+    if expected_boxes is not None:
+        if len(expected_boxes) != len(measured):
+            skipped.append({"reason": "expected box count does not match measured frames"})
+        else:
+            for row, expected in zip(measured, expected_boxes):
+                expected = tuple(map(float, expected))
+                actual = row["bbox"]
+                if len(expected) != 4:
+                    skipped.append({"frame": row["frame"],
+                                    "reason": "expected box must have four edges"})
+                    continue
+                if any(abs(a - b) > 2.0 for a, b in zip(actual, expected)):
+                    findings.append({"frame": row["frame"],
+                                     "check": "animated_bbox_matches_request",
+                                     "expected": expected, "actual": actual})
+    occlusion_status = ("measured" if mask is not None and not any(
         "occlusion mask" in row.get("reason", "") for row in skipped)
                         else "not_measured")
     return {"passed": bool(measured) and not findings and not skipped
@@ -161,6 +211,8 @@ def acceptance_evidence(*, values: Optional[dict], pixels: Optional[dict],
         and not any(row.get("check") == "occlusion_acceptable" for row in findings),
         "no_unexpected_black_frames": bool(measured) and not any(
             row.get("check") == "no_unexpected_black_frames" for row in findings),
+        "alpha_present": bool(measured) and all(
+            row.get("alpha_ink_pixels", 0) > 0 for row in measured),
         "motion_matches_request": bool(has_motion_expectation and measured)
         and not any(row.get("check") == "motion_matches_request" for row in findings),
     }

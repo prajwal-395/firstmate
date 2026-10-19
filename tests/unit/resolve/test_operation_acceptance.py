@@ -59,6 +59,32 @@ def test_rendered_frame_verifier_measures_bbox_safe_zone_and_clipping(tmp_path):
     assert result["passed"]
     assert result["measured"][0]["bbox"] == (20, 15, 40, 30)
     assert result["occlusion"]["status"] == "measured"
+    assert result["measured"][0]["alpha_ink_pixels"] == 300
+
+
+def test_rendered_frame_verifier_checks_animated_size_and_binary_occlusion(tmp_path):
+    paths = []
+    for index, box in enumerate(((10, 10, 30, 30), (20, 10, 50, 30))):
+        path = tmp_path / f"frame-{index}.png"
+        image = Image.new("RGBA", (100, 80), (0, 0, 0, 0))
+        for x in range(box[0], box[2]):
+            for y in range(box[1], box[3]):
+                image.putpixel((x, y), (255, 20, 10, 255))
+        image.save(path)
+        paths.append({"path": str(path)})
+    forbidden = tmp_path / "forbidden.png"
+    mask = Image.new("L", (100, 80), 0)
+    mask.putpixel((15, 15), 128)
+    mask.save(forbidden)
+
+    result = overlay_verify.verify_rendered_frames(
+        paths, expected_boxes=((10, 10, 30, 30), (20, 10, 50, 30)),
+        forbidden_mask_path=str(forbidden))
+
+    assert not result["passed"]
+    assert result["measured"][1]["bbox"] == (20, 10, 50, 30)
+    assert result["findings"][0]["check"] == "occlusion_acceptable"
+    assert result["findings"][0]["overlap_pixels"] == 1
 
 
 def test_lifecycle_stops_at_applied_when_acceptance_fails():
