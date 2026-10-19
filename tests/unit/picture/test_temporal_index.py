@@ -71,7 +71,7 @@ def test_batch_audio_is_published_under_each_clip_cache_name(tmp_path,
 
     result = temporal._pretranscribe_misses(
         [("clip_001", str(source), "unused.json", True)],
-        layout, "large-v3", "en")
+        layout, "en")
 
     canonical = audio_cache / "clip_001.wav"
     assert Path(result["clip_001"][0]) == canonical

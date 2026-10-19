@@ -101,6 +101,9 @@ def _index_document(clip_id):
     """The shape step 1.04 writes, minus the megabytes of real signal."""
     return {
         "clip_id": clip_id,
+        "transcription_arm": "whisperx",
+        "transcription_aligner": "wav2vec2",
+        "transcription_language": "en",
         "scene_boundaries": [{"time": 0.0, "score": 1.0, "type": "start"}],
         "speech_regions": [{"start": 0.5, "end": 1.5, "words": []}],
         "energy_curve": {"peak_times": []},
@@ -222,7 +225,7 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
 
     monkeypatch.setattr(module, "index_clip", fake_index_clip)
     result = module.build_temporal_index(
-        files, ProjectLayout(root), "large-v3")
+        files, ProjectLayout(root), "en")
 
     assert indexed == ["clip_002"], (
         "only the clip whose artifact was removed may be re-indexed")

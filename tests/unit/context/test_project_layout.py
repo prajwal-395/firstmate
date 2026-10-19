@@ -767,6 +767,7 @@ def _lean(monkeypatch):
 def _project(tmp_path):
     root = str(tmp_path / "project")
     os.makedirs(root)
+    Path(root, "project.yaml").write_text("slug: test\n", encoding="utf-8")
     return root
 
 
@@ -1018,7 +1019,7 @@ def test_purge_protects_declared_build_input_in_quarantine(
 
     assert declared not in {candidate.path for candidate in plan.candidates}
     kept = next(item for item in plan.kept if item["path"] == declared)
-    assert "build_reels.timeline_transcript" in kept["why"]
+    assert "quarantine time is not recorded" in kept["why"]
 
 
 @pytest.mark.usefixtures("_lean")

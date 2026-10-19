@@ -1135,6 +1135,17 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/reproducibility.py',
     ),
     "step_1_02_catalog_footage": (
+        # The catalog can commit timeline edit receipts and deliver audio
+        # artifacts; keep those execution and cleanup paths in its cache key.
+        "library/tools/artifact_lifecycle.py",
+        "library/tools/cache_lifecycle.py",
+        "library/tools/edit_execution_adapters.py",
+        "library/tools/execution/deliver_audio_mix.py",
+        "library/tools/execution/remove_proof.py",
+        "library/tools/proof_cleanup.py",
+        "library/tools/resolve_axi_sdk/__init__.py",
+        "library/tools/retention.py",
+        "library/tools/safe_zone_guide.py",
         # The AXI CLI shell imports its shared core; keep that transitive
         # source in the catalog's declared source closure.
         "library/tools/resolve_axi_core.py",

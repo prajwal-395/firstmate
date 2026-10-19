@@ -137,6 +137,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import threading
 import time
 import wave
 from pathlib import Path
@@ -862,6 +863,10 @@ def build_untranscribed_document(content_digest: str, source_file: str,
 # ── Writing and reading the store ──────────────────────────────────
 
 
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
 def write_json(path: Path, payload: dict) -> None:
     """Atomic write: temp file plus rename, so a killed build never
     leaves a half-written slot that reads as fresh.
@@ -878,7 +883,10 @@ def write_json(path: Path, payload: dict) -> None:
     payload = _with_evidence_envelope(path, payload)
     validate_evidence_envelope(payload["evidence_envelope"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    with cache_file_lease(path, exclusive=True):
+    lock_key = os.path.realpath(path)
+    with _WRITE_LOCKS_GUARD:
+        thread_lock = _WRITE_LOCKS.setdefault(lock_key, threading.Lock())
+    with thread_lock, cache_file_lease(path, exclusive=True):
         fd, staged_name = tempfile.mkstemp(
             dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
         try:

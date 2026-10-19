@@ -98,11 +98,13 @@ def test_interrupted_cleanup_job_returns_to_queue_for_reproof(tmp_path):
 
 
 def test_inventory_counts_shared_inode_physical_bytes_once(tmp_path):
-    project = str(tmp_path / "project")
+    project = tmp_path / "project"
     project.mkdir()
-    first = _record(tmp_path, artifact_id="artifact-a")
-    second_path = tmp_path / "second.bin"
-    os.link(first.path, second_path)
+    first_path = project / "first.bin"
+    first_path.write_bytes(b"owned output")
+    second_path = project / "second.bin"
+    os.link(first_path, second_path)
+    first = _record(tmp_path, artifact_id="artifact-a", path=first_path)
     second = _record(tmp_path, artifact_id="artifact-b", path=second_path)
     lifecycle.register_artifact(project, first)
     lifecycle.register_artifact(project, second)

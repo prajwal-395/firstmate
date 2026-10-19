@@ -2037,8 +2037,15 @@ class TestConcurrentSameSlotWrites:
     crashed on a clip that had measured fine. Temp names are unique
     per call now, so every concurrent write lands intact."""
 
-    def test_same_slot_writes_each_land_intact(self, tmp_path):
+    def test_same_slot_writes_each_land_intact(self, tmp_path, monkeypatch):
         import threading
+        from contextlib import nullcontext
+        from library.tools import cache_lifecycle
+
+        # This test isolates atomic replacement under simultaneous writers.
+        # Lease conflicts are covered by cache_lifecycle's own tests.
+        monkeypatch.setattr(cache_lifecycle, "cache_file_lease",
+                            lambda *_args, **_kwargs: nullcontext())
 
         path = tmp_path / "memory" / "sound.json"
         payloads = [

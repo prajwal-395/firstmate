@@ -340,11 +340,12 @@ def schedule_cleanup_job(project_folder: str, *, event_id: str,
     """Persist a deduplicated pending cleanup job in the project event log."""
     if not (event_id and project_id and run_id and job_id):
         raise ValueError("cleanup job needs event, project, run and job ids")
-    return event_log.emit_once(
+    event, created = event_log.emit_once(
         project_folder, CLEANUP_JOB, f"cleanup:{event_id}:queued",
         task=job_id, lifecycle_event_id=event_id, project_id=project_id,
         run_id=run_id, job_id=job_id, reason=reason, state="queued",
         not_before=not_before)
+    return {**event, **_event_fields(event)}, created
 
 
 def pending_cleanup_jobs(project_folder: str) -> list[dict]:

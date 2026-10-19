@@ -2539,9 +2539,6 @@ def run_pipeline(
             _dry_want_json = _dry_want_json or not sys.stdout.isatty()
         except Exception:  # noqa: BLE001 - an unreadable stdout is not a TTY
             _dry_want_json = True
-    # Initialize logger
-    get_logger(project_dir)
-
     dag = load_dag()
     state = load_pipeline_state(project_dir)
     try:
@@ -3119,6 +3116,9 @@ def run_pipeline(
     # must not touch the project (see `record_delivery` below).  After
     # the dry-run return above, for the same reason a dry run reports
     # and writes nothing.  See library/tools/brief_snapshot.py.
+    # Logger setup creates project output directories, so defer it until
+    # the selection has passed the fail-closed scope check above.
+    get_logger(project_dir)
     from library.tools import brief_snapshot as _brief_snapshot
     from library.tools import series_registry
     _brief_record = _brief_snapshot.record_brief_for_run(

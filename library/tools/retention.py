@@ -1224,6 +1224,10 @@ def _process_cleanup_queue(project_folder: str, db_paths=None) -> None:
 def resume_cleanup_jobs(project_folder: str, db_paths=None) -> None:
     """Resume queued work in the background; the job itself is durable."""
     from library.tools import artifact_lifecycle
+    # The project activity lease is entered for ordinary runs too. Do not
+    # create a lifecycle log or output tree when there is no work to resume.
+    if not artifact_lifecycle.incomplete_cleanup_jobs(project_folder):
+        return
     if not _cleanup_worker_lock.acquire(blocking=False):
         return
 
