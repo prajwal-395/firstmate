@@ -382,7 +382,8 @@ def record_commit(project_folder, *, parent: str | None,
                   agent: str, timeline: str = "",
                   evaluation: Mapping | None = None,
                   artifacts: Mapping | None = None,
-                  second_parent: str | None = None) -> dict:
+                  second_parent: str | None = None,
+                  revision_id: str | None = None) -> dict:
     """Record a creative commit. Returns the commit with its id.
 
     The commit is written atomically under
@@ -438,6 +439,25 @@ def record_commit(project_folder, *, parent: str | None,
     for existing in list_commits(project_folder):
         sequence = max(sequence, int(existing.get("sequence") or 0) + 1)
     commit["sequence"] = sequence
+    from library.tools import creative_revision
+    parent_revision = None
+    if parent:
+        parent_record = read_commit(project_folder, str(parent))
+        parent_revision = parent_record.get("revision_id")
+    existing_revision = (creative_revision.get(project_folder, revision_id)
+                         if revision_id else None)
+    revision = creative_revision.create(
+        project_folder, revision_id=revision_id,
+        **({} if existing_revision else {
+            "parents": [parent_revision] if parent_revision else (),
+            "author": str(agent), "intent": str(intent),
+            "operations": [dict(change) for change in changes or ()
+                           if isinstance(change, Mapping)],
+            "affected_entities": [str(timeline)] if timeline else (),
+            "status": "recorded",
+        }),
+        refs={"creative_commit": {"commit_id": commit_id}})
+    commit["revision_id"] = revision["revision_id"]
     store.write_record(path, commit, prefix=".commit-")
     return commit
 
@@ -539,7 +559,8 @@ def record_touch_commit(project_folder, *, journal: Mapping,
     return record_commit(
         project_folder, parent=parent, intent=intent,
         changes=changes, agent="reel_touchup", timeline=timeline,
-        evaluation=evaluation, artifacts=artifacts)
+        evaluation=evaluation, artifacts=artifacts,
+        revision_id=journal.get("revision_id"))
 
 
 def _intent_from_edits(edits: Sequence[Mapping], summary: Mapping) -> str:
@@ -1555,6 +1576,23 @@ def open_entry(project_folder, *, final: str, reel: int,
         "before": {"tracks": before},
         "removed": removed,
     }
+    # Persist intent before the first timeline mutation. A candidate can
+    # therefore remain inspectable as prepared even if it is never approved.
+    from library.tools import creative_revision
+    from library.tools.versions import reel_versions
+
+    prior = reel_versions.latest_act(project_folder, final)
+    parent_revision = (prior or {}).get("revision_id")
+    revision = creative_revision.create(
+        project_folder, parents=[parent_revision] if parent_revision else (),
+        author=str(spec.get("author") or "reel_touchup"),
+        intent=str(spec.get("note") or "touch-up"),
+        operations=[dict(operation) for operation in spec.get("edits", ())
+                    if isinstance(operation, Mapping)],
+        affected_entities=[str(final)],
+        refs={"undo_journal": {"entry_id": entry_id, "status": STATUS_OPEN}},
+        status="prepared")
+    entry["revision_id"] = revision["revision_id"]
     try:
         fps = float(source_timeline.GetSetting("timelineFrameRate"))
     except (AttributeError, TypeError, ValueError):
@@ -1618,7 +1656,10 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_TOUCH,
         rows=rows, journal=entry["id"], batch=entry.get("batch") or None,
-        component_manifest=component_manifest)
+        component_manifest=component_manifest,
+        revision_id=entry.get("revision_id"),
+        intent=(entry.get("accepted_edit") or {}).get("intent") or "touch-up",
+        revision_status="verified")
     entry["version"] = version["version"]
     entry["status"] = STATUS_APPLIED
     entry["applied_at"] = _now()
@@ -1638,6 +1679,7 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
                      f"(version {version['version']}, "
                      f"journal {entry['id']})"),
             refs={"version": version["version"],
+                  "revision_id": version["revision_id"],
                   "journal": entry["id"],
                   "rows_digest_after": version.get("rows_digest"),
                   **({"batch": entry["batch"]} if entry.get("batch")

@@ -126,6 +126,41 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
         raise ValueError(f"{kind!r} is not a reel version kind {KINDS}")
     document = read(project_folder)
     history = list(document["reels"].get(final) or ())
+    # The canonical revision is written first. This ledger remains the fast
+    # per-reel version projection and stores only a reference to it.
+    from library.tools import creative_revision
+
+    revision_id = fields.pop("revision_id", None)
+    parent_revision = next((entry.get("revision_id") for entry in reversed(history)
+                            if entry.get("revision_id")), None)
+    revision = creative_revision.create(
+        project_folder, revision_id=revision_id,
+        parents=[parent_revision] if parent_revision else (),
+        author=fields.get("author"),
+        intent=str(fields.get("intent") or fields.get("summary") or kind),
+        operations=fields.get("operations") or [{"kind": kind}],
+        base_generation=fields.get("base_generation"),
+        result_generation=fields.get("result_generation"),
+        project_model_revision=fields.get("project_model_revision"),
+        git_revision=fields.get("git_revision"),
+        affected_entities=[str(final)],
+        verification=fields.get("verification"), recovery=fields.get("recovery"),
+        approval=fields.get("approval"),
+        refs={"reel_version": {"final": str(final), "version": len(history) + 1,
+                                "kind": kind},
+              **({"round": {"round": fields["round"]}}
+                 if fields.get("round") is not None else {}),
+              **({"variant": {"variant": fields["variant"]}}
+                 if fields.get("variant") is not None else {}),
+              **({"batch": {"batch_id": fields["batch"]}}
+                 if fields.get("batch") is not None else {}),
+              **({"undo_journal": {"entry_id": fields["journal"]}}
+                 if fields.get("journal") else {})},
+        status=str(fields.get("revision_status") or "recorded"))
+    for key in ("author", "intent", "operations", "base_generation",
+                "result_generation", "project_model_revision", "git_revision",
+                "verification", "recovery", "approval", "revision_status"):
+        fields.pop(key, None)
     entry = {
         "version": len(history) + 1,
         "kind": kind,
@@ -133,6 +168,7 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
             timespec="seconds"),
         "rows": dict(rows or {}),
         "rows_digest": _rounds.digest_rows(rows or {}),
+        "revision_id": revision["revision_id"],
     }
     entry.update({key: value for key, value in fields.items()
                   if value is not None})

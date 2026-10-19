@@ -512,6 +512,40 @@ def record_entry(review_dir: str, final: str, *, actor: str, act: str,
                            backfilled=backfilled, origin=origin,
                            verification=verification,
                            decision_id=decision_id)
+        # This ledger is a projection of creative history. The canonical
+        # revision owns identity; its reference is carried alongside the
+        # existing detailed provenance row without duplicating its evidence.
+        if act not in (ACT_REJECTED, ACT_MANUAL_EDIT_REASON, ACT_UNEXPLAINED):
+            from library.tools import creative_revision
+
+            existing_revision = str((refs or {}).get("revision_id") or "")
+            project = Path(review_dir).parent.parent
+            if not existing_revision and (refs or {}).get("version") is not None:
+                from library.tools.versions import reel_versions
+
+                version_number = int((refs or {})["version"])
+                matching = next((row for row in reel_versions.versions_of(
+                    project, str(final))
+                    if int(row.get("version", 0)) == version_number), None)
+                existing_revision = str((matching or {}).get("revision_id") or "")
+            revision = (creative_revision.get(project, existing_revision)
+                        if existing_revision else None)
+            if revision is None:
+                revision = creative_revision.create(
+                    project, revision_id=existing_revision or None,
+                    author=str(actor), intent=str(summary),
+                    affected_entities=[str(final)],
+                    verification=verification,
+                    refs={"reel_edit_history": {"final": str(final),
+                                                "entry_id": entry["id"]}},
+                    status="recorded")
+            else:
+                revision = creative_revision.create(
+                    project, revision_id=existing_revision,
+                    refs={"reel_edit_history": {"final": str(final),
+                                                "entry_id": entry["id"]}})
+            entry["revision_id"] = revision["revision_id"]
+            entry["refs"]["revision_id"] = revision["revision_id"]
         existing = by_id.get(entry["id"])
         if existing is not None:
             return existing

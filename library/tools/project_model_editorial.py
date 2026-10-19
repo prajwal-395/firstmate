@@ -279,11 +279,32 @@ def commit_edit_readback(project, *, patch: Any, readback: Mapping[str, Any],
     states = [row for row in model.get("timeline_states", [])
               if row["timeline_id"] != patch.timeline]
     states.append(state)
-    return project_model_store.append_model_patch(
+    model_revision = project_model_store.append_model_patch(
         Path(project), {"edits": edits, "timeline_states": states},
         expected_revision=expected_revision, author=author,
         reason=f"EditPatch {patch.id} Resolve readback",
     )
+    # PM revision numbers remain the Project Model's global event sequence.
+    # The separate creative id links this editorial event to its edit and
+    # observed Resolve generation without copying the readback snapshot.
+    from library.tools import creative_revision
+    creative_revision.create(
+        project, author=author, intent=str(getattr(patch, "description", "") or
+                                           f"EditPatch {patch.id}"),
+        operations=[{"edit_operation_id": operation["id"],
+                     "edit_patch_id": str(patch.id)}],
+        base_generation=int(getattr(patch, "base_generation", 0) or 0),
+        result_generation=generation,
+        project_model_revision=model_revision,
+        affected_entities=[str(patch.timeline)],
+        verification={"source": "resolve_readback", "generation": generation},
+        refs={"project_model": {"revision": model_revision,
+                                "edit_operation_id": operation["id"]},
+              "edit_patch": {"patch_id": str(patch.id)},
+              "timeline_shadow": {"timeline_id": str(patch.timeline),
+                                   "generation": generation}},
+        status="verified")
+    return model_revision
 
 
 def plan_edit_point_candidates(model: Mapping[str, Any]) -> list[dict[str, Any]]:
