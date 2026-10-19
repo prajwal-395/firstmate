@@ -52,8 +52,8 @@ behind it; `resolve-axi` verbs are projections, not a second algebra.
 from __future__ import annotations
 
 import contextlib
-from contextvars import ContextVar
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from library.tools import edit_backend
@@ -653,7 +653,6 @@ def _apply_grade_node_add(op, timeline, item, _project=None):
         grade_node_add_script,
         run_script,
     )
-
     _park_playhead_mid_clip(op, timeline, item)
     before = _read_node_count(item, "grade.node_add")
     client = ui_driver_factory()
@@ -2845,6 +2844,221 @@ REVIEW_TERMS = {
     "compound": "compound.create",
     "nested": "compound.create",
 }
+
+
+@dataclass(frozen=True)
+class BackendStatus:
+    """Evidence-backed availability of one algebra op on one executor."""
+
+    backend: str
+    compilable: bool
+    qualified: bool
+    production_enabled: bool
+    limitations: tuple[str, ...] = ()
+    qualification_evidence: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class OpStatus:
+    """Inspectable semantic and execution contract for an algebra op.
+
+    `defined` means the semantic id is in this vocabulary. `compilable`
+    means at least one listed executor can produce a write. Qualification
+    and production enablement are deliberately separate: a write may be
+    implemented without live Resolve evidence.
+    """
+
+    id: str
+    param_schema: dict
+    state_domains: tuple[str, ...]
+    required_resolve_capabilities: tuple[str, ...]
+    media_types: tuple[str, ...]
+    timeline_conditions: tuple[str, ...]
+    precondition_validator: str
+    backends: tuple[BackendStatus, ...]
+    verification_contract: str
+    inverse_recovery: dict
+    defined: bool
+    compilable: bool
+    qualified: bool
+    production_enabled: bool
+
+    def for_backend(self, backend: str) -> BackendStatus | None:
+        return next((entry for entry in self.backends
+                     if entry.backend == backend), None)
+
+
+_BACKEND_LIMITATIONS = {
+    "edit_patch": (
+        "Only algebra operations with a native apply are schedulable.",),
+    "feedback_patch_apply": (
+        "Local restorable feedback operations only; no pool fetch or ripple.",),
+    "reel_touchup": (
+        "Only the named touch-up vocabulary and its declared constraints.",),
+    "composed_edit": (
+        "Composition-level staging and validation rules apply.",),
+    "resolve_axi": (
+        "Only operations reached by the Resolve AXI command dispatch.",),
+    "reel_append_placement": (
+        "Recorded full-build placement; not an existing-timeline patch.",),
+    "reel_otio_placement": (
+        "Recorded full-build placement; OTIO representability refusals apply.",),
+}
+
+# Live evidence is intentionally enumerated by exact op and executor. A
+# test that exercises a neighboring operation or a Resolve double is not
+# qualification evidence. Update this map only when a live qualification
+# test proves the named operation through the named production path.
+_LIVE_QUALIFICATION = {
+    ("marker.add", "feedback_patch_apply"):
+        ("tests/qualification/test_feedback_patch_apply_against_resolve.py",),
+    ("marker.delete", "feedback_patch_apply"):
+        ("tests/qualification/test_feedback_patch_apply_against_resolve.py",),
+    ("marker.add", "edit_patch"):
+        ("tests/qualification/test_feedback_patch_flow_against_resolve.py",),
+    ("marker.delete", "edit_patch"):
+        ("tests/qualification/test_feedback_patch_flow_against_resolve.py",),
+    ("clip.set_property", "reel_touchup"):
+        ("tests/qualification/test_golden_conversation_live.py",),
+    ("clip.set_property", "composed_edit"):
+        ("tests/qualification/test_golden_conversation_live.py",),
+}
+
+
+def _executor_coverage() -> dict[str, set[str]]:
+    """Operation ids accepted by each existing production executor."""
+    touchup = set(TOUCHUP_VIEW.values())
+    # `composed_edit.set_properties` is the measured in-place property
+    # writer. Other touch-up operations compile through the workflow but
+    # are not directly implemented by this function.
+    composed = {"clip.set_property"}
+    return {
+        "edit_patch": {op_id for op_id, op in ALGEBRA.items()
+                       if op.apply is not None},
+        "feedback_patch_apply": {
+            "marker.add", "marker.delete", "clip_marker.add",
+            "clip_marker.delete", "clip.set_property", "clip.set_enabled"},
+        "reel_touchup": touchup,
+        "composed_edit": composed,
+        # These ids are direct EditPatch dispatches in resolve_axi. Other
+        # AXI commands are not claimed as algebra backends here.
+        "resolve_axi": {"marker.add", "clip.delete", "clip.smart_reframe"},
+        "reel_append_placement": {"clip.insert"},
+        "reel_otio_placement": {"clip.insert"},
+    }
+
+
+def _resolve_capabilities(op: AlgebraOp) -> tuple[str, ...]:
+    if op.id == "clip.insert":
+        return ("media pool", "timeline placement")
+    if op.id.startswith(("marker.", "clip_marker.")):
+        return ("timeline markers",) if not op.id.startswith("clip_") else ("timeline item markers",)
+    if op.id.startswith("clip."):
+        return ("timeline item read/write",)
+    if op.id.startswith("overlay."):
+        return ("media pool", "timeline placement", "Fusion or item properties")
+    if op.id.startswith("track."):
+        return ("timeline track read/write",)
+    if op.id.startswith("mask."):
+        return ("Fusion composition read/write",)
+    if op.id.startswith("color."):
+        return ("Color page windows/qualifier read/write",)
+    if op.id.startswith("grade.") or op.id in {"grade", "clip_lut"}:
+        return ("color page node graph",)
+    if op.id.startswith("audio.") or op.id == "voice_isolation":
+        return ("audio track/item read/write",)
+    return ("operation-specific Resolve support",)
+
+
+def _media_types(op: AlgebraOp) -> tuple[str, ...]:
+    if op.domain == "audio_mix":
+        return ("audio",)
+    if op.id.startswith("overlay."):
+        return ("still", "video", "Fusion graphic")
+    if op.domain in {"color", "picture_transform", "fusion"}:
+        return ("video", "still")
+    if op.id in {"clip.insert", "clip.delete", "clip.move", "clip.trim",
+                 "clip.replace", "clip.split", "clip.join", "clip.roll",
+                 "clip.slip", "clip.slide", "clip.ripple"}:
+        return ("video", "audio", "still")
+    return ("timeline",)
+
+
+def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
+    backends = []
+    for backend, operation_ids in coverage.items():
+        if op.id not in operation_ids:
+            continue
+        evidence = _LIVE_QUALIFICATION.get((op.id, backend), ())
+        qualified = bool(evidence)
+        backends.append(BackendStatus(
+            backend=backend,
+            compilable=True,
+            qualified=qualified,
+            production_enabled=qualified,
+            limitations=(_BACKEND_LIMITATIONS[backend]
+                         + ((op.note,) if op.note else ())),
+            qualification_evidence=evidence,
+        ))
+    required = tuple(op.required)
+    conditions = ["the exact Resolve timeline is open"]
+    if "unique_id" in required:
+        conditions.append("the target item resolves uniquely on that timeline")
+    if "track_type" in required:
+        conditions.append("the named track exists or can be created by the op")
+    return OpStatus(
+        id=op.id,
+        param_schema={"type": "object",
+                      "properties": {key: {} for key in required},
+                      "required": required,
+                      "additionalProperties": True},
+        state_domains=(op.domain,),
+        required_resolve_capabilities=_resolve_capabilities(op),
+        media_types=_media_types(op),
+        timeline_conditions=tuple(conditions),
+        precondition_validator=(
+            "EditPatch: library.tools.edit_patch.validate; "
+            "wrappers: executor-specific guards"),
+        backends=tuple(backends),
+        verification_contract=(
+            "post-write snapshot checked by "
+            f"{op.verify.__name__ if op.verify.__name__ != '<lambda>' else 'the operation-specific algebra verifier'}"
+            if op.verify else "missing"),
+        inverse_recovery={"op": op.inverse.op,
+                          "self_inverse": op.inverse.self_inverse,
+                          "irreversible_reason": op.inverse.reason},
+        defined=True,
+        compilable=bool(backends),
+        qualified=any(entry.qualified for entry in backends),
+        production_enabled=any(entry.production_enabled for entry in backends),
+    )
+
+
+# Built from this vocabulary and the executor dispatch declarations above.
+# This is the stable query surface for routers and inspection tools.
+_EXECUTOR_COVERAGE = _executor_coverage()
+OP_STATUS: dict[str, OpStatus] = {
+    op_id: _make_op_status(op, _EXECUTOR_COVERAGE)
+    for op_id, op in ALGEBRA.items()
+}
+
+
+def status(op_id: str, backend: str | None = None):
+    """Return status metadata for an operation, optionally on one backend.
+
+    An unknown id returns ``None``. A known id with an unknown or
+    unsupported backend returns ``None`` from ``for_backend``.
+    """
+    entry = OP_STATUS.get(op_id)
+    if entry is None or backend is None:
+        return entry
+    return entry.for_backend(backend)
+
+
+def is_production_enabled(op_id: str, backend: str) -> bool:
+    """Whether this op is live-qualified and enabled on ``backend``."""
+    entry = status(op_id, backend)
+    return bool(entry and entry.production_enabled)
 
 
 def ops() -> list[AlgebraOp]:
