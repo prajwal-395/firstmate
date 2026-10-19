@@ -937,6 +937,22 @@ def read_branch(project_folder, name: str) -> dict:
     try:
         with open(path, encoding="utf-8") as handle:
             branch = json.load(handle)
+    except FileNotFoundError:
+        from library.tools.versions import store
+
+        relative = os.path.relpath(path, str(project_folder)).replace(os.sep, "/")
+        ref = f"refs/heads/{name}:{relative}"
+        result = store.git(project_folder, "show", ref)
+        if result.returncode == 0:
+            try:
+                branch = json.loads(result.stdout)
+            except ValueError as unreadable:
+                raise BranchRefused(
+                    f"branch {name!r} could not be read from its Git revision "
+                    f"({unreadable})") from unreadable
+        else:
+            raise BranchRefused(
+                f"branch {name!r} could not be read at {path} or its Git ref")
     except (OSError, ValueError) as unreadable:
         raise BranchRefused(
             f"branch {name!r} could not be read at {path} ({unreadable})"
@@ -950,12 +966,21 @@ def read_branch(project_folder, name: str) -> dict:
 def list_branches(project_folder) -> list:
     """Every recorded branch, by name."""
     root = branch_root(project_folder)
-    if not os.path.isdir(root):
-        return []
+    names = ({path.parent.relative_to(root).as_posix()
+              for path in Path(root).rglob(BRANCH_FILENAME)}
+             if os.path.isdir(root) else set())
+    from library.tools.versions import store
+
+    refs = store.git(project_folder, "for-each-ref", "--format=%(refname:short)",
+                     "refs/heads")
+    if refs.returncode == 0:
+        names.update(refs.stdout.splitlines())
     branches = []
-    for path in sorted(Path(root).rglob(BRANCH_FILENAME)):
-        name = path.parent.relative_to(root).as_posix()
-        branches.append(read_branch(project_folder, name))
+    for name in sorted(names):
+        try:
+            branches.append(read_branch(project_folder, name))
+        except BranchRefused:
+            continue
     return branches
 
 

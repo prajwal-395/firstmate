@@ -260,7 +260,33 @@ def revoke(project: os.PathLike | str, revision_id: str, *,
 
 def get(project: os.PathLike | str, revision_id: str) -> dict[str, Any] | None:
     row = read(project)["revisions"].get(str(revision_id))
-    return dict(row) if row else None
+    if row:
+        return dict(row)
+    root = Path(project)
+    if not (root / ".git").exists():
+        return None
+    from library.tools.versions import store
+
+    refs = store.git(str(root), "for-each-ref", "--format=%(refname)",
+                     "refs/heads")
+    if refs.returncode != 0:
+        return None
+    for ref in refs.stdout.splitlines():
+        blob = store.git(
+            str(root), "show", f"{ref}:pipeline_output/review/{FILENAME}")
+        if blob.returncode != 0:
+            continue
+        try:
+            document = json.loads(blob.stdout)
+        except (TypeError, ValueError):
+            continue
+        revisions = document.get("revisions", {}) if isinstance(document, dict) else {}
+        if not isinstance(revisions, dict):
+            continue
+        found = revisions.get(str(revision_id))
+        if found:
+            return dict(found)
+    return None
 
 
 def list_revisions(project: os.PathLike | str) -> list[dict[str, Any]]:

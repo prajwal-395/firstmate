@@ -26,7 +26,8 @@ JSON); always merge the source.
    (`GENERATED_PATHS`: `pipeline_data.json`, `pipeline_run.json`, step
    outputs, the manifest, LLM request records) resolved to the target
    side, because it is REBUILT, never hand-merged.  Only declaration
-   conflicts reach a human, left uncommitted.  Marker pulls never
+   conflicts reach a human; the isolated conflict attempt is discarded
+   so neither checkout is left mid-merge. Marker pulls never
    conflict (each is its own timestamped file).  Model ANSWERS
    (`llm_responses`) merge for real: one side answering wins, both
    answering differently conflicts for a human.
@@ -147,6 +148,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
+import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -275,6 +278,9 @@ GENERATED_PATHS = (
     # into the round BEFORE forgetting the build.
     "pipeline_output/review/reel_variant_builds.json",
 )
+# Generated projections stay out of the merged working tree to avoid
+# irrelevant conflicts. The source commit remains the second merge parent,
+# so gate decisions and provenance remain reachable as durable evidence.
 
 
 # ── Branch <-> timeline names ────────────────────────────────────────
@@ -726,9 +732,6 @@ def create_variation(project_folder: str, reel_number: int,
     blocked = _repo_ok(project_folder)
     if blocked:
         return {"created": False, "reason": blocked}
-    from library.tools import creative_revision
-    from library.tools.versions import reel_versions
-
     branch = variant_branch_name(reel_number, spec["suffix"])
     exists = store.git(project_folder, "rev-parse", "--verify", branch)
     if exists.returncode == 0:
@@ -739,63 +742,68 @@ def create_variation(project_folder: str, reel_number: int,
         return {"created": False,
                 "reason": f"could not resolve branch base: {current.stderr.strip()[-200:]}"}
     base_git_revision = current.stdout.strip()
-    latest = next((revision for revision in reversed(
-        creative_revision.list_revisions(project_folder))
-        if str(base_timeline_name) in revision.get("affected_entities", ())), None)
-    if spec.get("base_revision"):
-        latest = creative_revision.get(project_folder,
-                                       str(spec["base_revision"]))
-        if latest is None:
-            return {"created": False,
-                    "reason": f"base creative revision {spec['base_revision']!r} is not recorded"}
-    if latest is None:
-        latest_version = next((entry for entry in reversed(
-            reel_versions.versions_of(project_folder, base_timeline_name))
-            if entry.get("revision_id")), None)
-        latest = creative_revision.get(
-            project_folder, latest_version["revision_id"]) if latest_version else None
-    if latest is None:
-        # A declaration-only project can precede its first Resolve build.
-        # Give the committed declaration tree a canonical base identity.
-        baseline_id = "declarations:" + hashlib.sha256(
-            base_git_revision.encode("utf-8")).hexdigest()
-        latest = creative_revision.create(
-            project_folder, revision_id=baseline_id,
-            author="ren", intent="recorded declaration base",
-            git_revision=base_git_revision, affected_entities=[base_timeline_name],
-            refs={"git_declaration": {"revision": base_git_revision}},
-            status="recorded")
-    spec = dict(spec)
-    spec["base_revision"] = str(spec.get("base_revision") or latest["revision_id"])
-    if spec["base_revision"] != latest["revision_id"]:
-        named_base = creative_revision.get(project_folder, spec["base_revision"])
-        if named_base is None:
-            return {"created": False,
-                    "reason": f"base creative revision {spec['base_revision']!r} is not recorded"}
-        latest = named_base
-    semantic_changes = spec.get("semantic_changes")
-    if semantic_changes is None:
-        semantic_changes = [{"kind": key, "value": spec[key]}
-                            for key in ("j_cut", "cutaway", "cover", "declares")
-                            if key in spec]
-        spec["semantic_changes"] = semantic_changes
-    checkout = store.git(project_folder, "checkout", "-b", branch)
-    if checkout.returncode != 0:
+    worktree_dir = tempfile.mkdtemp(prefix="ren-variant-create-")
+    shutil.rmtree(worktree_dir)
+    added = store.git(project_folder, "worktree", "add", "-b", branch,
+                      worktree_dir, base_git_revision)
+    if added.returncode != 0:
         return {"created": False,
-                "reason": f"git checkout -b failed: "
-                          f"{checkout.stderr.strip()[-200:]}"}
+                "reason": f"isolated variant worktree failed: "
+                          f"{added.stderr.strip()[-200:]}"}
     try:
-        record = read_variant_specs(project_folder)
+        from library.tools import creative_revision
+        from library.tools.versions import reel_versions
+
+        latest = next((revision for revision in reversed(
+            creative_revision.list_revisions(worktree_dir))
+            if str(base_timeline_name) in revision.get("affected_entities", ())), None)
+        if spec.get("base_revision"):
+            latest = creative_revision.get(worktree_dir,
+                                           str(spec["base_revision"]))
+            if latest is None:
+                raise ValueError(f"base creative revision {spec['base_revision']!r} is not recorded")
+        if latest is None:
+            latest_version = next((entry for entry in reversed(
+                reel_versions.versions_of(worktree_dir, base_timeline_name))
+                if entry.get("revision_id")), None)
+            latest = creative_revision.get(
+                worktree_dir, latest_version["revision_id"]) if latest_version else None
+        if latest is None:
+            baseline_id = "declarations:" + hashlib.sha256(
+                base_git_revision.encode("utf-8")).hexdigest()
+            latest = creative_revision.create(
+                worktree_dir, revision_id=baseline_id,
+                author="ren", intent="recorded declaration base",
+                git_revision=base_git_revision,
+                affected_entities=[base_timeline_name],
+                refs={"git_declaration": {"revision": base_git_revision}},
+                status="recorded")
+        spec = dict(spec)
+        spec["base_revision"] = str(
+            spec.get("base_revision") or latest["revision_id"])
+        if spec["base_revision"] != latest["revision_id"]:
+            named_base = creative_revision.get(worktree_dir,
+                                               spec["base_revision"])
+            if named_base is None:
+                raise ValueError(f"base creative revision {spec['base_revision']!r} is not recorded")
+            latest = named_base
+        semantic_changes = spec.get("semantic_changes")
+        if semantic_changes is None:
+            semantic_changes = [{"kind": key, "value": spec[key]}
+                                for key in ("j_cut", "cutaway", "cover", "declares")
+                                if key in spec]
+            spec["semantic_changes"] = semantic_changes
+        record = read_variant_specs(worktree_dir)
         variants = record.setdefault("variants", {})
         reel_key = str(int(reel_number))
         reel_specs = [s for s in variants.get(reel_key, [])
                       if s.get("suffix") != spec["suffix"]]
         reel_specs.append(dict(spec))
         variants[reel_key] = reel_specs
-        write_variant_specs(project_folder, record)
+        write_variant_specs(worktree_dir, record)
         from library.tools import undo_journal
         branch_record = undo_journal.create_creative_branch(
-            project_folder, name=branch,
+            worktree_dir, name=branch,
             base_revision=str(spec["base_revision"]),
             semantic_changes=semantic_changes,
             declarations={"spec_path": "pipeline_output/review/" + VARIANTS_FILENAME,
@@ -803,14 +811,18 @@ def create_variation(project_folder: str, reel_number: int,
                           "affected_entities": [base_timeline_name]},
             git_branch=branch, intent=f"variant {base_timeline_name}{spec['suffix']}")
     except ValueError as exc:
-        store.git(project_folder, "checkout", "-")
+        store.git(project_folder, "worktree", "remove", "--force",
+                  worktree_dir)
         store.git(project_folder, "branch", "-D", branch)
         return {"created": False, "reason": str(exc)}
-    add = store.git(project_folder, "add",
+    add = store.git(worktree_dir, "add",
                "pipeline_output/review/" + VARIANTS_FILENAME,
                "pipeline_output/review/branches",
                "pipeline_output/review/creative_revisions.json")
     if add.returncode != 0:
+        store.git(project_folder, "worktree", "remove", "--force",
+                  worktree_dir)
+        store.git(project_folder, "branch", "-D", branch)
         return {"created": False,
                 "reason": f"git add failed: {add.stderr.strip()[-200:]}"}
     timeline_name = variant_timeline_name(base_timeline_name.strip(),
@@ -822,12 +834,16 @@ def create_variation(project_folder: str, reel_number: int,
            f"recorded in {VARIANTS_FILENAME} so a rebuild needs "
            f"nothing off-branch. Build into {timeline_name!r} beside "
            f"{base_timeline_name.strip()!r}.")
-    commit = store.git(project_folder, "commit", "-m", msg)
+    commit = store.git(worktree_dir, "commit", "-m", msg)
     if commit.returncode != 0:
+        store.git(project_folder, "worktree", "remove", "--force",
+                  worktree_dir)
+        store.git(project_folder, "branch", "-D", branch)
         return {"created": False,
                 "reason": f"git commit failed: "
                           f"{commit.stderr.strip()[-400:]}"}
-    rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
+    rev = store.git(worktree_dir, "rev-parse", "--short", "HEAD")
+    store.git(project_folder, "worktree", "remove", worktree_dir)
     return {"created": True, "branch": branch,
             "timeline_name": timeline_name,
             "commit": rev.stdout.strip(),
@@ -851,6 +867,55 @@ def _is_generated(rel_path: str) -> bool:
     return False
 
 
+def compare_merge_readback(target_rows: dict, source_rows: dict,
+                           merged_rows: dict, timeline_id: str,
+                           readback_generation: int, readback_at: float,
+                           merge_committed_at: float,
+                           parent_acceptances: dict | None = None) -> dict:
+    """Compare a fresh merged-timeline readback independently to both parents.
+
+    The returned report is evidence for the post-merge Resolve review;
+    a Git merge alone never sets this result or marks the merge verified.
+    Lost rows and items stay explicit for human review because a captain
+    may have accepted an intentional deletion during the merge.
+    """
+    from library.tools.versions import rounds
+
+    if not isinstance(timeline_id, str) or not timeline_id.strip():
+        raise ValueError("fresh Resolve timeline_id is required")
+    if (isinstance(readback_generation, bool)
+            or not isinstance(readback_generation, int)
+            or readback_generation < 1):
+        raise ValueError("fresh Resolve readback generation is required")
+    if (isinstance(readback_at, bool)
+            or not isinstance(readback_at, (int, float))
+            or isinstance(merge_committed_at, bool)
+            or not isinstance(merge_committed_at, (int, float))
+            or readback_at < merge_committed_at):
+        raise ValueError(
+            "Resolve readback must be recorded after the merge commit")
+    target = rounds.diff_reel(target_rows, merged_rows)
+    source = rounds.diff_reel(source_rows, merged_rows)
+    accepted = (isinstance(parent_acceptances, dict)
+                and parent_acceptances.get("target") is True
+                and parent_acceptances.get("source") is True)
+    return {
+        "timeline_id": timeline_id,
+        "readback_generation": readback_generation,
+        "readback_at": readback_at,
+        "target_parent": target,
+        "source_parent": source,
+        "parent_acceptances": {
+            "target": parent_acceptances.get("target") is True
+            if isinstance(parent_acceptances, dict) else False,
+            "source": parent_acceptances.get("source") is True
+            if isinstance(parent_acceptances, dict) else False,
+        },
+        "verified": accepted,
+        "review_required": not accepted,
+    }
+
+
 def _is_recovery_archive_path(rel_path: str) -> bool:
     path = Path(rel_path)
     recovery_root = (Path("pipeline_output") / "review"
@@ -872,15 +937,84 @@ def _is_recovery_archive_path(rel_path: str) -> bool:
 def merge_variations(project_folder: str, source_branch: str,
                      target_branch: str | None = None,
                      semantic_only: bool = False) -> dict:
+    """Merge a fixed source revision in an isolated checkout.
+
+    The project checkout is the target's publication point, but the
+    merge algorithm and conflict resolution run in a detached worktree.
+    A successful result is fast-forwarded onto the same active branch;
+    branch identity never changes. Conflicts are reported without leaving
+    the project checkout in a half-merged state.
+    """
+    blocked = _repo_ok(project_folder)
+    if blocked:
+        return {"merged": False, "reason": blocked}
+    active = current_branch(project_folder)
+    if not active or active == "HEAD":
+        return {"merged": False,
+                "reason": "project checkout is detached; merge needs an active target branch"}
+    if target_branch and target_branch != active:
+        return {"merged": False, "target": active,
+                "reason": f"target {target_branch!r} is not the active project "
+                          f"branch {active!r}; merge will not switch the "
+                          "project checkout"}
+    source = store.git(project_folder, "rev-parse", "--verify",
+                       f"refs/heads/{source_branch}^{{commit}}")
+    if source.returncode != 0:
+        return {"merged": False,
+                "reason": f"source branch {source_branch!r} does not exist"}
+    target = store.git(project_folder, "rev-parse", "HEAD")
+    if target.returncode != 0:
+        return {"merged": False, "reason": "cannot resolve active target revision"}
+    target_revision = target.stdout.strip()
+    source_revision = source.stdout.strip()
+    worktree_dir = tempfile.mkdtemp(prefix="ren-variant-merge-")
+    shutil.rmtree(worktree_dir)
+    added = store.git(project_folder, "worktree", "add", "--detach",
+                      worktree_dir, target_revision)
+    if added.returncode != 0:
+        return {"merged": False,
+                "reason": f"isolated merge worktree failed: "
+                          f"{added.stderr.strip()[-200:]}"}
+    try:
+        result = _merge_variations_in_checkout(
+            worktree_dir, source_revision, semantic_only=semantic_only)
+        result["target"] = active
+        result["source"] = source_branch
+        if result.get("merged") and result.get("commit"):
+            current = store.git(project_folder, "rev-parse", "HEAD")
+            if current.returncode != 0 or current.stdout.strip() != target_revision:
+                return {"merged": False, "target": active,
+                        "source": source_branch,
+                        "reason": "active target moved during isolated merge; "
+                                  "merge result was not published"}
+            published = store.git(project_folder, "merge", "--ff-only",
+                                  result["commit"])
+            if published.returncode != 0:
+                return {"merged": False, "target": active,
+                        "source": source_branch,
+                        "reason": "could not fast-forward isolated merge onto "
+                                  f"active target: {published.stderr.strip()[-200:]}"}
+            result["commit"] = store.git(
+                project_folder, "rev-parse", "--short", "HEAD").stdout.strip()
+        return result
+    finally:
+        store.git(project_folder, "worktree", "remove", "--force",
+                  worktree_dir)
+        shutil.rmtree(worktree_dir, ignore_errors=True)
+
+
+def _merge_variations_in_checkout(project_folder: str, source_branch: str,
+                                  semantic_only: bool = False) -> dict:
     """Git merge of one variation into the target, then stop for the rebuild.
 
-    Checks out the target, merges the source, and auto-resolves
+    Merges the immutable source branch into the already active target,
+    and auto-resolves
     conflicting GENERATED paths to the target side - that state is
     rebuilt right after the merge, and asking a human to hand-merge
     two ledgers is how a feature goes missing quietly. Declaration
     conflicts (specs, captain_edits, project.yaml, proposals, marker
-    pulls cannot conflict) are left in the tree UNCOMMITTED for a
-    human; generated auto-resolutions are listed in the report so the
+    pulls cannot conflict) are reported for a human; the isolated merge
+    attempt is discarded. Generated auto-resolutions are listed in the report so the
     rebuild knows what it must regenerate. `semantic_only=True` is the
     task-worktree path: every generated source change is restored to the
     target, and semantic conflicts abort so task finish can be retried.
@@ -899,14 +1033,15 @@ def merge_variations(project_folder: str, source_branch: str,
     blocked = _repo_ok(project_folder)
     if blocked:
         return {"merged": False, "reason": blocked}
-    if target_branch:
-        checkout = store.git(project_folder, "checkout", target_branch)
-        if checkout.returncode != 0:
-            return {"merged": False,
-                    "reason": f"cannot check out {target_branch}: "
-                              f"{checkout.stderr.strip()[-200:]}"}
     current = store.git(project_folder, "rev-parse", "--abbrev-ref", "HEAD")
     target = current.stdout.strip()
+    source_ref = store.git(project_folder, "rev-parse", "--verify",
+                           f"{source_branch}^{{commit}}")
+    if source_ref.returncode != 0:
+        return {"merged": False,
+                "reason": f"source branch {source_branch!r} does not exist"}
+    target_ref = store.git(project_folder, "rev-parse", "HEAD")
+    target_revision = target_ref.stdout.strip()
     changed = store.git(project_folder, "diff", "--name-only",
                         f"{target}...{source_branch}")
     if changed.returncode != 0:
@@ -957,7 +1092,7 @@ def merge_variations(project_folder: str, source_branch: str,
             for path in recovery_archive_changes
         }
     merged = store.git(project_folder, "merge", "--no-commit", "--no-ff",
-                  source_branch)
+                  source_ref.stdout.strip())
     if semantic_only:
         restored = _restore_generated_changes(
             project_folder, generated_source_changes, target_generated_files)
@@ -999,12 +1134,18 @@ def merge_variations(project_folder: str, source_branch: str,
         result = {"merged": True, "target": target,
                   "source": source_branch, "commit": rev.stdout.strip(),
                   "auto_resolved": [], "conflicts": [],
+                  "resolve_verified": False,
+                  "verification_required": {
+                      "target_parent": target_revision,
+                      "source_parent": source_ref.stdout.strip(),
+                      "timeline_readback": "compare merged timeline against both parents"},
                   "note": "clean merge - rebuild into the final timeline "
                           "and read it back against both variations "
                           "before promoting (issue #925)"}
         if semantic_only:
             result.update(semantic_changes=semantic_source_changes,
                           generated_discarded=generated_source_changes,
+                          source_evidence_revision=source_ref.stdout.strip(),
                           note="semantic state merged; generated task "
                                "state was kept out of the target")
         elif recovery_archive_changes:
@@ -1041,11 +1182,11 @@ def merge_variations(project_folder: str, source_branch: str,
         result = {"merged": False, "target": target,
                 "source": source_branch, "auto_resolved": sorted(auto),
                 "conflicts": sorted(human),
-                "reason": "declaration conflicts need a human - the "
-                          "merge is staged in the tree, generated "
-                          "paths already resolved to the target side; "
-                          "resolve, rebuild, read back both variations, "
-                          "then commit"}
+                "reason": "declaration conflicts need a human; the isolated "
+                          "merge attempt was discarded, and generated paths "
+                          "were resolved to the target side in that attempt. "
+                          "Resolve the declarations on the active target, "
+                          "then retry the merge"}
         if recovery_archive_changes:
             result["recovery_archives_discarded"] = \
                 recovery_archive_changes
@@ -1060,6 +1201,11 @@ def merge_variations(project_folder: str, source_branch: str,
     result = {"merged": True, "target": target, "source": source_branch,
               "commit": rev.stdout.strip(), "auto_resolved": sorted(auto),
               "conflicts": [],
+              "resolve_verified": False,
+              "verification_required": {
+                  "target_parent": target_revision,
+                  "source_parent": source_ref.stdout.strip(),
+                  "timeline_readback": "compare merged timeline against both parents"},
               "note": "generated state resolved to the target side - the "
                       "rebuild must regenerate every path listed in "
                       "auto_resolved, then read the final timeline back "
@@ -1068,6 +1214,7 @@ def merge_variations(project_folder: str, source_branch: str,
     if semantic_only:
         result.update(semantic_changes=semantic_source_changes,
                       generated_discarded=generated_source_changes,
+                      source_evidence_revision=source_ref.stdout.strip(),
                       note="semantic state merged; generated task state "
                            "was kept out of the target")
     elif recovery_archive_changes:

@@ -285,14 +285,22 @@ def test_create_variation_branches_records_commits(tmp_path):
     assert result["branch"] == "variant/r09-reaction-cutaway"
     assert result["base_revision"]
     assert result["materialized"] is False
-    from library.tools import undo_journal
-    branch_record = undo_journal.read_branch(str(tmp_path), result["branch"])
+    branch_record = json.loads(_git(
+        tmp_path, "show", f"{result['branch']}:pipeline_output/review/branches/"
+        f"{result['branch']}/branch.json"))
+    from library.tools import creative_revision, undo_journal
+    assert undo_journal.read_branch(str(tmp_path), result["branch"]) == branch_record
+    revision = creative_revision.get(str(tmp_path), branch_record["revision_id"])
+    assert revision["revision_id"] == branch_record["revision_id"]
+    assert revision["intent"] == f"variant {BASE_TIMELINE}{CUTAWAY_SUFFIX}"
+    assert result["branch"] in {
+        record["name"] for record in undo_journal.list_branches(str(tmp_path))}
     assert branch_record["base_revision"] == result["base_revision"]
     assert branch_record["semantic_changes"]
     assert branch_record["materialization"] is None
     assert result["timeline_name"] == BASE_TIMELINE + CUTAWAY_SUFFIX
     assert _git(tmp_path, "rev-parse", "--abbrev-ref",
-                "HEAD").strip() == result["branch"]
+                "HEAD").strip() == default
     specs = tv.read_variant_specs(str(tmp_path))
     assert specs["variants"]["9"][0]["cutaway"]["hide_angle"] == "SpeakerTwo"
     # The spec rode on the branch commit, not the working tree.
@@ -314,6 +322,75 @@ def test_create_refuses_without_a_repo_or_on_a_dirty_tree(tmp_path):
                                  dict(CUTAWAY_SPEC))
     assert result["created"] is False
     assert "dirty" in result["reason"]
+
+
+def test_merge_refuses_a_non_active_target_without_switching(tmp_path):
+    active = _base_project(tmp_path)
+    _git(tmp_path, "branch", "other-target")
+    result = tv.merge_variations(str(tmp_path), "other-target",
+                                 target_branch="other-target")
+    assert result["merged"] is False
+    assert "will not switch" in result["reason"]
+    assert _git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD").strip() == active
+
+
+def test_merge_reports_resolve_verification_as_pending(tmp_path):
+    active = _base_project(tmp_path)
+    _git(tmp_path, "checkout", "-b", "variant/r09-merge-check")
+    _write(tmp_path, "external/declarations/captain_edits.json",
+           json.dumps(CTA_EDIT, indent=2))
+    evidence = "pipeline_output/provenance/evidence.json"
+    _write(tmp_path, evidence, json.dumps({"source": "variant"}))
+    assert bvc.commit_build(str(tmp_path), "semantic variant\n")["committed"]
+    source = _git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    _git(tmp_path, "checkout", active)
+
+    result = tv.merge_variations(str(tmp_path), source, semantic_only=True)
+
+    assert result["merged"] is True, result
+    assert result["resolve_verified"] is False
+    assert result["verification_required"]["target_parent"]
+    assert result["verification_required"]["source_parent"]
+    assert result["source_evidence_revision"] == result["verification_required"]["source_parent"]
+    assert not (tmp_path / evidence).exists()
+    assert json.loads(_git(
+        tmp_path, "show", f"{result['source_evidence_revision']}:{evidence}")) == {
+            "source": "variant"}
+    assert _git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD").strip() == active
+
+
+def test_gates_and_provenance_are_generated_and_keep_source_parent_evidence():
+    assert tv._is_generated("pipeline_output/gates/approval.json")
+    assert tv._is_generated("pipeline_output/provenance/run.json")
+
+
+def test_merge_readback_compares_to_both_parents_before_acceptance():
+    row = {"media_type": "video", "index": 1, "name": "V1",
+           "items": [{"name": "shot", "start": 0, "end": 24,
+                      "duration": 24, "enabled": True}],
+           "count": 1, "frames": 24}
+    target = {"video:V1": row}
+    source = {"video:V1": {**row, "items": [
+        {**row["items"][0], "name": "cutaway"}], "count": 1}}
+    merged = {"video:V1": {**row, "items": [
+        row["items"][0], source["video:V1"]["items"][0]], "count": 2,
+        "frames": 48}}
+
+    pending = tv.compare_merge_readback(
+        target, source, merged, "timeline-uid", 2, 20.0, 10.0)
+    assert pending["target_parent"]["changed"]
+    assert pending["source_parent"]["changed"]
+    assert pending["verified"] is False
+    accepted = tv.compare_merge_readback(
+        target, source, merged, "timeline-uid", 2, 20.0, 10.0,
+        parent_acceptances={"target": True, "source": True})
+    assert accepted["verified"] is True
+
+    with pytest.raises(ValueError, match="after the merge commit"):
+        tv.compare_merge_readback(target, source, merged, "timeline-uid",
+                                  1, 9.0, 10.0,
+                                  parent_acceptances={"target": True,
+                                                      "source": True})
 
 
 def test_a_declaring_variant_builds_only_from_its_own_branch(tmp_path):
