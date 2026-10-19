@@ -226,20 +226,47 @@ def emit_path(path, event_type: str, task: str = "", **fields: Any) -> dict:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with lock_project_file(path):
-        seq = _read_last_seq(path) + 1
-        event = {
-            "seq": seq,
-            "at": _now(),
-            "host": _host(),
-            "pid": os.getpid(),
-            "type": event_type,
-            "task": task,
-            "fields": fields,
-        }
-        line = json.dumps(event, sort_keys=True,
-                          ensure_ascii=True) + "\n"
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(line)
+        return _append_locked(path, event_type, task, fields)
+
+
+def emit_once(project_folder, event_type: str, event_id: str,
+              task: str = "", **fields: Any) -> tuple[dict, bool]:
+    """Append a durable event at most once for its stable event id.
+
+    The lookup and append share the event-log file lock, so two workers
+    scheduling the same lifecycle operation cannot create duplicate jobs.
+    Returns ``(event, created)``; an existing event is returned unchanged.
+    """
+    if not event_id:
+        raise ValueError("emit_once requires a stable, non-empty event_id")
+    path = log_path(project_folder)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_project_file(path):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if (isinstance(event, dict)
+                    and event.get("fields", {}).get("event_id") == event_id):
+                return event, False
+        fields["event_id"] = event_id
+        return _append_locked(path, event_type, task, fields), True
+
+
+def _append_locked(path: Path, event_type: str, task: str,
+                   fields: dict) -> dict:
+    seq = _read_last_seq(path) + 1
+    event = {"seq": seq, "at": _now(), "host": _host(),
+             "pid": os.getpid(), "type": event_type, "task": task,
+             "fields": fields}
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, sort_keys=True,
+                                ensure_ascii=True) + "\n")
     return event
 
 
