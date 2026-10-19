@@ -98,16 +98,6 @@ def digest_for_clip(project_folder: str, clip: dict,
     return source_memory.digest_for_clip(project_folder, clip, recorded)
 
 
-_MERGED_COLLECTIONS = (
-    "assets", "streams", "clocks", "entities", "observations",
-    "identity_links", "masks", "object_classes", "tracks", "relations",
-    "provenance",
-)
-"""Evidence-half collections the scan link may carry. Editorial
-collections (clip uses, edits, effects, renders, frame maps, NLE
-bindings, receipts) are the reel writer's lane, never this one's."""
-
-
 def link_scan(project_folder: str, catalog: list | None = None) -> dict[str, Any]:
     """Migrate the scan's footage into the Project Model, as one revision.
 
@@ -137,47 +127,22 @@ def _link(project_folder: str, catalog: list | None) -> dict[str, Any]:
         if isinstance(row, dict) and row.get("id"))
     store_at = Path(project_folder)
     try:
-        expected_revision, stored = store.load_project_model(store_at)
-    except (FileNotFoundError, ValueError):
-        expected_revision, stored = 0, None
-    if stored is None:
-        model = base
-    else:
-        model = stored
-        fresh_ids = {row["id"] for key in _MERGED_COLLECTIONS
-                     for row in base.get(key) or []
-                     if isinstance(row, dict) and "id" in row}
-        for key in _MERGED_COLLECTIONS:
-            model[key] = [row for row in model.get(key) or []
-                          if not (isinstance(row, dict)
-                                  and row.get("id") in fresh_ids)]
-            model[key] = [*model.get(key, []), *base.get(key, [])]
-    from library.tools.project_model import validate_project_model
-
-    validate_project_model(model)
+        expected_revision, _stored = store.load_project_model(store_at)
+    except FileNotFoundError:
+        expected_revision = 0
     digest_count = len({row.get("content_digest")
                         for row in base.get("assets") or []
                         if isinstance(row, dict)})
     reason = (f"footage.scan: {len(asset_ids)} asset(s), "
               f"{digest_count} digest(s)")
-    last_error: Exception | None = None
-    for _attempt in range(3):
-        try:
-            revision = store.commit_project_model(
-                store_at, model, expected_revision=expected_revision,
-                author=AUTHOR, reason=reason)
-            return {"status": "committed", "revision": revision,
-                    "asset_ids": asset_ids}
-        except RuntimeError as exc:
-            last_error = exc
-            try:
-                expected_revision, stored = store.load_project_model(store_at)
-            except (FileNotFoundError, ValueError) as reload_exc:
-                return {"status": "refused",
-                        "reason": f"store unreadable on retry: {reload_exc!r}"}
-            model = stored
-    return {"status": "refused",
-            "reason": f"store commit kept racing: {last_error!r}"}
+    try:
+        revision = store.commit_evidence_import(
+            store_at, base, expected_revision=expected_revision,
+            author=AUTHOR, reason=reason)
+        return {"status": "committed", "revision": revision,
+                "asset_ids": asset_ids}
+    except Exception as exc:  # noqa: BLE001 - fail-soft by contract
+        return {"status": "refused", "reason": f"store commit refused: {exc!r}"}
 
 
 def mask_sidecar_entries(clip_id: str, seg_doc: dict) -> list[dict[str, str]]:

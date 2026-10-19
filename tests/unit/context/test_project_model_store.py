@@ -527,6 +527,8 @@ def test_evidence_import_cas_preserves_timeline_state_and_edit_history(tmp_path)
     assert current["timeline_states"] == [timeline]
     assert current["edits"] == FIXTURE["edits"]
     assert {row["id"] for row in current["observations"]} == {"obs-1", "obs-imported"}
+    assert project_model_store._read_events(
+        project / "project_model" / "events.jsonl")[-1]["kind"] == "record_changes"
     with pytest.raises(RuntimeError, match="stale project model revision 2"):
         commit_evidence_import(
             project, evidence, expected_revision=2,
@@ -641,3 +643,90 @@ def test_replay_still_refuses_a_broken_event_chain(tmp_path):
         _read_events(events_path)
     with pytest.raises(ValueError, match="invalid event kind or order"):
         _replay([{"revision": 1, "kind": "bogus", "payload": {}}])
+
+
+def test_long_history_replays_legacy_replace_and_both_incremental_formats(tmp_path):
+    project = tmp_path / "project"
+    assert commit_project_model(project, FIXTURE, expected_revision=0) == 1
+    revision = append_model_patch(
+        project, {"intents": FIXTURE["intents"]}, expected_revision=1)
+    for index in range(2, project_model_store.CHECKPOINT_INTERVAL + 4):
+        record = {**FIXTURE["intents"][0], "id": f"intent-{index}"}
+        revision = commit_project_model_records(
+            project, [{"collection": "intents", "operation": "append",
+                       "id": record["id"], "record": record}],
+            expected_revision=revision)
+
+    events = project_model_store._read_events(
+        project / "project_model" / "events.jsonl")
+    assert [event["kind"] for event in events[:3]] == [
+        "replace", "merge_patch", "record_changes"]
+    (project / "project_model" / "snapshot.json").unlink()
+    loaded_revision, model = load_project_model(project)
+    assert loaded_revision == revision
+    assert {row["id"] for row in model["intents"]} >= {
+        f"intent-{index}"
+        for index in range(2, project_model_store.CHECKPOINT_INTERVAL + 4)
+    }
+
+
+def test_restored_canonical_event_backup_rebuilds_derived_store_files(tmp_path):
+    import shutil
+
+    project = tmp_path / "project"
+    assert commit_project_model(project, FIXTURE, expected_revision=0) == 1
+    updated = {**FIXTURE, "intents": [
+        {**FIXTURE["intents"][0], "constraints": ["saved history"]}
+    ]}
+    append_model_patch(project, {"intents": updated["intents"]},
+                       expected_revision=1)
+    event_path = project / "project_model" / "events.jsonl"
+    backup = tmp_path / "events.jsonl.backup"
+    shutil.copy2(event_path, backup)
+    backup_bytes = backup.read_bytes()
+
+    append_model_patch(project, {"intents": FIXTURE["intents"]},
+                       expected_revision=2)
+    shutil.copy2(backup, event_path)
+    (project / "project_model" / "snapshot.json").unlink()
+
+    revision, model = load_project_model(project)
+
+    assert (revision, model) == (2, updated)
+    assert event_path.read_bytes() == backup_bytes
+    snapshot = json.loads((project / "project_model" / "snapshot.json")
+                          .read_text(encoding="utf-8"))
+    assert snapshot["revision"] == 2
+    assert snapshot["model"] == updated
+
+
+def test_speech_interpretation_upsert_appends_record_changes(tmp_path):
+    from library.tools.project_model_narrative import (
+        persist_speech_sequence,
+    )
+
+    project = tmp_path / "project"
+    commit_project_model(project, FIXTURE, expected_revision=0)
+    interpretation = {
+        "id": "interpretation-sequence-1",
+        "kind": "narrative_relation",
+        "author": "ignored-input-author",
+        "certainty": "interpreted",
+        "evidence_ids": ["event-pickup"],
+        "scope": {"event_ids": ["event-pickup"]},
+        "narrative_relation": {
+            "event_ids": ["event-pickup"],
+            "relation_type": "explanation",
+            "speech_passage_ids": ["speech-1"],
+            "status": "candidate",
+        },
+    }
+
+    result = persist_speech_sequence(
+        project, {"interpretations": [interpretation]})
+
+    events = project_model_store._read_events(
+        project / "project_model" / "events.jsonl")
+    assert result["revision"] == 2
+    assert events[-1]["kind"] == "record_changes"
+    assert events[-1]["payload"][0]["collection"] == "interpretations"

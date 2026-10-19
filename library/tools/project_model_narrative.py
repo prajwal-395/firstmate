@@ -27,8 +27,6 @@ def persist_speech_sequence(project_folder: str | Path,
                             speech_sequence: dict[str, Any]) -> dict[str, Any]:
     """Upsert the sequence's hypotheses by reference, preserving model authority."""
     from library.tools import project_model_evidence, project_model_store
-    from library.tools.project_model import validate_project_model
-
     interpretations = speech_sequence.get("interpretations", [])
     if not isinstance(interpretations, list):
         raise TypeError("speech_sequence.interpretations must be a list")
@@ -36,7 +34,10 @@ def persist_speech_sequence(project_folder: str | Path,
         revision, model = project_model_store.load_project_model(Path(project_folder))
     except FileNotFoundError:
         model, _report = project_model_evidence.migrate_project_evidence(str(project_folder))
-        revision = 0
+        revision = project_model_store.commit_project_model(
+            Path(project_folder), model, expected_revision=0,
+            author="speech_sequence",
+            reason="initial Project Model import for narrative interpretations")
 
     event_ids = {row["id"] for row in model.get("events", [])}
     incoming = []
@@ -46,6 +47,7 @@ def persist_speech_sequence(project_folder: str | Path,
         # Event links are retained only when they resolve to the canonical
         # model. The speech passage remains the source authority by reference.
         clean = dict(row)
+        clean["author"] = AUTHOR
         scope = dict(row["scope"])
         candidate_events = list(scope.get("event_ids", []))
         valid_events = [event_id for event_id in candidate_events
@@ -61,17 +63,26 @@ def persist_speech_sequence(project_folder: str | Path,
             [*clean["evidence_ids"], *valid_events]))
         incoming.append(clean)
 
-    model = dict(model)
-    model["interpretations"] = [
-        row for row in model.get("interpretations", [])
-        if row.get("author") != AUTHOR
-    ] + incoming
-    model.setdefault("interpretations", [])
     for attempt in range(3):
-        validate_project_model(model)
+        existing = {row["id"]: row
+                    for row in model.get("interpretations", [])
+                    if row.get("author") == AUTHOR}
+        desired = {row["id"]: row for row in incoming}
+        changes = [
+            {"collection": "interpretations", "operation": "delete",
+             "id": record_id}
+            for record_id in sorted(existing.keys() - desired.keys())
+        ]
+        changes.extend(
+            {"collection": "interpretations",
+             "operation": "update" if record_id in existing else "append",
+             "id": record_id, "record": row}
+            for record_id, row in sorted(desired.items())
+            if existing.get(record_id) != row
+        )
         try:
-            new_revision = project_model_store.commit_project_model(
-                Path(project_folder), model, expected_revision=revision,
+            new_revision = project_model_store.commit_project_model_records(
+                Path(project_folder), changes, expected_revision=revision,
                 author="speech_sequence",
                 reason="persist narrative interpretations")
             break
@@ -80,10 +91,5 @@ def persist_speech_sequence(project_folder: str | Path,
                 raise
             revision, model = project_model_store.load_project_model(
                 Path(project_folder))
-            model = dict(model)
-            model["interpretations"] = [
-                row for row in model.get("interpretations", [])
-                if row.get("author") != AUTHOR
-            ] + incoming
     return {"status": "committed", "revision": new_revision,
             "interpretation_ids": [row["id"] for row in incoming]}

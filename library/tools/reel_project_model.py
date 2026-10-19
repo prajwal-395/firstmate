@@ -119,11 +119,11 @@ def evidence_fingerprint(project_folder: str,
     from library.tools import source_memory as _sm
     try:
         catalog = _sm.load_catalog(project_folder)
-    except Exception:
+    except (OSError, ValueError, TypeError):
         catalog = []
     try:
         recorded = _sm.load_recorded_fingerprints(project_folder)
-    except Exception:
+    except (OSError, ValueError, TypeError):
         recorded = {}
     if not isinstance(catalog, list):
         catalog = []
@@ -141,19 +141,20 @@ def evidence_fingerprint(project_folder: str,
     digest_entries.sort()
     try:
         root = Path(memory_root).expanduser() if memory_root else _sm.memory_root()
-    except Exception:
+    except (OSError, ValueError, TypeError):
         root = None
     lane_stats: list[str] = []
     if root is not None:
         try:
             digests = sorted({str((recorded.get(str((c or {}).get("clip_id") or "")) or {}).get("content_digest") or "")
                              for c in catalog if isinstance(c, dict)} - {""})
-        except Exception:
+        except (OSError, ValueError, TypeError):
             digests = []
         for digest in digests:
             try:
                 lane_dir = _sm.source_dir(digest, root)
-            except Exception:
+            except (OSError, ValueError, TypeError):
+                lane_stats.append(f"{digest}:unreadable")
                 continue
             try:
                 if not lane_dir.is_dir():
@@ -1789,6 +1790,13 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
     except (FileNotFoundError, ValueError) as exc:
         return {"status": "refused",
                 "reason": f"no Project Model to record the deliver on: {exc!r}"}
+    before_collections = {
+        key: {row["id"]: row for row in model.get(key) or []}
+        for key in ("clocks", "receipts", "frame_maps", "renders", "provenance")
+    }
+    delivered_asset_id = f"asset:render:{reel_slug}"
+    had_asset = any(row.get("id") == delivered_asset_id
+                    for row in model.get("assets") or [])
     ensure_provenance(model)
     try:
         reel_uses = [row for row in model.get("clip_uses") or []
@@ -1940,9 +1948,28 @@ def _note_deliver(store_at: Path, project_folder: str, reel: int,
         build_note = {"attached": False,
                       "reason": f"hash baseline unreadable: {exc!r}"}
     validate_project_model(model)
+    changes = []
+    for collection in ("clocks", "receipts", "frame_maps", "renders",
+                       "provenance"):
+        old_rows = before_collections[collection]
+        new_rows = {row["id"]: row for row in model.get(collection) or []}
+        changes.extend(
+            {"collection": collection, "operation": "delete", "id": record_id}
+            for record_id in sorted(old_rows.keys() - new_rows.keys()))
+        changes.extend(
+            {"collection": collection,
+             "operation": "update" if record_id in old_rows else "append",
+             "id": record_id, "record": row}
+            for record_id, row in sorted(new_rows.items())
+            if old_rows.get(record_id) != row)
+    if not had_asset:
+        asset = next(row for row in model.get("assets") or []
+                     if row.get("id") == delivered_asset_id)
+        changes.append({"collection": "assets", "operation": "append",
+                        "id": asset["id"], "record": asset})
     try:
-        revision = store.commit_project_model(
-            store_at, model, expected_revision=expected_revision,
+        revision = store.commit_project_model_records(
+            store_at, changes, expected_revision=expected_revision,
             author=author, reason=f"deliver-reel: {timeline_name}")
     except RuntimeError as exc:
         return {"status": "refused", "reason": f"store contention: {exc!r}"}

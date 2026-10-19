@@ -826,7 +826,7 @@ def commit_project_model_records(
     records the exact intervening heads considered during that decision.
     """
     if not changes:
-        return expected_revision
+        return project_model_revision(Path(project))
     normalized = sorted(changes, key=lambda item: (
         item["collection"], item["id"], item["operation"]))
     seen: set[tuple[str, str]] = set()
@@ -940,7 +940,7 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
             raise ValueError("evidence update uses a different Project Model schema version")
         changes: list[dict[str, Any]] = []
         query_merge: list[dict[str, Any]] | None = None
-        for key in EVIDENCE_COLLECTIONS:
+        for key in (*EVIDENCE_COLLECTIONS, "clocks"):
             if key == "query_results":
                 # Query rows carry no stable id (status/candidate lists),
                 # so union them by value as the pre-record merge did.
