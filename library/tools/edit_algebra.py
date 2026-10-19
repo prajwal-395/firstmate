@@ -2957,6 +2957,10 @@ _BACKEND_LIMITATIONS = {
         "Recorded full-build placement; not an existing-timeline patch.",),
     "reel_otio_placement": (
         "Recorded full-build placement; OTIO representability refusals apply.",),
+    "resolve_native_invocation": (
+        "Only explicitly bound documented methods; AXI authorization and operation-specific read-back are required.",),
+    "resolve.ui": (
+        "UI recipes are available only for declared controls; exact UI state and independent verification are required.",),
 }
 
 # Qualification rows are deliberately not synthesized from old live test
@@ -3034,6 +3038,17 @@ def _executor_coverage() -> dict[str, set[str]]:
         "resolve_axi": {"marker.add", "clip.delete", "clip.smart_reframe"},
         "reel_append_placement": {"clip.insert"},
         "reel_otio_placement": {"clip.insert"},
+        # Generic native invocation is registered only for semantic ops that
+        # already have a documented, typed method mapping. The adapter is
+        # implemented but remains unqualified until live Resolve evidence is
+        # recorded for this exact op/backend pair.
+        "resolve_native_invocation": {"marker.add"},
+        # These controls have explicit UI recipes, but none has completed a
+        # live qualification run. Discovery must not imply production access.
+        "resolve.ui": {
+            "color.window.create", "color.window.modify",
+            "color.window.track",
+        },
     }
 
 

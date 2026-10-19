@@ -71,6 +71,39 @@ def _literal_types(stub: str) -> dict[str, list[Any]]:
     return result
 
 
+def _typed_dict_types(stub: str) -> dict[str, dict[str, Any]]:
+    """Extract documented TypedDict field shapes for nested argument checks."""
+    try:
+        tree = ast.parse(stub)
+    except SyntaxError:
+        return {}
+    result = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(ast.unparse(base).split(".")[-1] == "TypedDict"
+                   for base in node.bases):
+            continue
+        total = next((keyword.value.value for keyword in node.keywords
+                      if keyword.arg == "total"
+                      and isinstance(keyword.value, ast.Constant)), True)
+        fields = {}
+        for item in node.body:
+            if not isinstance(item, ast.AnnAssign) or not isinstance(item.target, ast.Name):
+                continue
+            field_type = ast.unparse(item.annotation)
+            required = bool(total)
+            if field_type.startswith("NotRequired["):
+                field_type = field_type[len("NotRequired["):-1]
+                required = False
+            elif field_type.startswith("Required["):
+                field_type = field_type[len("Required["):-1]
+                required = True
+            fields[item.target.id] = {"type": field_type, "required": required}
+        result[node.name] = {"total": bool(total), "fields": fields}
+    return result
+
+
 def _methods(stub: str) -> dict[str, dict[str, dict[str, str]]]:
     classes: dict[str, dict[str, dict[str, str]]] = {}
     literal_types = _literal_types(stub)
@@ -201,6 +234,8 @@ def build_capability_map(version: str, reference_dir: Path | str =
                 "method_count": sum(
                     len(methods) for methods in classes.values()),
                 "classes": classes,
+                "literal_types": _literal_types(stub),
+                "typed_dict_types": _typed_dict_types(stub),
                 "changelog": _changelog(changelog, version),
             }
         },

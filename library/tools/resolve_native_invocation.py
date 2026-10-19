@@ -54,6 +54,24 @@ SIDE_EFFECTS = frozenset({
     "read_only", "reversible_mutation", "mutation", "destructive", "unknown",
 })
 
+# Semantic operation to exact native method bindings. An API method is never
+# made executable by its spelling or by being present in the installed stub;
+# each binding is reviewed against one AXI operation. Extend only with a typed
+# operation contract and read-back implementation. Qualification remains in
+# edit_algebra and is independent of this implementation map.
+NATIVE_OPERATION_METHODS = {
+    ("marker.add", "Timeline", "AddMarker"): "mutation",
+}
+
+
+def classify_operation_method(operation_id: str | None, class_name: str,
+                              method_name: str, _metadata: dict) -> str:
+    """Return the side effect for an explicitly bound AXI operation/method."""
+    if operation_id is None:
+        return "unknown"
+    return NATIVE_OPERATION_METHODS.get(
+        (operation_id, class_name, method_name), "unknown")
+
 
 def _resolve_reference(resolve: Any, reference: ObjectReference,
                        project: Any,
@@ -85,7 +103,9 @@ def _resolve_reference(resolve: Any, reference: ObjectReference,
 
 def _check_type(name: str, parameter: dict, value: Any,
                 resolve: Any, project: Any,
-                resolver: Callable[[ObjectReference], Any] | None) -> Any:
+                resolver: Callable[[ObjectReference], Any] | None,
+                *, typed_dict_types: dict | None = None,
+                literal_types: dict | None = None) -> Any:
     expected = parameter["type"]
     expected = expected.strip("'").strip('"')
     allowed = parameter.get("allowed_values")
@@ -99,6 +119,29 @@ def _check_type(name: str, parameter: dict, value: Any,
         if value.kind != _OBJECT_TYPES[expected]:
             raise NativeInvocationError(f"{name} reference kind does not match {expected}")
         return _resolve_reference(resolve, value, project, resolver)
+    typed_dict = (typed_dict_types or {}).get(expected)
+    if typed_dict is not None:
+        if not isinstance(value, dict):
+            raise NativeInvocationError(f"{name} requires {expected} object")
+        fields = typed_dict["fields"]
+        unknown = set(value) - fields.keys()
+        missing = {key for key, field in fields.items()
+                   if field["required"] and key not in value}
+        if unknown or missing:
+            raise NativeInvocationError(
+                f"{name} {expected} field mismatch: unknown={sorted(unknown)} "
+                f"missing={sorted(missing)}")
+        return {
+            key: _check_type(
+                f"{name}.{key}",
+                {"type": fields[key]["type"], "required": fields[key]["required"],
+                 **({"allowed_values": literal_types[fields[key]["type"]]}
+                    if literal_types and fields[key]["type"] in literal_types else {})},
+                member, resolve, project, resolver,
+                typed_dict_types=typed_dict_types,
+                literal_types=literal_types)
+            for key, member in value.items()
+        }
     expected = expected.replace("typing.", "")
     checks = {
         "str": lambda v: isinstance(v, str),
@@ -168,9 +211,14 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
         raise NativeInvocationError(f"{method_name} is destructive and unavailable generically")
 
     if classify_side_effect is None:
-        raise NativeInvocationError(
-            "native invocation requires AXI's operation-specific side-effect classification")
-    effect = classify_side_effect(operation_id, class_name, method_name, method_meta)
+        effect = classify_operation_method(
+            operation_id, class_name, method_name, method_meta)
+        if effect == "unknown":
+            raise NativeInvocationError(
+                "native invocation requires AXI's operation-specific side-effect classification")
+    else:
+        effect = classify_side_effect(
+            operation_id, class_name, method_name, method_meta)
     if effect not in SIDE_EFFECTS:
         raise NativeInvocationError(
             f"{class_name}.{method_name} has invalid AXI side-effect classification {effect!r}")
@@ -206,7 +254,10 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
                 f"{method_name} requires an operation-specific read-back verifier")
 
     converted = {
-        key: _check_type(key, params[key], value, resolve, project, resolve_object)
+        key: _check_type(
+            key, params[key], value, resolve, project, resolve_object,
+            typed_dict_types=release.get("typed_dict_types", {}),
+            literal_types=release.get("literal_types", {}))
         for key, value in arguments.items()
     }
     method = callable_method(target, method_name)
