@@ -151,7 +151,7 @@ def _row_for_clause(clause: dict, index: int,
                  "owner": "pipeline node", "values": "typed values"}
         row_op = "plan_change"
 
-    sources_used = set(value.get("stated_by") for value in values.values())
+    sources_used = {value.get("stated_by") for value in values.values()}
     stated_by = (next(iter(sources_used)) if len(sources_used) == 1
                  else "model")
     row = {
@@ -1076,6 +1076,15 @@ def _project_context(project_folder: str, request: str, reel: str) -> dict:
              "available_reels": [],
              "operation_types": list(OP_OWNERS),
              "operation_owners": OP_OWNERS,
+             "operation_registry": [
+                 {"id": op_id,
+                  "parameters": edit_algebra.status(op_id).param_schema,
+                  "implemented": edit_algebra.capability(op_id)["implemented"],
+                  "live_qualified": edit_algebra.capability(op_id)["live_qualified"],
+                  "production_enabled": edit_algebra.capability(op_id)["production_enabled"],
+                  "backends": edit_algebra.capability(op_id)["supported_backend"],
+                  "inverse": edit_algebra.capability(op_id)["inverse_recovery"]}
+                 for op_id in edit_algebra.ALGEBRA],
              "plan_operation_value_contracts":
                  edit_operations.PLAN_OPERATION_VALUE_CONTRACTS,
              "stated_number_fields": edit_operations.STATED_NUMBER_FIELDS,
@@ -1344,10 +1353,16 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "whose `ops` are the algebra operations in order, sharing one "
         "`base_generation` and one `idempotency_key`; a request that needs "
         "a planner to choose (for example, alternatives) is a program with "
-        "kind `planner_run`. A single-operation request may use `clauses` "
-        "as before. Choose operations by their meaning and emit the "
-        "operation type; do not route by matching keywords. Use only the "
-        "declared edit-ledger operation vocabulary. "
+        "kind `planner_run`. A single plan operation may use `clauses` "
+        "as before; every executable timeline operation uses an "
+        "`edit_program`, even when it contains one operation. Choose "
+        "operations by their meaning and emit the "
+        "operation type; do not route by matching keywords. Use the "
+        "Resolve AXI operation registry supplied in context. Select the "
+        "operation whose semantics match, even when it is not currently "
+        "implemented or production-enabled; the shared execution planner "
+        "will refuse unsupported operations with its reason. Do not invent "
+        "parameters absent from the request or observed timeline. "
         "Keep every stated number in its original unit and source it as "
         "requester; preserve feel words as named feels instead of making up "
         "a number. Attribute every value, anchor and reel to requester, "
@@ -1376,10 +1391,10 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "anchor cannot be identified. "
         "A change to items already on the reel - a caption's or an "
         "overlay's size or position, an overlay switched off, a marker - "
-        "is a `program` of kind `edit_program` over `reel_timeline`: name "
-        "each item by its `unique_id`, use the algebra ops "
-        "`clip.set_property` (params `unique_id`, `key`, `value`), "
-        "`clip.set_enabled` or the marker ops, set `reel` to the reel and "
+        "is a `program` of kind `edit_program` over `reel_timeline`: resolve "
+        "each target to its observed `unique_id` or other exact registry "
+        "address, use matching edit-algebra operations and required params "
+        "from `operation_registry`, set `reel` to the reel and "
         "`base_generation` to `reel_timeline.generation`. A size or a "
         "position the editor did not state is the model's decision: say "
         "so in the op's `text`. If `reel_timeline` lists no items, ask "
@@ -1524,8 +1539,8 @@ def pending_note_states(project_folder: str, rows: list | None = None,
             if isinstance(context, str):
                 context = json.loads(context)
             if not isinstance(context, dict):
-                raise ValueError("request context must be a JSON object")
-        except (OSError, ValueError, AttributeError) as exc:
+                raise TypeError("request context must be a JSON object")
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
             request_id = path.stem
             pending[f"unlinked:{request_id}"] = {
                 "request_id": request_id,
@@ -1780,8 +1795,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

@@ -73,7 +73,7 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
-from library.tools import marker_routing  # noqa: E402
+from library.tools import marker_routing
 
 VERDICT_PATCH = "patch"
 VERDICT_REBUILD = "rebuild"
@@ -149,9 +149,17 @@ def _decide_program(operations: list, steps: list) -> dict:
     plan for a rebuild to re-choose; a program with an op outside the
     restorable families is refused by naming it, never rebuilt around.
     """
+    from library.tools import execution_router
     from library.tools.feedback_patch_apply import SUPPORTED_OPS
 
     ops = [operation.get("op") or "" for operation in operations]
+    try:
+        routing = execution_router.route_compiled_edit(
+            {"operations": operations}).as_dict()
+    except execution_router.RoutingRefused as exc:
+        return {"verdict": VERDICT_REFUSED,
+                "reason": f"the shared execution planner refused this edit: {exc}",
+                "steps": steps, "execution": None}
     outside = sorted({op for op in ops if op not in SUPPORTED_OPS})
     if not outside:
         return {
@@ -161,6 +169,7 @@ def _decide_program(operations: list, steps: list) -> dict:
                 f"the reel ({', '.join(dict.fromkeys(ops))}) - nothing in "
                 f"it re-chooses the plan's selection or order"),
             "steps": steps,
+            "execution": routing,
         }
     return {
         "verdict": VERDICT_REFUSED,
@@ -169,6 +178,7 @@ def _decide_program(operations: list, steps: list) -> dict:
             f"patch path cannot restore and no rebuild re-chooses - state "
             f"it as a touch-up (`ren touch`) instead"),
         "steps": steps,
+        "execution": routing,
     }
 
 

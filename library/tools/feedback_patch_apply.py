@@ -47,8 +47,8 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
-from library.tools import timeline_shadow as shadow  # noqa: E402
-from library.tools.resolved.jobs import QUALIFICATION_PROJECT  # noqa: E402
+from library.tools import timeline_shadow as shadow
+from library.tools.resolved.jobs import QUALIFICATION_PROJECT
 
 CAPABILITY = "reel.touchup"
 
@@ -230,8 +230,8 @@ def inventory_changes(before: dict, after: dict) -> list:
                             "change": field,
                             "before": first.get(field),
                             "after": second.get(field)})
-        for key in sorted(set((first.get("transform") or {}))
-                          | set((second.get("transform") or {}))):
+        for key in sorted(set(first.get("transform") or {})
+                          | set(second.get("transform") or {})):
             old_value = (first.get("transform") or {}).get(key)
             new_value = (second.get("transform") or {}).get(key)
             if old_value != new_value:
@@ -382,6 +382,7 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     always [] on success, since a non-empty one raises.
     """
     from library.tools import edit_patch
+    from library.tools.execution_router import RoutingRefused, route_compiled_edit
 
     require_qualification(project)
     require_exclusive_lease()
@@ -395,6 +396,15 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     if not idempotency_key:
         raise PatchRefused("a feedback patch needs a non-empty "
                            "idempotency key")
+    try:
+        routing = route_compiled_edit({"operations": operations}).as_dict()
+    except RoutingRefused as exc:
+        raise PatchRefused(
+            f"the shared execution planner refused the edit: {exc}") from exc
+    if routing["backend"] not in {"edit_patch", "edit_patch.property"}:
+        raise PatchRefused(
+            "the shared execution planner selected unsupported backend "
+            f"{routing['backend']!r} for this guarded path")
     made = backup(project, timeline, store=store,
                   project_folder=project_folder)
     gaps = scope_covers(operations, scope)
@@ -403,8 +413,6 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
             f"{len(gaps)} operation target(s) sit outside the declared "
             f"scope - refusing before Resolve is written: {gaps}")
     inverses = inverse_operations(operations, made["snapshot"])
-    from library.tools.execution_router import route_compiled_edit
-    routing = route_compiled_edit({"operations": operations}).as_dict()
     receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline, capability=capability,
         operations=operations, conflict_domains=conflict_domains,
@@ -419,7 +427,8 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     if not outside:
         return {"backup": {k: made[k] for k in ("generation", "hash")},
                 "patch": receipt, "outside_scope": [],
-                "routing": routing}
+                "routing": routing,
+                "verification": list(routing["verification"])}
     restore_receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline, capability=capability,
         operations=inverses, conflict_domains=conflict_domains,
