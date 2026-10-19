@@ -180,6 +180,21 @@ def _has_native_payload(value) -> bool:
     return True
 
 
+def _has_native_composite_payload(value) -> bool:
+    """Ignore Resolve's default opacity and composite mode in a read."""
+    if not isinstance(value, dict):
+        return _has_native_payload(value)
+    non_default = {}
+    for key, item in value.items():
+        if key == "Opacity" and _same_value(item, 100.0):
+            continue
+        if key == "CompositeMode" and item in (0, "Normal"):
+            continue
+        if _has_native_payload(item):
+            non_default[key] = item
+    return bool(non_default)
+
+
 def _native_state_losses(live: dict, staged: dict) -> list[str]:
     """Find observed grade/Fusion/composite state lost on matching media.
 
@@ -197,8 +212,13 @@ def _native_state_losses(live: dict, staged: dict) -> list[str]:
     for item in live.get("items", ()):
         key = (item.get("source_identity"), item.get("source_in_frame"),
                item.get("source_out_frame"))
-        values = {field: item.get(field) for field in observed
-                  if _has_native_payload(item.get(field))}
+        values = {
+            field: item.get(field)
+            for field in observed
+            if (_has_native_composite_payload(item.get(field))
+                if field == "composite"
+                else _has_native_payload(item.get(field)))
+        }
         if not values:
             continue
         candidates = staged_by_passage.get(key, ())

@@ -948,6 +948,28 @@ def apply_patch(patch, *, resolve, project, timeline,
             patch, live=live, timeline=timeline, project=project,
             project_name=project_name, timeline_id=timeline_id,
             timeline_name=timeline_name, project_folder=project_folder)
+        if stopped and stopped.get("failure_type") == \
+                "post_write_readback_failed":
+            observed = store.record(
+                project=project_name, timeline_id=timeline_id,
+                timeline_name=timeline_name, snapshot=after,
+                source=shadow.OBSERVED, expected_head=head.generation)
+            _emit_transaction_stage(
+                project_folder, patch, "recovery_required",
+                actual_state=after, applied_operations=ran,
+                failure=stopped["raised"], observed_generation=observed.generation,
+                required=False)
+            raise PatchRefused(
+                what=(f"patch {patch.id!r} wrote to {timeline_name!r}, but "
+                      "its first post-write read-back failed"),
+                why=(f"Resolve was re-read and the observed state was saved "
+                     f"as generation {observed.generation}; the patch result "
+                     "needs review before another edit"),
+                fix=("inspect the observed timeline generation and decide "
+                     "whether to keep or reverse the applied edit"),
+                user_message=("The edit may have landed. I saved the current "
+                              "timeline state for review before continuing."),
+                recovery_class="needs_question")
     journal_errors = []
     try:
         observed_journaled = _emit_transaction_stage(
@@ -1129,7 +1151,33 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
               and later_needs_handles[index + 1]):
             handles = _live_handles(timeline)
             handles_dirty = False
-    after = shadow.read_live(project, timeline)
+    try:
+        after = shadow.read_live(project, timeline)
+    except Exception as first_readback_error:  # noqa: BLE001
+        try:
+            after = shadow.read_live(project, timeline)
+        except Exception as retry_error:
+            raise PatchRefused(
+                what=(f"patch {patch.id!r} may have written to "
+                      f"{timeline_name!r}, but Resolve could not be read "
+                      "after the write"),
+                why=(f"the first read-back failed with "
+                     f"{type(first_readback_error).__name__}: "
+                     f"{first_readback_error}; the recovery read also failed "
+                     f"with {type(retry_error).__name__}: {retry_error}"),
+                fix=("inspect the timeline in Resolve and record its current "
+                     "state before retrying the patch"),
+                user_message=("The edit may have landed, and I could not "
+                              "read the timeline to confirm it. Inspect the "
+                              "timeline before continuing."),
+                recovery_class="needs_question") from retry_error
+        stopped = {
+            "index": (ran[-1]["index"] if ran else -1),
+            "op": (ran[-1]["op"] if ran else "read_back"),
+            "raised": (f"{type(first_readback_error).__name__}: "
+                       f"{first_readback_error}"),
+            "failure_type": "post_write_readback_failed",
+        }
     return ran, stopped, id_map, after
 
 

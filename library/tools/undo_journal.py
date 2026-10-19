@@ -2324,6 +2324,9 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
         component_manifest=component_manifest,
         revision_id=entry.get("revision_id"),
         intent=(entry.get("accepted_edit") or {}).get("intent") or "touch-up",
+        operations=[dict(operation)
+                    for operation in (entry.get("spec") or {}).get("edits", ())
+                    if isinstance(operation, Mapping)],
         revision_status="verified")
     entry["version"] = version["version"]
     entry["status"] = STATUS_APPLIED
@@ -3808,7 +3811,10 @@ def undo_stack(project_folder, final: str = "") -> list:
         patch = generation.patch or {}
         patch_id = str(patch.get("id") or "")
         timeline = generation.timeline_name
-        if (generation.source != "patch" or not patch_id or final and timeline != final or patch_id.startswith(("creative-undo-", "creative-redo-")) or (generation.receipt or {}).get("status") != "committed"):
+        if (generation.source != "patch" or not patch_id
+                or (final and timeline != final)
+                or patch_id.startswith(("creative-undo-", "creative-redo-"))
+                or (generation.receipt or {}).get("status") != "committed"):
             continue
         latest_action = _latest_patch_action(
             generations, generation.timeline_id, patch_id)

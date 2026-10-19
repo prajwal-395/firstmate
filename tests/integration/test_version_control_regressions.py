@@ -125,7 +125,8 @@ def test_qa01_independent_branches_merge_and_conflicting_branches_refuse(
     merged = undo_journal.merge_commits(
         str(project), timeline=FINAL, left=left["id"], right=right["id"])
 
-    assert merged["parents"] == [left["id"], right["id"]]
+    assert merged["parent"] == left["id"]
+    assert merged["second_parent"] == right["id"]
     assert {change["item"] for change in merged["changes"]} == {
         "clip-a.mov", "clip-b.mov"}
 
@@ -222,10 +223,6 @@ def test_qa01_reel26_incremental_and_complete_materialization_match_placement(
         complete_item.GetProperty("Pan"))
 
 
-@pytest.mark.xfail(
-    reason="Failure receipts and post-write read-back recovery belong to vep-exec-pl-verify.",
-    strict=True,
-)
 def test_qa02_readback_failure_is_recorded_as_recovery_required(
         tmp_path, monkeypatch):
     """Defect: Resolve mutates, then a failed read-back leaves no receipt."""
