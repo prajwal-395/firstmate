@@ -198,6 +198,7 @@ class KeyBuilder:
         self.checkout = os.path.abspath(checkout)
         self._index: dict[str, list[str]] | None = None
         self._imports_by_path: dict[str, set[str]] = {}
+        self._data_by_directory: dict[str, list[str]] = {}
 
     def _imports(self, path: str) -> set[str]:
         """Parse each source file at most once for this immutable checkout.
@@ -276,25 +277,34 @@ class KeyBuilder:
         return sorted(chain)
 
     def data_files(self, test_rel: str) -> list[str]:
-        """Non-Python files under the test's own directory, recursively.
+        """Non-Python files beside the test and its imported helpers.
 
         The other PR-2145 miss was `golden_monologue_answers.json` beside
-        its scenario test. `*.py` is excluded (code is the closure's),
-        as are caches. Recursive within the directory: precise (only
-        this directory's files affect the key) and fail-closed.
+        its scenario test. Imported test helpers can also load assets
+        beside themselves, so include the directories of every Python
+        file in the static closure. `*.py` is excluded (code is the
+        closure's), as are caches. Recursive within each dependency
+        directory; the set is deduplicated when directories overlap.
         """
-        directory = os.path.dirname(
-            os.path.join(self.checkout, test_rel))
-        found = []
-        for dirpath, dirnames, filenames in os.walk(directory):
-            dirnames[:] = [d for d in dirnames
-                           if d != "__pycache__"]
-            for name in filenames:
-                if name.endswith((".py", ".pyc")):
-                    continue
-                rel = os.path.relpath(
-                    os.path.join(dirpath, name), self.checkout)
-                found.append(rel)
+        directories = {os.path.dirname(os.path.join(self.checkout, test_rel))}
+        directories.update(
+            os.path.dirname(os.path.join(self.checkout, rel))
+            for rel in self.closure(test_rel)
+            if rel.startswith("tests/"))
+        found = set()
+        for directory in directories:
+            if directory not in self._data_by_directory:
+                files = []
+                for dirpath, dirnames, filenames in os.walk(directory):
+                    dirnames[:] = [name for name in dirnames
+                                   if name != "__pycache__"]
+                    for name in filenames:
+                        if name.endswith((".py", ".pyc")):
+                            continue
+                        files.append(os.path.relpath(
+                            os.path.join(dirpath, name), self.checkout))
+                self._data_by_directory[directory] = files
+            found.update(self._data_by_directory[directory])
         return sorted(found)
 
 

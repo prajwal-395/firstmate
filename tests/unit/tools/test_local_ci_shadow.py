@@ -172,6 +172,32 @@ def test_tier2_audit_keeps_full_gate_and_hypothetical_skip_counts(tmp_path):
     assert saved["disagreement"] is False
 
 
+def test_tier2_audit_files_missed_regression_when_both_verdicts_are_red(
+        tmp_path):
+    state_dir = _state_dir(tmp_path)
+    plan = {"executed": ["tests/unit/test_a.py"],
+            "reused": ["tests/unit/test_b.py"], "integration": [],
+            "total_tests": 4, "skipped_tests": 1, "total_files": 2,
+            "skipped_files": 1, "skipped_fraction": 0.25}
+    outcomes = {
+        "tests/unit/test_a.py": {"passed": 0, "failed": 1,
+                                 "skipped": 0, "total": 1},
+        "tests/unit/test_b.py": {"passed": 2, "failed": 1,
+                                 "skipped": 0, "total": 3},
+    }
+
+    record = shadow.record_tier2_audit(
+        state_dir, SHA, plan, {"verdict": "FAIL"}, outcomes)
+
+    assert record["incremental_verdict"] == "FAIL"
+    assert record["disagreement"] is False
+    assert record["missed_failed_tests"] == ["tests/unit/test_b.py"]
+    assert record["reuse_accuracy"] == 0.0
+    assert record["defect_type"] == "test-intelligence"
+    finding, = shadow.read_findings(state_dir)
+    assert finding["missed"] == ["tests/unit/test_b.py"]
+
+
 def test_direct_gate_audit_uses_the_pre_gate_partition(
         monkeypatch, tmp_path):
     state_dir = _state_dir(tmp_path)

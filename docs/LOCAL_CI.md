@@ -1,6 +1,17 @@
 # Local CI and merge queue (ren-ci): the contributor SOP
 
-Just push and mark ready. The Mac does the rest, for free.
+When the local CI service is active, push and mark ready; the Mac runs
+the checks and pooled gate.
+
+## Current operating mode (2026-10-19)
+
+The local CI daemon is paused, and the repository's workflow does not
+create PR checks (`.github/workflows/ci.yml` runs only when explicitly
+labelled `run-tests`). Do not add `ren-ci-ready` or wait for a PR check
+in this mode. Firstmate handles merges without a per-PR test gate and
+runs the pooled full suite periodically; a red pooled run gets its own
+fix lane. The service install and recovery procedures below describe
+how to restore local CI after that operating decision changes.
 
 ## What runs, and when
 
@@ -301,7 +312,14 @@ reusable only when the shared content-key cache has a valid pass;
 `tests/contracts/` and `tests/scenarios/` always stay in the execution
 set as the conservative integration set. `~/.ren-ci/tier2_shadow_audits.jsonl` records the
 hypothetical incremental verdict, executed and skipped files, individual
-test case counts, and the fraction of test cases it would skip. The same
+test case counts, and the fraction of test cases it would skip. For each
+reused file it also records the full-gate outcome and reuse accuracy;
+missing outcomes are reported as unknown rather than counted as correct.
+Any reused file that fails or is incomplete in the full gate is recorded
+as a shadow finding even when the incremental run independently failed
+for another file and the aggregate verdicts happen to match. This keeps
+missed regressions visible separately from aggregate verdict disagreement.
+The same
 batch's full-gate JUnit report audits that verdict,
 and every disagreement is appended as a test-intelligence defect. The
 queue records the audit after its gate; a direct `scripts/full_suite_gate.sh`

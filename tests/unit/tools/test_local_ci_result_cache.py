@@ -177,6 +177,29 @@ def test_added_data_file_invalidates(checkout, state_dir):
     assert _lookup(state_dir, checkout, rel) is None
 
 
+def test_data_file_beside_imported_test_helper_invalidates(
+        checkout, state_dir):
+    rel = "tests/unit/foo/test_widget.py"
+    helper_dir = checkout / "tests" / "unit" / "foo" / "helper_assets"
+    helper_dir.mkdir()
+    helper = helper_dir / "helper.py"
+    helper.write_text(
+        "from pathlib import Path\n"
+        "VALUE = Path(__file__).with_name('value.json').read_text()\n",
+        encoding="utf-8")
+    (helper_dir / "value.json").write_text("one\n", encoding="utf-8")
+    test_path = checkout / rel
+    test_path.write_text(
+        "from tests.unit.foo.helper_assets import helper\n"
+        "def test_helper_value():\n    assert helper.VALUE == 'one\\n'\n",
+        encoding="utf-8")
+
+    _store_hit(state_dir, checkout, rel)
+    (helper_dir / "value.json").write_text("two\n", encoding="utf-8")
+
+    assert _lookup(state_dir, checkout, rel) is None
+
+
 def test_conftest_chain_change_invalidates(checkout, state_dir):
     rel = "tests/unit/foo/test_widget.py"
     for conftest in ("tests/conftest.py", "tests/unit/conftest.py"):

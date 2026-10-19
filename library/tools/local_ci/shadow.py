@@ -98,6 +98,26 @@ def record_tier2_audit(state_dir: str, sha: str, plan: dict,
     full = gate.get("verdict", "DID NOT RUN")
     comparable = full in ("PASS", "FAIL") and incremental in ("PASS", "FAIL")
     disagreement = comparable and incremental != full
+    reuse_results = []
+    for path in sorted(reused):
+        outcome = outcomes.get(path)
+        if outcome is None:
+            actual = "unknown"
+        elif outcome.get("failed", 0):
+            actual = "FAIL"
+        elif outcome.get("skipped", 0) or outcome.get("passed", 0) <= 0:
+            actual = "incomplete"
+        else:
+            actual = "PASS"
+        reuse_results.append({"path": path, "expected": "PASS",
+                              "actual": actual})
+    reuse_observed = [row for row in reuse_results
+                      if row["actual"] != "unknown"]
+    reuse_matches = sum(row["actual"] == row["expected"]
+                        for row in reuse_observed)
+    reuse_mismatches = [row for row in reuse_results
+                        if row["actual"] not in ("PASS", "unknown")]
+    missed_failed = sorted(failed & reused)
     record = {
         "sha": sha,
         "incremental_verdict": incremental,
@@ -111,20 +131,28 @@ def record_tier2_audit(state_dir: str, sha: str, plan: dict,
         "skipped_files": plan["skipped_files"],
         "skipped_fraction": plan["skipped_fraction"],
         "disagreement": bool(disagreement),
-        "defect_type": "test-intelligence" if disagreement else None,
-        "missed_failed_tests": sorted(failed & reused),
+        "defect_type": ("test-intelligence"
+                        if disagreement or missed_failed or reuse_mismatches
+                        else None),
+        "missed_failed_tests": missed_failed,
+        "reuse_results": reuse_results,
+        "reuse_accuracy": (reuse_matches / len(reuse_observed)
+                           if reuse_observed else None),
+        "reuse_observed_files": len(reuse_observed),
+        "reuse_unknown_files": len(reuse_results) - len(reuse_observed),
         "recorded_at": time.time(),
     }
     os.makedirs(state_dir, exist_ok=True)
     with open(os.path.join(state_dir, TIER2_AUDIT_FILENAME), "a",
               encoding="utf-8") as handle:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
-    if disagreement:
+    if disagreement or missed_failed or reuse_mismatches:
         record_finding(state_dir, {
             "sha": sha,
             "claimed": incremental,
             "shadow_verdict": full,
-            "missed": record["missed_failed_tests"],
+            "missed": missed_failed,
+            "reuse_mismatches": reuse_mismatches,
             "executed_failed": sorted(failed & executed),
             "per_file": bool(outcomes),
             "source": "automated-tier2",
