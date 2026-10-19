@@ -156,10 +156,6 @@ def plan() -> dict:
 
     home = vep_home().expanduser().resolve()
     mode = retention_mode()
-    if mode == KEEP:
-        return {"format": "ren-workspace-gc/1", "home": str(home),
-                "mode": mode, "created_at": datetime.now(UTC).isoformat(),
-                "kept_workflow_runs": [], "candidates": []}
     qualification = qualification_project.media_dir().resolve()
     if not qualification.is_relative_to(home):
         raise WorkspaceGcRefused(
@@ -183,30 +179,33 @@ def plan() -> dict:
         if not complete:
             unfinished.append(run)
     recent = runs[:KEEP_WORKFLOW_RUNS]
-    retained = list(dict.fromkeys([*recent, *unfinished]))
+    retained = (runs if mode == KEEP else
+                list(dict.fromkeys([*recent, *unfinished])))
     roots = _project_roots()
     references = _reference_text(roots)
     digests = _referenced_digests(roots, retained)
     candidates: list[Entry] = []
 
-    for old_run in runs:
-        if old_run in retained:
-            continue
-        for path in _files(old_run):
-            if path.suffix.lower() in PROTECTED_SUFFIXES:
+    if mode != KEEP:
+        for old_run in runs:
+            if old_run in retained:
                 continue
-            absolute = str(path.resolve())
-            if any(absolute in record for record in references):
-                continue
-            candidates.append(Entry(str(path), path.stat().st_size,
-                                    _digest(path), "workflow run outside newest-two retention"))
+            for path in _files(old_run):
+                if path.suffix.lower() in PROTECTED_SUFFIXES:
+                    continue
+                absolute = str(path.resolve())
+                if any(absolute in record for record in references):
+                    continue
+                candidates.append(Entry(
+                    str(path), path.stat().st_size, _digest(path),
+                    "workflow run outside newest-two retention"))
 
     memory_root = source_memory.memory_root().expanduser().resolve()
     if not memory_root.is_relative_to(home):
         raise WorkspaceGcRefused(
             f"source-memory root {memory_root} is outside Ren's data home "
             f"{home}; refusing cross-root collection")
-    if memory_root.exists():
+    if mode != KEEP and memory_root.exists():
         for entry in sorted(memory_root.iterdir()):
             if (not entry.is_dir() or entry.is_symlink()
                     or entry.name in digests):

@@ -13,10 +13,13 @@ The setting
 -----------
 `REN_RETENTION` in the per-user config (`~/.config/ren/config.env`,
 `library/tools/paths.py`), `lean` or `keep`, and `lean` when unset -
-the captain's own default. Anything else REFUSES: a misspelt `keep`
-read as `lean` would delete what its owner asked to keep.
+the captain's own default. A project's top-level `retention` key may
+override that default for project cleanup. Anything else REFUSES: a
+misspelt `keep` read as `lean` would delete what its owner asked to keep.
 
-- `keep`: nothing is purged, ever. The plan says so and lists nothing.
+- `keep`: project artifacts and intermediate work are retained. The
+  machine workspace collector may still collect explicitly disposable
+  unreferenced Ren scratch files.
 - `lean`: after a sign-off, six classes go (`CATEGORIES`).
 
 The mechanism: plan, manifest, apply
@@ -76,11 +79,11 @@ built on rather than restated:
 A purge also refuses while a pipeline run holds the project
 (`run_control.is_running`).
 
-Deletion, not quarantine: `lean` is the owner's instruction that these
-bytes go. Every render class is regenerable - the swept caption areas
-by the command `build_sweep.REGENERATE` names, the reel asset areas by
-`REEL_REGENERATE`, a trashed file by re-rendering the step that made
-it - and the manifest is kept.
+Quarantine has a 24-hour grace period measured from the timestamped
+caption sweep directory. The eligibility time is recorded in each plan;
+an unknown quarantine path stays protected. Scratch with no readers is
+proven disposable and remains eligible for immediate removal after a
+fresh reachability plan. Recovery archives remain excluded by suffix.
 
 `tests/unit/context/test_project_layout.py`.
 """
@@ -88,13 +91,14 @@ it - and the manifest is kept.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import build_sweep, journal_naming
@@ -129,6 +133,10 @@ PURGE_PLAN_DIR = "purge_plans"
 manifest is the record of what went, so a purge must not take it."""
 
 PURGE_PREFIX = "purge"
+QUARANTINE_GRACE_SECONDS = 24 * 60 * 60
+DISPOSABLE = "proven-disposable"
+RECOVERABLE = "recoverable-intermediate"
+RECOVERY_CRITICAL = "recovery-critical"
 
 NEVER_PURGE_SUFFIXES = (".drt", ".drp", ".otio")
 """Timelines and interchange a purge must never name, in any class.
@@ -215,8 +223,43 @@ class PurgeRefused(RenRefusal):
     """The purge declined, and removed NOTHING."""
 
 
-def retention_mode(environ=None) -> str:
-    """The user's retention mode: `lean` (default) or `keep`, or raise."""
+def retention_mode(environ=None, project_folder: str = "") -> str:
+    """Resolve machine preference, overridden by a project's declaration.
+
+    The project key is top-level ``retention`` in ``project.yaml``. The
+    environment setting remains the machine default for projects without
+    an override. A malformed project declaration refuses before cleanup.
+    """
+    if project_folder:
+        config_path = Path(project_folder) / "project.yaml"
+        try:
+            import yaml
+        except ImportError as exc:
+            raise RetentionSettingInvalid(
+                "cannot parse project retention without PyYAML",
+                "cleanup cannot establish the project's preference",
+                "install the declared YAML dependency and plan again") from exc
+        try:
+            with config_path.open(encoding="utf-8") as handle:
+                config = yaml.safe_load(handle) or {}
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError) as exc:
+            raise RetentionSettingInvalid(
+                f"cannot read project retention from {config_path}",
+                f"({exc}); cleanup cannot establish the project's preference",
+                "repair project.yaml and plan cleanup again") from exc
+        if not isinstance(config, dict):
+            raise RetentionSettingInvalid(
+                f"project config {config_path} is not a mapping",
+                "cleanup cannot establish the project's preference",
+                "repair project.yaml and plan cleanup again")
+        if "retention" in config:
+            raw_project = str(config["retention"] or "").strip().lower()
+            if raw_project not in MODES:
+                raise RetentionSettingInvalid(
+                    f"project retention {raw_project!r} is not a retention mode",
+                    "unknown project policy cannot authorize deletion",
+                    f"set retention to one of {list(MODES)} in {config_path}")
+            return raw_project
     if environ is None:
         import library.tools.paths  # noqa: F401 - loads the user config
         environ = os.environ
@@ -246,6 +289,8 @@ class Candidate:
     mtime_ns: int = 0
     inode: tuple = ()
     identity: tuple = ()
+    eligible_after: str = ""
+    deletion_class: str = RECOVERABLE
 
 
 def _reclaimable_bytes(candidates: list[Candidate]) -> int:
@@ -286,7 +331,11 @@ class PurgePlan:
         only when EVERY link to it is in the set: removing one name of
         a file another name still holds frees nothing.
         """
-        return _reclaimable_bytes(self.candidates)
+        return _reclaimable_bytes([
+            candidate for candidate in self.candidates
+            if candidate.deletion_class == DISPOSABLE
+            or (candidate.category == QUARANTINED
+                and candidate.eligible_after)])
 
     def to_dict(self) -> dict:
         data = asdict(self)
@@ -309,16 +358,34 @@ class PurgePlan:
         return plan
 
 
-def _stat_candidate(path: str, category: str, reason: str) -> Candidate:
+def _stat_candidate(path: str, category: str, reason: str,
+                    eligible_after: str = "") -> Candidate:
     st = os.lstat(path)
     is_dir = os.path.isdir(path) and not os.path.islink(path)
     size = gc._tree_size(path) if is_dir else st.st_size
     inode = () if is_dir else (st.st_dev, st.st_ino, st.st_nlink)
+    deletion_class = DISPOSABLE if category == SCRATCH else RECOVERABLE
+    if path.endswith(NEVER_PURGE_SUFFIXES):
+        deletion_class = RECOVERY_CRITICAL
     return Candidate(path=path, size_bytes=size, category=category,
                      reason=reason, is_dir=is_dir,
                      mtime_ns=st.st_mtime_ns, inode=inode,
                      identity=(st.st_dev, st.st_ino, st.st_mode,
-                               st.st_size, st.st_mtime_ns))
+                               st.st_size, st.st_mtime_ns),
+                     eligible_after=eligible_after,
+                     deletion_class=deletion_class)
+
+
+def _quarantine_eligible_after(path: str, quarantine_root: Path):
+    """Read the sweep's recorded UTC stamp; unknown quarantine is protected."""
+    try:
+        relative = Path(path).relative_to(quarantine_root)
+        stamp = relative.parts[1]
+        quarantined_at = datetime.strptime(
+            stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+    except (ValueError, IndexError):
+        return None
+    return quarantined_at + timedelta(seconds=QUARANTINE_GRACE_SECONDS)
 
 
 def _files_under(root: Path, exclude: Path | None = None):
@@ -529,7 +596,7 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
     from library.tools import run_control
 
     project_folder = str(project_folder)
-    mode = mode or retention_mode()
+    mode = mode or retention_mode(project_folder=project_folder)
     if mode not in MODES:
         raise RetentionSettingInvalid(
             f"unknown retention mode {mode!r}",
@@ -556,6 +623,7 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
         reachable |= set(root.paths)
 
     found: list = []
+    quarantine_expirations: dict[str, str] = {}
     for area in build_sweep.SWEPT_AREAS:
         asset_dir = str(layout.read_dir(area))
         if not os.path.isdir(asset_dir):
@@ -566,6 +634,20 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
 
     quarantine = layout.read_dir(Area.QUARANTINE)
     for path in _files_under(quarantine, exclude=quarantine / PURGE_PLAN_DIR):
+        if Path(path).is_relative_to(quarantine / PURGE_PLAN_DIR):
+            continue
+        eligible_after = _quarantine_eligible_after(path, quarantine)
+        if eligible_after is None:
+            plan.kept.append({"path": path, "category": QUARANTINED,
+                              "why": "quarantine time is not recorded; protected"})
+            continue
+        if datetime.now(UTC) < eligible_after:
+            plan.kept.append({
+                "path": path, "category": QUARANTINED,
+                "eligible_after": eligible_after.isoformat(),
+                "why": "recoverable quarantine grace period has not expired"})
+            continue
+        quarantine_expirations[path] = eligible_after.isoformat()
         found.append((path, QUARANTINED,
                       "moved aside by a build sweep; never placed since"))
     for path in _files_under(layout.read_dir(Area.SCRATCH)):
@@ -610,7 +692,11 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
             plan.kept.append({"path": path, "category": category,
                               "why": "symbolic links are protected"})
             continue
-        plan.candidates.append(_stat_candidate(path, category, reason))
+        candidate_eligible_after = ""
+        if category == QUARANTINED:
+            candidate_eligible_after = quarantine_expirations[path]
+        plan.candidates.append(_stat_candidate(
+            path, category, reason, candidate_eligible_after))
     return plan
 
 
@@ -619,6 +705,33 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
 
 def _json_path_for(manifest_path: str) -> str:
     return os.path.splitext(manifest_path)[0] + ".json"
+
+
+def _schedule_quarantine_expiry(plan: PurgePlan, progress: dict) -> None:
+    expirations = [
+        row["eligible_after"] for row in plan.kept
+        if row.get("category") == QUARANTINED and row.get("eligible_after")]
+    expirations.extend(row["eligible_after"]
+                       for row in progress.get("quarantined", {}).values())
+    if not expirations:
+        return
+    from library.tools import artifact_lifecycle
+    not_before = min(expirations)
+    project_id = Path(plan.project_folder).resolve().name
+    job_id = "quarantine-expiry-" + hashlib.sha256(
+        f"{project_id}\0{not_before}".encode("utf-8")).hexdigest()[:16]
+    artifact_lifecycle.schedule_cleanup_job(
+        plan.project_folder,
+        event_id=f"quarantine-expiry:{project_id}:{not_before}",
+        project_id=project_id, run_id=plan.created_at, job_id=job_id,
+        reason="purge recoverable quarantine after grace period",
+        not_before=not_before)
+    eligible = datetime.fromisoformat(not_before)
+    delay = max(0.0, (eligible - datetime.now(UTC)).total_seconds())
+    timer = threading.Timer(delay, resume_cleanup_jobs,
+                            args=(plan.project_folder,))
+    timer.daemon = True
+    timer.start()
 
 
 def render_manifest(plan: PurgePlan, manifest_path: str) -> str:
@@ -704,7 +817,7 @@ def apply_purge(manifest_path: str, db_paths,
             "a purge plan is bound to the project it was planned for. "
             "Nothing was removed",
             "re-plan the purge for this project and apply that manifest")
-    if retention_mode() != LEAN:
+    if retention_mode(project_folder=planned.project_folder) != LEAN:
         raise PurgeRefused(
             f"{SETTING} is no longer {LEAN!r}",
             "retention changed since the plan was made. Nothing was "
@@ -717,24 +830,29 @@ def apply_purge(manifest_path: str, db_paths,
     progress.setdefault("deleting", [])
     progress.setdefault("bytes", 0)
     progress.setdefault("removed", [])
+    progress.setdefault("quarantined", {})
     completed = set(progress["removed"])
     deleting = set(progress["deleting"])
+    staged = set(progress["quarantined"])
     if any(os.path.lexists(path) for path in completed):
         raise PurgeRefused(
             "a completed purge path reappeared",
             "the durable job will not remove a new object at an old path",
             "inspect the path and create a fresh purge plan")
-    actionable = [path for path in listed if path not in completed]
+    actionable = [path for path in listed
+                  if path not in completed and path not in staged]
     if not actionable:
         _drop_empty_dirs(planned.project_folder)
         record = {"applied_at": datetime.now(UTC).isoformat(),
                   "manifest": manifest_path, "removed": progress["removed"],
                   "removed_count": len(progress["removed"]),
-                  "bytes": progress["bytes"]}
+                  "bytes": progress["bytes"],
+                  "quarantined": progress["quarantined"]}
         data = planned.to_dict()
         data["applied"] = record
         Path(_json_path_for(manifest_path)).write_text(
             json.dumps(data, indent=2, default=list), encoding="utf-8")
+        _schedule_quarantine_expiry(planned, progress)
         return record
     layout = ProjectLayout(planned.project_folder)
     declared_inputs = _declared_step_file_inputs(planned.project_folder)
@@ -799,6 +917,50 @@ def apply_purge(manifest_path: str, db_paths,
         plan_json.write_text(json.dumps(planned.to_dict(), indent=2,
                                         default=list), encoding="utf-8")
 
+    staged_sources = set(progress["quarantined"])
+    for path in actionable:
+        candidate = by_path[path]
+        if (candidate.deletion_class != RECOVERABLE
+                or candidate.category == QUARANTINED
+                or path in staged_sources):
+            continue
+        if candidate.is_dir:
+            raise PurgeRefused(
+                f"recoverable directory lacks a single recorded file identity: {path}",
+                "ambiguous intermediate ownership is protected",
+                "inspect and restore or remove the directory explicitly")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        digest = hashlib.sha256(
+            f"{path}\0{candidate.identity}".encode("utf-8")).hexdigest()[:16]
+        destination_dir = (layout.write_path(
+            Area.QUARANTINE, "recoverable", stamp))
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        destination = destination_dir / f"{digest}-{Path(path).name}"
+        if destination.exists():
+            raise PurgeRefused(
+                f"quarantine destination already exists: {destination}",
+                "a staged artifact cannot overwrite another object",
+                "inspect the existing quarantine entry and re-plan")
+        current_stat = os.lstat(path)
+        current_identity = (current_stat.st_dev, current_stat.st_ino,
+                            current_stat.st_mode, current_stat.st_size,
+                            current_stat.st_mtime_ns)
+        if tuple(candidate.identity) != current_identity:
+            raise PurgeRefused(
+                f"{path} changed before quarantine",
+                "the planned filesystem identity no longer matches",
+                "re-plan cleanup")
+        os.replace(path, destination)
+        eligible_after = (datetime.strptime(
+            stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC) + timedelta(
+                seconds=QUARANTINE_GRACE_SECONDS)).isoformat()
+        progress["quarantined"][path] = {
+            "path": str(destination), "eligible_after": eligible_after,
+            "identity": list(candidate.identity),
+            "deletion_class": RECOVERABLE}
+        staged_sources.add(path)
+        persist_progress()
+
     for path in recovered:
         progress["removed"].append(path)
         progress["deleting"].remove(path)
@@ -810,6 +972,9 @@ def apply_purge(manifest_path: str, db_paths,
         if path in recovered or path not in now:
             continue
         candidate = by_path[path]
+        if candidate.deletion_class == RECOVERABLE \
+                and candidate.category != QUARANTINED:
+            continue
         try:
             current_stat = os.lstat(path)
         except OSError as exc:
@@ -844,11 +1009,13 @@ def apply_purge(manifest_path: str, db_paths,
     record = {"applied_at": datetime.now(UTC).isoformat(),
               "manifest": manifest_path, "removed": progress["removed"],
               "removed_count": len(progress["removed"]),
-              "bytes": progress["bytes"]}
+              "bytes": progress["bytes"],
+              "quarantined": progress["quarantined"]}
     data = planned.to_dict()
     data["applied"] = record
     plan_json.write_text(
         json.dumps(data, indent=2, default=list), encoding="utf-8")
+    _schedule_quarantine_expiry(planned, progress)
     return record
 
 
@@ -871,6 +1038,85 @@ def _drop_empty_dirs(project_folder: str) -> None:
                 here.rmdir()
             except OSError:
                 pass
+
+
+def restore_quarantined(project_folder: str, quarantined_path: str) -> dict:
+    """Restore one staged file to its exact recorded original path.
+
+    The purge-plan JSON is the durable move receipt. No filename-derived
+    destination is accepted, and an existing destination is never replaced.
+    """
+    project = Path(project_folder).resolve()
+    layout = ProjectLayout(str(project))
+    quarantine_root = layout.read_dir(Area.QUARANTINE).resolve()
+    source = Path(os.path.abspath(quarantined_path))
+    try:
+        relative_source = source.relative_to(quarantine_root)
+    except ValueError as exc:
+        raise PurgeRefused(
+            f"{source} is outside this project's quarantine",
+            "restore requires a recorded project quarantine object",
+            "use the exact quarantined path from its cleanup receipt") from exc
+    cursor = quarantine_root
+    for part in relative_source.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise PurgeRefused(
+                f"quarantine path traverses a symbolic link: {cursor}",
+                "symbolic links cannot authorize a restore",
+                "inspect the quarantine entry manually")
+    if not source.is_file():
+        raise PurgeRefused(
+            f"{source} is not a regular file",
+            "unknown or ambiguous quarantine objects are protected",
+            "restore only an owned regular file")
+    plan_dir = quarantine_root / PURGE_PLAN_DIR
+    matches = []
+    for receipt_path in plan_dir.glob("*.json"):
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise PurgeRefused(
+                f"cannot read quarantine receipt {receipt_path}: {exc}",
+                "an unreadable receipt cannot authorize a restore",
+                "repair the receipt or restore manually") from exc
+        staged = (receipt.get("applied") or {}).get("quarantined", {})
+        matches.extend((receipt_path, original, record)
+                       for original, record in staged.items()
+                       if os.path.realpath(record.get("path", ""))
+                       == str(source))
+    if len(matches) != 1:
+        raise PurgeRefused(
+            f"{source} has {len(matches)} exact quarantine receipts",
+            "restore requires one unambiguous recorded owner",
+            "inspect the cleanup manifests before restoring")
+    receipt_path, original, record = matches[0]
+    destination = Path(original)
+    layout.assert_writable(destination)
+    expected = tuple(record.get("identity", ()))
+    current = os.lstat(source)
+    actual = (current.st_dev, current.st_ino, current.st_mode,
+              current.st_size, current.st_mtime_ns)
+    if actual != expected:
+        raise PurgeRefused(
+            f"{source} changed since it was quarantined",
+            "the recorded file identity no longer matches",
+            "leave it in quarantine and inspect it manually")
+    if os.path.lexists(destination):
+        raise PurgeRefused(
+            f"restore destination already exists: {destination}",
+            "restore never overwrites a project file",
+            "choose a separate destination or move the existing file")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(source, destination)
+    applied = receipt.get("applied") or {}
+    applied.setdefault("restored", {})[str(source)] = {
+        "path": str(destination), "restored_at": datetime.now(UTC).isoformat()}
+    receipt["applied"] = applied
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n",
+                           encoding="utf-8")
+    return {"restored": str(destination), "from": str(source),
+            "receipt": str(receipt_path)}
 
 
 # ── Inside Ren: after a sign-off ──────────────────────────────────────
@@ -934,7 +1180,8 @@ def _process_cleanup_queue(project_folder: str, db_paths=None) -> None:
         LeaseDeclaration, ResourceRef, ResourceLeaseBusy, resource_lease)
 
     while True:
-        jobs = artifact_lifecycle.incomplete_cleanup_jobs(project_folder)
+        artifact_lifecycle.recover_interrupted_cleanup_jobs(project_folder)
+        jobs = artifact_lifecycle.pending_cleanup_jobs(project_folder)
         if not jobs:
             return
         if run_control.is_running(project_folder):
@@ -1000,7 +1247,7 @@ def after_signoff(project_folder: str, db_paths=None, *,
     sign-off already landed and is never rolled back.
     """
     try:
-        mode = retention_mode()
+        mode = retention_mode(project_folder=project_folder)
         if mode == KEEP:
             return f"Retention is {KEEP!r}: nothing is purged."
         from library.tools import artifact_lifecycle

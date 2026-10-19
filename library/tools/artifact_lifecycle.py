@@ -14,6 +14,7 @@ import stat
 import uuid
 from collections import defaultdict
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -322,19 +323,36 @@ def inventory(project_folder: str) -> dict[str, Any]:
 
 def schedule_cleanup_job(project_folder: str, *, event_id: str,
                          project_id: str, run_id: str, job_id: str,
-                         reason: str) -> tuple[dict, bool]:
+                         reason: str,
+                         not_before: str = "") -> tuple[dict, bool]:
     """Persist a deduplicated pending cleanup job in the project event log."""
     if not (event_id and project_id and run_id and job_id):
         raise ValueError("cleanup job needs event, project, run and job ids")
     return event_log.emit_once(
         project_folder, CLEANUP_JOB, f"cleanup:{event_id}:queued",
         task=job_id, lifecycle_event_id=event_id, project_id=project_id,
-        run_id=run_id, job_id=job_id, reason=reason, state="queued")
+        run_id=run_id, job_id=job_id, reason=reason, state="queued",
+        not_before=not_before)
 
 
 def pending_cleanup_jobs(project_folder: str) -> list[dict]:
     jobs = _latest_cleanup_jobs(project_folder)
-    return [job for job in jobs.values() if job.get("state") == "queued"]
+    now = datetime.now(UTC)
+    pending = []
+    for job in jobs.values():
+        if job.get("state") != "queued":
+            continue
+        not_before = job.get("not_before", "")
+        if not not_before:
+            pending.append(job)
+            continue
+        try:
+            eligible = datetime.fromisoformat(not_before)
+        except ValueError:
+            continue
+        if eligible.tzinfo is not None and eligible <= now:
+            pending.append(job)
+    return pending
 
 
 def incomplete_cleanup_jobs(project_folder: str) -> list[dict]:
@@ -376,7 +394,7 @@ def transition_cleanup_job(project_folder: str, job: dict, target: str,
         task=job["job_id"], lifecycle_event_id=event_id,
         project_id=job["project_id"], run_id=job["run_id"],
         job_id=job["job_id"], reason=job["reason"], state=target,
-        outcome=outcome)
+        outcome=outcome, not_before=job.get("not_before", ""))
 
 
 def recover_interrupted_cleanup_jobs(project_folder: str) -> int:

@@ -70,6 +70,19 @@ def test_cleanup_job_is_deduplicated_by_lifecycle_event(tmp_path):
     assert len(lifecycle.pending_cleanup_jobs(project)) == 1
 
 
+def test_quarantine_expiry_job_is_not_runnable_before_its_recorded_time(
+        tmp_path):
+    project = str(tmp_path / "project")
+    (tmp_path / "project").mkdir()
+    lifecycle.schedule_cleanup_job(
+        project, event_id="quarantine-expiry:artifact-a",
+        project_id="project-a", run_id="run-a", job_id="cleanup-expiry-a",
+        reason="quarantine grace period", not_before="2999-01-01T00:00:00+00:00")
+
+    assert lifecycle.incomplete_cleanup_jobs(project)
+    assert lifecycle.pending_cleanup_jobs(project) == []
+
+
 def test_interrupted_cleanup_job_returns_to_queue_for_reproof(tmp_path):
     project = str(tmp_path / "project")
     (tmp_path / "project").mkdir()

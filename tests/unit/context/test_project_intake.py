@@ -95,6 +95,15 @@ def test_declared_source_round_trips():
         "es", "both", roster)
 
 
+def test_project_retention_override_round_trips_and_invalid_values_refuse():
+    config = ProjectConfig(name="N", slug="s", retention="keep")
+    serialized = project_config_to_dict(config)
+    assert serialized["retention"] == "keep"
+    assert _dict_to_project_config(serialized).retention == "keep"
+    invalid = ProjectConfig(name="N", slug="s", retention="kepe")
+    assert any("retention" in error for error in invalid.validate())
+
+
 def test_declared_language_reads_off_the_project_folder(tmp_path):
     project = tmp_path / "p"
     project.mkdir()

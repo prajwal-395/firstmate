@@ -421,6 +421,10 @@ class ProjectConfig:
     # read fine, and the key is omitted when serializing one.
     ren_version: str = ""
 
+    # Optional project-level override for sign-off retention. Empty means
+    # use the user's machine default; only explicit supported modes serialize.
+    retention: str = ""
+
     # Runtime - not serialized to YAML
     _project_root: Path | None = field(default=None, repr=False)
 
@@ -482,6 +486,10 @@ class ProjectConfig:
             errors.append(
                 f"'ren_version' must be the Ren build string, got "
                 f"{type(self.ren_version).__name__}.")
+        if self.retention and self.retention not in {"lean", "keep"}:
+            errors.append(
+                "'retention' must be 'lean' or 'keep', got "
+                f"{self.retention!r}.")
         if not self.slug.replace("-", "").replace("_", "").isalnum():
             errors.append(f"'slug' must be alphanumeric with dashes/underscores: {self.slug}")
         try:
@@ -846,6 +854,7 @@ def _dict_to_project_config(data: dict,
         tags=data.get("tags", []),
         description=data.get("description", ""),
         ren_version=data.get("ren_version", "") or "",
+        retention=str(data.get("retention", "") or "").strip().lower(),
     )
     config._project_root = project_root
     return config
@@ -868,6 +877,8 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         # file without the key, and "" and "not declared" read the same.
         **({} if not config.ren_version
            else {"ren_version": config.ren_version}),
+        **({} if not config.retention
+           else {"retention": config.retention}),
         "source": {
             "fps": config.source.fps,
             # Only when declared. An empty `footage_root:` in every

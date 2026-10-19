@@ -790,17 +790,21 @@ def test_a_file_a_live_timeline_places_is_never_removed(tmp_path):
     plan = retention.plan_purge(root, [db])
     assert {c.path for c in plan.candidates} == {loose}
     manifest = retention.write_plan(plan)
-    retention.apply_purge(manifest, [db], project_folder=root)
+    receipt = retention.apply_purge(manifest, [db], project_folder=root)
 
     assert os.path.isfile(placed)
-    assert not os.path.exists(loose)
+    assert os.path.exists(receipt["quarantined"][loose]["path"])
+    restored = retention.restore_quarantined(
+        root, receipt["quarantined"][loose]["path"])
+    assert restored["restored"] == loose
+    assert os.path.isfile(loose)
 
 
 @pytest.mark.usefixtures("_lean")
 def test_applied_purge_receipt_counts_hardlinked_bytes_once(tmp_path):
     root = _project(tmp_path)
     directory = os.path.join(root, "pipeline_output", "quarantine",
-                             "hardlinks")
+                             "caption_assets", "20261017T000000Z")
     first = _write(os.path.join(directory, "first.bin"), size=1024)
     second = os.path.join(directory, "second.bin")
     os.link(first, second)
@@ -820,7 +824,7 @@ def test_applied_purge_receipt_counts_hardlinked_bytes_once(tmp_path):
 def test_applied_purge_receipt_counts_only_links_removed(tmp_path):
     root = _project(tmp_path)
     directory = os.path.join(root, "pipeline_output", "quarantine",
-                             "hardlinks")
+                             "caption_assets", "20261017T000000Z")
     first = _write(os.path.join(directory, "first.bin"), size=1024)
     second = os.path.join(directory, "second.bin")
     os.link(first, second)
@@ -842,7 +846,8 @@ def test_applied_purge_receipt_counts_only_links_removed(tmp_path):
 @pytest.mark.usefixtures("_lean")
 def test_apply_refuses_same_size_same_mtime_inode_replacement(tmp_path):
     root = _project(tmp_path)
-    directory = os.path.join(root, "pipeline_output", "quarantine")
+    directory = os.path.join(root, "pipeline_output", "quarantine",
+                             "caption_assets", "20261017T000000Z")
     original = _write(os.path.join(directory, "output.bin"), size=32)
     db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
     manifest = retention.write_plan(retention.plan_purge(root, [db]))
@@ -861,7 +866,8 @@ def test_apply_refuses_same_size_same_mtime_inode_replacement(tmp_path):
 def test_interrupted_purge_resumes_from_durable_per_file_progress(
         tmp_path, monkeypatch):
     root = _project(tmp_path)
-    directory = os.path.join(root, "pipeline_output", "quarantine")
+    directory = os.path.join(root, "pipeline_output", "quarantine",
+                             "caption_assets", "20261017T000000Z")
     first = _write(os.path.join(directory, "first.bin"), size=32)
     second = _write(os.path.join(directory, "second.bin"), size=32)
     db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
@@ -1063,10 +1069,10 @@ def test_reel_card_orphan_planned_but_placed_freeze_survives(tmp_path):
     assert placed not in names
 
     manifest = retention.write_plan(plan)
-    retention.apply_purge(manifest, [db], project_folder=root)
+    receipt = retention.apply_purge(manifest, [db], project_folder=root)
 
     assert os.path.isfile(placed)
-    assert not os.path.exists(loose)
+    assert os.path.exists(receipt["quarantined"][loose]["path"])
 
 
 @pytest.mark.usefixtures("_lean")
@@ -1136,9 +1142,9 @@ def test_trash_orphans_planned_but_manifest_and_rereferenced_stay(tmp_path):
     assert record not in names
 
     manifest = retention.write_plan(plan)
-    retention.apply_purge(manifest, [db], project_folder=root)
+    receipt = retention.apply_purge(manifest, [db], project_folder=root)
 
-    assert not os.path.exists(loose)
+    assert os.path.exists(receipt["quarantined"][loose]["path"])
     assert os.path.isfile(revived) and os.path.isfile(record)
 
 
@@ -1371,3 +1377,37 @@ def test_changed_content_at_a_new_path_still_invalidates():
     delta = footage_identity.compare(recorded, current)
 
     assert "clip_001" in delta.stale_clip_ids
+
+
+def test_project_retention_override_takes_precedence_over_machine_setting(
+        tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.yaml").write_text(
+        "name: Project\nslug: project\nretention: keep\n",
+        encoding="utf-8")
+    monkeypatch.setenv(retention.SETTING, retention.LEAN)
+
+    assert retention.retention_mode(project_folder=str(project)) == retention.KEEP
+
+
+def test_invalid_project_retention_refuses_cleanup(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "project.yaml").write_text(
+        "name: Project\nslug: project\nretention: kepe\n",
+        encoding="utf-8")
+    monkeypatch.setenv(retention.SETTING, retention.LEAN)
+
+    with pytest.raises(retention.RetentionSettingInvalid):
+        retention.retention_mode(project_folder=str(project))
+
+
+def test_quarantine_grace_uses_recorded_sweep_time_and_protects_unknowns(
+        tmp_path):
+    root = tmp_path / "pipeline_output" / "quarantine"
+    recorded = root / "caption_assets" / "20261018T000000Z" / "old.mov"
+    unrecorded = root / "legacy" / "unknown.mov"
+    assert retention._quarantine_eligible_after(
+        str(recorded), root).isoformat() == "2026-10-19T00:00:00+00:00"
+    assert retention._quarantine_eligible_after(str(unrecorded), root) is None
