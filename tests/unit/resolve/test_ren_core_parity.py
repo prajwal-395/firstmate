@@ -148,7 +148,11 @@ def _base_snapshot():
                 _clip("b", 120, 240),
                 _clip("c", 240, 480),
             ]),
-            _track("video", 2, "V2", [_clip("d", 60, 180, track_index=2)]),
+            _track("video", 2, "V2", [
+                _clip("d", 60, 180, track_index=2),
+                _clip("hold:1", 180, 240, track_index=2, speed=0.0,
+                      fusion={"comp_names": ["Freeze Hold"]}),
+            ]),
             _track("video", 3, "Overlay", [_clip("ov:1", 100, 148,
                                                 track_index=3)]),
             _track("audio", 1, "A1", [_clip("e", 0, 240, track_type="audio"),
@@ -393,6 +397,8 @@ def _op_cases():
     track_reorder = {"op": "track.reorder", "track_type": "video",
                      "from_index": 2, "to_index": 1, "name": "V2"}
     overlay_remove = {"op": "overlay.remove", "unique_id": "ov:1"}
+    hold_repair_window = {"op": "hold.repair_window",
+                          "unique_id": "hold:1"}
     transform_override = {"op": "transform_override", "unique_id": "a",
                          "key": "Tilt", "value": -870.0}
     span_retime = {"op": "span_retime", "unique_id": "a",
@@ -583,6 +589,7 @@ def _op_cases():
                             "width": 1920, "height": 1080}, base),
         ("overlay.entry_motion", {"op": "overlay.entry_motion",
                                   "unique_id": "ov:1", "frames": 30}, base),
+        ("hold.repair_window", hold_repair_window, base),
 
         # ── projected captain edits ────────────────────────────
         ("transform_override", transform_override,

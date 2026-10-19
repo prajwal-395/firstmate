@@ -877,6 +877,8 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         EditOp::OverlaySwapPixels { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayResize { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayEntryMotion { unique_id, .. } => item_span(base, &unique_id.0),
+        // Rebinds the existing hold item's Fusion comp windows in place.
+        EditOp::HoldRepairWindow { unique_id } => item_span(base, &unique_id.0),
 
         // ── projected captain edits ────────────────────────────
         EditOp::TransformOverride { unique_id, .. } => item_span(base, &unique_id.0),
@@ -1278,6 +1280,10 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text("overlay".to_string()),
             KeyPart::Text(unique_id.0.clone()),
         ],
+        EditOp::HoldRepairWindow { unique_id } => vec![
+            KeyPart::Text("hold".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+        ],
 
         // ── projected captain edits ────────────────────────────
         EditOp::TransformOverride { unique_id, key, .. } => vec![
@@ -1411,6 +1417,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::OverlaySwapPixels { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayResize { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayEntryMotion { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::HoldRepairWindow { unique_id } => Some(unique_id.0.clone()),
         EditOp::TransformOverride { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::SpanRetime { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::DropFragment { unique_id } => Some(unique_id.0.clone()),
@@ -1501,6 +1508,9 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::OverlaySwapPixels { .. } => None,
         EditOp::OverlayResize { .. } => None,
         EditOp::OverlayEntryMotion { .. } => None,
+        // Fusion comp window state is not represented in Snapshot; the
+        // staging operation performs its own stable re-read verification.
+        EditOp::HoldRepairWindow { .. } => None,
         EditOp::TransformOverride { .. } => None,
         EditOp::SpanRetime { .. } => None,
         EditOp::DropFragment { .. } => None,

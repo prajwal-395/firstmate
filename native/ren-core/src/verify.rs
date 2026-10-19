@@ -799,6 +799,9 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::OverlaySwapPixels { .. } => None,
         EditOp::OverlayResize { .. } => None,
         EditOp::OverlayEntryMotion { .. } => None,
+        // The timeline snapshot has no Fusion media-window fields; the
+        // hold repair verifies its in-place rebind from fresh Resolve reads.
+        EditOp::HoldRepairWindow { .. } => None,
         EditOp::TransformOverride { .. } => verify_property(op, after),
         EditOp::SpanRetime { .. } => verify_retime(op, after),
         EditOp::DropFragment { .. } => verify_presence(op, after, false, "clip"),
