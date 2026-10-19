@@ -227,6 +227,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "sign-off", group: "Reels", summary: "Record the captain's sign-off on a built reel" },
     Verb { name: "purge", group: "Reels", summary: "Plan (default) or --apply the lean-retention purge" },
     Verb { name: "workspace-gc", group: "Maintenance", summary: "Plan or apply bounded collection of unreachable Ren workspace data" },
+    Verb { name: "storage", group: "Maintenance", summary: "Account for storage and reconcile owned lifecycle artifacts" },
     Verb { name: "discharge", group: "Reels", summary: "Discharge a dropped note a promotion filed" },
     Verb { name: "variant", group: "Reels", summary: "Two versions of one reel: new, build, list, diff, choose, merge" },
     Verb { name: "explore-variants", group: "Reels", summary: "Fork one base commit into one isolated branch per direction: propose, plan, list, dispatch" },

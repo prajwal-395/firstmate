@@ -4,10 +4,34 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 from library.tools import project_registry, storage_lifecycle
+
+
+def start_cleanup_workers(result: dict, *, changed_only: bool = False) -> list[int]:
+    """Detach guarded cleanup workers so Ren's exec handoff cannot lose them."""
+    engine_root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (str(engine_root), env.get("PYTHONPATH", "")) if path)
+    env["REN_ENGINE_ROOT"] = str(engine_root)
+    started = []
+    for project in result.get("projects", []):
+        if not project.get("pending_job_ids"):
+            continue
+        if changed_only and not project.get("worker_required"):
+            continue
+        process = subprocess.Popen(
+            [sys.executable, "-m", "library.tools.storage_cli",
+             "--resume-cleanup-worker", project["project"]],
+            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        started.append(process.pid)
+    return started
 
 
 def _projects(project: str) -> list[str]:
@@ -56,9 +80,24 @@ def _render(data: dict, as_json: bool) -> None:
                        ("restored", "Restored"), ("purged", "Purged")):
         if key in data:
             print(f"{label}                     {len(data[key])} artifact(s)")
+    if "review_required" in data:
+        print(f"Legacy resources             {len(data.get('resources', []))}")
+        print(f"Review required               {data['review_required']}")
+    for project in data.get("projects", []):
+        print(f"Reconciled                    {project['project']}")
+        for key in ("abandoned_jobs_recovered", "refused_jobs_retried",
+                    "record_filesystem_drift", "expired_quarantine_review"):
+            if project.get(key):
+                print(f"  {key}: {project[key]}")
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if len(argv) == 2 and argv[0] == "--resume-cleanup-worker":
+        from library.tools.retention import _process_cleanup_queue
+
+        _process_cleanup_queue(argv[1])
+        return 0
     parser = argparse.ArgumentParser(prog="ren storage")
     sub = parser.add_subparsers(dest="operation", required=True)
     for name in ("status", "plan", "plan-preview"):
@@ -71,6 +110,14 @@ def main(argv: list[str] | None = None) -> int:
         command = sub.add_parser(name)
         command.add_argument("manifest")
         command.add_argument("--json", action="store_true")
+    reconcile = sub.add_parser("reconcile")
+    reconcile.add_argument("project", nargs="?", help="project path or slug; defaults to all registered projects")
+    reconcile.add_argument("--json", action="store_true")
+    legacy = sub.add_parser("legacy-inventory")
+    legacy.add_argument("--manifest", default="ren-legacy-inventory.json")
+    legacy.add_argument("--root", action="append", default=[], metavar="CATEGORY=PATH",
+                        help="inventory an explicit legacy root (repeatable)")
+    legacy.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     try:
         if args.operation == "status":
@@ -80,6 +127,18 @@ def main(argv: list[str] | None = None) -> int:
                 _projects(args.project), output=args.manifest)
         elif args.operation == "plan-preview":
             result = storage_lifecycle.plan_document(_projects(args.project))
+        elif args.operation == "reconcile":
+            result = storage_lifecycle.reconcile(_projects(args.project))
+            result["cleanup_workers_started"] = start_cleanup_workers(result)
+        elif args.operation == "legacy-inventory":
+            roots = []
+            for declaration in args.root:
+                category, separator, path = declaration.partition("=")
+                if not separator or not category or not path:
+                    raise ValueError("--root must be CATEGORY=PATH")
+                roots.append((category, path))
+            result = storage_lifecycle.legacy_inventory(
+                output=args.manifest, roots=roots or None)
         elif args.operation == "collect":
             result = storage_lifecycle.collect(args.manifest)
         elif args.operation == "purge":

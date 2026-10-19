@@ -8,8 +8,10 @@ protected. This is the shared contract for project cleanup lanes.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
+import socket
 import stat
 import uuid
 from collections import defaultdict
@@ -67,7 +69,7 @@ class FileIdentity:
     link_count: int
 
     @classmethod
-    def capture(cls, path: str | os.PathLike) -> "FileIdentity":
+    def capture(cls, path: str | os.PathLike) -> FileIdentity:
         info = os.lstat(path)
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
             raise LifecycleRefused(f"artifact is not a regular non-symlink file: {path}")
@@ -379,7 +381,9 @@ def _latest_cleanup_jobs(project_folder: str) -> dict[str, dict]:
             continue
         event_id = fields.get("lifecycle_event_id")
         if event_id:
-            jobs[event_id] = fields
+            jobs[event_id] = {**fields, "event_host": event.get("host", ""),
+                              "event_pid": event.get("pid"),
+                              "event_seq": event.get("seq", 0)}
     return jobs
 
 
@@ -398,20 +402,33 @@ def transition_cleanup_job(project_folder: str, job: dict, target: str,
         raise LifecycleRefused(f"invalid cleanup job transition {current} -> {target}")
     job = current_job
     event_id = job["lifecycle_event_id"]
+    transition_id = (f"cleanup:{event_id}:{current_job.get('event_seq', 0)}:"
+                    f"{target}:{hashlib.sha256(outcome.encode()).hexdigest()[:12]}")
     event_log.emit_once(
-        project_folder, CLEANUP_JOB,
-        f"cleanup:{event_id}:{target}:{hashlib.sha256(outcome.encode()).hexdigest()[:12]}",
+        project_folder, CLEANUP_JOB, transition_id,
         task=job["job_id"], lifecycle_event_id=event_id,
         project_id=job["project_id"], run_id=job["run_id"],
         job_id=job["job_id"], reason=job["reason"], state=target,
-        outcome=outcome, not_before=job.get("not_before", ""))
+        outcome=outcome, not_before=job.get("not_before", ""),
+        **({"worker_host": socket.gethostname(), "worker_pid": os.getpid()}
+           if target == "running" else {}))
 
 
 def recover_interrupted_cleanup_jobs(project_folder: str) -> int:
-    """Return orphaned RUNNING jobs to QUEUED for manifest re-proof."""
+    """Return provably dead local workers to QUEUED for manifest re-proof."""
     recovered = 0
     for job in _latest_cleanup_jobs(project_folder).values():
-        if job["state"] == "running":
+        if job["state"] != "running":
+            continue
+        host = job.get("worker_host") or job.get("event_host")
+        pid = job.get("worker_pid") or job.get("event_pid")
+        if host != socket.gethostname() or not isinstance(pid, int) or pid <= 0:
+            continue
+        try:
+            os.kill(pid, 0)
+        except OSError as exc:
+            if exc.errno != errno.ESRCH:
+                continue
             transition_cleanup_job(
                 project_folder, job, "queued",
                 outcome="recovered after interrupted cleanup worker")
@@ -590,8 +607,8 @@ def stable_artifact_id(project_id: str, run_id: str, job_id: str,
     """Return a stable opaque id without treating a path as the identity."""
     if not all((project_id, run_id, job_id, kind, producer_key)):
         raise ValueError("stable artifact ids require complete ownership and producer key")
-    digest = hashlib.sha256("\0".join((project_id, run_id, job_id, kind,
-                                         producer_key)).encode("utf-8")).hexdigest()
+    key = f"{project_id}\0{run_id}\0{job_id}\0{kind}\0{producer_key}"
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     return f"ren-artifact-{digest}"
 
 

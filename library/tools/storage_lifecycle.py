@@ -10,14 +10,253 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import artifact_lifecycle as lifecycle
+from library.tools import project_registry
 
 DEFAULT_FREE_RESERVE_BYTES = 10 * 1024**3
 PROTECTED_SUFFIXES = frozenset({".drt", ".drp", ".otio"})
 PROTECTED_KINDS = frozenset({"model_weight", "model_weights", "source_footage",
                              "user_asset", "delivered_render", "signed_off_render"})
+LEGACY_INVENTORY_FORMAT = "ren-legacy-inventory/1"
+LEGACY_DELETED_CLIPS_RECORD = (
+    "data/vep-resolve-stale-cleanup/q-workflow-exports-deleted.txt")
+LEGACY_RETENTION = timedelta(hours=24)
+
+
+def _legacy_roots() -> list[tuple[str, Path]]:
+    """Known legacy stores, derived from the same owners as their writers."""
+    from library.tools import qualification_project, ren_native_cache
+    from library.tools.project_layout import Area, ProjectLayout
+
+    roots = [("qualification", qualification_project.media_dir().parent)]
+    roots.append(("native_cache", ren_native_cache.cache_dir()))
+    for project in project_registry.list_projects():
+        layout = ProjectLayout(project.project_root)
+        roots.extend((
+            ("abandoned_scratch", layout.read_dir(Area.SCRATCH)),
+            ("quarantine", layout.read_dir(Area.QUARANTINE)),
+        ))
+    return roots
+
+
+def _legacy_category(category: str, root: Path, path: Path) -> str:
+    relative_parts = path.relative_to(root).parts
+    if category == "qualification":
+        if "exports" in relative_parts:
+            return "qualification_export"
+        if "workflow-runs" in relative_parts:
+            return "workflow_run"
+    return category
+
+
+def legacy_inventory(*, output: str, roots: list[tuple[str, str | Path]] | None = None) -> dict:
+    """Write a read-only inventory of legacy stores; unknowns remain unverified.
+
+    The inventory deliberately creates no ownership records: a filesystem
+    resemblance is not evidence of ownership. Exact existing lifecycle records
+    can be reconciled by a later reviewed migration.
+    """
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools import event_log
+
+    sources = ([(kind, Path(path).expanduser()) for kind, path in roots]
+               if roots is not None else _legacy_roots())
+    known: dict[str, list[dict]] = {}
+    project_logs = ([str(project.project_root)
+                     for project in project_registry.list_projects()]
+                    if roots is None else [])
+    # Workflow run directories own their event logs independently of projects.
+    for _, root in sources:
+        for base, dirs, _ in os.walk(root, followlinks=False):
+            if Path(base).name != "workflow-runs":
+                continue
+            for name in dirs:
+                run = Path(base) / name
+                if run.is_dir() and not run.is_symlink():
+                    project_logs.append(str(run))
+            dirs[:] = []
+    for owner in project_logs:
+        for row in lifecycle.inventory(owner)["artifacts"]:
+            if row.get("path"):
+                known.setdefault(str(Path(row["path"]).absolute()), []).append(row)
+    for _, root in sources:
+        for base, dirs, files in os.walk(root, followlinks=False):
+            if Path(base).name != "workflow-runs":
+                continue
+            for name in dirs:
+                run_root = Path(base) / name
+                manifest_path = run_root / "qualification-cleanup-manifest.json"
+                try:
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                for row in manifest.get("artifacts", []):
+                    if row.get("path") and row.get("identity"):
+                        known.setdefault(str(Path(row["path"]).absolute()), []).append({
+                            **row, "run_id": manifest.get("run_id", name),
+                            "project_id": "qualification-workflow",
+                            "job_id": manifest.get("run_id", name),
+                            "ownership_known": bool(manifest.get("run_id", name)),
+                            "record_source": "qualification_cleanup_manifest",
+                        })
+            dirs[:] = []
+
+    resources = []
+    for category, root in sources:
+        if not root.exists():
+            continue
+        if root.is_symlink():
+            resources.append({"category": category, "path": str(root),
+                              "verification": "unverified",
+                              "reason": "inventory root is a symlink"})
+            continue
+        for base, dirs, files in os.walk(root, followlinks=False):
+            base_path = Path(base)
+            if base_path == root or base_path.name == "workflow-runs":
+                for name in dirs:
+                    path = base_path / name
+                    if path.is_symlink():
+                        continue
+                    resources.append({"category": _legacy_category(category, root, path),
+                                      "path": str(path),
+                                      "resource_type": "directory",
+                                      "verification": "unverified",
+                                      "reason": "directory ownership requires file and run evidence"})
+            for name in list(dirs):
+                path = base_path / name
+                if path.is_symlink():
+                    dirs.remove(name)
+                    resources.append({"category": _legacy_category(category, root, path),
+                                      "path": str(path),
+                                      "verification": "unverified",
+                                      "reason": "symlink directory identity is ambiguous"})
+            for name in files:
+                path = base_path / name
+                try:
+                    info = os.lstat(path)
+                    if not stat.S_ISREG(info.st_mode):
+                        raise OSError("not a regular file")
+                    identity = lifecycle.FileIdentity.capture(path)
+                except (OSError, lifecycle.LifecycleRefused) as exc:
+                    resources.append({"category": _legacy_category(category, root, path),
+                                      "path": str(path),
+                                      "verification": "unverified",
+                                      "reason": f"identity unavailable: {exc}"})
+                    continue
+                matches = [row for row in known.get(str(path.absolute()), [])
+                           if row.get("ownership_known")
+                           and (row.get("identity_matches") is True
+                                or row.get("identity") == identity.__dict__)]
+                resources.append({
+                    "category": _legacy_category(category, root, path),
+                    "path": str(path),
+                    "identity": identity.__dict__,
+                    "verification": "verified" if len(matches) == 1 else "unverified",
+                    "artifact_id": matches[0]["artifact_id"] if len(matches) == 1 else "",
+                    "run_id": matches[0].get("run_id", "") if len(matches) == 1 else "",
+                    "project_id": matches[0].get("project_id", "") if len(matches) == 1 else "",
+                    "job_id": matches[0].get("job_id", "") if len(matches) == 1 else "",
+                    "record_source": matches[0].get("record_source", "artifact_lifecycle")
+                    if len(matches) == 1 else "",
+                    "reason": ("matched exact lifecycle record" if len(matches) == 1
+                               else "no unique exact lifecycle ownership record"),
+                })
+    resolve_rows = []
+    for owner in project_logs:
+        events = event_log.read_events(owner)
+        for event in events:
+            if event.get("type") != "qualification_resolve_resource":
+                continue
+            fields = event.get("fields", {})
+            resolve_rows.append({"category": "qualification_timeline",
+                                 "verification": "unverified",
+                                 "reason": "exact recorded id needs a Resolve maintenance-window census",
+                                 **fields})
+        for row in lifecycle.resolve_artifacts(str(event_log.log_path(owner))):
+            resolve_rows.append({"category": "recorded_resolve_resource",
+                                 "verification": "unverified",
+                                 "reason": "Resolve presence requires an exact-id maintenance-window census",
+                                 **row})
+    document = {
+        "format": LEGACY_INVENTORY_FORMAT,
+        "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "resources": resources + resolve_rows,
+        "review_required": sum(row.get("verification") == "unverified"
+                               for row in resources + resolve_rows),
+        "historical_deletion_record": LEGACY_DELETED_CLIPS_RECORD,
+        "automatic_deletion": False,
+    }
+    path = Path(output).expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+    return {**document, "manifest": str(path)}
+
+
+def reconcile(projects: list[str], *, now: datetime | None = None) -> dict:
+    """Lightweight lifecycle reconciliation; deletion remains manifest-gated."""
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools import event_log
+
+    now = now or datetime.now(UTC)
+    results = []
+    for project in projects:
+        events = event_log.read_events(project)
+        quarantine_at = {}
+        for event in events:
+            fields = event.get("fields", {})
+            if event.get("type") == lifecycle.ARTIFACT_TRANSITION:
+                if fields.get("state") == lifecycle.QUARANTINED:
+                    quarantine_at[fields.get("artifact_id", "")] = event.get("at", "")
+                elif fields.get("state") in {lifecycle.DISPOSABLE, lifecycle.PURGED}:
+                    quarantine_at.pop(fields.get("artifact_id", ""), None)
+        inventory = lifecycle.inventory(project)
+        drift = [row["artifact_id"] for row in inventory["artifacts"]
+                 if row.get("identity_matches") is False]
+        expired = []
+        for row in inventory["artifacts"]:
+            if row.get("state") != lifecycle.QUARANTINED:
+                continue
+            try:
+                quarantined = datetime.fromisoformat(quarantine_at[row["artifact_id"]])
+                if quarantined.tzinfo is None:
+                    quarantined = quarantined.replace(tzinfo=UTC)
+                if now - quarantined >= LEGACY_RETENTION:
+                    expired.append(row["artifact_id"])
+            except (KeyError, ValueError):
+                continue
+        recovered = lifecycle.recover_interrupted_cleanup_jobs(project)
+        retried = []
+        for job in lifecycle._latest_cleanup_jobs(project).values():
+            if job.get("state") == "refused":
+                lifecycle.transition_cleanup_job(
+                    project, job, "queued",
+                    outcome="startup reconciliation retry after fresh safety checks")
+                retried.append(job["lifecycle_event_id"])
+        queued = lifecycle.pending_cleanup_jobs(project)
+        results.append({"project": str(Path(project).resolve()),
+                        "abandoned_jobs_recovered": recovered,
+                        "refused_jobs_retried": retried,
+                        "pending_job_ids": [job["lifecycle_event_id"]
+                                            for job in queued],
+                        "worker_required": bool(recovered or retried),
+                        "record_filesystem_drift": drift,
+                        "expired_quarantine_review": expired,
+                        "resolve_census": "deferred to maintenance window"})
+    return {"projects": results, "automatic_deletion": False}
+
+
+def startup_reconcile() -> dict:
+    """Run the machine's lightweight check without depending on an edit job."""
+    projects = [str(config.project_root)
+                for config in project_registry.list_projects()]
+    if not projects:
+        return {"projects": [], "automatic_deletion": False}
+    return reconcile(projects)
 
 
 def _assert_plan_binding(item: dict, record: dict) -> None:
@@ -148,9 +387,9 @@ def estimate_render_space(reels: list[tuple[float, int, int]], *,
     """Estimate render outputs plus staging from approved durations and frame sizes."""
     try:
         bit_rate = int(output_bit_rate_bps or os.environ.get(
-            "REN_RENDER_ESTIMATED_BITRATE_BPS", 25_000_000))
+            "REN_RENDER_ESTIMATED_BITRATE_BPS", "25000000"))
         multiplier = float(workspace_multiplier or os.environ.get(
-            "REN_RENDER_WORKSPACE_MULTIPLIER", 2.0))
+            "REN_RENDER_WORKSPACE_MULTIPLIER", "2.0"))
     except ValueError as exc:
         raise ValueError("invalid render storage estimate configuration") from exc
     if bit_rate <= 0 or multiplier < 1:

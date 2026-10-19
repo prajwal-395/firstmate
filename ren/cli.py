@@ -132,6 +132,27 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
 
+    if verb.builtin != "storage":
+        # Reconcile durable ownership state independently of an editing run.
+        # This pass only requeues refused work; every cleanup worker still
+        # takes its lease and builds a fresh guarded plan before acting.
+        try:
+            from library.tools import storage_cli, storage_lifecycle
+            startup = storage_lifecycle.startup_reconcile()
+            startup["cleanup_workers_started"] = storage_cli.start_cleanup_workers(
+                startup, changed_only=True)
+            findings = [row for row in startup["projects"]
+                        if (row["record_filesystem_drift"]
+                            or row["expired_quarantine_review"]
+                            or row["refused_jobs_retried"])]
+            if findings:
+                print("⚠ lifecycle: reconciliation found drift, expired "
+                      "quarantine, or retried cleanup jobs; run `ren storage "
+                      "reconcile` for details.", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - lifecycle check must not block editing
+            print(f"⚠ lifecycle: startup check unavailable: {exc}",
+                  file=sys.stderr)
+
     if verb.builtin == "doctor":
         from library.tools.ren_refusal import (
             REFUSAL_EXIT_CODE,
