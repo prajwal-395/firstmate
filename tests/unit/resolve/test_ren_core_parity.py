@@ -40,19 +40,25 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import (capabilities, edit_algebra, edit_backend,
-                            edit_patch, patch_algebra)
+from library.tools import (
+    capabilities,
+    edit_algebra,
+    edit_backend,
+    edit_patch,
+    patch_algebra,
+)
 from library.tools import timeline_shadow as shadow
 
 
 def _load_ren_native():
     """The ren_native extension, or a module-level skip naming why not.
 
-    Selected the way production selects it (`edit_backend.rust()`:
-    this tree's per-tree cache entry first, the shared venv's copy
-    where it matches): a tree without a build for its own sources runs
-    the Python implementation unchanged, and there is nothing to
-    compare.
+    Select the extension for this source tree directly. ``edit_backend``
+    memoizes its first lookup process-wide, so another test that reached
+    it before the local CI preparation finished could cache a miss (or a
+    stale import) and make this parity gate skip despite a fresh build.
+    The cache selector fingerprints and loads the exact per-tree artifact;
+    seed the production switch with that same module after selection.
 
     Skipped, naming the stale build, when no matching build exists
     while a build from another tree does: an older binary predates the
@@ -60,7 +66,7 @@ def _load_ren_native():
     refuses it the same way. The skip is not a pass - a fresh build
     that genuinely disagrees still fails below.
     """
-    from library.tools import edit_backend
+    from library.tools import edit_backend, ren_native_cache
     from library.tools.ren_native_source import source_fingerprint
 
     root = Path(__file__).resolve().parents[3]
@@ -71,8 +77,10 @@ def _load_ren_native():
             "carries no native/ sources",
             allow_module_level=True,
         )
-    selected = edit_backend.rust()
+    selected = ren_native_cache.select(root)
     if selected is not None:
+        edit_backend._ren_native = selected
+        edit_backend._ren_native_tried = True
         return selected
     try:
         import ren_native
@@ -82,10 +90,15 @@ def _load_ren_native():
             "scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>",
             allow_module_level=True,
         )
-    baked = getattr(ren_native, "source_fingerprint", lambda: "unknown")()
+    baked = getattr(ren_native, "source_fingerprint", lambda: None)()
+    if baked == current:
+        edit_backend._ren_native = ren_native
+        edit_backend._ren_native_tried = True
+        return ren_native
+    baked_label = baked[:12] if isinstance(baked, str) else "unknown"
     pytest.skip(
         f"the ren_native extension is stale - built from a different "
-        f"tree (fingerprint {baked[:12]} vs this tree {current[:12]}); "
+        f"tree (fingerprint {baked_label} vs this tree {current[:12]}); "
         f"rebuild with scripts/build_ren_native.sh <venv-bin-dir> <cache-dir>",
         allow_module_level=True,
     )
@@ -725,7 +738,6 @@ def test_verify_parity():
     """The read-back verdict of every op: None when the effect landed,
     a failure when it did not. The verdict is the contract; the wording
     is diagnostic and is not compared."""
-    base = _base_snapshot()
     mismatches = []
     counts = {"landed": 0, "failed": 0}
     for label, op, after in _op_cases():
@@ -963,14 +975,12 @@ def _carry_cases(tmp_path):
     # A commuting generation since: the patch moves onto the head.
     store = _carry_store(tmp_path, 2)
     _record(store, base, shadow.OBSERVED)
-    head = _record(store, _with_marker(base, 40, "Blue", "m"),
-                    shadow.PATCH,
-                    patch={"id": "q", "project": BASE, "timeline": TIMELINE,
-                           "base_generation": 1,
-                           "capability": "reel.touchup",
-                           "affected_spans": [[40, 41]],
-                           "conflict_domains": ["markers"],
-                           "operations": [marker_40]})
+    _record(store, _with_marker(base, 40, "Blue", "m"), shadow.PATCH,
+            patch={"id": "q", "project": BASE, "timeline": TIMELINE,
+                   "base_generation": 1, "capability": "reel.touchup",
+                   "affected_spans": [[40, 41]],
+                   "conflict_domains": ["markers"],
+                   "operations": [marker_40]})
     stale = _patch("m", 1, [{"op": "marker.add", "frame": 20,
                               "color": "Red", "name": "n"}],
                    ["markers"], [[20, 21]])
@@ -1161,9 +1171,9 @@ def test_validate_parity():
     for label, patch, declared in _validate_cases():
         try:
             edit_patch._validate_python(patch, base, declared)
-            py_refused, py_reason = None, None
+            py_reason = None
         except edit_patch.PatchRefused as refused:
-            py_refused, py_reason = True, refused.what
+            py_reason = refused.what
         rust_reason = ren_native.validate_patch(
             _patch_dict(patch), base,
             {"operations": list(declared.operations),

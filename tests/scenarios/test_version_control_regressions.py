@@ -6,9 +6,17 @@ directory, and the fake timeline/evidence is the only input.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from library.tools import edit_patch, timeline_diff, timeline_shadow, undo_journal
+from library.tools import (
+    creative_revision,
+    edit_patch,
+    timeline_diff,
+    timeline_shadow,
+    undo_journal,
+)
 from library.tools.resolve_lock import assume_sole_writer
 from library.tools.versions import reel_versions
 from tests.integration.fault_injection import FaultInjector
@@ -138,6 +146,106 @@ def test_qa01_independent_branches_merge_and_conflicting_branches_refuse(
         undo_journal.merge_commits(
             str(project), timeline=FINAL, left=left["id"],
             right=conflict["id"])
+
+
+def test_qa01_edit_version_branch_merge_promote_undo_redo_lifecycle(tmp_path):
+    """Defect: lifecycle ledgers can disagree across a complete edit cycle."""
+    project = tmp_path / "lifecycle-project"
+    project.mkdir()
+    original_rows = {"video:V1": [{"name": "camera.mov", "start": 0,
+                                   "end": 100}]}
+    merged_rows = {"video:V1": [
+        {"name": "camera.mov", "start": 10, "end": 110},
+        {"name": "logo.png", "start": 20, "end": 40},
+    ]}
+    root = undo_journal.record_commit(
+        str(project), parent=None, intent="approved root", changes=[],
+        agent="qa-fixture", timeline=FINAL)
+    root_revision = creative_revision.get(project, root["revision_id"])
+    assert root_revision["status"] == "recorded"
+
+    left_branch = undo_journal.create_creative_branch(
+        str(project), name="variant/move-camera",
+        base_revision=root_revision["revision_id"],
+        semantic_changes=[{"op": "move", "item": "camera.mov"}],
+        git_branch="variant/move-camera")
+    right_branch = undo_journal.create_creative_branch(
+        str(project), name="variant/add-logo",
+        base_revision=root_revision["revision_id"],
+        semantic_changes=[{"op": "insert", "item": "logo.png"}],
+        git_branch="variant/add-logo")
+    left = undo_journal.record_commit(
+        str(project), parent=root["id"], intent="move camera",
+        changes=_change("camera.mov", 10), agent="qa-fixture",
+        timeline=FINAL)
+    right = undo_journal.record_commit(
+        str(project), parent=root["id"], intent="add logo",
+        changes=_change("logo.png", 20), agent="qa-fixture",
+        timeline=FINAL)
+    assert left_branch["base_revision"] == right_branch["base_revision"]
+    merged = undo_journal.merge_commits(
+        str(project), timeline=FINAL, left=left["id"], right=right["id"])
+    merged_revision = creative_revision.get(project, merged["revision_id"])
+    assert merged_revision["parents"] == [left["revision_id"],
+                                            right["revision_id"]]
+
+    from library.tools.versions import reel_versions
+
+    baseline = reel_versions.record(
+        project, FINAL, kind=reel_versions.KIND_BUILD, rows=original_rows,
+        plan_moment={"number": 1, "title": "baseline"})
+    promoted = reel_versions.record(
+        project, FINAL, kind=reel_versions.KIND_BUILD, rows=merged_rows,
+        plan_moment={"number": 2, "title": "merged edit"},
+        revision_id=merged_revision["revision_id"],
+        promotion_transaction_id="qa-promotion-1",
+        verification={"status": "passed"}, approval={"status": "approved"})
+    from library.tools.reel_proposal import proposal_path
+
+    proposal = proposal_path(project)
+    proposal.parent.mkdir(parents=True, exist_ok=True)
+    proposal.write_text(json.dumps({"moments": [
+        {"number": 1, "title": "baseline"},
+        {"number": 2, "title": "merged edit"},
+    ]}), encoding="utf-8")
+
+    live = {"rows": merged_rows}
+
+    def rebuild(_project_folder, reel_number):
+        if reel_number == 1:
+            live["rows"] = original_rows
+            assert reel_versions.take_pending_rollback(
+                project, FINAL) == promoted["version"]
+            rollback = reel_versions.record(
+                project, FINAL, kind=reel_versions.KIND_ROLLBACK,
+                rows=original_rows, undoes=promoted["version"])
+            reel_versions.mark_undone(
+                project, FINAL, promoted["version"], rollback["version"])
+        elif reel_number == 2:
+            live["rows"] = merged_rows
+            redo = reel_versions.record(
+                project, FINAL, kind=reel_versions.KIND_REDO,
+                rows=merged_rows, redoes=promoted["version"])
+            reel_versions.mark_redone(
+                project, FINAL, promoted["version"], redo["version"])
+        else:
+            raise AssertionError(f"unexpected plan moment {reel_number}")
+        return 0
+
+    undo = undo_journal.rollback_rebuild(
+        str(project), FINAL, promoted,
+        read_live_rows=lambda _final: live["rows"], build=rebuild)
+    assert undo["to"] == baseline["version"]
+    assert live["rows"] == original_rows
+    redo = undo_journal.redo_rebuild(
+        str(project), FINAL, promoted,
+        read_live_rows=lambda _final: live["rows"], build=rebuild)
+    assert redo["redone"] == promoted["version"]
+    assert live["rows"] == merged_rows
+    history = reel_versions.versions_of(project, FINAL)
+    assert [row["kind"] for row in history] == [
+        "build", "build", "rollback", "redo"]
+    assert history[1]["redone_by"] == history[3]["version"]
 
 
 def test_qa01_reel13_planned_edit_is_read_back_on_the_materialized_timeline(
