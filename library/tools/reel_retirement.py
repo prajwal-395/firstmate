@@ -322,14 +322,14 @@ def retire_timelines(project, pool, backups: dict,
     return {"archived": archived, "unfiled": unfiled}
 
 
-def delete_backups(project, pool, backup_objects: dict) -> dict:
+def delete_backups(project, pool, backup_objects: dict | list | tuple) -> dict:
     """Delete the backup timelines outright - the DEFAULT promotion path.
 
-    `backup_objects` is `{backup timeline name: backup timeline object}`
-    for the generations the promotion just replaced - the containers
-    `promote_staged_reels` moved the approved timelines into before the
-    staging took their names. No rename, no filing: one timeline per
-    reel, and the archive stays empty.
+    `backup_objects` is the backup timeline objects for the generations
+    the promotion just replaced. A mapping remains accepted for existing
+    callers; a sequence lets a verified retry name duplicate backup
+    generations by object identity. No rename, no filing: the archive
+    stays empty.
 
     The DELETE is the risky half, so this is bounded TIGHTER than the
     collection it replaces. Every name must end in the promotion's own
@@ -346,9 +346,13 @@ def delete_backups(project, pool, backup_objects: dict) -> dict:
     Returns `{"deleted": [names]}`.
     """
     from library.tools.reel_build import (
-        BACKUP_SUFFIX, assert_deletion_scope, timelines_to_replace)
+        BACKUP_SUFFIX,
+        assert_deletion_scope,
+    )
 
-    names = sorted(backup_objects or {})
+    targets = (list(backup_objects.values()) if isinstance(backup_objects, dict)
+               else list(backup_objects or ()))
+    names = [timeline.GetName() for timeline in targets]
     foreign = [name for name in names
                if not name.endswith(BACKUP_SUFFIX)]
     if foreign:
@@ -356,7 +360,25 @@ def delete_backups(project, pool, backup_objects: dict) -> dict:
             f"REFUSING to delete: {foreign} are not pre-rebuild backups. "
             f"This path deletes the generation a promotion just replaced "
             f"and nothing else - nothing was deleted.")
-    targets = timelines_to_replace(project, set(names))
+    target_ids = [str(timeline.GetUniqueId() or "") for timeline in targets]
+    if not targets or any(not identity for identity in target_ids) \
+            or len(target_ids) != len(set(target_ids)):
+        raise RetirementRefused(
+            "REFUSING to delete: backup timeline identities are missing "
+            "or duplicated; nothing was deleted.")
+    live_by_id = {}
+    for index in range(1, project.GetTimelineCount() + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline:
+            identity = str(timeline.GetUniqueId() or "")
+            if identity:
+                live_by_id[identity] = timeline
+    if any(live_by_id.get(identity) is None
+           or live_by_id[identity].GetName() != name
+           for identity, name in zip(target_ids, names)):
+        raise RetirementRefused(
+            "REFUSING to delete: a backup identity or name changed before "
+            "deletion; nothing was deleted.")
     assert_deletion_scope(targets, set(names))
     record: dict = {"deleted": []}
     if targets:
@@ -368,6 +390,15 @@ def delete_backups(project, pool, backup_objects: dict) -> dict:
                 f"({', '.join(deleted)}). They are still in the project "
                 f"under their backup names - nothing was reported "
                 f"deleted.")
+        remaining = {
+            str(timeline.GetUniqueId() or "")
+            for index in range(1, project.GetTimelineCount() + 1)
+            if (timeline := project.GetTimelineByIndex(index)) is not None
+        }
+        if set(target_ids) & remaining:
+            raise RetirementRefused(
+                "Resolve returned from deleting backups, but one or more "
+                "target timeline ids remain in the project.")
         record["deleted"] = deleted
     return record
 

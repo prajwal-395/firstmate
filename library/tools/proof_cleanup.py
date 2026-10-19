@@ -175,6 +175,68 @@ removal; it is the same string `PROTECTED_TIMELINES` already holds,
 named here so the superseded path does not depend on that set's
 membership."""
 
+# This task's dated, verbatim authority is deliberately an exact list.
+# It does not widen any of the existing proof or superseded families.
+CAPTAIN_TASK_RETIREMENT_AUTHORITY = (
+    'The captain, verbatim (2026-10-19): "in the podcast project on '
+    'davinci there are two reel 01 timelines, one looks like an '
+    'intermediate one that didn\'t get cleaned up, see what happened, '
+    'and then also clean up davinci of all of the stale test and scratch '
+    'projects we don\'t need anymore and also any associated video assets '
+    'from our files that are associated with that".'
+)
+"""The only authority for the named 2026-10-19 project timeline cleanup."""
+
+CAPTAIN_TASK_TIMELINES = {
+    ("Podcast (field test)",
+     "Reel 01 - geo-is-comprehension-not-position (pre-rebuild backup)"):
+        "eb64cb97-015e-4d88-87f8-d103841f0978",
+    ("Podcast (field test)", "Depth Blur Comparison - IMG_1808 - 001"):
+        "540a9c27-4755-4cfc-9b3d-8b6613a175ab",
+    ("Ren Qualification", "fm-scratch qualify"): None,
+    ("Ren Qualification", "Q Promotion Proof R5"): None,
+    ("Ren Qualification", "Q Promotion Proof R5 (rebuild staging)"): None,
+    ("Ren Qualification", "Q Promotion Proof Ambiguous R5"): None,
+    ("Ren Qualification",
+     "Q Promotion Proof Ambiguous R5 (rebuild staging)"): None,
+    ("Ren Qualification", "Q Recovery Ambiguous 9b63d860"): None,
+    ("Ren Qualification",
+     "Q Recovery Ambiguous 9b63d860 (rebuild staging)"): None,
+    ("Ren Qualification", "Q Recovery Ambiguous ce979b5d"): None,
+    ("Ren Qualification",
+     "Q Recovery Ambiguous ce979b5d (rebuild staging)"): None,
+    ("Ren Qualification", "Q Recovery Proof 9b63d860"): None,
+    ("Ren Qualification",
+     "Q Recovery Proof 9b63d860 (rebuild staging)"): None,
+    ("Ren Qualification", "Q Recovery Proof ce979b5d"): None,
+    ("Ren Qualification",
+     "Q Recovery Proof ce979b5d (rebuild staging)"): None,
+    ("Ren Qualification", "fm-geometry-2a482cd6d9"): None,
+    ("Ren Qualification", "fm-scratch frames smoke"): None,
+    ("Ren Qualification", "fm-scratch geometry"): None,
+    ("Ren Qualification", "fm-scratch router smoke"): None,
+}
+"""Exact (project, name) membership; Podcast targets also pin their UID."""
+
+
+def captain_task_timeline_authority(
+        project_name: str, timeline_name: str, item_id: str) -> dict:
+    """Return the exact authority record or refuse without a near match."""
+    key = (project_name, timeline_name)
+    if key not in CAPTAIN_TASK_TIMELINES:
+        raise ProofRemovalRefused(
+            f"{project_name!r}/{timeline_name!r} is outside the exact "
+            "2026-10-19 captain-authorized timeline list. Nothing was "
+            "removed.")
+    expected_id = CAPTAIN_TASK_TIMELINES[key]
+    if expected_id and item_id != expected_id:
+        raise ProofRemovalRefused(
+            f"{timeline_name!r} has id {item_id!r}, expected "
+            f"{expected_id!r}. Nothing was removed.")
+    return {"authority": CAPTAIN_TASK_RETIREMENT_AUTHORITY,
+            "project": project_name, "name": timeline_name,
+            "item_id": item_id, "expected_id": expected_id}
+
 
 def is_authorised_demo(name: str) -> bool:
     """Is this timeline name one the captain authorised removing?

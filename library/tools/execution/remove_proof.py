@@ -34,25 +34,202 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools import journal_naming
+from library.tools import staging_holds as holds
+from library.tools.proof_cleanup import (
+    PROTECTED_TIMELINES,
+    ProofRemovalRefused,
+    captain_task_timeline_authority,
+    is_authorised_demo,
+    is_authorised_superseded,
+)
 from library.tools.resource_leases import (
     LeaseDeclaration,
     ResourceRef,
     resource_lease,
 )
 
-from library.tools.proof_cleanup import (
-    PROTECTED_TIMELINES,
-    ProofRemovalRefused,
-    is_authorised_demo,
-    is_authorised_superseded,
-)
-from library.tools import staging_holds as holds
-
 JOURNAL_PREFIX = "resolve_remove_proof"
+
+
+def timeline_inventory(project) -> list[dict]:
+    """The exact identity and row counts used around a retirement."""
+    pool = project.GetMediaPool()
+    stack = [pool.GetRootFolder()]
+    pool_timelines = {}
+    while stack:
+        folder = stack.pop()
+        for item in folder.GetClipList() or []:
+            if (item.GetClipProperty("Type") or "") == "Timeline":
+                pool_timelines.setdefault(str(item.GetName() or ""), []).append(item)
+        stack.extend(folder.GetSubFolderList() or [])
+    rows = []
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is None:
+            raise ProofRemovalRefused(
+                f"timeline {index} became unreadable during inventory")
+        name = str(timeline.GetName() or "")
+        pool_matches = pool_timelines.get(name, [])
+        if len(pool_matches) != 1:
+            raise ProofRemovalRefused(
+                f"expected one media-pool timeline item for {name!r}, "
+                f"found {len(pool_matches)}")
+        rows.append({
+            "item_id": str(timeline.GetUniqueId() or ""),
+            "pool_item_id": str(pool_matches[0].GetUniqueId() or ""),
+            "name": name,
+            "video_tracks": int(timeline.GetTrackCount("video") or 0),
+            "audio_tracks": int(timeline.GetTrackCount("audio") or 0),
+        })
+    return sorted(rows, key=lambda row: (row["item_id"], row["name"]))
+
+
+def captain_task_target_inventory(project, target_names: set[str]) -> list[dict]:
+    """The complete pre-retirement inventory, after exact-name proof."""
+    rows = timeline_inventory(project)
+    for name in sorted(target_names):
+        found = [row for row in rows if row["name"] == name]
+        if len(found) > 1:
+            raise ProofRemovalRefused(
+                f"{project.GetName()!r} has {len(found)} timelines named "
+                f"{name!r}; exact-name retirement is ambiguous.")
+        if found:
+            captain_task_timeline_authority(
+                str(project.GetName()), name, found[0]["item_id"])
+    return rows
+
+
+def _pool_proxy_by_id(project, item_id: str):
+    pool = project.GetMediaPool()
+    stack = [pool.GetRootFolder()]
+    while stack:
+        folder = stack.pop()
+        for item in folder.GetClipList() or []:
+            if str(item.GetUniqueId() or "") == item_id:
+                return item
+        stack.extend(folder.GetSubFolderList() or [])
+    return None
+
+
+def retire_captain_task_timeline(
+        resolve, project, *, project_name: str, timeline_name: str,
+        item_id: str, backup_path: str, journal_path: str,
+        expected_inventory: list[dict]) -> dict:
+    """Retire one exact timeline under the 2026-10-19 authority.
+
+    This is the named extension of proof cleanup for the captain's task.
+    It backs up the target as a DRT first, deletes only its pool timeline
+    item, then verifies the complete surviving inventory against the
+    captured baseline. The caller holds the exclusive Ren instance lease
+    across the whole cleanup session.
+    """
+    from library.tools.resolve_lock import held
+
+    if not held():
+        raise ProofRemovalRefused(
+            "the Resolve instance lease is not held. Nothing was removed.")
+    if str(project.GetName() or "") != project_name:
+        raise ProofRemovalRefused(
+            f"expected project {project_name!r}, found "
+            f"{project.GetName()!r}. Nothing was removed.")
+    authority = captain_task_timeline_authority(
+        project_name, timeline_name, item_id)
+    before = timeline_inventory(project)
+    if before != expected_inventory:
+        raise ProofRemovalRefused(
+            "the live timeline inventory changed since it was captured. "
+            "Nothing was removed.")
+    matches = [row for row in before
+               if row["item_id"] == item_id and row["name"] == timeline_name]
+    same_name = [row for row in before if row["name"] == timeline_name]
+    if len(matches) != 1 or len(same_name) != 1:
+        raise ProofRemovalRefused(
+            f"expected one exact timeline {timeline_name!r} ({item_id}); "
+            f"found {len(matches)} matching ids and {len(same_name)} exact "
+            "names. Nothing was removed.")
+
+    destination = Path(backup_path)
+    if destination.exists():
+        raise ProofRemovalRefused(
+            f"recovery archive already exists at {destination}; "
+            "refusing to overwrite it. Nothing was removed.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    timeline = None
+    named_timelines = []
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if (candidate and str(candidate.GetName() or "") == timeline_name
+                and str(candidate.GetUniqueId() or "") == item_id):
+            named_timelines.append(candidate)
+    if len(named_timelines) == 1:
+        timeline = named_timelines[0]
+    if timeline is None:
+        raise ProofRemovalRefused(
+            "the target identity changed before its recovery archive. "
+            "Nothing was removed.")
+    planned_row = matches[0]
+    pool_item = _pool_proxy_by_id(project, planned_row["pool_item_id"])
+    if (pool_item is None
+            or (pool_item.GetClipProperty("Type") or "") != "Timeline"):
+        raise ProofRemovalRefused(
+            f"{timeline_name!r} no longer reports Type 'Timeline'. "
+            "Nothing was removed.")
+    export_flag = getattr(resolve, "EXPORT_DRT", None)
+    if export_flag is None:
+        raise ProofRemovalRefused(
+            "Resolve does not expose EXPORT_DRT. Nothing was removed.")
+    if not timeline.Export(str(destination), export_flag):
+        raise ProofRemovalRefused(
+            f"Resolve refused the DRT backup for {timeline_name!r}. "
+            "Nothing was removed.")
+    if (destination.is_symlink() or not destination.is_file()
+            or destination.stat().st_size == 0
+            or not zipfile.is_zipfile(destination)):
+        raise ProofRemovalRefused(
+            f"the DRT backup at {destination} is missing, empty, or invalid. "
+            "Nothing was removed.")
+
+    journal = {
+        "authority": authority,
+        "removed_at": datetime.now(UTC).isoformat(),
+        "resolve_project": project_name,
+        "timeline": {"item_id": item_id, "name": timeline_name},
+        "drt_backup": str(destination),
+        "before": before,
+        "verified_untouched": [row for row in before
+                               if row["item_id"] != item_id],
+        "removed": False,
+    }
+    journal_file = Path(journal_path)
+    journal_file.parent.mkdir(parents=True, exist_ok=True)
+    journal_file.write_text(json.dumps(journal, indent=2), encoding="utf-8")
+    pool = project.GetMediaPool()
+    if not pool.DeleteClips([pool_item]):
+        raise ProofRemovalRefused(
+            f"DeleteClips refused {timeline_name!r}; its DRT backup is "
+            f"{destination}.")
+    journal["removed"] = True
+    journal["after"] = timeline_inventory(project)
+    expected_after = [row for row in before if row["item_id"] != item_id]
+    if journal["after"] != expected_after:
+        journal["verification"] = "failed: surviving inventory differs"
+        journal_file.write_text(json.dumps(journal, indent=2),
+                                encoding="utf-8")
+        raise ProofRemovalRefused(
+            f"{timeline_name!r} was deleted, but the live inventory differs "
+            f"from the expected survivors. Recovery archive: {destination}; "
+            f"journal: {journal_file}.")
+    journal["verification"] = "passed"
+    journal_file.write_text(json.dumps(journal, indent=2), encoding="utf-8")
+    return {"removed": timeline_name, "item_id": item_id,
+            "drt_backup": str(destination),
+            "verified_untouched": len(expected_after),
+            "journal_path": str(journal_file)}
 
 
 def remove_proof(project, plan: dict, journal_path: str) -> dict:
@@ -72,7 +249,7 @@ def remove_proof(project, plan: dict, journal_path: str) -> dict:
     pool = project.GetMediaPool()
     before_current = pool.GetCurrentFolder()
     journal = {
-        "removed_at": datetime.now(timezone.utc).isoformat(),
+        "removed_at": datetime.now(UTC).isoformat(),
         "resolve_project": project.GetName(),
         "timeline": dict(timeline),
         "bins": [],

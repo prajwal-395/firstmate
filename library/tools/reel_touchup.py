@@ -3617,6 +3617,9 @@ def _promote(project_folder: str, project: Any, pool: Any,
     fleet_before = _gate.fleet_snapshot(project)
 
     backup = backup_name(final)
+    retry_backup_ids = _failed_touchup_backup_ids(
+        project_folder, final, backup,
+        receipt.get("timeline_inventory_before") or ())
     from library.tools.composed_edit import (
         CandidateLifecycle,
         promote_candidates,
@@ -3792,24 +3795,47 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # as promotion does - the cut the captain approved is kept.
     from library.tools import reel_retirement as _retire
     from library.tools.versions import rounds as _rounds
-    backup_objects = {t.GetName(): t for t in timelines_to_replace(
-        project, {backup})}
+    backup_timelines = timelines_to_replace(project, {backup})
+    current_backup_id = str(originals[final].GetUniqueId() or "")
+    stale_backups = [timeline for timeline in backup_timelines
+                     if str(timeline.GetUniqueId() or "")
+                     in retry_backup_ids]
+    stale_backup_ids = {str(timeline.GetUniqueId() or "")
+                        for timeline in stale_backups}
+    current_backup = next((timeline for timeline in backup_timelines
+                           if str(timeline.GetUniqueId() or "")
+                           == current_backup_id), None)
+    if current_backup is None:
+        raise TouchupError(
+            f"the replaced generation for {final!r} is no longer present "
+            f"as {backup!r}; no backup was deleted.")
+    known_backup_ids = stale_backup_ids | {current_backup_id}
+    unowned_backups = [timeline for timeline in backup_timelines
+                       if str(timeline.GetUniqueId() or "")
+                       not in known_backup_ids]
     recorded = _rounds.discover(project_folder)
     current_round = recorded[-1]["round"] if recorded else 1
     by_final = {final: _retire.retiring_round(recorded, final,
                                               current_round)}
     if _signoff.base_name(final) in _signoff.signed_off(project_folder):
+        stale_retirement = (_retire.delete_backups(
+            project, pool, stale_backups) if stale_backups
+            else {"deleted": []})
         retirement = _retire.retire_timelines(
             project, pool,
-            {final: backup_objects[backup]}
-            if backup in backup_objects else {},
+            {final: current_backup},
             by_final)
+        retirement["deleted"] = stale_retirement["deleted"]
     else:
         retirement = {"archived": {}, "unfiled": [], "collected": [],
                       "kept": [], **_retire.delete_backups(
                           project, pool,
-                          {backup: backup_objects[backup]}
-                          if backup in backup_objects else {})}
+                          [current_backup, *stale_backups])}
+    retirement.setdefault("kept", [])
+    retirement["kept"].extend(
+        {"name": backup,
+         "why": "not tied to an incomplete failed Ren touch promotion"}
+        for _timeline in unowned_backups)
     receipt["retirement"] = _retire.render(retirement)
     _provenance.finish_timeline_inventory(
         os.path.join(project_folder, "pipeline_output", "review"),
@@ -3828,6 +3854,71 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # NOW rather than compare against the replaced generation.
     receipt["signature_closed"] = close_signature(project_folder,
                                                   project, final)
+
+
+def _failed_touchup_backup_ids(project_folder: str, final: str,
+                               backup: str,
+                               inventory_before: Sequence[Mapping]) -> set[str]:
+    """Find backups a failed Ren touch actually renamed aside.
+
+    A backup name alone does not establish ownership. The timeline id must
+    have moved from the final name to the backup name in a touch operation's
+    before/after inventory, and that operation must line up with a failed
+    touch journal entry for this same reel. The caller deletes it only after
+    the retry's marker gate and undo journal have both closed successfully.
+    """
+    from datetime import datetime
+
+    from library.tools import plan_provenance as _provenance
+    from library.tools import undo_journal as _journal
+
+    current_backup_ids = {
+        str(item["unique_id"])
+        for item in inventory_before
+        if item["name"] == backup and item.get("unique_id")
+    }
+    if not current_backup_ids:
+        return set()
+
+    failed_entries = [entry for entry in _journal.list_entries(project_folder)
+                      if entry.get("final") == final
+                      and entry.get("status") == "failed"]
+    if not failed_entries:
+        return set()
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    provenance = _provenance.read_provenance(review_dir) or {}
+    history = provenance.get(_provenance.TIMELINE_INVENTORY_KEY) or []
+    ren_backup_ids = set()
+    for operation in history:
+        if operation.get("operation") != "touchup":
+            continue
+        try:
+            operation_time = datetime.fromisoformat(operation["started_at"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        matched_failure = False
+        for entry in failed_entries:
+            try:
+                opened_at = datetime.fromisoformat(entry["opened_at"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if abs((operation_time - opened_at).total_seconds()) <= 60:
+                matched_failure = True
+                break
+        if not matched_failure:
+            continue
+        before_final_ids = {
+            str(item["unique_id"])
+            for item in operation.get("before") or ()
+            if item["name"] == final and item.get("unique_id")
+        }
+        after_backup_ids = {
+            str(item["unique_id"])
+            for item in operation.get("after") or ()
+            if item["name"] == backup and item.get("unique_id")
+        }
+        ren_backup_ids.update(before_final_ids & after_backup_ids)
+    return current_backup_ids & ren_backup_ids
 
 
 def close_signature(project_folder: str, project: Any, final: str):
