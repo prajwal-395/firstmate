@@ -39,6 +39,40 @@ WRAPPER_ENTRY = "server/index.js"
 #: Machine-local unpack cache. Scratch, not project state.
 CACHE_ROOT = os.path.join(os.path.expanduser("~"), ".cache", "resolve-axi")
 
+# Exact tools delegated by resolve_axi.py. This is the discovered surface
+# Ren currently uses; the bundle itself is versioned independently and is
+# not evidence that these tools are safe production editing backends.
+DELEGATED_CAPABILITIES = {
+    "search_scripting_api": {"kind": "documentation", "implemented": True},
+    "get_scripting_api": {"kind": "documentation", "implemented": True},
+    "get_scripting_docs": {"kind": "documentation", "implemented": True},
+    "get_whats_new": {"kind": "documentation", "implemented": True},
+    "update_dctl": {"kind": "lut_shelf_write", "implemented": True},
+    "delete_lut": {"kind": "lut_shelf_write", "implemented": True},
+    "delete_dctl": {"kind": "lut_shelf_write", "implemented": True},
+    "generate_lut": {"kind": "lut_shelf_write", "implemented": True},
+}
+
+
+def capabilities() -> dict:
+    """Return the exact native MCP delegation surface and its restrictions."""
+    return {
+        "backend": "native_mcp",
+        "delegated_tools": {
+            name: {
+                **metadata,
+                "documented": True,
+                "live_qualified": False,
+                "production_enabled": False,
+                "limitations": [
+                    "delegated by resolve_axi.py through the bundled MCP",
+                    "not an algebra timeline-edit backend",
+                ],
+            }
+            for name, metadata in DELEGATED_CAPABILITIES.items()
+        },
+    }
+
 
 class NativeMcpError(RuntimeError):
     """The native server could not be reached or refused the call."""

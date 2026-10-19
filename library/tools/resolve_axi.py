@@ -353,6 +353,7 @@ def _lease(exclusive: bool):
 # than being parsed by it (the serving broker runs main and refuses
 # verbs it does not know yet).
 _LOCAL_COMMANDS = frozenset({
+    "cmd_capabilities",
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
     "cmd_api_whats_new", "cmd_api_intellisearch_query",
     "cmd_intellisearch_collect",
@@ -361,6 +362,66 @@ _LOCAL_COMMANDS = frozenset({
     "cmd_update", "cmd_workflow_list", "cmd_workflow_candidates",
     "cmd_workflow_promote",
 })
+
+
+def cmd_capabilities(args) -> int:
+    """Answer operation capability questions from edit-algebra evidence."""
+    from library.tools import edit_algebra
+    from library.tools.native_mcp import capabilities as native_capabilities
+
+    requested = getattr(args, "operation", "") or ""
+    if requested.startswith("native_mcp."):
+        name = requested.removeprefix("native_mcp.")
+        result = native_capabilities()["delegated_tools"].get(name)
+        if result is None:
+            return fail(f"unknown native MCP capability {requested!r}",
+                        f"{TOOL} capabilities")
+        payload = {"id": requested, **result}
+    elif requested in edit_algebra.AXI_OPERATION_MAP:
+        ids = edit_algebra.AXI_OPERATION_MAP[requested]
+        payload = {
+            "id": requested,
+            "documented": True,
+            "algebra_operations": [edit_algebra.capability(op_id)
+                                   for op_id in ids],
+            "available": bool(ids) and all(
+                edit_algebra.status(op_id).compilable for op_id in ids),
+            "implemented": bool(ids) and all(
+                edit_algebra.status(op_id).compilable for op_id in ids),
+            "live_qualified": bool(ids) and all(
+                edit_algebra.status(op_id).qualified for op_id in ids),
+            "production_enabled": bool(ids) and all(
+                edit_algebra.status(op_id).production_enabled for op_id in ids),
+            "supported_backend": sorted({
+                backend.backend
+                for op_id in ids
+                for backend in edit_algebra.status(op_id).backends}),
+            "preserves_fusion": {
+                "value": None,
+                "conditions": [],
+                "qualification_evidence": [],
+            },
+            "limitations": list(edit_algebra.AXI_OPERATION_LIMITATIONS.get(
+                requested, (() if ids else (
+                    "AXI command has no equivalent edit-algebra operation declared",)))),
+        }
+    elif requested:
+        payload = edit_algebra.capability(requested)
+        if payload is None:
+            return fail(f"unknown capability {requested!r}",
+                        f"{TOOL} capabilities")
+    else:
+        payload = {
+            "operations": {
+                name: {"algebra_operations": list(ids)}
+                for name, ids in edit_algebra.AXI_OPERATION_MAP.items()
+            },
+            "algebra": {op.id: edit_algebra.capability(op.id)
+                        for op in edit_algebra.ops()},
+            "native_mcp": native_capabilities(),
+        }
+    sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
+    return 0
 
 _SHADOW_READ_COMMANDS = frozenset({
     "cmd_timeline_list", "cmd_timeline_get", "cmd_markers",
@@ -7894,6 +7955,11 @@ def build_parser() -> Parser:
         help="queue this Resolve command and print its receipt id without "
              "waiting; collect the result with `ren resolved result`")
     subs = parser.add_subparsers(dest="command")
+
+    p = subs.add_parser("capabilities", help="evidence-backed AXI and edit-algebra capability registry")
+    p.add_argument("operation", nargs="?", default="",
+                   help="AXI operation id, native_mcp.<tool>, or algebra op id")
+    p.set_defaults(func=cmd_capabilities)
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
                                          "exact name")

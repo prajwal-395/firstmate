@@ -23,6 +23,7 @@ import pytest
 from library.tools import resolve_axi
 from library.tools.resolve_axi import (
     AxiError,
+    cmd_capabilities,
     cmd_api_docs,
     cmd_api_search,
     cmd_api_stubs,
@@ -71,6 +72,48 @@ from library.tools.resolve_axi import (
     cmd_timeline_get,
     _item_span,
 )
+
+
+def test_capabilities_query_is_derived_from_algebra_and_qualification_evidence(capsys):
+    from types import SimpleNamespace
+
+    assert cmd_capabilities(SimpleNamespace(operation="clip.move_across_tracks")) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["algebra_operations"] == []
+    assert answer["available"] is False
+    assert answer["live_qualified"] is False
+    assert answer["production_enabled"] is False
+    assert "same-row only" in answer["limitations"][0]
+
+
+def test_capabilities_include_native_mcp_delegation_and_restrictions(capsys):
+    from types import SimpleNamespace
+
+    assert cmd_capabilities(SimpleNamespace(
+        operation="native_mcp.get_scripting_api")) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["implemented"] is True
+    assert answer["production_enabled"] is False
+    assert "not an algebra timeline-edit backend" in answer["limitations"]
+
+
+def test_capability_registry_maps_only_declared_algebra_ops():
+    from library.tools import edit_algebra
+    from library.tools.native_mcp import DELEGATED_CAPABILITIES
+
+    assert all(op_id in edit_algebra.ALGEBRA
+               for op_ids in edit_algebra.AXI_OPERATION_MAP.values()
+               for op_id in op_ids)
+    assert "delete_dctl" in DELEGATED_CAPABILITIES
+    assert not any(name.startswith("native_mcp.")
+                   for name in edit_algebra.AXI_OPERATION_MAP)
+
+
+def test_capabilities_cli_is_local_and_answers_without_resolve(capsys):
+    assert resolve_axi.main(["capabilities", "clip.move"]) == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["id"] == "clip.move"
+    assert answer["supported_backend"] == ["reel_touchup"]
 
 
 # ── Fakes ────────────────────────────────────────────────────────────

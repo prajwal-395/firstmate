@@ -3042,6 +3042,79 @@ OP_STATUS: dict[str, OpStatus] = {
     for op_id, op in ALGEBRA.items()
 }
 
+# AXI's user-facing control names resolve to the same algebra entries used
+# by the executors. These are declarations, not claims of live support:
+# the evidence-backed status above remains authoritative for qualification.
+AXI_OPERATION_MAP: dict[str, tuple[str, ...]] = {
+    "clip.place": ("clip.insert",),
+    "clip.trim": ("clip.trim",),
+    "clip.move": ("clip.move",),
+    # The existing clip.move contract is same-row only. Do not alias it to
+    # a cross-track request: that would silently change editorial semantics.
+    "clip.move_across_tracks": (),
+    "clip.delete": ("clip.delete",),
+    "clip.title": (),
+    "clip.transition": (),
+    "clip.speed": (),
+    "marker.add": ("marker.add",),
+    "marker.delete": ("marker.delete",),
+    "color.lut": (),
+    "audio.isolate": (),
+    "multicam.build": (),
+    "multicam.sync": (),
+    "timeline.duplicate": (),
+    "timeline.checkpoint": (),
+    "media.ingest": (),
+    "media.relink": (),
+    "render.queue": (),
+    "render.start": (),
+    "render.stop": (),
+}
+
+AXI_OPERATION_LIMITATIONS = {
+    "clip.move_across_tracks": (
+        "No matching algebra operation is currently declared; clip.move is same-row only.",),
+    "clip.transition": ("No matching algebra operation is currently declared.",),
+    "color.lut": ("No matching algebra operation is currently declared.",),
+    "audio.isolate": ("No matching algebra operation is currently declared.",),
+}
+
+
+def capability(op_id: str) -> dict | None:
+    """JSON-ready evidence-backed capability answer for an algebra op."""
+    entry = status(op_id)
+    if entry is None:
+        return None
+    return {
+        "id": entry.id,
+        "available": entry.compilable,
+        "documented": entry.defined,
+        "implemented": entry.compilable,
+        "live_qualified": entry.qualified,
+        "production_enabled": entry.production_enabled,
+        "backends": [{
+            "id": backend.backend,
+            "implemented": backend.compilable,
+            "live_qualified": backend.qualified,
+            "production_enabled": backend.production_enabled,
+            "qualification_evidence": list(backend.qualification_evidence),
+            "limitations": list(backend.limitations),
+        } for backend in entry.backends],
+        "supported_backend": [backend.backend for backend in entry.backends],
+        # Fusion preservation is a measured property, not implied by a
+        # generic clip move or by a successful API return.
+        "preserves_fusion": {
+            "value": None,
+            "conditions": [],
+            "qualification_evidence": [],
+        },
+        "required_resolve_capabilities": list(entry.required_resolve_capabilities),
+        "media_types": list(entry.media_types),
+        "timeline_conditions": list(entry.timeline_conditions),
+        "verification": entry.verification_contract,
+        "inverse_recovery": entry.inverse_recovery,
+    }
+
 
 def status(op_id: str, backend: str | None = None):
     """Return status metadata for an operation, optionally on one backend.
