@@ -292,6 +292,35 @@ test_opencode_attached_plugin_follows_a_rearmed_generation() {
   pass "an attached worker's plugin reports for a relaunch's re-armed generation"
 }
 
+test_two_concurrent_sessions_on_one_shared_server_both_report_busy_to_their_own_tasks() {
+  local rec id=busy-oc-concurrent-a other=busy-oc-concurrent-b out status state plugin pid sessions gen_a gen_b
+  rec=$(make_spawn_case oc-concurrent opencode "$id")
+  read_case_record "$rec"
+  printf 'on\n' > "$HOME_DIR/config/opencode-shared-server"
+  fm_test_fake_opencode_server "$FAKEBIN_DIR" "$CASE_DIR/fake-server"
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$PROJ_DIR")
+  status=$?
+  pid=$(sed -n 's/^pid=//p' "$HOME_DIR/state/opencode-server-default" 2>/dev/null)
+  case "$pid" in ''|*[!0-9]*) ;; *) kill "$pid" 2>/dev/null || true ;; esac
+  expect_code 0 "$status" "shared opencode spawn should succeed: $out"
+  state="$HOME_DIR/state"
+  plugin="$WT_DIR/.opencode/plugins/fm-busy-state.js"
+  sessions="$state/opencode-server-default.sessions"
+  gen_a=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$id")
+  gen_b=$("$ROOT/bin/fm-busy-event.sh" arm "$state" "$other")
+  printf '%s\t%s\n' "$id" "$gen_a" > "$sessions/session_a"
+  printf '%s\t%s\n' "$other" "$gen_b" > "$sessions/session_b"
+
+  out=$(drive_oc_plugin "$plugin" \
+    "$(oc_status session_a busy)" \
+    "$(oc_status session_b busy)") || fail "concurrent-session drive failed: $out"
+  [ "$(classify opencode "$id" "$state")" = "busy opencode-plugin" ] \
+    || fail "the first shared session did not report busy to its own task"
+  [ "$(classify opencode "$other" "$state")" = "busy opencode-plugin" ] \
+    || fail "the second shared session did not report busy to its own task"
+  pass "two concurrent sessions on one shared server both report busy to their own tasks"
+}
+
 run_claude_hook() {  # <settings.json> <hook-event>
   local cmd
   cmd=$(jq -r ".hooks[\"$2\"][0].hooks[0].command" "$1")
@@ -556,6 +585,7 @@ test_agy_hook_source_trusted
 test_opencode_plugin_semantic_lifecycle
 test_opencode_plugin_unawaited_events_end_idle
 test_opencode_attached_plugin_follows_a_rearmed_generation
+test_two_concurrent_sessions_on_one_shared_server_both_report_busy_to_their_own_tasks
 test_claude_hooks_semantic_lifecycle
 test_claude_hooks_stale_incarnation_harmless
 test_claude_settings_local_keeps_hooks_without_permission_posture

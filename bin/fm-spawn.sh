@@ -5538,6 +5538,18 @@ const clearRetry = () =>
   }));
 export const FmBusyState = async () => {
   let activeSession = null;
+  const activeSessions = new Set();
+  const isActive = (sessionID) => "$OPENCODE_SHARED_SERVER" === "1"
+    ? activeSessions.has(sessionID)
+    : activeSession === sessionID;
+  const activate = (sessionID) => {
+    if ("$OPENCODE_SHARED_SERVER" === "1") activeSessions.add(sessionID);
+    else if (activeSession === null) activeSession = sessionID;
+  };
+  const deactivate = (sessionID) => {
+    if ("$OPENCODE_SHARED_SERVER" === "1") activeSessions.delete(sessionID);
+    else activeSession = null;
+  };
   return {
     event: async ({ event }) => {
       if (event.type === "session.updated") {
@@ -5553,16 +5565,16 @@ export const FmBusyState = async () => {
         const status = event.properties.status;
         const statusType = status && status.type;
         if (statusType === "busy" || statusType === "retry") {
-          if (activeSession === null) activeSession = sessionID;
-          if (sessionID === activeSession) {
+          activate(sessionID);
+          if (isActive(sessionID)) {
             busyEvent("busy", sessionID, "session-" + statusType);
             if (statusType === "retry") recordRetry(status, sessionID);
           }
           await writes;
           return;
         }
-        if (statusType === "idle" && sessionID === activeSession) {
-          activeSession = null;
+        if (statusType === "idle" && isActive(sessionID)) {
+          deactivate(sessionID);
           busyEvent("idle", sessionID, "session-status-idle");
           clearRetry();
         }
@@ -5570,8 +5582,8 @@ export const FmBusyState = async () => {
         return;
       }
       if (event.type === "session.idle") {
-        if (event.properties.sessionID === activeSession) {
-          activeSession = null;
+        if (isActive(event.properties.sessionID)) {
+          deactivate(event.properties.sessionID);
           busyEvent("idle", event.properties.sessionID, "session-idle");
           clearRetry();
         }
