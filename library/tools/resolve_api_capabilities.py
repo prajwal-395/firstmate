@@ -7,6 +7,7 @@ project data are changed.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import re
@@ -19,8 +20,23 @@ DEFAULT_REFERENCE_DIR = Path(
 )
 _CLASS = re.compile(r"^class ([A-Za-z_]\w*)\s*(?:\(|:)")
 _METHOD = re.compile(
-    r"^\s+def ([A-Za-z_]\w*)\((.*)\)(?:\s*->\s*(.*))?:$")
+    r"^\s+def ([A-Za-z_]\w*)\((.*)\)(?:\s*->\s*(.*))?:\s*(?:\.\.\.)?\s*$")
 _SECTION = re.compile(r"^##\s+([0-9]+(?:\.[0-9]+)*)\s*$")
+_CLASS_CONTEXT = {
+    "Resolve": ("application", "Resolve application connection required"),
+    "ProjectManager": ("project_manager", "connected Resolve instance required"),
+    "Project": ("project", "exact open project required for project mutations"),
+    "MediaPool": ("media_pool", "exact open project and media pool required"),
+    "MediaPoolItem": ("media_pool", "item must belong to the open project's pool"),
+    "Timeline": ("timeline", "exact open project and selected timeline required"),
+    "TimelineItem": ("timeline", "item must resolve on the exact timeline"),
+    "ColorGroup": ("color", "color group must belong to the open project"),
+    "Folder": ("media_pool", "folder must belong to the open project's pool"),
+    "Gallery": ("color", "gallery must belong to the open project"),
+    "GalleryStillAlbum": ("color", "album must belong to the open gallery"),
+    "Graph": ("fusion", "graph must belong to the target Fusion composition"),
+    "MediaStorage": ("media_storage", "Resolve media storage required"),
+}
 
 
 class ResolveReferenceError(RuntimeError):
@@ -34,8 +50,30 @@ def _read_docstring(lines: list[str], index: int) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _literal_types(stub: str) -> dict[str, list[Any]]:
+    """Extract Literal aliases so enum-like API inputs can be validated."""
+    try:
+        tree = ast.parse(stub)
+    except SyntaxError:
+        # The method-line parser below tolerates small hand-written stubs;
+        # they may not form a complete module when a test ends in `def ...:`.
+        return {}
+    result = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        value = node.value
+        if (isinstance(target, ast.Name) and isinstance(value, ast.Subscript)
+                and ast.unparse(value.value).split(".")[-1] == "Literal"):
+            values = value.slice.elts if isinstance(value.slice, ast.Tuple) else [value.slice]
+            result[target.id] = [ast.literal_eval(item) for item in values]
+    return result
+
+
 def _methods(stub: str) -> dict[str, dict[str, dict[str, str]]]:
     classes: dict[str, dict[str, dict[str, str]]] = {}
+    literal_types = _literal_types(stub)
     current: str | None = None
     lines = stub.splitlines()
     for index, line in enumerate(lines):
@@ -51,9 +89,59 @@ def _methods(stub: str) -> dict[str, dict[str, dict[str, str]]]:
             name, args, returns = method_match.groups()
             if name.startswith("_"):
                 continue
+            signature = f"({args})" + (f" -> {returns}" if returns else "")
+            try:
+                parsed = ast.parse(f"def _method{signature}: ...").body[0]
+                parameters = []
+                positional = parsed.args.posonlyargs + parsed.args.args
+                defaults_start = len(positional) - len(parsed.args.defaults)
+                for index, arg in enumerate(positional):
+                    if arg.arg == "self":
+                        continue
+                    parameter = {
+                        "name": arg.arg,
+                        "type": ast.unparse(arg.annotation) if arg.annotation else "Any",
+                        "required": index < defaults_start,
+                    }
+                    if parameter["type"] in literal_types:
+                        parameter["allowed_values"] = literal_types[parameter["type"]]
+                    parameters.append(parameter)
+                for index, arg in enumerate(parsed.args.kwonlyargs):
+                    if arg.arg == "self":
+                        continue
+                    parameter = {
+                        "name": arg.arg,
+                        "type": ast.unparse(arg.annotation) if arg.annotation else "Any",
+                        "required": parsed.args.kw_defaults[index] is None,
+                    }
+                    if parameter["type"] in literal_types:
+                        parameter["allowed_values"] = literal_types[parameter["type"]]
+                    parameters.append(parameter)
+                if parsed.args.vararg:
+                    parameters.append({
+                        "name": parsed.args.vararg.arg,
+                        "type": ast.unparse(parsed.args.vararg.annotation)
+                        if parsed.args.vararg.annotation else "Any",
+                        "required": False, "kind": "var_positional",
+                    })
+                if parsed.args.kwarg:
+                    parameters.append({
+                        "name": parsed.args.kwarg.arg,
+                        "type": ast.unparse(parsed.args.kwarg.annotation)
+                        if parsed.args.kwarg.annotation else "Any",
+                        "required": False, "kind": "var_keyword",
+                    })
+            except (SyntaxError, ValueError):
+                parameters = []
             classes[current][name] = {
-                "signature": f"({args})" + (f" -> {returns}" if returns else ""),
+                "signature": signature,
+                "parameters": parameters,
+                "return_type": returns or "Any",
                 "description": _read_docstring(lines, index),
+                "documented": True,
+                "observed": None,
+                "page_context": _CLASS_CONTEXT.get(current, ("unknown", "inspect object context"))[0],
+                "context_requirement": _CLASS_CONTEXT.get(current, ("unknown", "inspect object context"))[1],
             }
     return {name: methods for name, methods in classes.items() if methods}
 
@@ -97,6 +185,10 @@ def build_capability_map(version: str, reference_dir: Path | str =
     if not classes:
         raise ResolveReferenceError(f"no public API classes found in {stub_path}")
     version = str(version)
+    for class_name, methods in classes.items():
+        for method in methods.values():
+            method["page_context"], method["context_requirement"] = _CLASS_CONTEXT.get(
+                class_name, ("unknown", "inspect object context"))
     return {
         "schema_version": 1,
         "resolve_version": version,
@@ -129,6 +221,59 @@ def has_documented_method(capability_map: dict[str, Any], class_name: str,
     return method_name in release["classes"].get(class_name, {})
 
 
+def observe_methods(capability_map: dict[str, Any], handles: dict[str, Any]) -> dict[str, list[str]]:
+    """Record which documented methods are callable on supplied live proxies.
+
+    `handles` is explicit because Resolve exposes different objects only in
+    their project/page context. This probes availability, not behavior or
+    write safety; callers still verify every operation's result.
+    """
+    release = capability_map_for_version(capability_map)
+    observed: dict[str, list[str]] = {}
+    for class_name, methods in release["classes"].items():
+        handle = handles.get(class_name)
+        names = []
+        for name, entry in methods.items():
+            available = bool(handle is not None and callable_method(handle, name))
+            entry["observed"] = available if handle is not None else None
+            if available:
+                names.append(name)
+        if names:
+            observed[class_name] = names
+    return observed
+
+
+def method_capability_records(capability_map: dict[str, Any]) -> list[dict[str, Any]]:
+    """Emit normalized native-method facts for AXI capability-registry joins.
+
+    Method-level production enablement is always false here: only an
+    editorial operation/backend pair with its own qualification can be
+    production-enabled by the registry authority.
+    """
+    release = capability_map_for_version(capability_map)
+    records = []
+    for class_name, methods in release["classes"].items():
+        for method_name, metadata in methods.items():
+            records.append({
+                "id": f"native_api.{class_name}.{method_name}",
+                "backend": "native_scripting",
+                "resolve_version": capability_map["resolve_version"],
+                "documented": metadata["documented"],
+                "observed": metadata["observed"],
+                "implemented": True,
+                "tested": False,
+                "live_qualified": False,
+                "production_enabled": False,
+                "signature": metadata["signature"],
+                "parameters": metadata["parameters"],
+                "return_type": metadata["return_type"],
+                "page_context": metadata["page_context"],
+                "context_requirement": metadata["context_requirement"],
+                "api_reference_sha256": release["api_reference_sha256"],
+            })
+    return records
+
+
 def callable_method(target: Any, method_name: str):
     """Return an actually callable proxy method, tolerating proxy lookup errors.
 
@@ -137,7 +282,7 @@ def callable_method(target: Any, method_name: str):
     """
     try:
         method = getattr(target, method_name)
-    except Exception:
+    except Exception:  # noqa: BLE001 - Resolve proxy lookup errors vary by release
         return None
     return method if callable(method) else None
 
