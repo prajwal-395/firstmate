@@ -69,6 +69,7 @@ from library.tools import (brief_attachment, briefing_interview,
                            reel_request, run_restart,
                            second_pass, undetermined)
 from library.tools import run_control
+from library.tools.artifact_lifecycle import project_activity_lease
 from library.tools import model_task
 # The model-task service's names, re-exported: callers and the replay
 # bench reach them through the runner. See library/tools/model_task.py.
@@ -2479,6 +2480,7 @@ def emit_run_summary(summary: dict, project_dir: str,
     return summary
 
 
+@project_activity_lease
 def run_pipeline(
     project_dir: str,
     from_step: str = None,

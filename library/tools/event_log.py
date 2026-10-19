@@ -251,8 +251,9 @@ def emit_once(project_folder, event_type: str, event_id: str,
                 event = json.loads(line)
             except ValueError:
                 continue
-            if (isinstance(event, dict)
-                    and event.get("fields", {}).get("event_id") == event_id):
+            event_fields = event.get("fields") if isinstance(event, dict) else None
+            if (isinstance(event_fields, dict)
+                    and event_fields.get("event_id") == event_id):
                 return event, False
         fields["event_id"] = event_id
         return _append_locked(path, event_type, task, fields), True

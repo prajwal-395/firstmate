@@ -91,6 +91,8 @@ import json
 import os
 import re
 import shutil
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -243,6 +245,7 @@ class Candidate:
     is_dir: bool = False
     mtime_ns: int = 0
     inode: tuple = ()
+    identity: tuple = ()
 
 
 def _reclaimable_bytes(candidates: list[Candidate]) -> int:
@@ -273,6 +276,7 @@ class PurgePlan:
     kept: list = field(default_factory=list)
     render_fingerprints: dict = field(default_factory=dict)
     protected_timelines: list = field(default_factory=list)
+    applied: dict = field(default_factory=dict)
 
     @property
     def reclaimable_bytes(self) -> int:
@@ -296,9 +300,12 @@ class PurgePlan:
             created_at=data["created_at"], mode=data["mode"],
             roots=data.get("roots", []), kept=data.get("kept", []),
             render_fingerprints=data.get("render_fingerprints", {}),
-            protected_timelines=data.get("protected_timelines", []))
-        plan.candidates = [Candidate(**{**c, "inode": tuple(c["inode"])})
-                           for c in data["candidates"]]
+            protected_timelines=data.get("protected_timelines", []),
+            applied=data.get("applied", {}))
+        plan.candidates = [Candidate(**{
+            **c, "inode": tuple(c["inode"]),
+            "identity": tuple(c.get("identity", ()))})
+            for c in data["candidates"]]
         return plan
 
 
@@ -309,7 +316,9 @@ def _stat_candidate(path: str, category: str, reason: str) -> Candidate:
     inode = () if is_dir else (st.st_dev, st.st_ino, st.st_nlink)
     return Candidate(path=path, size_bytes=size, category=category,
                      reason=reason, is_dir=is_dir,
-                     mtime_ns=st.st_mtime_ns, inode=inode)
+                     mtime_ns=st.st_mtime_ns, inode=inode,
+                     identity=(st.st_dev, st.st_ino, st.st_mode,
+                               st.st_size, st.st_mtime_ns))
 
 
 def _files_under(root: Path, exclude: Path | None = None):
@@ -597,6 +606,10 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
                 "again") from outside
         if not os.path.lexists(path):
             continue
+        if os.path.islink(path):
+            plan.kept.append({"path": path, "category": category,
+                              "why": "symbolic links are protected"})
+            continue
         plan.candidates.append(_stat_candidate(path, category, reason))
     return plan
 
@@ -700,6 +713,29 @@ def apply_purge(manifest_path: str, db_paths,
             f"manifest")
     by_path = {c.path: c for c in planned.candidates}
     listed = listed_paths(manifest_path)
+    progress = planned.applied or {"removed": [], "deleting": [], "bytes": 0}
+    progress.setdefault("deleting", [])
+    progress.setdefault("bytes", 0)
+    progress.setdefault("removed", [])
+    completed = set(progress["removed"])
+    deleting = set(progress["deleting"])
+    if any(os.path.lexists(path) for path in completed):
+        raise PurgeRefused(
+            "a completed purge path reappeared",
+            "the durable job will not remove a new object at an old path",
+            "inspect the path and create a fresh purge plan")
+    actionable = [path for path in listed if path not in completed]
+    if not actionable:
+        _drop_empty_dirs(planned.project_folder)
+        record = {"applied_at": datetime.now(UTC).isoformat(),
+                  "manifest": manifest_path, "removed": progress["removed"],
+                  "removed_count": len(progress["removed"]),
+                  "bytes": progress["bytes"]}
+        data = planned.to_dict()
+        data["applied"] = record
+        Path(_json_path_for(manifest_path)).write_text(
+            json.dumps(data, indent=2, default=list), encoding="utf-8")
+        return record
     layout = ProjectLayout(planned.project_folder)
     declared_inputs = _declared_step_file_inputs(planned.project_folder)
     requested_inputs = [
@@ -714,7 +750,7 @@ def apply_purge(manifest_path: str, db_paths,
             "a purge must never remove a file a build step declares as an "
             "input. Nothing was removed",
             "remove that path from the hand-edited manifest and re-plan")
-    unplanned = [p for p in listed if p not in by_path]
+    unplanned = [p for p in actionable if p not in by_path]
     if unplanned:
         raise PurgeRefused(
             f"the manifest lists {len(unplanned)} path(s) the plan never "
@@ -732,9 +768,13 @@ def apply_purge(manifest_path: str, db_paths,
                 "it. Nothing was removed",
                 "re-plan the purge and apply the fresh manifest")
     now = {c.path: c for c in fresh.candidates}
-    for path in listed:
+    recovered = []
+    for path in actionable:
         was, current = by_path[path], now.get(path)
         if current is None:
+            if path in deleting and not os.path.lexists(path):
+                recovered.append(path)
+                continue
             raise PurgeRefused(
                 f"{path} is no longer removable (a current root "
                 f"references it, or it is gone)",
@@ -746,22 +786,68 @@ def apply_purge(manifest_path: str, db_paths,
                 f"{path} changed since the plan was made",
                 "size or mtime moved under the plan. Nothing was removed",
                 "re-plan the purge and apply the fresh manifest")
+        if current.identity != was.identity:
+            raise PurgeRefused(
+                f"{path} was replaced since the plan was made",
+                "device/inode identity moved under the plan. Nothing was removed",
+                "re-plan the purge and apply the fresh manifest")
 
-    removed = []
-    for path in listed:
-        if by_path[path].is_dir:
+    plan_json = Path(_json_path_for(manifest_path))
+
+    def persist_progress() -> None:
+        planned.applied = progress
+        plan_json.write_text(json.dumps(planned.to_dict(), indent=2,
+                                        default=list), encoding="utf-8")
+
+    for path in recovered:
+        progress["removed"].append(path)
+        progress["deleting"].remove(path)
+        progress["bytes"] = _reclaimable_bytes(
+            [by_path[p] for p in progress["removed"]])
+        persist_progress()
+
+    for path in actionable:
+        if path in recovered or path not in now:
+            continue
+        candidate = by_path[path]
+        try:
+            current_stat = os.lstat(path)
+        except OSError as exc:
+            raise PurgeRefused(
+                f"{path} disappeared at delete time ({exc})",
+                "the selected filesystem identity no longer exists",
+                "re-plan the purge and apply the fresh manifest") from exc
+        identity = (current_stat.st_dev, current_stat.st_ino,
+                    current_stat.st_mode, current_stat.st_size,
+                    current_stat.st_mtime_ns)
+        if identity != candidate.identity:
+            raise PurgeRefused(
+                f"{path} was replaced at delete time",
+                "device/inode identity moved under the plan. Nothing further was removed",
+                "re-plan the purge and apply the fresh manifest")
+        if path not in deleting:
+            progress["deleting"].append(path)
+            deleting.add(path)
+            persist_progress()
+        if candidate.is_dir:
             shutil.rmtree(path)
         else:
             os.unlink(path)
-        removed.append(path)
+        progress["deleting"].remove(path)
+        deleting.remove(path)
+        progress["removed"].append(path)
+        progress["bytes"] = _reclaimable_bytes(
+            [by_path[p] for p in progress["removed"]])
+        completed.add(path)
+        persist_progress()
     _drop_empty_dirs(planned.project_folder)
     record = {"applied_at": datetime.now(UTC).isoformat(),
-              "manifest": manifest_path, "removed": removed,
-              "removed_count": len(removed),
-              "bytes": _reclaimable_bytes([now[p] for p in removed])}
+              "manifest": manifest_path, "removed": progress["removed"],
+              "removed_count": len(progress["removed"]),
+              "bytes": progress["bytes"]}
     data = planned.to_dict()
     data["applied"] = record
-    Path(_json_path_for(manifest_path)).write_text(
+    plan_json.write_text(
         json.dumps(data, indent=2, default=list), encoding="utf-8")
     return record
 
@@ -838,42 +924,95 @@ def database_paths(project_folder: str) -> list:
     return [path]
 
 
-def after_signoff(project_folder: str, db_paths=None) -> str:
+_cleanup_worker_lock = threading.Lock()
+
+
+def _process_cleanup_queue(project_folder: str, db_paths=None) -> None:
+    """Drain durable sign-off jobs once project activity and leases clear."""
+    from library.tools import artifact_lifecycle, run_control
+    from library.tools.resource_leases import (
+        LeaseDeclaration, ResourceRef, ResourceLeaseBusy, resource_lease)
+
+    while True:
+        jobs = artifact_lifecycle.incomplete_cleanup_jobs(project_folder)
+        if not jobs:
+            return
+        if run_control.is_running(project_folder):
+            time.sleep(1)
+            continue
+        project_ref = ResourceRef("project", str(Path(project_folder).resolve()))
+        declaration = LeaseDeclaration(exclusive=frozenset({project_ref}))
+        try:
+            lease = resource_lease(
+                declaration, purpose="signoff-retention-cleanup",
+                project=project_folder, wait=False)
+            with lease:
+                if run_control.is_running(project_folder):
+                    time.sleep(1)
+                    continue
+                artifact_lifecycle.recover_interrupted_cleanup_jobs(
+                    project_folder)
+                jobs = artifact_lifecycle.pending_cleanup_jobs(project_folder)
+                for job in jobs:
+                    artifact_lifecycle.transition_cleanup_job(
+                        project_folder, job, "running")
+                    try:
+                        paths = db_paths or database_paths(project_folder)
+                        plan = plan_purge(project_folder, paths, mode=LEAN)
+                        manifest = write_plan(plan)
+                        result = apply_purge(
+                            manifest, paths, project_folder=project_folder)
+                        artifact_lifecycle.transition_cleanup_job(
+                            project_folder, job, "complete",
+                            outcome=(f"removed {result['removed_count']} paths; "
+                                     f"reclaimed {result['bytes']} bytes; "
+                                     f"manifest {manifest}"))
+                    except Exception as refused:  # noqa: BLE001 - sign-off stands
+                        artifact_lifecycle.transition_cleanup_job(
+                            project_folder, job, "refused", outcome=str(refused))
+        except ResourceLeaseBusy:
+            time.sleep(1)
+
+
+def resume_cleanup_jobs(project_folder: str, db_paths=None) -> None:
+    """Resume queued work in the background; the job itself is durable."""
+    from library.tools import artifact_lifecycle
+    if not _cleanup_worker_lock.acquire(blocking=False):
+        return
+
+    def worker():
+        try:
+            _process_cleanup_queue(project_folder, db_paths)
+        finally:
+            _cleanup_worker_lock.release()
+
+    threading.Thread(target=worker, name="ren-retention-cleanup",
+                     daemon=True).start()
+
+
+def after_signoff(project_folder: str, db_paths=None, *,
+                  lifecycle_event_id: str) -> str:
     """What a sign-off does about retention. Returns the lines to print.
 
-    `keep` does nothing. `lean` writes a plan manifest, then applies
-    that exact manifest through the normal fresh-plan re-proof. The
-    durable manifest remains as the account of what was removed. A
-    purge failure is reported, never raised: the sign-off already
-    landed.
+    `keep` does nothing. `lean` writes a deduplicated durable job to the
+    project event log, then a worker waits for project activity and leases
+    before planning and applying. A refusal is recorded on the job; the
+    sign-off already landed and is never rolled back.
     """
     try:
         mode = retention_mode()
         if mode == KEEP:
             return f"Retention is {KEEP!r}: nothing is purged."
-        if db_paths is None:
-            db_paths = database_paths(project_folder)
-        plan = plan_purge(project_folder, db_paths, mode=mode)
-    except (PurgeRefused, RetentionSettingInvalid, OSError) as refused:
-        return f"Purge not planned: {refused}"
-    except Exception as unavailable:  # noqa: BLE001 - Resolve unreachable
-        return (f"Purge not planned: {unavailable}. Plan it with "
-                f"`ren purge {project_folder}` once Resolve is open.")
-    try:
-        manifest = write_plan(plan)
-    except OSError as unavailable:
-        return f"Purge not planned: could not write plan manifest ({unavailable})."
-    try:
-        record = apply_purge(manifest, db_paths,
-                             project_folder=project_folder)
-    except (PurgeRefused, RetentionSettingInvalid, OSError) as refused:
-        return (f"Lean retention plan listed in {manifest}; purge refused: "
-                f"{refused}. Nothing was removed.")
+        from library.tools import artifact_lifecycle
+        project_id = Path(project_folder).resolve().name
+        job_id = f"signoff-retention-{lifecycle_event_id}"
+        artifact_lifecycle.schedule_cleanup_job(
+            project_folder, event_id=lifecycle_event_id,
+            project_id=project_id, run_id=lifecycle_event_id,
+            job_id=job_id, reason="successful reel sign-off")
+        resume_cleanup_jobs(project_folder, db_paths)
+        return f"Lean retention cleanup queued as durable job {job_id}."
+    except (PurgeRefused, RetentionSettingInvalid, OSError, ValueError) as refused:
+        return f"Purge job not queued: {refused}. Sign-off remains recorded."
     except Exception as unavailable:  # noqa: BLE001 - sign-off already landed
-        return (f"Lean retention plan listed in {manifest}; purge not "
-                f"completed: {unavailable}. Nothing was removed.")
-    gib = plan.reclaimable_bytes / (1024 ** 3)
-    return (f"Lean retention: removed {record['removed_count']} path(s), "
-            f"{record['bytes'] / (1024 ** 3):.2f} GiB (planned "
-            f"{len(plan.candidates)} path(s), {gib:.2f} GiB). Manifest: "
-            f"{manifest}.")
+        return f"Purge job not queued: {unavailable}. Sign-off remains recorded."

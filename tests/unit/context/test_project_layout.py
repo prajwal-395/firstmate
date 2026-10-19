@@ -840,6 +840,55 @@ def test_applied_purge_receipt_counts_only_links_removed(tmp_path):
 
 
 @pytest.mark.usefixtures("_lean")
+def test_apply_refuses_same_size_same_mtime_inode_replacement(tmp_path):
+    root = _project(tmp_path)
+    directory = os.path.join(root, "pipeline_output", "quarantine")
+    original = _write(os.path.join(directory, "output.bin"), size=32)
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+    manifest = retention.write_plan(retention.plan_purge(root, [db]))
+    before = os.stat(original)
+    replacement = os.path.join(directory, "replacement.bin")
+    _write(replacement, size=32)
+    os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+    os.replace(replacement, original)
+
+    with pytest.raises(retention.PurgeRefused, match="replaced"):
+        retention.apply_purge(manifest, [db], project_folder=root)
+    assert os.path.isfile(original)
+
+
+@pytest.mark.usefixtures("_lean")
+def test_interrupted_purge_resumes_from_durable_per_file_progress(
+        tmp_path, monkeypatch):
+    root = _project(tmp_path)
+    directory = os.path.join(root, "pipeline_output", "quarantine")
+    first = _write(os.path.join(directory, "first.bin"), size=32)
+    second = _write(os.path.join(directory, "second.bin"), size=32)
+    db = _database(str(tmp_path / "db" / "Project.db"), [], [SIGNED])
+    manifest = retention.write_plan(retention.plan_purge(root, [db]))
+    original_unlink = os.unlink
+    failed = False
+
+    def fail_once_on_second(path, *args, **kwargs):
+        nonlocal failed
+        if path == second and not failed:
+            failed = True
+            raise OSError("simulated interruption after first deletion")
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(retention.os, "unlink", fail_once_on_second)
+    with pytest.raises(OSError, match="simulated interruption"):
+        retention.apply_purge(manifest, [db], project_folder=root)
+    monkeypatch.setattr(retention.os, "unlink", original_unlink)
+
+    receipt = retention.apply_purge(manifest, [db], project_folder=root)
+
+    assert receipt["removed_count"] == 2
+    assert receipt["bytes"] == 64
+    assert not os.path.exists(first) and not os.path.exists(second)
+
+
+@pytest.mark.usefixtures("_lean")
 def test_an_unsigned_reels_renders_survive_its_timeline_being_gone(
         tmp_path):
     """Between builds a reel has no timeline, and the ledger stops pinning

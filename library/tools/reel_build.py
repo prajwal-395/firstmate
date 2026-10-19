@@ -143,6 +143,7 @@ from library.tools.resolve_transform import (
 from library.tools import reel_clock as _reel_clock
 from library.tools import resolve_bin_layout as bins
 from library.tools.ren_refusal import RenRefusal
+from library.tools.artifact_lifecycle import project_activity_lease
 from library.tools.resolve_lock import (
     ResolveBusy, assert_current_timeline, report_activity_progress,
     resolve_lease, under_lease)
@@ -14521,6 +14522,7 @@ class _PreparedReelArtifact:
     fusion_manifest: object
 
 
+@project_activity_lease
 @_serialize_reel_build
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                               verify: bool = True, only=None,

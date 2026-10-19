@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+from functools import wraps
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -200,6 +201,17 @@ def schedule_cleanup_job(project_folder: str, *, event_id: str,
 
 
 def pending_cleanup_jobs(project_folder: str) -> list[dict]:
+    jobs = _latest_cleanup_jobs(project_folder)
+    return [job for job in jobs.values() if job.get("state") == "queued"]
+
+
+def incomplete_cleanup_jobs(project_folder: str) -> list[dict]:
+    jobs = _latest_cleanup_jobs(project_folder)
+    return [job for job in jobs.values()
+            if job.get("state") in {"queued", "running"}]
+
+
+def _latest_cleanup_jobs(project_folder: str) -> dict[str, dict]:
     jobs = {}
     for event in event_log.read_events(project_folder):
         fields = _event_fields(event)
@@ -208,7 +220,43 @@ def pending_cleanup_jobs(project_folder: str) -> list[dict]:
         event_id = fields.get("lifecycle_event_id")
         if event_id:
             jobs[event_id] = fields
-    return [job for job in jobs.values() if job.get("state") == "queued"]
+    return jobs
+
+
+def transition_cleanup_job(project_folder: str, job: dict, target: str,
+                           *, outcome: str = "") -> None:
+    """Append an idempotent job transition, retaining prior states as history."""
+    allowed = {"queued": {"running", "refused"},
+               "running": {"queued", "complete", "refused"},
+               "complete": set(), "refused": {"queued"}}
+    current_job = _latest_cleanup_jobs(project_folder).get(
+        job["lifecycle_event_id"], job)
+    current = current_job["state"]
+    if current == target:
+        return
+    if target not in allowed[current]:
+        raise LifecycleRefused(f"invalid cleanup job transition {current} -> {target}")
+    job = current_job
+    event_id = job["lifecycle_event_id"]
+    event_log.emit_once(
+        project_folder, CLEANUP_JOB,
+        f"cleanup:{event_id}:{target}:{hashlib.sha256(outcome.encode()).hexdigest()[:12]}",
+        task=job["job_id"], lifecycle_event_id=event_id,
+        project_id=job["project_id"], run_id=job["run_id"],
+        job_id=job["job_id"], reason=job["reason"], state=target,
+        outcome=outcome)
+
+
+def recover_interrupted_cleanup_jobs(project_folder: str) -> int:
+    """Return orphaned RUNNING jobs to QUEUED for manifest re-proof."""
+    recovered = 0
+    for job in _latest_cleanup_jobs(project_folder).values():
+        if job["state"] == "running":
+            transition_cleanup_job(
+                project_folder, job, "queued",
+                outcome="recovered after interrupted cleanup worker")
+            recovered += 1
+    return recovered
 
 
 def _assert_cleanup_path(path: Path, cleanup_root: Path) -> None:
@@ -285,3 +333,29 @@ def stable_artifact_id(project_id: str, run_id: str, job_id: str,
     digest = hashlib.sha256("\0".join((project_id, run_id, job_id, kind,
                                          producer_key)).encode("utf-8")).hexdigest()
     return f"ren-artifact-{digest}"
+
+
+def project_activity_lease(function):
+    """Fence a complete project run against cleanup's validate-and-delete."""
+    @wraps(function)
+    def guarded(project_folder, *args, **kwargs):
+        project_path = Path(str(project_folder)).expanduser()
+        if not project_path.is_dir():
+            from library.tools.paths import project_root
+            try:
+                project_path = project_root(str(project_folder))
+            except (FileNotFoundError, ValueError) as exc:
+                raise LifecycleRefused(
+                    f"cannot resolve project for activity lease: {project_folder}") from exc
+        project_path = project_path.resolve()
+        # A durable job left by a process interruption is resumed the next
+        # time Ren enters this project; its lease arbitrates with this run.
+        from library.tools import retention
+        retention.resume_cleanup_jobs(str(project_path))
+        declaration = LeaseDeclaration(exclusive=frozenset({
+            ResourceRef("project", str(project_path))}))
+        with resource_leases.resource_lease(
+                declaration, purpose="project-pipeline-run",
+                project=str(project_path), wait=True):
+            return function(project_folder, *args, **kwargs)
+    return guarded

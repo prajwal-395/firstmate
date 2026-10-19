@@ -76,10 +76,13 @@ reels.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import tempfile
+from pathlib import Path
 
 from library.tools.ren_refusal import RenRefusal
+from library.tools.artifact_lifecycle import project_activity_lease
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
@@ -191,6 +194,7 @@ def _write(project_folder, document: Mapping) -> str:
     return path
 
 
+@project_activity_lease
 def sign_off(project_folder, timeline: str, *, note: str = "",
              by: str = "captain", rows: Mapping | None = None,
              round_number: int | None = None) -> dict:
@@ -255,7 +259,11 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     # obey the same per-user D6 policy. The sign-off remains durable if
     # Resolve is unavailable or a purge cannot be proved.
     from library.tools import retention
-    entry["retention_summary"] = retention.after_signoff(project_folder)
+    lifecycle_event_id = hashlib.sha256("\0".join((
+        str(Path(project_folder).resolve()), reel,
+        str(round_number or ""), entry["rows_digest"])).encode("utf-8")).hexdigest()
+    entry["retention_summary"] = retention.after_signoff(
+        project_folder, lifecycle_event_id=lifecycle_event_id)
     return entry
 
 

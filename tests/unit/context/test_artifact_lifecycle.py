@@ -70,6 +70,20 @@ def test_cleanup_job_is_deduplicated_by_lifecycle_event(tmp_path):
     assert len(lifecycle.pending_cleanup_jobs(project)) == 1
 
 
+def test_interrupted_cleanup_job_returns_to_queue_for_reproof(tmp_path):
+    project = str(tmp_path / "project")
+    (tmp_path / "project").mkdir()
+    job, _ = lifecycle.schedule_cleanup_job(
+        project, event_id="signoff:reel-a:round-2", project_id="project-a",
+        run_id="signoff-2", job_id="cleanup-2", reason="sign-off")
+    lifecycle.transition_cleanup_job(project, job, "running")
+
+    recovered = lifecycle.recover_interrupted_cleanup_jobs(project)
+
+    assert recovered == 1
+    assert len(lifecycle.pending_cleanup_jobs(project)) == 1
+
+
 def test_inventory_counts_shared_inode_physical_bytes_once(tmp_path):
     project = str(tmp_path / "project")
     project.mkdir()
