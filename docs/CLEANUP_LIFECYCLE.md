@@ -10,8 +10,22 @@ Use `ren storage status [PROJECT] --json` to inspect registered artifacts,
 storage by artifact kind, logical and physical bytes, cache budget use, and
 free-space pressure. The inventory reads lifecycle event logs; it does not
 discover candidates by recursively scanning storage directories. It reports
-Ren-owned registered artifacts only. User assets and unknown or legacy files
-are outside the inventory and remain protected from these operations.
+Ren-owned registered artifacts and a separately measured legacy summary.
+Legacy entries include logical bytes and allocated bytes, counted once per
+device/inode for hardlinks. The legacy summary does not make an unverified
+entry eligible for collection.
+
+Use `ren storage legacy-inventory --manifest PATH` for a complete read-only
+inventory of known legacy roots. It records each file, directory, or symlink,
+physical allocation, and the evidence source that did or did not establish
+ownership. Exact build-sweep marks and their applied sweep manifests establish
+ownership for files already in quarantine. `--register-project-scratch
+--project <SLUG>` adopts project scratch only when observed provenance names
+the exact path, run, and producing step, the recorded byte count still matches,
+the file has no hardlinks, and retained project records do not reference its
+name. Everything else remains review-only. Qualification reports, performance
+ledgers, real-footage copies, fixtures, review data, and recovery references
+remain protected.
 
 Use `ren storage plan [PROJECT] --manifest PATH` to write a manifest for
 artifacts that are already marked disposable and remain identity verified.
