@@ -326,6 +326,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi.py',
+        'library/tools/resolve_axi_core.py',
         # resolve-axi's typed scratch-project operations are imported by
         # its command dispatcher and therefore belong to this closure.
         'library/tools/resolve_scratch_projects.py',
@@ -838,6 +839,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi.py',
+        'library/tools/resolve_axi_core.py',
         'library/tools/resolve_scratch_projects.py',
         'library/tools/resolve_bin_layout.py',
         'library/tools/resolved/drt_export_probe.py',
@@ -1099,6 +1101,9 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/resolve_archive.py',
     ),
     "step_1_02_catalog_footage": (
+        # The AXI CLI shell imports its shared core; keep that transitive
+        # source in the catalog's declared source closure.
+        "library/tools/resolve_axi_core.py",
         # EditPatch receipts are part of the shared code identity closure;
         # changing their schema must invalidate any cached consumer that
         # imports the transaction coordinator.
@@ -1378,6 +1383,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi.py',
+        'library/tools/resolve_axi_core.py',
         'library/tools/resolve_scratch_projects.py',
         'library/tools/resolve_bin_layout.py',
         'library/tools/resolved/drt_export_probe.py',
@@ -1913,6 +1919,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi.py',
+        'library/tools/resolve_axi_core.py',
         'library/tools/resolve_scratch_projects.py',
         'library/tools/resolve_bin_layout.py',
         'library/tools/resolved/drt_export_probe.py',
@@ -2487,6 +2494,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi.py',
+        'library/tools/resolve_axi_core.py',
         'library/tools/resolve_scratch_projects.py',
         'library/tools/resolve_bin_layout.py',
         'library/tools/resolved/drt_export_probe.py',

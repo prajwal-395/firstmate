@@ -257,10 +257,17 @@ def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
                 if isinstance(node, ast.FunctionDef) and node.name == "main")
     assert any(isinstance(call, ast.Call)
                and isinstance(call.func, ast.Name)
-               and call.func.id == "_dispatch"
+               and call.func.id == "invoke_cli"
                for call in ast.walk(main)), (
-        "resolve-axi main must dispatch Resolve commands inside their "
-        "lease before calling a handler")
+        "resolve-axi main must enter the shared core")
+    core_dispatch = next(node for node in tree.body
+                         if isinstance(node, ast.FunctionDef)
+                         and node.name == "_main_impl")
+    assert any(isinstance(call, ast.Call)
+               and isinstance(call.func, ast.Name)
+               and call.func.id == "_dispatch"
+               for call in ast.walk(core_dispatch)), (
+        "shared core dispatch must retain the CLI's leased dispatcher")
 
 
 def test_non_routed_live_resolve_entry_points_take_the_lease():

@@ -119,6 +119,103 @@ def tool_for_verb(verb) -> dict:
     }
 
 
+def axi_tool() -> dict:
+    """The AXI control boundary, with its own CLI-equivalent guards."""
+    return {
+        "name": "resolve_axi",
+        "description": ("Execute one typed Resolve AXI command in-process. "
+                        "Writes retain AXI's explicit --apply/--unsafe "
+                        "flags, cursor assertions, broker routing and leases."),
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "command": {"type": "string", "minLength": 1},
+                "arguments": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["command", "arguments"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True,
+                         "idempotentHint": False, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "shared_core"},
+    }
+
+
+def axi_transaction_tool() -> dict:
+    return {
+        "name": "resolve_axi_transaction",
+        "description": ("Submit one generation-pinned typed EditPatch with "
+                        "multiple native operations; apply must be explicitly "
+                        "true and the broker verifies the single receipt."),
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "transaction": {"type": "object", "minProperties": 1},
+                "apply": {"type": "boolean"},
+            },
+            "required": ["transaction", "apply"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True,
+                         "idempotentHint": False, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "guarded_transaction"},
+    }
+
+
+def call_axi(arguments: dict) -> dict:
+    """Run a typed AXI call without a subprocess or a second dispatcher."""
+    command, extra = arguments.get("command"), arguments.get("arguments")
+    if (not isinstance(command, str) or not command.strip()
+            or not isinstance(extra, list)
+            or any(not isinstance(value, str) for value in extra)):
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2,
+            "error": "command must be non-empty and arguments must be strings"})}],
+            "isError": True}
+    from library.tools.resolve_axi_sdk import call
+    result = call(command, *extra)
+    envelope = result.as_dict()
+    return {"content": [{"type": "text",
+                          "text": json.dumps(envelope, ensure_ascii=False)}],
+            **({"isError": True} if not result.ok else {})}
+
+
+def call_axi_transaction(arguments: dict) -> dict:
+    if arguments.get("apply") is not True:
+        payload = {"ok": False, "exit": 4,
+                   "error": "AXI transactions require apply: true"}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "isError": True}
+    patch = arguments.get("transaction")
+    if not isinstance(patch, dict):
+        payload = {"ok": False, "exit": 2,
+                   "error": "transaction must be an EditPatch object"}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "isError": True}
+    from library.tools.resolve_axi_sdk import AxiTransaction, apply_transaction
+    try:
+        typed = AxiTransaction(
+            id=patch["id"], project=patch["project"],
+            timeline=patch["timeline"],
+            base_generation=int(patch["base_generation"]),
+            capability=patch["capability"],
+            affected_spans=tuple(tuple(span) for span in patch["affected_spans"]),
+            conflict_domains=tuple(patch["conflict_domains"]),
+            operations=tuple(patch["operations"]),
+            preconditions=tuple(patch.get("preconditions", ())),
+            postconditions=tuple(patch.get("postconditions", ())),
+        )
+        receipt = apply_transaction(typed)
+        return {"content": [{"type": "text", "text": json.dumps(
+            receipt, ensure_ascii=False, default=str)}],
+            **({"isError": True} if receipt.get("status")
+               != "committed" else {})}
+    except (KeyError, TypeError, ValueError) as exc:
+        payload = {"ok": False, "exit": 2, "error": str(exc)}
+        return {"content": [{"type": "text", "text": json.dumps(payload)}],
+                "isError": True}
+
+
 def refusal_payload(verb_name: str, what: str, why: str, fix: str) -> dict:
     """A `REN_RESULT`-shaped refusal for a call this server never
     executes. Same keys as `RenRefusal.to_dict()` plus the exit (pinned
@@ -324,7 +421,8 @@ def handle_message(message, execute=run_verb):
         return _result(request_id, {})
     if method == "tools/list":
         return _result(request_id, {
-            "tools": [tool_for_verb(verb) for verb in VERBS]})
+            "tools": [axi_tool(), axi_transaction_tool(),
+                      *[tool_for_verb(verb) for verb in VERBS]]})
     if method == "tools/call":
         tool = params.get("name", "")
         arguments = params.get("arguments", {})
@@ -337,6 +435,10 @@ def handle_message(message, execute=run_verb):
             return _error(-32602,
                           "invalid params: arguments must be an object",
                           request_id)
+        if tool == "resolve_axi":
+            return _result(request_id, call_axi(arguments))
+        if tool == "resolve_axi_transaction":
+            return _result(request_id, call_axi_transaction(arguments))
         by_tool = {tool_name(verb.name): verb for verb in VERBS}
         verb = by_tool.get(tool)
         if verb is None:
