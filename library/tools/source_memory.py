@@ -267,10 +267,24 @@ def source_dir(content_digest: str, root: Optional[Path] = None) -> Path:
 
 
 def _load_json(path: Path):
+    from library.tools.cache_lifecycle import record_cache_metric
+
+    is_source_slot = (len(path.parent.name) == 64
+                      and all(char in "0123456789abcdef"
+                              for char in path.parent.name))
     try:
-        with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
+        from library.tools.cache_lifecycle import cache_file_lease
+        with cache_file_lease(path), open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+        if is_source_slot:
+            record_cache_metric(task="source-memory",
+                                kind="semantic_measurement", outcome="hit",
+                                bytes_used=path.stat().st_size)
+        return document
     except (OSError, ValueError):
+        if is_source_slot:
+            record_cache_metric(task="source-memory",
+                                kind="semantic_measurement", outcome="miss")
         return None
 
 
@@ -780,21 +794,24 @@ def write_json(path: Path, payload: dict) -> None:
     still writing, so the other's rename raised `FileNotFoundError`
     (measured: 95 failures in 200 same-slot writes across 8 threads).
     """
+    from library.tools.cache_lifecycle import cache_file_lease
+
     payload = _with_evidence_envelope(path, payload)
     validate_evidence_envelope(payload["evidence_envelope"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, staged_name = tempfile.mkstemp(
-        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=1)
-        os.replace(staged_name, path)
-    except BaseException:
+    with cache_file_lease(path, exclusive=True):
+        fd, staged_name = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
         try:
-            os.unlink(staged_name)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=1)
+            os.replace(staged_name, path)
+        except BaseException:
+            try:
+                os.unlink(staged_name)
+            except OSError:
+                pass
+            raise
 
 
 def _coalesce_coverage_intervals(intervals: list) -> list:

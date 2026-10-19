@@ -210,6 +210,9 @@ def select(root: str | Path, *, cache: str | Path | None = None,
     entry = entry_dir(fingerprint, cache)
     path = extension_file(entry)
     if path is None:
+        from library.tools.cache_lifecycle import record_cache_metric
+        record_cache_metric(task="native-cache", kind="native_extension",
+                            outcome="miss")
         return None
     if read_recorded(entry) != fingerprint:
         return None
@@ -223,4 +226,7 @@ def select(root: str | Path, *, cache: str | Path | None = None,
         if sys.modules.get("ren_native") is module:
             del sys.modules["ren_native"]
         return None
+    from library.tools.cache_lifecycle import record_cache_metric
+    record_cache_metric(task="native-cache", kind="native_extension",
+                        outcome="hit", bytes_used=path.stat().st_size)
     return module
