@@ -1,0 +1,795 @@
+{
+  "candidates": [
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.0:MediaPoolItem.LinkFullResolutionMedia(fullResMediaPath)#d29522fc4773"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.0:MediaPoolItem.MonitorGrowingFile#1683217ee725"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.0:MediaPoolItem.ReplaceClipPreserveSubClip(filePath)#6cc1cdc538f0"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.1:Timeline.GetVoiceIsolationState(trackIndex)#d8a339ba5b01"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.1:Timeline.SetVoiceIsolationState(trackIndex, {VoiceIsolationState})#75b70f1ec7bf"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.1:TimelineItem.EnableVoiceIsolationState({VoiceIsolationState})#47b5dfe6c37b"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.1:TimelineItem.GetVoiceIsolationState#df8f21d5268f"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2.2:Project.ApplyFairlightPresetToCurrentTimeline(preset_name)#7f0e3b47a10c"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2.2:ProjectManager.CreateProject supports optional mediaLocationPath parameter.#7ba2142bc380"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2.2:Resolve.GetFairlightPresets#316299811a37"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2:Render Settings: ExportSubtitle (Bool) and SubtitleFormat (string) options.#89918d7403c9"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2:TimelineItem and MediaPoolItem support for SetName.#a0cd0e583fef"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:20.2:TimelineItem.ResetAllNodeColors#2e65f87d741a"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0.4:Project.SetRenderSettings - options for handles, full extents and data burn.#799ff4872522"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0.4:Timeline.GetSelectedClips#57d24305a616"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:AnalyzeForIntellisearch(identifyFaces, isBetterMode) for Folder and MediaPoolItem.#72fe6e9eb9fd"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:AnalyzeForSlate(markerColor) for Folder and MediaPoolItem.#a5a74b482a20"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:New Marker color enumerated type - currently used only in AnalyzeForSlate APIs.#fed827a2a611"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:Optional useSpeakerDetection argument for Folder.TranscribeAudio and MediaPoolItem.TranscribeAudio.#510306255784"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:PerformAudioClassification and ClearAudioClassification for Folder and MediaPoolItem.#21a45e1cb230"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:Project.GenerateSpeech({speechGenerationSettings}, timecode)#8cb78876bf3c"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:RemoveMotionBlur({deblurOption}) for Folder and MediaPoolItem.#44eb614aa415"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.0:Resolve.DisableBackgroundTasksForCurrentResolveSession#21242b9afb07"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Audio Render APIs - Project.GetAudioRenderCodecs, GetAudioRenderFormats.#2bee155740d2"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:DCTL development - resolve.ValidateDCTL, EncryptDCTL.#206aab60f5de"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Media Storage Clone - MediaStorage.StartCloneMedia, StopCloneMedia, GetCloneStatus, SetCloneToolSettings.#b8b14167613c"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Media Transcription - MediaPoolItem.GetTranscription.#cab5e7fe1c5d"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Multicam APIs - MediaPool.CreateMulticamClip, TimelineItem.FlattenMulticam, PerformMulticamSmartSwitch, Timeline.AutoAlignClips.#45bf7aba349f"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Project Settings Presets - Set/Delete/Import/Export/Update/Save/Get List for ProjectSettingsPreset.#0f2fe4874693"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Render Presets - Project.UpdateRenderPreset, SetQuickExportEnabledForRenderPreset.#3defb4b67c1c"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Resolve Keyboard Presets - Load/Delete/Import/Export/GetCurrent/Get List for KeyboardPreset.#68e77b150b5f"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Set Audio Mappings - MediaPoolItem.SetAudioMapping, TimelineItem.SetSourceAudioChannelMapping.#800a672c7dc8"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Timeline Audio Normalization - Timeline.GetNormalizeAudioModes, NormalizeAudioLevel.#1a2c89a92b08"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Timeline Output blanking - Timeline.Get/SetOutputBlanking.#e248428542c5"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:TimelineItem properties - Get/Set Fades, Speed, OutputBlanking, UseTimelineForOutputBlanking and GetType.#a01d3152abf9"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:TimelineItem properties - Get/Set Property includes native audio properties and enabled states.#38313295a7d2"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Transition API - TimelineItem.AddTransition.#df4028ef18e3"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api-change:21.1:Utility functions - resolve.Get CurrentProject/CurrentTimeline/MediaPool/Gallery.#c4cc1a67455e"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api:Resolve.GetKeyframeMode"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api:Resolve.SetKeyframeMode"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api:Timeline.CreateSubtitlesFromAudio"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "api:Timeline.GetTrackCount"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:color_group#8e5150d45e16"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:dctl#21004de485dd"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:edit_engine#542e7f908c37"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:folder#036a038e2cc5"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:fuse_plugin#49ee707583ce"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:fusion_comp#2d64ab5a704e"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:gallery#05d487cba030"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:gallery_stills#261da81fb6ad"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:graph#de17ee8d0402"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:knowledge#63a384daff5a"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:layout_presets#39caad1e552c"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:lut#a7d9979b6d71"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:media_analysis#fcbc02a21c5f"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:media_pool#e81084e1f302"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:media_pool_item#0ecc88a1b89b"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:media_pool_item_markers#349d7a7faec7"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:media_storage#8140528368dc"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:project_manager#ed4c91df2773"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:project_manager_cloud#2e377fc13047"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:project_manager_database#b916b9e1a3c6"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:project_manager_folders#5ab0ff0e0fe5"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:project_settings#33fac4fdbd33"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:render#12efa848345b"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:render_presets#9cd571209bee"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:resolve_control#2965f53f129e"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:script_plugin#f76b768a0eb8"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:setup#f9be60904fe1"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline#65cb7e4e76e1"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_ai#482fbf1b94c9"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_frame#97234c3c3685"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_item#89759617abbc"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_item_color#b04915ecd625"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_item_fusion#206ac6bd3ad8"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_item_markers#5fd610b1753f"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_item_takes#36bcb3d555eb"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_markers#d00edf55834e"
+    },
+    {
+      "change": "new",
+      "production_enabled": false,
+      "qualification_status": "not qualified",
+      "required_next_stage": "live qualification",
+      "source": "repo:https://github.com/samuelgursky/davinci-resolve-mcp",
+      "stage": "evaluation",
+      "status": "documented, not implemented",
+      "upstream_id": "mcp:timeline_versioning#f42d74919158"
+    }
+  ],
+  "schema_version": 1
+}
