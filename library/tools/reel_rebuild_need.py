@@ -521,6 +521,78 @@ def _as_data(entry):
     return render() if callable(render) else entry
 
 
+# ── VC-13: the precise engine half ──────────────────────────────────
+#
+# `engine_code` above digests whole source trees, so during active
+# engine work every build invalidates every reel - correct, and the
+# price VC-13 removes. `component_versions_for_reel` versions each
+# reel component's PRODUCING implementations instead
+# (`cascade_graph.REEL_COMPONENTS`, resolved dynamically through the
+# operation registry by `code_identity`), and `component_closure_digest`
+# folds them into the one precise engine half. `derivation_digest`
+# carries it under `component_versions` whenever the caller supplies
+# versions, and then the closure - not the wholesale trees - decides
+# the engine half:
+#
+# * an engine change outside every producing closure leaves every
+#   version identical, the closure matches, and an otherwise
+#   unchanged reel is left alone (VC-13's acceptance);
+# * an engine change to a producing implementation moves its version,
+#   the closure differs, and the reel rebuilds (every known
+#   output-affecting change still invalidates);
+# * an unknown dependency (unknown operation, unhashable file)
+#   versions to None, the closure is None, and the digest falls back
+#   to the wholesale trees - broad invalidation, never a skip;
+# * a record from before versioning carries no closure, so the first
+#   build under versions rebuilds once and adopts the versioned
+#   record - the same adoption `code_identity` documents.
+#
+# Absent `component_versions` the digest is byte-identical to before
+# (the lower-thirds precedent in `reel_build.py`): a project that
+# supplies no versions pays the wholesale price, exactly as today.
+
+
+def component_versions_for_reel(repo_root=None) -> dict:
+    """`{component: {implementation: version}}` for one reel's build.
+
+    Every reel component (`cascade_graph.COMPONENT_NAMES`) mapped to
+    the content versions of its producing operation-registry
+    implementations. Unversionable implementations are recorded as None
+    - asked and unanswerable, which `component_closure_digest` reads
+    as unprovable and fails closed on.
+    """
+    from library.tools import cascade_graph as _cascade
+    from library.tools import code_identity as _identity
+
+    out: dict = {}
+    for component in _cascade.reel_components():
+        implementations = _cascade.component_implementations(component)
+        out[component] = _identity.implementation_versions_for(
+            implementations or (), repo_root)
+    return out
+
+
+def component_closure_digest(
+        component_versions: Optional[Mapping]) -> Optional[str]:
+    """The precise engine half: one digest over producing versions.
+
+    `None` when the versions are missing, empty, or carry any None -
+    an unknown dependency proves nothing, so there is no closure to
+    compare and the caller falls back to the wholesale trees.
+    """
+    if not isinstance(component_versions, Mapping) or not component_versions:
+        return None
+    for component, versions in component_versions.items():
+        if not isinstance(versions, Mapping) or not versions:
+            return None
+        for ref, version in versions.items():
+            if not version:
+                return None
+    return hashlib.sha256(
+        dumps_stable(_rounded(dict(component_versions or {}))).encode(
+            "utf-8")).hexdigest()
+
+
 def derivation_digest(
     *,
     reel_number,
@@ -545,6 +617,7 @@ def derivation_digest(
     asset_hashes: Optional[Mapping] = None,
     extra: Optional[Mapping] = None,
     card_row_role: Optional[str] = None,
+    component_versions: Optional[Mapping] = None,
 ) -> Optional[str]:
     """A digest of everything this reel's Resolve pass would place.
 
@@ -558,12 +631,26 @@ def derivation_digest(
     same rule the lower-thirds `extra` keeps at its call site), while
     a reel whose closing card moves rows reads as changed - which is
     what a stale row IS.
+
+    `component_versions` (`component_versions_for_reel`) carries the
+    precise engine half: when supplied and closable, the closure
+    decides the `engine_code` row instead of the wholesale trees, so
+    an engine change outside every producing closure leaves the
+    digest - and the reel - unchanged. Absent versions the digest is
+    byte-identical to before; an unclosable versions map (an unknown
+    dependency in it) falls back to the wholesale trees - broad
+    invalidation, never a skip.
     """
     if not engine_code or not project_wide:
         return None
+    engine_half = engine_code
+    if component_versions:
+        closure = component_closure_digest(component_versions)
+        if closure is not None:
+            engine_half = closure
     body = {
         "reel_number": int(reel_number),
-        "engine_code": engine_code,
+        "engine_code": engine_half,
         "project_wide": project_wide,
         "plan": plan_content_hash,
         "transcript": transcript_hash,
@@ -679,6 +766,74 @@ def decide(reel: str, fresh_derivation: Optional[str],
                     fresh_derivation, live_carried, recorded)
 
 
+def decide_with_component_proofs(
+        reel: str,
+        fresh_derivation: Optional[str],
+        live_carried: Optional[str],
+        recorded: Optional[Mapping],
+        selective_report: Optional[Mapping] = None) -> Decision:
+    """The VC-13/VC-15 decision: the broad verdict, gated by proofs.
+
+    Runs `decide` first - the broad verdict stands wherever no proof
+    narrows it - then gates through the selective-invalidation report
+    (`cascade_graph.selective_invalidation`) for this reel:
+
+    * a broad REBUILD stays a REBUILD, and the report names WHICH
+      components are dirty, which are reused and which only remap -
+      so a lower-third-only change rebuilds no footage, audio or
+      caption artefacts even where the reel still needs a pass;
+    * a broad LEAVE_ALONE the report disagrees with (a dirty
+      component under a matching wholesale digest) becomes a REBUILD
+      naming the component - the proof is newer than the digest, and
+      the fail-closed direction is the placement;
+    * a broad LEAVE_ALONE the report confirms stays a LEAVE_ALONE,
+      and the reason carries the component reuse proof.
+
+    Never invents a LEAVE_ALONE: an absent report leaves the broad
+    verdict untouched, and an unprovable report (`whole_reel`) is a
+    REBUILD naming why.
+    """
+    broad = decide(reel, fresh_derivation, live_carried, recorded)
+    if not isinstance(selective_report, Mapping):
+        return broad
+    dirty = list(selective_report.get("dirty_components") or ())
+    reused = list(selective_report.get("reused_components") or ())
+    remapped = list(selective_report.get("remapped_components") or ())
+    report_reason = str(selective_report.get("reason") or "")
+    if selective_report.get("whole_reel"):
+        return Decision(
+            reel, REBUILD,
+            f"selective invalidation is unprovable ({report_reason}) - "
+            f"the whole reel rebuilds; broad verdict was: {broad.reason}",
+            fresh_derivation, live_carried,
+            recorded if isinstance(recorded, Mapping) else {})
+    if broad.leave_alone and dirty:
+        return Decision(
+            reel, REBUILD,
+            f"component proofs disagree with the matching wholesale "
+            f"digest - dirty: {', '.join(dirty)} "
+            f"({report_reason}); the fail-closed answer is a placement",
+            fresh_derivation, live_carried,
+            recorded if isinstance(recorded, Mapping) else {})
+    if broad.leave_alone:
+        return Decision(
+            reel, LEAVE_ALONE,
+            f"{broad.reason}; component proofs confirm: "
+            f"{len(reused)} reused"
+            f"{f', {len(remapped)} remapped' if remapped else ''} "
+            f"({report_reason})",
+            fresh_derivation, live_carried,
+            recorded if isinstance(recorded, Mapping) else {})
+    detail = (f"dirty: {', '.join(dirty) if dirty else 'none'}; "
+              f"reused: {', '.join(reused) if reused else 'none'}"
+              f"{f'; remapped: ' + ', '.join(remapped) if remapped else ''}")
+    return Decision(
+        reel, REBUILD,
+        f"{broad.reason} Component proofs: {detail} ({report_reason})",
+        fresh_derivation, live_carried,
+        recorded if isinstance(recorded, Mapping) else {})
+
+
 def render_decisions(decisions: Sequence[Decision]) -> str:
     """The table a build prints before it places anything."""
     if not decisions:
@@ -716,7 +871,10 @@ __all__ = [
     "REBUILD",
     "carried_digest",
     "carried_digest_live",
+    "component_closure_digest",
+    "component_versions_for_reel",
     "decide",
+    "decide_with_component_proofs",
     "derivation_digest",
     "engine_code_digest",
     "project_wide_digest",

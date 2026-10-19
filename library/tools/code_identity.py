@@ -3068,3 +3068,159 @@ def code_hashes_for(step_dirs: dict[str, str],
         if h is not None:
             out[node_id] = h
     return out
+
+
+# ── VC-13: producing-implementation versions ──────────────────────────
+#
+# `reel_rebuild_need.engine_code_digest` digests whole source trees, so
+# during active engine work every build invalidates every reel - correct,
+# and the price VC-13 removes. A reel component (captions, lower thirds,
+# placements, grade, ...) is produced by a NAMED implementation: the
+# operation-registry entry whose `run` is the step's own function. The
+# proof below versions each producing implementation by content and
+# resolves the operation DYNAMICALLY from the registry at call time, so
+# a rename or a new producing step reaches the proof with nothing to
+# update. Anything unresolvable versions to None, and a proof with a
+# None in it is INCOMPLETE - the caller fails closed to a rebuild,
+# never to a skip.
+
+
+def implementation_fingerprint(ref: str, repo_root=None) -> str | None:
+    """The content version of one producing implementation.
+
+    `ref` is a repo-relative path (`library/tools/reel_build.py`), an
+    absolute path, or a step directory (absolute or basename, resolved
+    under `library/steps`). Directories hash by the `step_code_hash`
+    rule (own sources plus declared `STEP_IMPLEMENTATION_DEPS`);
+    files hash by bytes. None when the ref resolves to nothing - an
+    unresolvable implementation is never a matching one.
+    """
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    candidate = Path(str(ref))
+    targets: list[Path] = []
+    if candidate.is_absolute():
+        targets = [candidate]
+    else:
+        targets = [root / candidate]
+        if len(candidate.parts) == 1:
+            targets.append(root / "library" / "steps" / candidate)
+    for target in targets:
+        try:
+            if target.is_dir():
+                hashed = step_code_hash(
+                    str(target),
+                    extra_files=implementation_deps(str(target), root),
+                )
+                if hashed is not None:
+                    return hashed
+            elif target.is_file():
+                return hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return None
+
+
+def operation_implementation_ref(op_name: str) -> str | None:
+    """The repo-relative implementation path of one registry operation.
+
+    Resolved DYNAMICALLY from `library/tools/operations.py` at call
+    time - never a static table - so the proof follows renames with
+    nothing to update. None for an unknown operation name, which the
+    caller reads as unprovable and fails closed on.
+    """
+    try:
+        from library.tools import operations as _ops
+    except Exception:                                   # noqa: BLE001
+        return None
+    try:
+        registry = _ops._REGISTRY
+    except AttributeError:
+        return None
+    for operation in registry:
+        if getattr(operation, "name", None) != op_name:
+            continue
+        owning = getattr(operation, "owning_dir", "")
+        body = getattr(operation, "body", "")
+        if not owning or not body:
+            return None
+        return f"library/steps/{owning}/{body}"
+    return None
+
+
+def operation_implementation_version(op_name: str,
+                                     repo_root=None) -> str | None:
+    """The content version of the implementation behind one operation.
+
+    The producing implementation's version: for a Python body, the
+    owning step's `current_code_hash` (own sources plus declared shared
+    measurement deps, exactly the ledger's rule); for a prompt body,
+    the prompt file's bytes. None when the operation is unknown or its
+    implementation cannot be hashed - fail-closed, never a match.
+    """
+    ref = operation_implementation_ref(op_name)
+    if ref is None:
+        return None
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    target = root / ref
+    if not target.is_file():
+        return None
+    if target.suffix == ".md":
+        try:
+            return hashlib.sha256(target.read_bytes()).hexdigest()
+        except OSError:
+            return None
+    owning = ref.split("/")[2] if len(ref.split("/")) > 2 else ref
+    step_dir = root / "library" / "steps" / owning
+    if step_dir.is_dir():
+        return current_code_hash(str(step_dir), root)
+    return implementation_fingerprint(ref, root)
+
+
+def implementation_versions_for(refs, repo_root=None) -> dict[str, str | None]:
+    """The input record for a set of producing implementations.
+
+    `{ref: version}` for every ref asked about. A ref may be an
+    operation name (resolved through the registry) or a repo-relative
+    path. Unresolvable refs are recorded as None - asked and
+    unanswerable, which `implementation_proof` reads as incomplete.
+    """
+    out: dict[str, str | None] = {}
+    for ref in refs or ():
+        version = None
+        if "/" not in str(ref):
+            # A bare name may be an operation id - the registry is
+            # asked first, and a name it does not know falls through
+            # to the path reading below (a step basename).
+            version = operation_implementation_version(
+                str(ref), repo_root)
+            if version is None and operation_implementation_ref(
+                    str(ref)) is not None:
+                out[str(ref)] = None
+                continue
+        if version is None:
+            version = implementation_fingerprint(str(ref), repo_root)
+        out[str(ref)] = version
+    return out
+
+
+def implementation_proof(refs, repo_root=None) -> dict:
+    """The version proof for a component's producing implementations.
+
+    Returns `{"versions", "unproven", "complete", "detail"}`. `complete`
+    is True only when every ref versioned to a real hash. Anything
+    else - an unknown operation, a missing file - lands in `unproven`
+    and the proof is incomplete: the caller rebuilds, and `detail`
+    says which implementation could not be proven.
+    """
+    versions = implementation_versions_for(refs, repo_root)
+    unproven = sorted(
+        ref for ref, version in versions.items() if not version)
+    if unproven:
+        detail = ("implementation proof INCOMPLETE - no version for: "
+                  + ", ".join(unproven) + "; the change is unprovable "
+                  "and the component rebuilds")
+    else:
+        detail = (f"implementation proof complete - {len(versions)} "
+                  f"producing implementation(s) versioned")
+    return {"versions": versions, "unproven": unproven,
+            "complete": not unproven, "detail": detail}

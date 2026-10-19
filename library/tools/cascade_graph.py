@@ -710,25 +710,398 @@ def _export_for_reel(exports_dir: str, reel: str) -> Optional[str]:
     return None
 
 
+# ── VC-13: precise component dependency proofs ─────────────────────
+#
+# `mark_dirty` above walks the coarse edge table: a change dirties
+# whole edges, and `reel_rebuild_need.engine_code_digest` digests
+# whole source trees, so during active engine work every build
+# invalidates every reel. Correct, and the price VC-13 removes.
+#
+# A reel is COMPONENTS, each produced by NAMED implementations - the
+# operation-registry ids whose `run` is the step's own function - and
+# each versioned by content (`code_identity`). The registry is read
+# DYNAMICALLY at proof time, so a rename or a new producing step
+# reaches the proof with nothing to update here. Anything unknown -
+# an unknown component, an unknown operation, an unhashable file -
+# proves nothing, and the caller fails closed to a rebuild. Every
+# invalidation and every reuse below carries its reason.
+
+
+#: What one reel is made of, and what each piece is produced by. Each
+#: `implementations` entry is an operation-registry id, resolved
+#: dynamically by `code_identity.operation_implementation_version`.
+#: A component whose producing operation is renamed must land here
+#: under its new id - until then its proof is incomplete and it
+#: rebuilds, which is the fail-closed direction.
+REEL_COMPONENTS = (
+    {
+        "component": "footage",
+        "produces": "ranges + placements (what picture plays, where)",
+        "implementations": (
+            "spine.mesh",
+            "picture.plan",
+            "aroll.assign",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "audio",
+        "produces": "music bed + mixed speech/sfx windows",
+        "implementations": (
+            "music.resolve",
+            "audio_mix.resolve",
+            "sfx.resolve",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "captions",
+        "produces": "rendered caption segments + their placements",
+        "implementations": (
+            "subtitles.plan",
+            "subtitles.render",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "lower_thirds",
+        "produces": "speaker lower-third segments + their placements",
+        "implementations": (
+            "motion_graphics.render",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "overlays",
+        "produces": "overlay/explainer/semantic segments + motion plan",
+        "implementations": (
+            "motion_graphics.render",
+            "vfx.resolve",
+            "transitions.resolve",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "cards",
+        "produces": "intro/outro/end cards drawn over the tail",
+        "implementations": (
+            "motion_graphics.render",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "grade",
+        "produces": "per-clip CDL/look/power-grade decisions",
+        "implementations": (
+            "color_grade.resolve",
+            "reel.build",
+        ),
+    },
+    {
+        "component": "ending",
+        "produces": "where the reel ends and what draws over its tail",
+        "implementations": (
+            "reel.build",
+        ),
+    },
+)
+
+#: Every component, for callers that address one directly.
+COMPONENT_NAMES = tuple(row["component"] for row in REEL_COMPONENTS)
+
+
+#: Downstream invalidation: a dirty component breaks the assumptions
+#: of the components listed beside it, so they are dirty too. Captions,
+#: lower thirds and overlays are PLACED against the footage ranges -
+#: a footage change keeps their rendered bytes (the artefacts are
+#: still reusable) but their placements no longer prove anything.
+COMPONENT_DOWNSTREAM: dict[str, tuple[str, ...]] = {
+    "footage": ("captions", "lower_thirds", "overlays"),
+    "audio": (),
+    "captions": (),
+    "lower_thirds": (),
+    "overlays": (),
+    "cards": (),
+    "grade": (),
+    "ending": ("cards",),
+}
+
+
+#: VC-15 change kinds, and the components each reaches. Separate from
+#: `DEPENDENTS` above - the edge walker and its tests stand - because
+#: these answer per-COMPONENT reuse, not per-edge dirt. A kind not
+#: listed here is unprovable and invalidates the whole reel.
+COMPONENT_CHANGE_REACH: dict[str, tuple[str, ...]] = {
+    # One reel's declaration invalidates only that reel (the caller
+    # scopes by reel; `selective_invalidation` answers per reel).
+    # An optional `components` list on the change narrows further.
+    "reel_declaration": ("footage", "audio", "captions", "lower_thirds",
+                         "overlays", "cards", "grade", "ending"),
+    # A lower-third asset reaches only its lower thirds: no footage,
+    # no audio, no captions are re-rendered or re-placed.
+    "lower_third_asset": ("lower_thirds",),
+    "caption_content": ("captions",),
+    # Timing is fixed without re-rendering: the frame mappings are
+    # recomputed and the rendered bytes are reused.
+    "caption_timing": ("captions",),
+    "placement_timing": ("footage",),
+    "grade_decision": ("grade",),
+    "ending_declaration": ("ending",),
+    "overlay_plan": ("overlays",),
+    "audio_decision": ("audio",),
+    "card_asset": ("cards",),
+}
+
+
+def reel_components() -> tuple[str, ...]:
+    """Every reel component VC-15 can invalidate independently."""
+    return COMPONENT_NAMES
+
+
+def component_implementations(component: str) -> Optional[tuple[str, ...]]:
+    """The producing operation ids of one component, or None.
+
+    None for an unknown component - an unlisted component is never a
+    provable one, and the caller fails closed on it.
+    """
+    for row in REEL_COMPONENTS:
+        if row["component"] == component:
+            return tuple(row["implementations"])
+    return None
+
+
+def component_proof(component: str, repo_root=None) -> dict:
+    """The implementation-version proof for one component.
+
+    `{"component", "versions", "unproven", "complete", "detail"}` from
+    `code_identity.implementation_proof` over the component's
+    producing operations. Incomplete exactly when a producing
+    implementation cannot be versioned - renamed operation, missing
+    file - and an incomplete proof rebuilds the component.
+    """
+    from library.tools import code_identity as _identity
+
+    implementations = component_implementations(component)
+    if implementations is None:
+        return {"component": component, "versions": {},
+                "unproven": [component], "complete": False,
+                "detail": (f"unknown reel component {component!r} - an "
+                           f"unlisted component is never a provable one "
+                           f"and it rebuilds")}
+    proof = _identity.implementation_proof(implementations, repo_root)
+    proof["component"] = component
+    return proof
+
+
+def prove_component_reuse(component: str,
+                           recorded_versions: Optional[Mapping[str, Any]],
+                           fresh_versions: Optional[Mapping[str, Any]]) -> tuple[bool, str]:
+    """Whether one component's artefacts may be reused, and why.
+
+    Reuse needs a positive proof: both halves present, every producing
+    implementation versioned on both sides, and every version equal.
+    Every other outcome refuses with its reason - including a recorded
+    half that predates versioning, which rebuilds rather than reading
+    as unchanged.
+    """
+    implementations = component_implementations(component)
+    if implementations is None:
+        return False, (
+            f"{component}: unknown reel component - an unlisted "
+            f"component is never reused")
+    if not isinstance(recorded_versions, Mapping) or not recorded_versions:
+        return False, (
+            f"{component}: no recorded implementation versions - "
+            f"nothing to compare, so it regenerates")
+    if not isinstance(fresh_versions, Mapping) or not fresh_versions:
+        return False, (
+            f"{component}: the fresh implementation versions could not "
+            f"be established - an unknown derivation is never a "
+            f"matching one")
+    for ref in implementations:
+        recorded = recorded_versions.get(ref)
+        fresh = fresh_versions.get(ref)
+        if not recorded:
+            return False, (
+                f"{component}: no recorded version for producing "
+                f"implementation {ref} - the record predates "
+                f"versioning, so it regenerates")
+        if not fresh:
+            return False, (
+                f"{component}: no fresh version for producing "
+                f"implementation {ref} - an unversionable "
+                f"implementation never proves reuse")
+        if recorded != fresh:
+            return False, (
+                f"{component}: producing implementation {ref} changed "
+                f"({recorded[:12]} -> {fresh[:12]}) - the component "
+                f"regenerates")
+    return True, (
+        f"{component}: every producing implementation version "
+        f"matches the record - its artefacts are reused")
+
+
+def selective_invalidation(change: Mapping[str, Any],
+                           reel: Optional[str] = None) -> dict:
+    """VC-15: which components of one reel a change invalidates.
+
+    `change` is `{"kind", "entity_id", ...}` with an optional `reel`
+    scope and an optional `components` narrowing. The change itself
+    IS the input record: a reached component is dirty because the
+    change moved its inputs, and no implementation-version proof
+    overrules that - versions prove the CODE did not change, the
+    event proves the INPUT did. (`prove_component_reuse` answers the
+    other question: whether an UNREACHED component's artefacts may be
+    reused across builds.) Returns `{"dirty_components",
+    "reused_components", "remapped_components", "whole_reel",
+    "explanations", "reason"}` - every component named with its why.
+
+    Fail-closed throughout, and each is said:
+
+    - an unmapped kind, a missing entity id, an unknown narrowing,
+      or a change scoped to a different reel than the one asked
+      about: the whole reel is dirty (or, for a foreign reel's
+      declaration, nothing is);
+    - downstream components whose assumptions a dirty component
+      breaks are dirty too;
+    - timing changes recompute frame mappings (`remapped_components`)
+      instead of re-rendering: the rendered bytes are reused.
+    """
+    explanations: list[str] = []
+    if not isinstance(change, Mapping):
+        return {"dirty_components": list(COMPONENT_NAMES),
+                "reused_components": [], "remapped_components": [],
+                "whole_reel": True,
+                "explanations": ["the change is not a mapping - an "
+                                 "unknown change dirties the whole reel"],
+                "reason": "the change is not a mapping - an unknown "
+                          "change dirties the whole reel"}
+    kind = change.get("kind", change.get("entity_kind"))
+    entity_id = change.get("entity_id")
+    if kind not in COMPONENT_CHANGE_REACH:
+        return {"dirty_components": list(COMPONENT_NAMES),
+                "reused_components": [], "remapped_components": [],
+                "whole_reel": True,
+                "explanations": [f"unknown change kind {kind!r} - an "
+                                 f"unknown op dirties the whole reel"],
+                "reason": f"unknown change kind {kind!r} - an unknown "
+                          f"op dirties the whole reel"}
+    if not entity_id:
+        return {"dirty_components": list(COMPONENT_NAMES),
+                "reused_components": [], "remapped_components": [],
+                "whole_reel": True,
+                "explanations": ["the change names no entity id - an "
+                                 "unresolvable item dirties the whole reel"],
+                "reason": "the change names no entity id - an "
+                          "unresolvable item dirties the whole reel"}
+    change_reel = change.get("reel")
+    if change_reel is not None and reel is not None and change_reel != reel:
+        explanations.append(
+            f"{kind} {entity_id} is scoped to {change_reel} - "
+            f"{reel} keeps every component")
+        return {"dirty_components": [], "reused_components": list(
+                    COMPONENT_NAMES), "remapped_components": [],
+                "whole_reel": False, "explanations": explanations,
+                "reason": (f"{kind} {entity_id} is scoped to "
+                           f"{change_reel} - {reel} keeps every component")}
+    reached = list(COMPONENT_CHANGE_REACH[kind])
+    narrowed = change.get("components")
+    if narrowed:
+        known_narrowed = [c for c in narrowed if c in COMPONENT_NAMES]
+        unknown_narrowed = [c for c in narrowed
+                            if c not in COMPONENT_NAMES]
+        if unknown_narrowed:
+            return {"dirty_components": list(COMPONENT_NAMES),
+                    "reused_components": [], "remapped_components": [],
+                    "whole_reel": True,
+                    "explanations": [
+                        f"the change narrows to unknown component(s) "
+                        f"{', '.join(unknown_narrowed)} - an unprovable "
+                        f"narrowing dirties the whole reel"],
+                    "reason": "the change narrows to unknown "
+                              "component(s) - an unprovable narrowing "
+                              "dirties the whole reel"}
+        reached = [c for c in reached if c in known_narrowed]
+    dirty: list[str] = []
+    reused: list[str] = []
+    remapped: list[str] = []
+    for component in COMPONENT_NAMES:
+        if component not in reached:
+            reused.append(component)
+            explanations.append(
+                f"{component}: not reached by {kind} {entity_id} - "
+                f"its artefacts are reused")
+            continue
+        # Reached is dirty: the change moved this component's inputs,
+        # and an implementation-version proof cannot overrule the
+        # event - versions prove the code, the event proves the input.
+        dirty.append(component)
+        explanations.append(
+            f"{component}: reached by {kind} {entity_id} - its inputs "
+            f"moved, so it regenerates")
+    # Downstream invalidation: a dirty component breaks the assumptions
+    # of its dependents, so they are dirty too - said, not silent.
+    for component in list(dirty):
+        for dependent in COMPONENT_DOWNSTREAM.get(component, ()):
+            if dependent in reused:
+                reused.remove(dependent)
+                dirty.append(dependent)
+                explanations.append(
+                    f"{dependent}: {component} changed, and {dependent} "
+                    f"is placed against it - its assumptions broke, so "
+                    f"it regenerates")
+    # Timing changes recompute frame mappings instead of re-rendering:
+    # the rendered bytes are reused, the reel positions are not.
+    if kind in ("caption_timing", "placement_timing"):
+        for component in ("captions", "overlays", "lower_thirds"):
+            if component in dirty:
+                dirty.remove(component)
+                remapped.append(component)
+                explanations.append(
+                    f"{component}: timing moved but its rendered bytes "
+                    f"are unchanged - frame mappings recomputed, no "
+                    f"re-render")
+    reason = (f"{kind} {entity_id}: {len(dirty)} component(s) dirty "
+              f"({', '.join(dirty) if dirty else 'none'}), "
+              f"{len(reused)} reused, {len(remapped)} remapped")
+    # The main path is always targeted, never whole-reel: unreached
+    # components are clean by the reach table's own claim, and every
+    # unprovable shape (unknown kind, missing entity, unknown
+    # narrowing) returned whole-reel above. Whole-reel fallback lives
+    # in those early returns, not here.
+    return {"dirty_components": dirty, "reused_components": reused,
+            "remapped_components": remapped, "whole_reel": False,
+            "explanations": explanations, "reason": reason}
+
+
 __all__ = [
     "CHANGE_KINDS",
+    "COMPONENT_CHANGE_REACH",
+    "COMPONENT_DOWNSTREAM",
+    "COMPONENT_NAMES",
     "DEPENDENTS",
     "EDGES",
     "EDGE_NAMES",
     "REGISTRY_DIRNAME",
     "REGISTRY_FORMAT",
+    "REEL_COMPONENTS",
     "caption_reuse_allowed",
+    "component_implementations",
+    "component_proof",
     "edge_of",
     "gate_rebuild_decision",
     "hearing_drift_in_scope",
     "mark_dirty",
     "overlay_reuse_allowed",
     "planning_reuse_allowed",
+    "prove_component_reuse",
     "read_registry",
+    "reel_components",
     "registry_dir",
     "registry_path",
     "scoped_verify",
     "scoped_verify_partial_build",
+    "selective_invalidation",
     "skip_allowed",
     "update_registry_from_build",
     "write_registry",
