@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import struct
 import subprocess
 import tempfile
+import zlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -413,16 +415,34 @@ def _add_logo_action() -> dict:
     result = _batch_case("add_logo")
     text = _case_observation(result)
     succeeded = all(row["exit_code"] == 0 for row in result["commands"])
+    observation = json.loads(text)
+    readback = observation["readback"]
+    # Geometry and rebuild evidence are required fields from the live
+    # adapter. Without them the checks fail instead of inferring success from
+    # the CLI exit status or item name.
+    geometry = observation.get("logo_geometry", {})
+    checks = {
+        "independent_item": "fm-qual-logo-180x64.png" in readback,
+        "last_five_seconds": _ends_within_last_five_seconds(geometry),
+        "width_180px": geometry.get("output_width_px") == 180,
+        "inside_safe_zone": geometry.get("inside_safe_zone") is True,
+        "no_other_changes": result["cleanup"]["clean"],
+        "survives_rebuild": observation.get("survives_rebuild") is True,
+    }
     return {"receipt": {"status": "committed" if succeeded else "refused"},
-            "collateral_changes": result["collateral_changes"], "checks": {
-                "independent_item": "fm-qual-logo-180x64.png" in
-                json.loads(text)["readback"],
-                "last_five_seconds": False, "width_180px": False,
-                "inside_safe_zone": False,
-                "no_other_changes": result["cleanup"]["clean"],
-                "survives_rebuild": False,
-            }, "attempts": 1, "elapsed_seconds": result["elapsed_seconds"],
+            "collateral_changes": result["collateral_changes"],
+            "checks": checks, "attempts": 1,
+            "elapsed_seconds": result["elapsed_seconds"],
             "observed": text}
+
+
+def _ends_within_last_five_seconds(geometry: dict) -> bool:
+    """Judge placement against measured timeline fps and exclusive bounds."""
+    required = {"item_end_frame", "timeline_end_frame", "fps"}
+    if not required <= geometry.keys() or not geometry["fps"]:
+        return False
+    return (geometry["timeline_end_frame"] - geometry["item_end_frame"]
+            <= 5 * geometry["fps"])
 
 
 def current_main_actions() -> dict[str, Callable[[], dict]]:
@@ -437,9 +457,39 @@ def current_main_actions() -> dict[str, Callable[[], dict]]:
 def main() -> int:
     if os.environ.get("REN_LIVE_RESOLVE") != "1":
         raise SystemExit("set REN_LIVE_RESOLVE=1 to run against Resolve")
-    report = run_batch(current_main_actions())
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    _write_logo_fixture(LOGO)
+    try:
+        report = run_batch(current_main_actions())
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    finally:
+        LOGO.unlink(missing_ok=True)
     return 0 if report["failed"] == 0 else 1
+
+
+def _write_logo_fixture(path: Path) -> None:
+    """Write a deterministic transparent 180x64 logo using stdlib only."""
+    width, height = 180, 64
+    rows = []
+    for y in range(height):
+        row = bytearray([0])
+        for x in range(width):
+            # A bright cyan inset frame and central mark on transparency.
+            edge = 6 <= x < width - 6 and 6 <= y < height - 6
+            mark = (50 <= x < 130 and 19 <= y < 45) or (
+                130 <= x < 160 and 27 <= y < 37)
+            row.extend((45, 210, 230, 255) if edge and mark else (0, 0, 0, 0))
+        rows.append(bytes(row))
+
+    def chunk(kind: bytes, payload: bytes) -> bytes:
+        body = kind + payload
+        return (struct.pack(">I", len(payload)) + body
+                + struct.pack(">I", zlib.crc32(body) & 0xffffffff))
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">2I5B", width, height, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"".join(rows)))
+        + chunk(b"IEND", b""))
 
 
 if __name__ == "__main__":

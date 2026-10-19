@@ -28,28 +28,50 @@ class AcceptanceTask:
 
 
 TASKS = (
-    AcceptanceTask("move_lower_third", "Move a lower third up.",
+AcceptanceTask("move_lower_third",
+               "Move the selected lower third up by 40 output pixels, "
+               "keeping its timing, size, safe-area placement, and every "
+               "other item unchanged.",
                    "overlay.position", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("resize_logo", "Resize a logo.",
+AcceptanceTask("resize_logo",
+               "Set the selected logo to 180 output pixels wide, keep its "
+               "anchor and timing, and leave all other items unchanged.",
                    "overlay.resize", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("add_logo_five_seconds", "Add a logo for five seconds.",
+AcceptanceTask("add_logo_five_seconds",
+                   "Add the supplied logo over the final five seconds, "
+                   "inside the safe area, without moving or changing any "
+                   "other timeline item.",
                    "overlay.add", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("trim_pause", "Trim a pause.",
+    AcceptanceTask("trim_pause",
+                   "Remove the marked pause while keeping the surrounding "
+                   "speech in order and the linked audio and video in sync.",
                    "clip.trim", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("replace_graphic", "Replace a graphic.",
+    AcceptanceTask("replace_graphic",
+                   "Replace the selected lower third with the supplied "
+                   "approved version and preserve its position, timing, "
+                   "and all other approved edits.",
                    "overlay.replace", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("restyle_captions", "Restyle all captions.",
+    AcceptanceTask("restyle_captions",
+                   "Apply the supplied caption style consistently to every "
+                   "caption, keeping each caption's text and timing.",
                    "caption.style", "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("remove_broll", "Remove a B-roll shot.",
+    AcceptanceTask("remove_broll",
+                   "Remove the selected B-roll shot and close its gap while "
+                   "keeping adjacent speech and sync intact.",
                    "clip.remove", "ren revise / Resolve AXI transaction"),
     AcceptanceTask("insert_relevant_broll",
-                   "Insert relevant B-roll.",
+                   "Cover the marked phrase with the supplied matching "
+                   "B-roll, using the marked source range and preserving "
+                   "the underlying speech.",
                    "broll.insert", "ren revise / Resolve AXI transaction"),
     AcceptanceTask("right_speaker_camera",
-                   "Pick the right speaker camera.",
+                   "Show the camera assigned to the marked speaker for "
+                   "their speaking turn, preserving the edit points.",
                    "multicam.select_angle",
                    "ren revise / Resolve AXI transaction"),
-    AcceptanceTask("improve_opening", "Improve a reel opening.",
+    AcceptanceTask("improve_opening",
+                   "Tighten the opening to the supplied brief while "
+                   "preserving the speaker's meaning and approved edits.",
                    "reel.opening", "ren revise / Resolve AXI transaction"),
 )
 
@@ -73,18 +95,26 @@ def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, 
             checks = evidence["checks"]
             collateral = evidence["collateral_changes"]
             metrics = evidence["benchmark"]
+            discovery = evidence["discovery"]
+            backend = evidence["backend_selection"]
             passed = (
                 receipt.get("status") in {"verified", "committed", "delivered"}
                 and bool(checks)
                 and all(checks.values())
                 and not collateral
                 and metrics.get("attempts") == 1
+                and discovery.get("operation") == task.operation
+                and discovery.get("discovered_from_request") is True
+                and backend.get("selected")
+                and backend.get("selection_correct") is True
             )
             rows.append({
                 **asdict(task), "status": "pass" if passed else "fail",
                 "receipt": receipt, "checks": checks,
                 "collateral_changes": collateral,
                 "benchmark": metrics,
+                "discovery": discovery,
+                "backend_selection": backend,
                 "elapsed_seconds": evidence.get(
                     "elapsed_seconds", perf_counter() - started),
                 "observed": evidence.get("observed", {}),
@@ -96,7 +126,9 @@ def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, 
                 "collateral_changes": [], "checks": {},
                 "elapsed_seconds": perf_counter() - started,
             })
-    return {
+    from tests.live.editorial_reliability_metrics import summarize
+
+    report = {
         "schema": "ren-editorial-acceptance/1",
         "task_count": len(TASKS),
         "passed": sum(row["status"] == "pass" for row in rows),
@@ -105,5 +137,56 @@ def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, 
             row["status"] == "pass" and row.get("benchmark", {}).get("attempts") == 1
             for row in rows),
         "results": rows,
+    }
+    report["reliability_metrics"] = summarize(rows)
+    return report
+
+
+def run_discovery_probe(
+        discover_execute_verify: Callable[[str, str, str], Mapping[str, Any]],
+        *, operation: str, ordinary_instruction: str,
+        skill_text: str, capability_catalog: str,
+        previous_capability_catalog: str) -> dict[str, Any]:
+    """Prove skill-only discovery of an operation absent from the skill.
+
+    The callback gets the ordinary request, unchanged skill text, and the
+    current capability catalog. It must return observed discovery, routing,
+    execution and verification evidence from production entry points.
+    """
+    if operation in skill_text:
+        raise ValueError("probe operation already appears in the supplied skill")
+    if operation in previous_capability_catalog:
+        raise ValueError("probe operation must be newly qualified for this run")
+    if operation not in capability_catalog:
+        raise ValueError("current capability catalog does not contain probe operation")
+    before = discover_execute_verify(
+        ordinary_instruction, skill_text, capability_catalog)
+    required = {"discovery", "backend_selection", "receipt", "checks",
+                "collateral_changes", "skill_fingerprint"}
+    missing = sorted(required - before.keys())
+    if missing:
+        raise ValueError(f"discovery adapter omitted evidence: {missing}")
+    discovery = before["discovery"]
+    route = before["backend_selection"]
+    checks = before["checks"]
+    passed = (
+        discovery.get("operation") == operation
+        and discovery.get("discovered_from_catalog") is True
+        and discovery.get("skill_updated") is False
+        and bool(route.get("selected"))
+        and route.get("selection_correct") is True
+        and before["receipt"].get("status") in {
+            "verified", "committed", "delivered"}
+        and bool(checks) and all(checks.values())
+        and not before["collateral_changes"]
+    )
+    return {
+        "schema": "ren-capability-discovery-probe/1",
+        "operation": operation,
+        "instruction": ordinary_instruction,
+        "skill_updated": False,
+        "capability_added_since_baseline": True,
+        "status": "pass" if passed else "fail",
+        "evidence": dict(before),
     }
 

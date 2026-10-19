@@ -1,0 +1,23 @@
+{
+  "schema": "ren-live-generalization-matrix/1",
+  "dimensions": {
+    "track_layout": ["v1_graphics_v2", "v1_v3_graphics_v4", "reversed_roles"],
+    "timeline_resolution": [[1920, 1080], [3840, 2160], [1080, 1920]],
+    "source_dimensions": [[1920, 1080], [3840, 2160], [1080, 1920], [180, 64]],
+    "frame_rate": ["24", "25", "30000/1001", "60"],
+    "source_media": ["h264_mp4", "prores_mov", "transparent_png", "wav_linked_av"],
+    "clip_identity": ["stable_unique_id", "duplicate_display_name", "reordered_after_snapshot"],
+    "project_complexity": ["single_track", "multitrack", "long_timeline"],
+    "approved_edit_history": ["none", "manual_transform", "approved_revision", "staged_revision"]
+  },
+  "execution_contract": {
+    "enumerate_cartesian_product": false,
+    "pairwise_cover_each_value": true,
+    "required_invariants": [
+      "same_semantic_target", "exact_source_and_record_intervals",
+      "role_based_track_resolution", "approved_edits_preserved",
+      "no_unrelated_timeline_changes", "output_pixel_geometry_verified"
+    ],
+    "record_case_id_and_fixture_fingerprint": true
+  }
+}
