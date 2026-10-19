@@ -1469,13 +1469,19 @@ class ReelLookRederiver(CompRederiver):
 
 @dataclass
 class ComposedEditReceipt:
-    """What each step did. Written so a composed edit can be read back."""
+    """What each step did. Written so a composed edit can be read back.
+
+    ``lifecycle`` is the additive VC-12 view of the same outcome in the
+    shared transaction vocabulary (``transaction_orchestration``); the
+    step keys above are unchanged and stay the receipt of record.
+    """
 
     planned: dict = field(default_factory=lambda: {"status": "not_planned"})
     applied: dict = field(default_factory=lambda: {"status": "not_applied"})
     verified: dict = field(default_factory=lambda: {"status": "not_verified"})
     committed: dict = field(default_factory=lambda: {"status": "not_committed"})
     delivered: dict = field(default_factory=lambda: {"status": "not_delivered"})
+    lifecycle: dict = field(default_factory=dict)
     staged: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
     rederivation_required: dict = field(default_factory=dict)
@@ -1600,6 +1606,15 @@ def apply_composed_edit(*, timeline, media_pool,
     # owned by the caller, so its receipt must not claim either outcome.
     receipt.committed = {"status": "awaiting_promotion"}
     receipt.delivered = {"status": "not_delivered"}
+
+    # VC-12: the same outcome in the shared lifecycle vocabulary. The
+    # step keys above are unchanged; this view is additive.
+    from library.tools import transaction_orchestration as _orch
+
+    receipt.lifecycle = _orch.composed_lifecycle(
+        planned_count=len(changes) + len(insertions),
+        applied=dict(receipt.applied), verified=dict(receipt.verified),
+        rederivation_required=dict(receipt.rederivation_required))
 
     receipt.seconds = round(time.time() - started, 3)
     return receipt

@@ -76,12 +76,11 @@ can say what it meets.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import time
 from dataclasses import asdict, dataclass
 
-from library.tools import edit_algebra, edit_backend, operation_acceptance, protocol_conformance, resolve_lock
+from library.tools import edit_algebra, edit_backend, protocol_conformance, resolve_lock
 from library.tools import transaction_receipt
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
@@ -223,21 +222,12 @@ class EditPatch:
 def _intent_form(operations) -> list:
     """The identity form of operations for idempotency comparison.
 
-    `clip.insert`'s apply writes the Resolve-assigned unique id back onto
-    the op (and records the client id on `client_unique_id`), so a
-    recorded patch's operations are post-apply while a retry's intent is
-    pre-apply.  Normalising both sides to the client id makes the
-    comparison stable: the Resolve-assigned id is a result, not part of
-    the patch's identity.
+    Owned by ``transaction_orchestration`` (VC-12); kept here as a thin
+    alias so the retry comparison stays one implementation.
     """
-    out = []
-    for op in operations:
-        op = dict(op)
-        if "client_unique_id" in op:
-            op["unique_id"] = op["client_unique_id"]
-            del op["client_unique_id"]
-        out.append(op)
-    return out
+    from library.tools import transaction_orchestration as _orch
+
+    return _orch.intent_form(operations)
 
 
 def _refuse(patch: EditPatch, what: str, why: str, fix: str):
@@ -593,14 +583,13 @@ def apply_live_patch(*, project, timeline, capability: str,
     postconditions = tuple(dict(condition) for condition in postconditions)
     if not operations:
         raise ValueError("an EditPatch needs at least one operation")
+    from library.tools import transaction_orchestration as _orch
+
     store = store or shadow.ShadowStore()
     project_name, timeline_id, timeline_name = shadow.timeline_key(
         project, timeline)
-    identity = json.dumps(
-        [project_name, timeline_id, idempotency_key],
-        ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-        default=str)
-    patch_id = "ren-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    patch_id = _orch.derive_patch_id(
+        project_name, timeline_id, idempotency_key)
     intent = {
         "project": project_name,
         "timeline": timeline_name,
@@ -1032,59 +1021,31 @@ def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
                      acceptance_evidence: dict | None = None,
                      journaled: bool = False,
                      journal_errors: list | None = None) -> dict:
-    """Judge physical execution only from the observed read-back."""
-    verify_ops = []
-    verify_rows = []
-    for row in ran:
-        op = patch.operations[row["index"]]
-        verify_op = op
-        if row["op"] != "clip.insert" and op.get("unique_id") in id_map:
-            verify_op = {**op, "unique_id": id_map[op["unique_id"]]}
-        verify_rows.append((row, verify_op))
-        verify_ops.append(verify_op)
-    failures = edit_algebra.verifies(verify_ops, after)
-    judged = [{"index": row["index"], "op": row["op"],
-               "returned": row["returned"], "failure": failure}
-              for (row, _), failure in zip(verify_rows, failures)]
-    unrelated_changes = _unrelated_clip_changes(patch, base, after, id_map)
-    supplied_evidence = acceptance_evidence or {}
-    acceptance_contracts = []
-    for verify_op, result in zip(verify_ops, judged):
-        index = result["index"]
-        evidence = dict(supplied_evidence.get(index, {}))
-        evidence.setdefault("unrelated_items_unchanged", not unrelated_changes)
-        acceptance_contracts.append(operation_acceptance.evaluate(
-            verify_op, readback_passed=(result["failure"] is None),
-            evidence=evidence))
-    post_failures = _judge(patch.postconditions, after, base)
-    ok = (stopped is None and not post_failures
-          and all(contract["passed"] for contract in acceptance_contracts)
-          and not any(row["failure"] for row in judged))
-    return {
-        "patch_id": patch.id,
-        "status": "committed" if ok else "verification_failed",
-        "resolve_write_status": "committed" if ok else "verification_failed",
-        "base_generation": head_generation,
-        "project": patch.project,
-        "timeline": patch.timeline,
-        "requested_operation_count": len(patch.operations),
-        "expected_state": {"operations": list(patch.operations),
-                            "postconditions": list(patch.postconditions)},
-        "readback": after,
-        "backend": "edit_patch",
-        "idempotency_key": patch.id,
-        "operations": judged,
-        "unrelated_changes": unrelated_changes,
-        "acceptance_contracts": acceptance_contracts,
-        "stopped": stopped,
-        "recovery_result": {"status": "not_attempted",
-                            "reason": ("transaction verified" if ok else
-                                       "read-back retained for recovery")},
-        "journal": {"intent_persisted": journaled,
-                    "errors": journal_errors or []},
-        "postcondition_failures": post_failures,
-        "exclusive_hold_seconds": round(hold_seconds, 4),
-    }
+    """Judge physical execution only from the observed read-back.
+
+    VC-12: the judgement is one shared pass in
+    ``transaction_orchestration.verify_readback`` (single ``verifies``
+    call, single unrelated-change scan, same receipt keys).
+    """
+    from library.tools import transaction_orchestration as _orch
+
+    judged_receipt = _orch.verify_readback(
+        list(patch.operations), ran, after, base=base, id_map=id_map,
+        affected_spans=patch.affected_spans,
+        postconditions=list(patch.postconditions),
+        acceptance_evidence=acceptance_evidence, stopped=stopped,
+        hold_seconds=hold_seconds, head_generation=head_generation,
+        patch_id=patch.id, project=patch.project,
+        timeline=patch.timeline, backend="edit_patch",
+        journaled=journaled, journal_errors=journal_errors)
+    # The shared pass returns the full receipt body except the requested
+    # count and expected state, which are properties of the patch rather
+    # than of what ran: restore the patch-level values verbatim.
+    judged_receipt["requested_operation_count"] = len(patch.operations)
+    judged_receipt["expected_state"] = {
+        "operations": list(patch.operations),
+        "postconditions": list(patch.postconditions)}
+    return judged_receipt
 
 
 def _emit_transaction_stage(project_folder, patch: EditPatch, stage: str,
@@ -1176,7 +1137,9 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
                "generation": generation.generation,
                "fingerprint": generation.hash,
                "readback": generation.summary()}
-    receipt = transaction_receipt.standardize(receipt)
+    from library.tools import transaction_orchestration as _orch
+
+    receipt = _orch.standardize_receipt(receipt)
     generation = store.update_receipt(generation, receipt)
     _emit_transaction_stage(
         project_folder, patch,
@@ -1214,7 +1177,9 @@ def _emit_patch_event(project_folder: str | None, receipt: dict,
 
 
 def _receipt_of(generation: shadow.Generation) -> dict:
-    return transaction_receipt.standardize({
+    from library.tools import transaction_orchestration as _orch
+
+    return _orch.standardize_receipt({
         **generation.receipt, "generation": generation.generation,
         "fingerprint": generation.hash,
         "readback": generation.summary()})

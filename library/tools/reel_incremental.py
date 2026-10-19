@@ -44,16 +44,25 @@ class IncrementalBroken(IncrementalRefused):
 
 
 class _RowInventory:
-    """One row enumeration shared by the decision's deterministic checks."""
+    """One row enumeration shared by the decision's deterministic checks.
+
+    VC-12: the enumeration is implemented in ``transaction_orchestration``
+    (shared with the post-patch re-check); this subclasses it so existing
+    imports and ``isinstance`` checks keep working.
+    """
+
     def __init__(self, timeline):
-        self.rows = {}
-        self.names = {}
-        self.counts = {}
-        for kind in ("video", "audio"):
-            self.counts[kind] = int(timeline.GetTrackCount(kind) or 0)
-            for index in range(1, self.counts[kind] + 1):
-                self.names[kind, index] = timeline.GetTrackName(kind, index) or ""
-                self.rows[kind, index] = list(timeline.GetItemListInTrack(kind, index) or ())
+        from library.tools import transaction_orchestration as _orch
+
+        if isinstance(timeline, _orch.SharedRowInventory):
+            self.rows = dict(timeline.rows)
+            self.names = dict(timeline.names)
+            self.counts = dict(timeline.counts)
+            return
+        wrapped = _orch.SharedRowInventory(timeline)
+        self.rows = wrapped.rows
+        self.names = wrapped.names
+        self.counts = wrapped.counts
 
     def GetTrackCount(self, kind):
         return self.counts[kind]
@@ -1105,7 +1114,12 @@ def build_staged_incremental(
             raise IncrementalBroken(
                 "incremental placement inventory still differs from the plan")
         build_record["placement_check"] = {"passed": True, "repair_attempted": False}
-        build_record["execution_routing"] = execution_routing.as_dict()
+        # VC-12: the routing decision is attached through the shared
+        # orchestration (same dict the router returns, same key).
+        from library.tools import transaction_orchestration as _orch
+
+        build_record.update(_orch.attach_routing(
+            {}, execution_routing, key="execution_routing"))
 
         from library.tools.reel_graphics import assert_timeline_media_online
         from library.tools.reel_otio_placement import RecordingTimeline
