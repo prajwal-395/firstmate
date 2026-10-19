@@ -61,6 +61,33 @@ def _node_modes(item):
             for index in range(1, graph.GetNumNodes() + 1)]
 
 
+def test_snapshot_backed_inverse_patch_restores_property_value(world):
+    _project, _timeline, item, store, base = world
+    before = store.snapshot(base)
+    after = copy.deepcopy(before)
+    before_clip = before["tracks"][0]["clips"][0]
+    after_clip = after["tracks"][0]["clips"][0]
+    before_value = (before_clip.get("transform") or {}).get("ZoomX", 1.0)
+    after_clip.setdefault("transform", {})["ZoomX"] = before_value + 0.25
+    patch = _patch(
+        "undo-source", base.generation,
+        [{"op": "clip.set_property", "unique_id": item.GetUniqueId(),
+          "key": "ZoomX", "value": before_value + 0.25}],
+        ["picture_transform"], [(0, 47)])
+
+    inverse = edit_patch.inverse_patch(
+        patch, before=before, after=after,
+        base_generation=base.generation + 1, patch_id="undo-inverse")
+
+    assert inverse.operations == ({
+        "op": "clip.set_property", "unique_id": item.GetUniqueId(),
+        "key": "ZoomX", "value": before_value},)
+    assert inverse.preconditions == ({
+        "kind": "clip_transform_equals",
+        "unique_id": item.GetUniqueId(),
+        "properties": {"ZoomX": before_value + 0.25}},)
+
+
 class _NodeRemoveDriver:
     """A UI driver double for the grade.node_remove apply: answers the
     recipe's reads and executes menu commands with the measured

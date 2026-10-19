@@ -548,6 +548,67 @@ def rebase(patch, store: shadow.ShadowStore | None = None) -> EditPatch:
     return moved
 
 
+def inverse_patch(patch, *, before: dict, after: dict,
+                  base_generation: int, patch_id: str) -> EditPatch:
+    """Build a conservative, snapshot-backed inverse EditPatch.
+
+    Reuse the feedback path's measured inverse rules, which cover only
+    marker and local clip-property writes. Other operations need a semantic
+    replay or native archive and are refused here rather than guessed.
+    """
+    from library.tools import feedback_patch_apply
+
+    patch = EditPatch.from_dict(patch)
+    try:
+        operations = feedback_patch_apply.inverse_operations(
+            patch.operations, before)
+    except feedback_patch_apply.UnrestorableOp as refused:
+        raise PatchRefused(
+            what=f"patch {patch.id!r} has no safe inverse EditPatch",
+            why=str(refused),
+            fix="use semantic replay or a verified native recovery archive") \
+            from refused
+    spans = []
+    for operation in operations:
+        spec = OPERATIONS.get(operation.get("op"))
+        span = spec.span(operation, after) if spec else None
+        if span is None:
+            raise PatchRefused(
+                what=f"inverse operation {operation!r} has no measured span",
+                why="an inverse must declare its full affected range",
+                fix="use semantic replay or a verified native recovery archive")
+        spans.append(tuple(int(frame) for frame in span))
+    domains = feedback_patch_apply._conflict_domains(operations)
+    preconditions = []
+    for operation in patch.operations:
+        op_id = operation["op"]
+        if op_id == "clip.set_property":
+            preconditions.append({
+                "kind": "clip_transform_equals",
+                "unique_id": str(operation["unique_id"]),
+                "properties": {str(operation["key"]): operation["value"]}})
+        elif op_id in {"marker.add", "marker.delete"}:
+            preconditions.append({
+                "kind": "marker_present" if op_id == "marker.add"
+                else "marker_absent",
+                **{key: operation[key] for key in (
+                    "frame", "color", "name", "note", "duration",
+                    "custom_data") if key in operation}})
+        elif op_id in {"clip_marker.add", "clip_marker.delete"}:
+            preconditions.append({
+                "kind": ("clip_marker_present" if op_id == "clip_marker.add"
+                         else "clip_marker_absent"),
+                **{key: operation[key] for key in (
+                    "unique_id", "frame", "color", "name", "note",
+                    "duration", "custom_data") if key in operation}})
+    return EditPatch(
+        id=patch_id, project=patch.project, timeline=patch.timeline,
+        base_generation=int(base_generation), capability=patch.capability,
+        affected_spans=tuple(spans), conflict_domains=domains,
+        operations=tuple(operations), preconditions=tuple(preconditions),
+        expected_model_revision=patch.expected_model_revision)
+
+
 def apply_live_patch(*, project, timeline, capability: str,
                      operations, conflict_domains,
                      idempotency_key: str, preconditions=(),

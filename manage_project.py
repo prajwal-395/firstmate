@@ -4207,7 +4207,13 @@ def cmd_undo(args):
         print(f"FAILED: {failed}", file=sys.stderr)
         sys.exit(1)
     for receipt in receipts:
-        if "entry" in receipt:
+        if receipt.get("source") == "direct_transaction":
+            print(f"Undid direct transaction {receipt['transaction_id']} with "
+                  "verified native compensation.")
+        elif receipt.get("source") == "edit_patch":
+            print(f"Undid EditPatch {receipt['patch_id']} in a new verified "
+                  f"generation {receipt['generation']}.")
+        elif "entry" in receipt:
             print(f"Undid touch {receipt['entry']} in place - verified "
                   f"against the journal (version {receipt['version']}).")
             uncarried = receipt.get("markers", {}).get("uncarried") or []
@@ -4266,7 +4272,13 @@ def cmd_redo(args):
         print(f"FAILED: {failed}", file=sys.stderr)
         sys.exit(1)
     for receipt in receipts:
-        if receipt.get("redo") and "entry" in receipt:
+        if receipt.get("source") == "direct_transaction":
+            print(f"Re-applied direct transaction {receipt['transaction_id']} "
+                  "with verified native read-back.")
+        elif receipt.get("source") == "edit_patch":
+            print(f"Re-applied EditPatch {receipt['patch_id']} in verified "
+                  f"generation {receipt['generation']}.")
+        elif receipt.get("redo") and "entry" in receipt:
             print(f"Re-applied touch {receipt['entry']} from its journal "
                   f"(redo version {receipt['version']}).")
         else:
@@ -4874,7 +4886,9 @@ def main():
     undo_parser.add_argument(
         "--act", default="",
         help="Undo this act by id - a touch's journal entry id, a "
-             "rebuild's version number, or a history entry id. Absent: "
+             "rebuild's version number, `patch:<id>` for a committed "
+             "EditPatch, `direct:<id>` for a direct transaction, or a "
+             "history entry id. Absent: "
              "the newest act. Refused by name when the live timeline "
              "has moved on from that act")
     undo_parser.add_argument(
@@ -4901,7 +4915,9 @@ def main():
         help="Redo the reversed act on this reel")
     redo_parser.add_argument(
         "--act", default="",
-        help="Re-apply this reversed act by id - a touch's journal entry "
+        help="Re-apply this reversed act by id - `patch:<id>` for an "
+             "EditPatch, `direct:<id>` for a direct transaction, a "
+             "touch's journal entry "
              "id, a rolled-back rebuild's version number, or a "
              "rollback's version number. Required")
     redo_parser.add_argument(

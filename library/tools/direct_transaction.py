@@ -37,6 +37,216 @@ class RecoveryQualification:
 RECOVERY_QUALIFICATIONS: dict[str, RecoveryQualification] = {}
 
 
+def transaction_history(project_folder: str, transaction_id: str) -> list[dict]:
+    """Return the durable events for one direct transaction, oldest first."""
+    from library.tools import event_log
+
+    return [{**event.get("fields", {}), "_at": event.get("at")}
+            for event in event_log.read_events(project_folder)
+            if event.get("fields", {}).get("direct_transaction")
+            and str(event.get("fields", {}).get("transaction_id"))
+            == str(transaction_id)]
+
+
+def _transaction_head(project_folder: str, transaction_id: str) -> dict:
+    history = transaction_history(project_folder, transaction_id)
+    if not history:
+        raise DirectTransactionRefused(
+            f"direct transaction {transaction_id!r} is not in the recovery journal")
+    head = history[-1]
+    if head.get("stage") != "committed":
+        raise DirectTransactionRefused(
+            f"direct transaction {transaction_id!r} is {head.get('stage')!r}; "
+            "unfinished recovery blocks undo and redo")
+    if head.get("recovered_state") is not None and not head.get("action"):
+        raise DirectTransactionRefused(
+            f"direct transaction {transaction_id!r} was compensated after "
+            "a failed apply and is not a committed creative edit")
+    return head
+
+
+def read_transaction(project_folder: str, transaction_id: str) -> dict:
+    """Read one durable transaction's latest stage and intent."""
+    return dict(_transaction_head(project_folder, transaction_id))
+
+
+def explain(project_folder: str, transaction_id: str, *, action: str) -> dict:
+    """Describe a direct transaction undo or redo without touching Resolve."""
+    if action not in {"undo", "redo"}:
+        raise ValueError("action must be 'undo' or 'redo'")
+    head = _transaction_head(project_folder, transaction_id)
+    operations = head.get("operations") or []
+    qualifications = []
+    blockers = []
+    for operation in operations:
+        try:
+            qualifications.append(_qualification_for(operation))
+        except DirectTransactionRefused as refused:
+            blockers.append(str(refused))
+    if action == "undo" and head.get("action") == "undo":
+        blockers.append("the transaction is already undone")
+    if action == "redo" and head.get("action") != "undo":
+        blockers.append("the transaction has no current undo to redo")
+    return {"transaction_id": transaction_id, "action": action,
+            "mechanism": ("verified native compensation" if action == "undo"
+                          else "re-apply the recorded native operations"),
+            "operations": [operation.get("op") for operation in operations],
+            "recovery_evidence": [list(item.evidence)
+                                  for item in qualifications],
+            "intervening": "incompatible live state refuses",
+            "blockers": blockers,
+            "verified": not blockers}
+
+
+def undo_committed(*, project_folder: str, transaction_id: str,
+                   observe: Callable[[], Any],
+                   apply: Callable[[Mapping[str, Any]], Any],
+                   same_state: Callable[[Any, Any], bool]) -> dict:
+    """Compensate one committed direct transaction with verified read-back."""
+    from library.tools import event_log, resolve_lock
+
+    if not resolve_lock.exclusive_held():
+        raise DirectTransactionRefused(
+            "direct transaction undo requires the exclusive Resolve lease")
+    head = _transaction_head(project_folder, transaction_id)
+    if head.get("action") == "undo":
+        raise DirectTransactionRefused(
+            f"direct transaction {transaction_id!r} is already undone")
+    operations = [dict(operation) for operation in head.get("operations") or []]
+    qualifications = [_qualification_for(operation) for operation in operations]
+    current = copy.deepcopy(observe())
+    expected = head.get("observed_state")
+    if expected is None or not same_state(expected, current):
+        raise DirectTransactionRefused(
+            "the live timeline no longer reads as the direct transaction left it")
+
+    def journal(stage: str, *, event_action: str = "undo", **fields) -> None:
+        event_log.emit(project_folder, event_log.EDIT_TRANSACTION_STAGE,
+                       direct_transaction=True,
+                       transaction_id=transaction_id, stage=stage,
+                       action=event_action,
+                       target_transaction_id=transaction_id,
+                       operations=operations,
+                       project=head.get("project", ""),
+                       timeline=head.get("timeline", ""),
+                       base_generation=head.get("base_generation"), **fields)
+
+    journal("undo_prepared", original_state=head.get("original_state"),
+            observed_state=current,
+            recovery_evidence=head.get("recovery_evidence"))
+    try:
+        for operation, qualification in zip(reversed(operations),
+                                            reversed(qualifications)):
+            qualification.compensator(operation, head.get("original_state"))
+        restored = copy.deepcopy(observe())
+        if not same_state(head.get("original_state"), restored):
+            raise RuntimeError("compensation read-back differs from original state")
+    except Exception as failure:
+        try:
+            for operation in operations:
+                apply(operation)
+            reapplied = copy.deepcopy(observe())
+            if not same_state(expected, reapplied):
+                raise RuntimeError(
+                    "re-applying the transaction did not restore its committed state")
+        except Exception as recovery_failure:
+            journal("undo_recovery_required", failure=repr(failure),
+                    recovery_failure=repr(recovery_failure),
+                    final_state=copy.deepcopy(observe()))
+            raise DirectTransactionFailed(
+                "direct transaction undo and recovery failed; evidence remains "
+                "in the journal") from recovery_failure
+        journal("committed", event_action="redo",
+                result_state=head.get("observed_state"),
+                original_state=head.get("original_state"),
+                recovery_evidence=head.get("recovery_evidence"),
+                observed_state=reapplied, verified=False,
+                undo_failure=repr(failure))
+        raise DirectTransactionFailed(
+            f"direct transaction undo failed and was restored: {failure}") \
+            from failure
+    journal("committed", result_state=restored,
+            original_state=head.get("original_state"),
+            recovery_evidence=head.get("recovery_evidence"),
+            observed_state=current, verified=True)
+    return {"transaction_id": transaction_id, "action": "undo",
+            "status": "verified", "before": current, "after": restored}
+
+
+def redo_committed(*, project_folder: str, transaction_id: str,
+                   observe: Callable[[], Any],
+                   apply: Callable[[Mapping[str, Any]], Any],
+                   verify: Callable[[Sequence[Mapping[str, Any]], Any, Any], Any],
+                   same_state: Callable[[Any, Any], bool]) -> dict:
+    """Re-apply a compensated direct transaction and verify its read-back."""
+    from library.tools import event_log, resolve_lock
+
+    if not resolve_lock.exclusive_held():
+        raise DirectTransactionRefused(
+            "direct transaction redo requires the exclusive Resolve lease")
+    head = _transaction_head(project_folder, transaction_id)
+    if head.get("action") != "undo":
+        raise DirectTransactionRefused(
+            f"direct transaction {transaction_id!r} has no current undo to redo")
+    operations = [dict(operation) for operation in head.get("operations") or []]
+    qualifications = [_qualification_for(operation) for operation in operations]
+    before = copy.deepcopy(observe())
+    expected = head.get("result_state")
+    if expected is None or not same_state(expected, before):
+        raise DirectTransactionRefused(
+            "the live timeline changed after the direct transaction undo")
+
+    def journal(stage: str, *, event_action: str = "redo", **fields) -> None:
+        event_log.emit(project_folder, event_log.EDIT_TRANSACTION_STAGE,
+                       direct_transaction=True,
+                       transaction_id=transaction_id, stage=stage,
+                       action=event_action,
+                       target_transaction_id=transaction_id,
+                       operations=operations,
+                       project=head.get("project", ""),
+                       timeline=head.get("timeline", ""),
+                       base_generation=head.get("base_generation"), **fields)
+
+    journal("redo_prepared", original_state=before,
+            recovery_evidence=head.get("recovery_evidence"))
+    try:
+        for operation in operations:
+            apply(operation)
+        after = copy.deepcopy(observe())
+        verdict = verify(operations, before, after)
+        if verdict:
+            raise RuntimeError(str(verdict))
+    except Exception as failure:
+        try:
+            for operation, qualification in zip(reversed(operations),
+                                                reversed(qualifications)):
+                qualification.compensator(operation, before)
+            restored = copy.deepcopy(observe())
+            if not same_state(before, restored):
+                raise RuntimeError("redo compensation did not restore its base")
+        except Exception as recovery_failure:
+            journal("redo_recovery_required", failure=repr(failure),
+                    recovery_failure=repr(recovery_failure),
+                    final_state=copy.deepcopy(observe()))
+            raise DirectTransactionFailed(
+                "direct transaction redo and recovery failed; evidence remains") \
+                from recovery_failure
+        journal("committed", event_action="undo", result_state=restored,
+                original_state=before,
+                recovery_evidence=head.get("recovery_evidence"),
+                observed_state=restored, verified=False,
+                failure=repr(failure))
+        raise DirectTransactionFailed(
+            f"direct transaction redo failed and was compensated: {failure}") \
+            from failure
+    journal("committed", original_state=before,
+            recovery_evidence=head.get("recovery_evidence"),
+            result_state=before, observed_state=after,
+            verified=True)
+    return {"transaction_id": transaction_id, "action": "redo",
+            "status": "verified", "before": before, "after": after}
+
+
 def _qualification_for(operation: Mapping[str, Any]) -> RecoveryQualification:
     from library.tools import edit_algebra
 
@@ -66,7 +276,9 @@ def execute(*, decision, operations: Sequence[Mapping[str, Any]],
             project_folder: str, transaction_id: str | None,
             observe: Callable[[], Any], apply: Callable[[Mapping[str, Any]], Any],
             verify: Callable[[Sequence[Mapping[str, Any]], Any, Any], Any],
-            same_state: Callable[[Any, Any], bool]) -> dict[str, Any]:
+            same_state: Callable[[Any, Any], bool],
+            project_name: str = "", timeline_name: str = "",
+            base_generation: int | None = None) -> dict[str, Any]:
     """Execute a qualified direct edit and compensate only with proven evidence.
 
     Callbacks are adapter-owned native operations. ``observe`` and ``apply``
@@ -123,6 +335,8 @@ def execute(*, decision, operations: Sequence[Mapping[str, Any]],
         "direct_transaction": True,
         "transaction_id": txid, "stage": "prepared",
         "operations": requested, "original_state": before,
+        "project": project_name, "timeline": timeline_name,
+        "base_generation": base_generation,
         "recovery_evidence": [list(q.evidence) for q in qualifications],
     }
     # A journal failure must happen before the first native mutation.

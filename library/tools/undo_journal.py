@@ -2944,7 +2944,8 @@ def _apply_touch(project_folder: str, spec: Mapping):
 
 def redo(project_folder: str, *, final: str = "", act: str = "",
          connect=None, read_live_rows=None, build=None, touch=None,
-         supersede=(), accept_editor_changes=None) -> list:
+         supersede=(), accept_editor_changes=None,
+         direct_transaction_adapter=None) -> list:
     """Re-apply a reversed act: a touch from its journal, a rebuild from its plan.
 
     `act` addresses the reversed act by id - a touch's journal entry id,
@@ -2953,6 +2954,13 @@ def redo(project_folder: str, *, final: str = "", act: str = "",
     nothing to redo. Returns one receipt per reel re-applied.
     """
     kind, target, entry, name = resolve_act(project_folder, final, act)
+    if kind == "direct":
+        return [_direct_transaction_action(
+            project_folder, target["transaction_id"], "redo",
+            adapter=direct_transaction_adapter)]
+    if kind == "patch":
+        return [redo_patch_transaction(
+            project_folder, target["patch_id"], connect=connect)]
     if kind == "touch":
         return [redo_touch(project_folder, entry["id"],
                            connect=connect, read_live_rows=read_live_rows,
@@ -3124,9 +3132,321 @@ def undo_stack(project_folder, final: str = "") -> list:
               else list(reel_versions.read(project_folder)["reels"]))
     acts = [(name, act) for name in finals
             for act in reel_versions.live_acts(project_folder, name)]
+    project_name = _resolve_name(project_folder)
+    from library.tools.timeline_shadow import ShadowStore
+    shadow_store = ShadowStore()
+    generations = shadow_store.generations_of(project_name)
+    for generation in generations:
+        patch = generation.patch or {}
+        patch_id = str(patch.get("id") or "")
+        timeline = generation.timeline_name
+        if (generation.source != "patch" or not patch_id
+                or (final and timeline != final)
+                or patch_id.startswith("creative-undo-")
+                or patch_id.startswith("creative-redo-")
+                or (generation.receipt or {}).get("status") != "committed"):
+            continue
+        latest_action = _latest_patch_action(
+            generations, generation.timeline_id, patch_id)
+        if latest_action and latest_action[0] == "undo":
+            continue
+        acts.append((timeline, {
+            "version": int(generation.generation), "kind": "patch",
+            "at": _generation_time(generation), "patch_id": patch_id,
+            "timeline_id": generation.timeline_id,
+        }))
+    from library.tools import event_log
+    direct_heads = {}
+    for event in event_log.read_events(project_folder):
+        fields = event.get("fields", {})
+        if fields.get("direct_transaction"):
+            direct_heads[str(fields["transaction_id"])] = {
+                **fields, "_at": event.get("at")}
+    for txid, head in direct_heads.items():
+        timeline = str(head.get("timeline") or "")
+        if (head.get("stage") != "committed"
+                or head.get("action") == "undo"
+                or (final and timeline != final)):
+            continue
+        acts.append((timeline or "direct transaction", {
+            "version": int(head.get("base_generation") or 0),
+            "kind": "direct", "at": str(head.get("_at") or ""),
+            "transaction_id": txid, "timeline_id": timeline,
+        }))
     return sorted(acts, key=lambda pair: (str(pair[1]["at"]),
                                           int(pair[1]["version"])),
                   reverse=True)
+
+
+def _generation_time(generation) -> str:
+    from datetime import UTC, datetime
+    return datetime.fromtimestamp(float(generation.recorded_at), UTC).isoformat(
+        timespec="seconds")
+
+
+def _patch_action_prefix(patch_id: str, action: str) -> str:
+    import hashlib
+    digest = hashlib.sha256(patch_id.encode("utf-8")).hexdigest()[:16]
+    return f"creative-{action}-{digest}-"
+
+
+def _latest_patch_action(generations, timeline_id: str,
+                         patch_id: str) -> tuple[str, Any, int] | None:
+    actions = []
+    for generation in generations:
+        if generation.timeline_id != timeline_id:
+            continue
+        candidate_id = str((generation.patch or {}).get("id") or "")
+        for action in ("undo", "redo"):
+            prefix = _patch_action_prefix(patch_id, action)
+            if candidate_id.startswith(prefix):
+                try:
+                    sequence = int(candidate_id[len(prefix):])
+                except ValueError:
+                    continue
+                actions.append((action, generation, sequence))
+    # Undo and redo counters are independent. Generation orders the actions.
+    return max(actions, key=lambda row: int(row[1].generation)) if actions else None
+
+
+def _patch_generation(project_folder: str, patch_id: str, final: str = ""):
+    from library.tools.timeline_shadow import ShadowStore
+
+    project_name = _resolve_name(project_folder)
+    shadow_store = ShadowStore()
+    hits = [generation for generation in shadow_store.generations_of(project_name)
+            if generation.source == "patch"
+            and (generation.patch or {}).get("id") == patch_id
+            and (not final or generation.timeline_name == final)]
+    if len(hits) != 1:
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} matched {len(hits)} recorded "
+            "generations", "an undo must identify one committed patch on "
+            "one timeline", "use `ren undo <project> --list` and address "
+            "the exact patch as `--act patch:<id>`")
+    generation = hits[0]
+    if (generation.receipt or {}).get("status") != "committed":
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} is not a committed transaction",
+            "a partial or unverified write cannot be presented as a clean "
+            "revision", "inspect its transaction receipt and recover the "
+            "recorded live state first")
+    return shadow_store, generation
+
+
+def _direct_transaction_action(project_folder: str, transaction_id: str,
+                               action: str, adapter=None) -> dict:
+    from library.tools import direct_transaction
+    from library.tools.resolve_lock import resolve_lease
+
+    try:
+        plan = direct_transaction.explain(
+            project_folder, transaction_id, action=action)
+    except direct_transaction.DirectTransactionRefused as refused:
+        raise UndoRefused(
+            f"direct transaction {transaction_id!r} cannot be {action}ed",
+            str(refused),
+            "keep the transaction refused until its native inverse and adapter "
+            "are qualified") from refused
+    if not plan["verified"]:
+        raise UndoRefused(
+            f"direct transaction {transaction_id!r} has no qualified native "
+            "recovery route", "; ".join(plan["blockers"]),
+            "qualify its direct inverse before asking Ren to undo it")
+    if not isinstance(adapter, Mapping):
+        raise UndoRefused(
+            f"direct transaction {transaction_id!r} has no live Resolve adapter",
+            "native compensation requires callbacks bound to the transaction's "
+            "Resolve operation", "route this transaction through its qualified "
+            "Resolve adapter before retrying")
+    required = {"observe", "apply", "same_state"}
+    if action == "redo":
+        required.add("verify")
+    missing = required - set(adapter)
+    if missing:
+        raise UndoRefused(
+            f"direct transaction {transaction_id!r} adapter is incomplete",
+            "missing callbacks: " + ", ".join(sorted(missing)),
+            "supply the complete qualified transaction adapter")
+    head = direct_transaction.read_transaction(project_folder, transaction_id)
+    timeline = str(head.get("timeline") or "direct transaction")
+    with resolve_lease(f"{action} direct transaction {transaction_id}"):
+        try:
+            if action == "undo":
+                receipt = direct_transaction.undo_committed(
+                    project_folder=project_folder, transaction_id=transaction_id,
+                    observe=adapter["observe"], apply=adapter["apply"],
+                    same_state=adapter["same_state"])
+            else:
+                receipt = direct_transaction.redo_committed(
+                    project_folder=project_folder, transaction_id=transaction_id,
+                    observe=adapter["observe"], apply=adapter["apply"],
+                    verify=adapter["verify"], same_state=adapter["same_state"])
+        except direct_transaction.DirectTransactionRefused as refused:
+            raise UndoRefused(
+                f"direct transaction {transaction_id!r} cannot be {action}ed",
+                str(refused),
+                "resolve the named live-state or qualification issue before retrying") \
+                from refused
+        except direct_transaction.DirectTransactionFailed as failed:
+            raise UndoNotVerified(
+                f"direct transaction {transaction_id!r} {action} failed: {failed}") \
+                from failed
+    return {"source": "direct_transaction", "transaction_id": transaction_id,
+            "timeline": timeline, "verified": receipt["status"] == "verified",
+            **receipt}
+
+
+def _apply_patch_revision(project_folder: str, timeline_name: str, patch,
+                          *, timeline_id: str, connect=None) -> dict:
+    from library.tools import edit_patch, timeline_shadow
+    from library.tools.resolve_lock import resolve_lease, cursor_excursion
+
+    project_name = _resolve_name(project_folder)
+    with resolve_lease(f"{patch.id} on {timeline_name}"):
+        project = (connect or _connect)(project_name)
+        timelines = [project.GetTimelineByIndex(index)
+                     for index in range(1, project.GetTimelineCount() + 1)]
+        matches = [timeline for timeline in timelines
+                   if timeline and timeline.GetName() == timeline_name]
+        if len(matches) != 1:
+            raise UndoRefused(
+                f"Resolve has {len(matches)} timelines named {timeline_name!r}",
+                "the patch revision cannot be safely addressed by name",
+                "resolve duplicate timeline names before retrying")
+        timeline = matches[0]
+        if str(timeline.GetUniqueId() or "") != timeline_id:
+            raise UndoRefused(
+                f"timeline {timeline_name!r} no longer has recorded Resolve "
+                f"identity {timeline_id!r}",
+                "the inverse belongs to a different native timeline",
+                "adopt or restore the recorded timeline generation before retrying")
+        try:
+            with cursor_excursion(project, timeline, f"apply {patch.id}"):
+                receipt = edit_patch.apply_patch(
+                    patch, resolve=None, project=project, timeline=timeline,
+                    store=timeline_shadow.ShadowStore(),
+                    project_folder=project_folder)
+        except edit_patch.PatchRefused as refused:
+            raise UndoRefused(
+                f"EditPatch revision {patch.id!r} was refused",
+                f"{refused}",
+                "resolve the named precondition or generation conflict, then retry") \
+                from refused
+    if receipt.get("status") != "committed":
+        raise UndoNotVerified(
+            f"EditPatch revision {patch.id!r} did not verify; its read-back "
+            "generation remains recorded")
+    return receipt
+
+
+def _carried_patch(project_folder: str, generation, *, patch,
+                   model_revision=None):
+    from library.tools import edit_patch, patch_algebra
+    from library.tools.timeline_shadow import ShadowStore
+
+    store = ShadowStore()
+    patch_data = patch.to_dict()
+    patch_data["expected_model_revision"] = (
+        generation.model_revision if model_revision is None
+        else model_revision)
+    patch = edit_patch.EditPatch.from_dict(patch_data)
+    moved, reason = patch_algebra.carry(
+        patch, store, generation.project, generation.timeline_id)
+    if moved is None:
+        raise TimelineMovedSinceTouch(
+            f"EditPatch act {generation.patch['id']!r} cannot be reversed "
+            "over the current timeline head",
+            reason or "a later or unattributed generation conflicts",
+            "undo the conflicting revision first, then retry this act")
+    return moved
+
+
+def undo_patch_transaction(project_folder: str, patch_id: str, *,
+                           connect=None) -> dict:
+    """Undo a committed, locally reversible EditPatch as a new generation."""
+    from library.tools import edit_patch
+
+    store, generation = _patch_generation(project_folder, patch_id)
+    generations = store.generations_of(generation.project)
+    latest = _latest_patch_action(generations, generation.timeline_id, patch_id)
+    if latest and latest[0] == "undo":
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} is already undone",
+            "there is no live edit to reverse", "use `ren redo` with "
+            f"`--act patch:{patch_id}` to re-apply it")
+    try:
+        before_generation = store.get(
+            generation.project, generation.timeline_id,
+            int(generation.generation) - 1)
+    except Exception as unreadable:
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} has no recorded base snapshot",
+            f"its inverse cannot be derived ({unreadable})",
+            "restore the base timeline generation before retrying") \
+            from unreadable
+    before = store.snapshot(before_generation)
+    after = store.snapshot(generation)
+    action_count = sum(
+        1 for item in generations
+        if (item.patch or {}).get("id", "").startswith(
+            _patch_action_prefix(patch_id, "undo")))
+    action_id = (_patch_action_prefix(patch_id, "undo")
+                 + str(action_count + 1))
+    try:
+        inverse = edit_patch.inverse_patch(
+            generation.patch, before=before, after=after,
+            base_generation=generation.generation, patch_id=action_id)
+    except edit_patch.PatchRefused as refused:
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} has no safe inverse",
+            f"{refused}",
+            "use semantic replay or a verified native recovery archive") \
+            from refused
+    inverse = _carried_patch(
+        project_folder, generation, patch=inverse)
+    receipt = _apply_patch_revision(
+        project_folder, generation.timeline_name, inverse,
+        timeline_id=generation.timeline_id, connect=connect)
+    return {"source": "edit_patch", "patch_id": patch_id,
+            "undo_patch_id": inverse.id, "generation": receipt["generation"],
+            "verified": True}
+
+
+def redo_patch_transaction(project_folder: str, patch_id: str, *,
+                           connect=None) -> dict:
+    """Re-apply a reversed EditPatch as another verified generation."""
+    from library.tools import edit_patch
+
+    store, generation = _patch_generation(project_folder, patch_id)
+    generations = store.generations_of(generation.project)
+    latest = _latest_patch_action(generations, generation.timeline_id, patch_id)
+    if not latest or latest[0] != "undo":
+        raise UndoRefused(
+            f"EditPatch act {patch_id!r} has no current undo to redo",
+            "redo must follow its latest undo in the same revision chain",
+            "choose an undone edit with `ren undo <project> --list`")
+    _, undo_generation, undo_sequence = latest
+    redo_count = sum(
+        1 for item in generations
+        if (item.patch or {}).get("id", "").startswith(
+            _patch_action_prefix(patch_id, "redo")))
+    redo_id = (_patch_action_prefix(patch_id, "redo")
+               + str(redo_count + 1))
+    replay = edit_patch.EditPatch.from_dict({
+        **generation.patch, "id": redo_id,
+        "base_generation": undo_generation.generation,
+        "expected_model_revision": undo_generation.model_revision,
+    })
+    replay = _carried_patch(
+        project_folder, generation, patch=replay,
+        model_revision=undo_generation.model_revision)
+    receipt = _apply_patch_revision(
+        project_folder, generation.timeline_name, replay,
+        timeline_id=generation.timeline_id, connect=connect)
+    return {"source": "edit_patch", "patch_id": patch_id,
+            "redo_patch_id": redo_id, "undo_sequence": undo_sequence,
+            "generation": receipt["generation"], "verified": True}
 
 
 def explain_undo(project_folder: str, *, final: str = "", act: str = "",
@@ -3140,6 +3460,42 @@ def explain_undo(project_folder: str, *, final: str = "", act: str = "",
 
     if act:
         kind, target, journal, name = resolve_act(project_folder, final, act)
+        if kind == "direct":
+            from library.tools import direct_transaction
+            summary = direct_transaction.explain(
+                project_folder, target["transaction_id"], action="undo")
+            return [{"reel": name, "version": target["version"],
+                     "kind": "direct", "journal": target["transaction_id"],
+                     "target_version": None,
+                     "mechanism": summary["mechanism"],
+                     "intervening": [],
+                     "outcome": ("verified compensation will run only when "
+                                 "native inverse qualification and the live "
+                                 "state check pass; "
+                                 + ("; ".join(summary["blockers"])
+                                    if summary["blockers"] else
+                                    "otherwise refuses")),
+                     "editor_changes_authorized": False}]
+        if kind == "patch":
+            store, generation = _patch_generation(
+                project_folder, target["patch_id"], name)
+            later = [g for g in store.generations_of(generation.project)
+                     if g.timeline_id == generation.timeline_id
+                     and g.generation > generation.generation]
+            return [{
+                "reel": name, "version": int(generation.generation),
+                "kind": "patch", "journal": target["patch_id"],
+                "target_version": int(generation.generation) - 1,
+                "mechanism": ("verified inverse EditPatch from the recorded "
+                              "base snapshot; compatible later patches are carried"),
+                "intervening": [
+                    {"version": int(g.generation), "kind": g.source,
+                     "status": ("unattributed" if g.source == "observed"
+                                else "recorded after target")}
+                    for g in later],
+                "outcome": ("conflicting or unattributed later generations "
+                            "refuse; the inverse commits as a new verified revision"),
+                "editor_changes_authorized": False}]
         if target.get("kind") == reel_versions.KIND_ROLLBACK:
             raise UndoRefused(
                 f"version {target['version']} of {name!r} is a rollback "
@@ -3164,6 +3520,44 @@ def explain_undo(project_folder: str, *, final: str = "", act: str = "",
 
     plans = []
     for name, target, kind, journal in targets:
+        if kind == "direct":
+            from library.tools import direct_transaction
+            summary = direct_transaction.explain(
+                project_folder, target["transaction_id"], action="undo")
+            plans.append({
+                "reel": name, "version": target["version"],
+                "kind": "direct", "journal": target["transaction_id"],
+                "target_version": None, "mechanism": summary["mechanism"],
+                "intervening": [],
+                "outcome": ("native inverse qualification and an exact live "
+                            "state match are required; "
+                            + ("; ".join(summary["blockers"])
+                               if summary["blockers"] else "otherwise refuses")),
+                "editor_changes_authorized": False})
+            continue
+        if kind == "patch":
+            patch_store, patch_generation = _patch_generation(
+                project_folder, target["patch_id"], name)
+            later_generations = [
+                g for g in patch_store.generations_of(
+                    patch_generation.project)
+                if g.timeline_id == patch_generation.timeline_id
+                and g.generation > patch_generation.generation]
+            plans.append({
+                "reel": name, "version": int(patch_generation.generation),
+                "kind": "patch", "journal": target["patch_id"],
+                "target_version": int(patch_generation.generation) - 1,
+                "mechanism": ("verified inverse EditPatch from the recorded "
+                              "base snapshot; compatible later patches are carried"),
+                "intervening": [
+                    {"version": int(g.generation), "kind": g.source,
+                     "status": ("unattributed" if g.source == "observed"
+                                else "recorded after target")}
+                    for g in later_generations],
+                "outcome": ("conflicting or unattributed later generations refuse; "
+                            "the inverse commits as a new verified revision"),
+                "editor_changes_authorized": False})
+            continue
         history = reel_versions.versions_of(project_folder, name)
         later = [entry for entry in history
                  if int(entry["version"]) > int(target["version"])]
@@ -3224,6 +3618,34 @@ def explain_redo(project_folder: str, *, final: str = "", act: str = "") \
         -> list[dict[str, Any]]:
     """Describe a redo's source, route, and later recorded history."""
     kind, target, journal, name = resolve_act(project_folder, final, act)
+    if kind == "direct":
+        from library.tools import direct_transaction
+        summary = direct_transaction.explain(
+            project_folder, target["transaction_id"], action="redo")
+        return [{"reel": name, "version": target["version"],
+                 "kind": "direct", "source": target["transaction_id"],
+                 "mechanism": summary["mechanism"], "intervening": [],
+                 "outcome": ("only a currently undone transaction may be "
+                             "re-applied; "
+                             + ("; ".join(summary["blockers"])
+                                if summary["blockers"] else
+                                "native read-back must verify"))}]
+    if kind == "patch":
+        store, generation = _patch_generation(
+            project_folder, target["patch_id"], name)
+        generations = store.generations_of(generation.project)
+        mechanism = "re-apply the recorded EditPatch operations as a verified generation"
+        source = target["patch_id"]
+        after = [{"version": int(g.generation), "kind": g.source}
+                 for g in generations
+                 if g.timeline_id == generation.timeline_id
+                 and g.generation > generation.generation]
+        return [{"reel": name, "version": int(generation.generation),
+                 "kind": "patch", "source": source,
+                 "mechanism": mechanism, "intervening": after,
+                 "outcome": ("redo requires the latest transaction in this "
+                             "chain to be an undo; conflicting or unattributed "
+                             "changes refuse")}]
     from library.tools.versions import reel_versions
 
     history = reel_versions.versions_of(project_folder, name)
@@ -3280,6 +3702,39 @@ def resolve_act(project_folder, final: str, act_id: str):
     undo journal entry for a touch, else None; `final_name` is the reel
     the act was found on.
     """
+    if str(act_id).startswith("direct:"):
+        from library.tools import direct_transaction
+        transaction_id = str(act_id).split(":", 1)[1]
+        try:
+            head = direct_transaction.read_transaction(project_folder,
+                                                       transaction_id)
+        except direct_transaction.DirectTransactionRefused as refused:
+            raise UndoRefused(
+                f"direct transaction {transaction_id!r} is not reversible",
+                str(refused),
+                "inspect its recovery journal and resolve the recorded state") \
+                from refused
+        timeline = str(head.get("timeline") or "direct transaction")
+        if final and timeline != final:
+            raise UndoRefused(
+                f"direct transaction {transaction_id!r} belongs to "
+                f"{timeline!r}, not {final!r}",
+                "an act cannot be undone on another timeline",
+                "address the transaction on its recorded timeline")
+        return ("direct", {"version": int(head.get("base_generation") or 0),
+                            "kind": "direct", "transaction_id": transaction_id,
+                            "at": str(head.get("_at") or "")},
+                head, timeline)
+
+    if str(act_id).startswith("patch:"):
+        patch_id = str(act_id).split(":", 1)[1]
+        _store, generation = _patch_generation(project_folder, patch_id, final)
+        return ("patch", {"version": generation.generation,
+                           "kind": "patch", "patch_id": patch_id,
+                           "timeline_id": generation.timeline_id,
+                           "at": _generation_time(generation)},
+                None, generation.timeline_name)
+
     from library.tools.versions import reel_versions
 
     review_dir = os.path.join(str(project_folder), "pipeline_output", "review")
@@ -3337,7 +3792,8 @@ def resolve_act(project_folder, final: str, act_id: str):
 
 def undo(project_folder: str, *, final: str = "", act: str = "",
           connect=None, read_live_rows=None, build=None, touch=None,
-          supersede=(), accept_editor_changes=None) -> list:
+          supersede=(), accept_editor_changes=None,
+          direct_transaction_adapter=None) -> list:
     """Reverse the newest act (on `final`, or anywhere), or the act `act` names.
 
     `act` addresses any recorded act by id, not just the newest: a touch
@@ -3350,6 +3806,13 @@ def undo(project_folder: str, *, final: str = "", act: str = "",
 
     if act:
         kind, target, entry, name = resolve_act(project_folder, final, act)
+        if kind == "direct":
+            return [_direct_transaction_action(
+                project_folder, target["transaction_id"], "undo",
+                adapter=direct_transaction_adapter)]
+        if kind == "patch":
+            return [undo_patch_transaction(
+                project_folder, target["patch_id"], connect=connect)]
         if kind == "touch":
             return [undo_touch(project_folder, entry["id"],
                                connect=connect,
@@ -3398,7 +3861,14 @@ def undo(project_folder: str, *, final: str = "", act: str = "",
                     f"re-run `ren undo`")
     receipts = []
     for name, act in targets:
-        if act["kind"] == reel_versions.KIND_TOUCH:
+        if act["kind"] == "direct":
+            receipts.append(_direct_transaction_action(
+                project_folder, act["transaction_id"], "undo",
+                adapter=direct_transaction_adapter))
+        elif act["kind"] == "patch":
+            receipts.append(undo_patch_transaction(
+                project_folder, act["patch_id"], connect=connect))
+        elif act["kind"] == reel_versions.KIND_TOUCH:
             receipts.append(undo_touch(project_folder, act["journal"],
                                        connect=connect,
                                        accept_editor_changes=
@@ -3439,8 +3909,10 @@ def render_stack(stack: Sequence[tuple]) -> str:
         return "Nothing to undo."
     lines = []
     for final, act in stack:
-        what = (f"touch {act.get('journal')}"
-                if act["kind"] == "touch" else "rebuild")
+        what = (f"touch {act.get('journal')}" if act["kind"] == "touch"
+                else f"EditPatch {act['patch_id']}" if act["kind"] == "patch"
+                else f"direct transaction {act['transaction_id']}"
+                if act["kind"] == "direct" else "rebuild")
         batch = f" (all-reels {act['batch']})" if act.get("batch") else ""
         lines.append(f"  {final} v{act['version']} {what}{batch} "
                      f"at {act['at']}")

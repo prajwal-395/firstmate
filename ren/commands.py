@@ -392,11 +392,11 @@ VERBS = (
     Verb("undo", "Reels", "Undo a touch-up (in place) or rebuild (by version)",
          effects=("read", "project_write", "resolve_read", "resolve_write"), subcommand="undo",
           detail="Reverse a Ren act: a touch-up in place from its journal, a rebuild by rolling back to the version before it. "
-                 "--act addresses any recorded act by id, not just the newest",
+                 "--act addresses any recorded act by id, including a committed EditPatch as `patch:<id>` or direct transaction as `direct:<id>`, not just the newest",
          params=(MCP_PROJECT,)),
     Verb("redo", "Reels", "Re-apply a reversed touch-up or rebuild",
          effects=("read", "project_write", "resolve_read", "resolve_write"), subcommand="redo",
-          detail="Re-apply a reversed act: a touch from its journal's spec, a rolled-back rebuild from the plan moment of the act that had been rolled back",
+         detail="Re-apply a reversed act: a touch from its journal's spec, a rolled-back rebuild from its plan moment, a committed EditPatch from its recorded operations, or a direct transaction through its qualified native adapter",
          params=(MCP_PROJECT,)),
     Verb("dry-run", "Reels", "Plan a touch-up against the live timeline and stop",
          effects=("read", "resolve_read"), subcommand="ren-dry-run",
