@@ -45,7 +45,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from library.tools.computer_use.actions import INPUT_CALLS
 from library.tools.computer_use.client import DriverClient, DriverError
@@ -206,7 +206,7 @@ def load_script(path) -> Script:
         raise ScriptError(
             f"the script file {file} could not be read",
             str(exc),
-            f"pass a readable script JSON file: ren computer-use script <file>",
+            "pass a readable script JSON file: ren computer-use script <file>",
             code="SCRIPT_UNREADABLE",
         ) from exc
     try:
@@ -286,16 +286,35 @@ def resolve_anchor(client: DriverClient, anchor: Anchor) -> tuple[str, dict] | N
         if not text:
             return None
         ocr = client.call("read_text")
-        for label in ocr.get("elements") or []:
-            if label.get("text") == text:
-                frame = label.get("frame") or {}
-                x = frame.get("x", 0.0) + frame.get("width", 0.0) / 2
-                y = frame.get("y", 0.0) + frame.get("height", 0.0) / 2
-                params = {"x": x, "y": y}
-                if anchor.params.get("clicks") is not None:
-                    params["clicks"] = anchor.params["clicks"]
-                return ("click", params)
-        return None
+        matches = [label for label in (ocr.get("elements") or [])
+                   if label.get("text") == text]
+        region = anchor.params.get("region")
+        if region is not None:
+            if not isinstance(region, dict) or not all(
+                    isinstance(region.get(k), (int, float))
+                    for k in ("x", "y", "width", "height")):
+                raise ValueError(
+                    "OCR region must contain numeric x, y, width and height")
+            left, top = float(region["x"]), float(region["y"])
+            right, bottom = left + float(region["width"]), top + float(region["height"])
+            matches = [label for label in matches
+                       if left <= float((label.get("frame") or {}).get("x", -1))
+                       and top <= float((label.get("frame") or {}).get("y", -1))
+                       and float((label.get("frame") or {}).get("x", -1))
+                       + float((label.get("frame") or {}).get("width", 0)) <= right
+                       and float((label.get("frame") or {}).get("y", -1))
+                       + float((label.get("frame") or {}).get("height", 0)) <= bottom]
+        # Repeated labels are not a locator. Let the recipe refine them
+        # with a measured region or a different anchor; never click the first.
+        if len(matches) != 1:
+            return None
+        frame = matches[0].get("frame") or {}
+        x = frame.get("x", 0.0) + frame.get("width", 0.0) / 2
+        y = frame.get("y", 0.0) + frame.get("height", 0.0) / 2
+        params = {"x": x, "y": y}
+        if anchor.params.get("clicks") is not None:
+            params["clicks"] = anchor.params["clicks"]
+        return ("click", params)
     if anchor.via == "position":
         x, y = anchor.params.get("x"), anchor.params.get("y")
         if x is None or y is None:
@@ -350,7 +369,7 @@ def _resolve_type(anchor: Anchor) -> tuple[str, dict] | None:
     if not text:
         return None
     if not isinstance(text, str):
-        raise ValueError(
+        raise TypeError(
             f"type needs a string text, got {text!r} - format numbers "
             f"at the recipe layer")
     return ("type_text", {"text": text})
@@ -400,7 +419,6 @@ def _resolve_template(client: DriverClient, anchor: Anchor) -> tuple[str, dict] 
     spaces the rounds. Both are validated - negative budgets and
     non-positive intervals are recipe bugs, not layouts that moved.
     """
-    import cv2
     import numpy as np
 
     from library.tools.computer_use.templates import TemplateMissing
@@ -953,7 +971,7 @@ class RecipeStore:
                 f"a recipe name is a lower-case slug, got {name!r}")
         return self.root / f"{name}.json"
 
-    def save(self, name: str, script: Script, layout: Optional[str]) -> Path:
+    def save(self, name: str, script: Script, layout: str | None) -> Path:
         """Name a verified script. Overwrites the name it is given -
         re-verifying a route replaces the old one, and the success
         count restarts because the steps may have changed."""
@@ -970,7 +988,7 @@ class RecipeStore:
         )
         return path
 
-    def load(self, name: str) -> Optional[tuple[Script, dict]]:
+    def load(self, name: str) -> tuple[Script, dict] | None:
         """The named recipe, or None where no verified route exists.
 
         None is the planner's cue, not an error: an unknown name means
@@ -987,7 +1005,7 @@ class RecipeStore:
             return None
         return script, record
 
-    def record_result(self, name: str, ok: bool) -> Optional[int]:
+    def record_result(self, name: str, ok: bool) -> int | None:
         """Count one execution toward (or against) promotion.
 
         A committed run increments the consecutive successes; anything
@@ -1018,9 +1036,9 @@ def run_recipe(
     client: DriverClient,
     store: RecipeStore,
     name: str,
-    layout: Optional[str] = None,
+    layout: str | None = None,
     llm: Callable[[Observation, ScriptStep], dict] | None = None,
-) -> Optional[ScriptResult]:
+) -> ScriptResult | None:
     """Execute the named recipe BEFORE any computer-use planning.
 
     Unknown name, unreadable record or a layout the recipe was not
@@ -1315,7 +1333,7 @@ def _check_remove_args(node_index: int, node_count: int) -> None:
     if (isinstance(node_index, bool) or not isinstance(node_index, int)
             or isinstance(node_count, bool)
             or not isinstance(node_count, int)):
-        raise ValueError(
+        raise TypeError(
             f"a node_remove recipe needs integer index and count, got "
             f"{node_index!r} of {node_count!r}")
     if not 1 <= node_index <= node_count:

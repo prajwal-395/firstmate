@@ -196,6 +196,7 @@ def test_failed_step_receipt_distinguishes_unresolved_from_unverified(
     impossible to diagnose, so keep the resolution and expectation
     outcomes per anchor in the failed receipt."""
     from contextlib import nullcontext
+
     from library.tools.computer_use.scripts import _run_step
 
     calls: list = []
@@ -876,6 +877,7 @@ def test_a_menu_close_uncertainty_is_reported_in_the_step_receipt(
     from the live report; the next action needs to know whether the menu
     close was verified."""
     from contextlib import nullcontext
+
     from library.tools.computer_use.scripts import effect_panels_script
 
     original_call = client.call
@@ -930,7 +932,9 @@ def test_a_menu_anchor_resolves_a_remove_path(client: DriverClient):
     anchor to its own whole path - the anchor carries any command,
     not just the add route."""
     from library.tools.computer_use.scripts import (
-        GRADE_NODE_DELETE_PATH, grade_node_remove_script)
+        GRADE_NODE_DELETE_PATH,
+        grade_node_remove_script,
+    )
 
     script = grade_node_remove_script(1, 1)
     assert resolve_anchor(client, script.steps[-2].anchors[0]) == (
@@ -982,7 +986,9 @@ def test_the_settled_run_sleeps_waits_in_process(client: DriverClient,
     import time
 
     from library.tools.computer_use.scripts import (
-        grade_node_remove_script, run_settled_script)
+        grade_node_remove_script,
+        run_settled_script,
+    )
 
     slept: list = []
     monkeypatch.setattr(time, "sleep", slept.append)
@@ -1001,7 +1007,10 @@ def test_the_settled_run_fails_a_step_nothing_resolves():
     route against a UI state the skipped step was meant to establish.
     """
     from library.tools.computer_use.scripts import (
-        Script, ScriptStep, run_settled_script)
+        Script,
+        ScriptStep,
+        run_settled_script,
+    )
 
     class _Dead:
         def call(self, method, params=None):
@@ -1087,7 +1096,6 @@ def test_click_counts_ride_ocr_and_template_resolvers(client: DriverClient,
     method, params = resolved
     assert method == "click"
     assert params["clicks"] == 2
-
     img = Image.new("RGB", (128, 64), (20, 20, 20))
     draw = ImageDraw.Draw(img)
     draw.rectangle([40, 20, 60, 40], fill=(200, 200, 200))
@@ -1111,6 +1119,28 @@ def test_click_counts_ride_ocr_and_template_resolvers(client: DriverClient,
     method, params = resolved
     assert method == "click"
     assert params["clicks"] == 2
+
+
+def test_ocr_target_refuses_duplicate_labels_unless_region_disambiguates():
+    class OCRDriver:
+        def __init__(self):
+            self.elements = [
+                {"text": "Gain", "frame": {"x": 10, "y": 10,
+                                             "width": 20, "height": 10}},
+                {"text": "Gain", "frame": {"x": 80, "y": 10,
+                                             "width": 20, "height": 10}},
+            ]
+
+        def call(self, method, params=None):
+            assert method == "read_text"
+            return {"elements": self.elements}
+
+    driver = OCRDriver()
+    assert resolve_anchor(driver, Anchor(via="ocr", params={"text": "Gain"})) is None
+    result = resolve_anchor(driver, Anchor(via="ocr", params={
+        "text": "Gain", "region": {"x": 0, "y": 0,
+                                     "width": 50, "height": 40}}))
+    assert result == ("click", {"x": 20.0, "y": 15.0})
 
 
 def test_a_past_deadline_raises_before_touching_the_driver():
@@ -1143,10 +1173,11 @@ def test_a_past_deadline_raises_before_touching_the_driver():
 def test_region_changed_inside_and_outside():
     """A rect that changed reads changed; a rect over identical pixels
     reads unchanged - the named region, not the frame, is the signal."""
+    from io import BytesIO
+
     from PIL import Image
 
     from library.tools.computer_use.scripts import _region_changed
-    from io import BytesIO
 
     def png(color, box=None, fill=None):
         img = Image.new("RGB", (64, 64), color)
@@ -1168,12 +1199,12 @@ def test_region_changed_inside_and_outside():
 def test_region_outside_the_image_is_unchanged_and_malformed_raises():
     """A rect with no overlap reads unchanged (nothing observable);
     a malformed rect is a recipe bug and fails fast."""
-    import pytest
+    from io import BytesIO
 
+    import pytest
     from PIL import Image
 
     from library.tools.computer_use.scripts import _region_changed
-    from io import BytesIO
 
     buf = BytesIO()
     Image.new("RGB", (64, 64), (20, 20, 20)).save(buf, format="PNG")
@@ -1191,13 +1222,12 @@ def test_the_measured_registry_template_resolves():
     from io import BytesIO
 
     import pytest
-
     from PIL import Image
 
     from library.tools.computer_use.scripts import _resolve_template
     from library.tools.computer_use.templates import load_template
 
-    pixels, entry = load_template("magic-mask-toolbar")
+    pixels, _entry = load_template("magic-mask-toolbar")
     h, w = pixels.shape[:2]
     crop = Image.fromarray(pixels)
     img = Image.new("RGB", (400, 300), (20, 20, 20))
@@ -1386,7 +1416,6 @@ def test_template_settle_with_malformed_bounds_fails_fast(tmp_path):
     """A negative budget or non-positive interval is a malformed
     recipe, not a layout that moved."""
     import pytest
-
     from PIL import Image
 
     from library.tools.computer_use.scripts import _resolve_template

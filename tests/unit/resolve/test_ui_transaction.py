@@ -18,18 +18,14 @@ import time
 
 import pytest
 
-from library.tools import event_log
-from library.tools import project_graph
+from library.tools import event_log, project_graph, resolve_lock
 from library.tools import reel_edit_history as history
-from library.tools import resolve_lock
-from library.tools.resolved import jobs as job_kinds
-from library.tools.resolved import scheduler
-from library.tools.resolved.server import Broker
-from library.tools.resolved.store import JobStore
-from library.tools.resolved import ui_transaction
 from library.tools.computer_use.client import DriverDead
 from library.tools.reel_edit_history import ACT_UI_TRANSACTION
-
+from library.tools.resolved import jobs as job_kinds
+from library.tools.resolved import scheduler, ui_transaction
+from library.tools.resolved.server import Broker
+from library.tools.resolved.store import JobStore
 
 # ── The fake driver, injected by the tests ───────────────────────────
 
@@ -344,9 +340,7 @@ def _matches(element, *, role, title, title_contains, label, value,
         return False
     if value and element.get("value") != value:
         return False
-    if path and list(element.get("path") or []) != list(path):
-        return False
-    return True
+    return not path or list(element.get("path") or []) == list(path)
 
 
 def find_in_tree(tree, **criteria):
@@ -641,7 +635,7 @@ def test_exclusive_job_waits_for_a_running_write(broker, backend):
     assert first_job["result"]["status"] == "failed"
     second_job = _wait_terminal(broker, second["id"])
     assert second_job["state"] == "done"
-    assert second_job["result"]["status"] == "committed"
+    assert second_job["result"]["status"] == "applied_unverified"
 
 
 # ── Context restored after a failed action ──────────────────────────
@@ -767,7 +761,7 @@ def test_path_qualified_element_presses_the_named_command(broker, backend):
     submitted = _submit(broker, params)
     job = _wait_terminal(broker, submitted["id"])
     result = job["result"]
-    assert result["status"] == "committed", result
+    assert result["status"] == "applied_unverified", result
     assert backend.element("color-switch").get("pressed") is True
     assert backend.element("color-bypass").get("pressed") is not True
 
@@ -802,7 +796,7 @@ def test_click_on_a_text_anchor_clicks_the_label_center(broker, backend):
     submitted = _submit(broker, params)
     job = _wait_terminal(broker, submitted["id"])
     result = job["result"]
-    assert result["status"] == "committed", result
+    assert result["status"] == "applied_unverified", result
     assert backend._pointer == {"x": 360.0, "y": 215.0}
 
 
@@ -886,6 +880,133 @@ def test_prepare_refuses_malformed_path(backend):
             })
 
 
+def test_accessibility_locator_refuses_stale_layout_and_version(backend):
+    from library.tools.computer_use.observe import layout_fingerprint, project_ax_tree
+
+    driver = FakeDriver(backend)
+    target = {"kind": "accessibility_element", "title": "Color",
+              "layout_fingerprint": "old-layout"}
+    with pytest.raises(job_kinds.JobRefused, match="stale UI locator"):
+        ui_transaction._resolve_element(driver, target)
+    target = {"kind": "accessibility_element", "title": "Color",
+              "resolve_version": "20.0"}
+    with pytest.raises(job_kinds.JobRefused, match="qualified for Resolve"):
+        ui_transaction._execute_action(
+            driver, {"action": "press", "target": target}, resolve=backend)
+    target = {"kind": "accessibility_element", "title": "Color",
+              "layout_fingerprint": layout_fingerprint(
+                  project_ax_tree(backend.get_ax_tree()))}
+    assert ui_transaction._resolve_element(driver, target)
+
+
+def test_prepare_accepts_ordered_custom_qt_locators(backend):
+    shape = job_kinds.prepare("resolve.ui_transaction", {
+        "project": "Scratch", "timeline": "Reel 07",
+        "foreground": {"reason": "Qt control", "budget_seconds": 10},
+        "actions": [{"action": "click", "target": {
+            "kind": "qt_control", "locators": [
+                {"kind": "text_anchor", "text": "Inspector"},
+                {"kind": "window_relative_coordinate", "x": 10, "y": 20,
+                 "why": "measured fallback"},
+            ]}}],
+    })
+    assert shape["mode"] == scheduler.EXCLUSIVE
+
+
+def test_prepare_rejects_unmeasured_custom_qt_coordinate(backend):
+    with pytest.raises(job_kinds.JobRefused, match="measured 'why'"):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch",
+            "actions": [{"action": "click", "target": {
+                "kind": "qt_control", "locators": [{
+                    "kind": "window_relative_coordinate", "x": 10, "y": 20,
+                }]}}],
+        })
+
+
+def test_restore_context_reports_unobservable_and_disabled_state(backend):
+    report = ui_transaction.restore_context(
+        backend, {"page": None, "timeline": "Reel 07", "playhead": None},
+        {"page": True, "timeline": False, "playhead": True})
+    assert {key: report["not_restored"][key] for key in
+            ("page", "timeline", "playhead")} == {
+        "page": "not observable before transaction",
+        "timeline": "restore disabled by transaction",
+        "playhead": "not observable before transaction",
+    }
+    assert "selected" in report["not_restored"]
+    assert "focused_panel" in report["not_restored"]
+
+
+def test_edit_state_verifiers_read_back_live_item_properties_and_color_nodes(
+        backend, monkeypatch):
+    class FakeGraph:
+        def GetNumNodes(self):
+            return 4
+
+    class FakeItem:
+        def GetUniqueId(self):
+            return "overlay-1"
+
+        def GetProperty(self):
+            return {"Pan": 0.25, "Opacity": 0.8, "Volume": -6.0}
+
+        def GetNodeGraph(self):
+            return FakeGraph()
+
+    timeline = backend.GetProjectManager().GetCurrentProject().GetCurrentTimeline()
+    timeline.GetTrackCount = lambda track_type: 1 if track_type == "video" else 0
+    timeline.GetItemListInTrack = lambda track_type, index: (
+        [FakeItem()] if track_type == "video" and index == 1 else [])
+    driver = FakeDriver(backend)
+
+    properties = ui_transaction._run_verification(backend, driver, {
+        "kind": "timeline_item_properties", "unique_id": "overlay-1",
+        "equals": {"Pan": 0.25, "Opacity": 0.8},
+    })
+    assert properties["matched"] is True
+    assert properties["verified"] is True
+    assert properties["actual"] == {"Pan": 0.25, "Opacity": 0.8}
+
+    nodes = ui_transaction._run_verification(backend, driver, {
+        "kind": "color_node_count", "unique_id": "overlay-1", "equals": 4,
+    })
+    assert nodes["matched"] is True
+    assert nodes["actual"] == 4
+
+    import numpy as np
+
+    pixels = np.zeros((2, 3, 3), dtype=np.uint8)
+    pixels[1, 2] = [12, 34, 56]
+    monkeypatch.setattr(
+        "library.tools.color_page_grade.render_one_frame_deliver",
+        lambda _resolve, _project, _timeline, _item: pixels)
+    rendered = ui_transaction._run_verification(backend, driver, {
+        "kind": "rendered_pixels", "unique_id": "overlay-1",
+        "samples": [{"x": 2, "y": 1, "rgb": [10, 34, 58], "tolerance": 2}],
+    })
+    assert rendered["matched"] is True
+    assert rendered["verified"] is True
+    assert rendered["actual"][0]["rgb"] == [12, 34, 56]
+
+    with pytest.raises(job_kinds.JobRefused, match="resolved to 0 items"):
+        ui_transaction._run_verification(backend, driver, {
+            "kind": "audio_parameters", "unique_id": "missing",
+            "equals": {"Volume": -6.0},
+        })
+
+
+def test_rendered_pixel_verification_requires_well_formed_samples(backend):
+    with pytest.raises(job_kinds.JobRefused, match="three bytes"):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch",
+            "actions": [{"action": "wait", "for": {"seconds": 0.01}}],
+            "verification": {"kind": "rendered_pixels",
+                             "unique_id": "overlay-1",
+                             "samples": [{"x": 0, "y": 0, "rgb": [0, 0]}]},
+        })
+
+
 def test_sandbox_refuses_unknown_verification_kind(backend):
     with pytest.raises(job_kinds.JobRefused):
         job_kinds.prepare("resolve.ui_transaction", {
@@ -893,6 +1014,15 @@ def test_sandbox_refuses_unknown_verification_kind(backend):
             "actions": [{"action": "click", "target": {
                 "kind": "viewer_coordinate", "x": 0, "y": 0}}],
             "verification": {"kind": "render_and_diff"},
+        })
+
+
+def test_api_readback_requires_an_explicit_expected_value(backend):
+    with pytest.raises(job_kinds.JobRefused, match="explicit equals"):
+        job_kinds.prepare("resolve.ui_transaction", {
+            "project": "Scratch",
+            "actions": [{"action": "wait", "for": {"seconds": 0.01}}],
+            "verification": {"kind": "api_readback", "getter": "page"},
         })
 
 
@@ -1231,7 +1361,7 @@ def test_background_actions_carry_no_foreground_flag(
             "actions": [{"action": "click", "target": {
                 "kind": "viewer_coordinate", "x": 100, "y": 100}}]}},
         backend, factory=lambda _backend: driver)
-    assert receipt["status"] == "committed"
+    assert receipt["status"] == "applied_unverified"
     assert receipt["take"] is None
     clicks = [params for method, params in driver.calls
               if method == "click"]
@@ -1268,7 +1398,7 @@ def test_foreground_take_announces_and_flags_only_input(
                     "text": "parking lot"}},
             ]}},
         backend, factory=lambda _backend: driver)
-    assert receipt["status"] == "committed"
+    assert receipt["status"] == "applied_unverified"
     assert announced == [("IntelliSearch box is Qt-drawn", 30.0)]
     assert [method for method, _ in driver.calls
             ].count("activate_resolve") == 1
@@ -1353,7 +1483,7 @@ def test_run_returns_the_read_text(lock_dir, unguarded, backend):
             "verification": {"kind": "read_text",
                              "include_elements": True}}},
         backend, factory=_fake_driver_factory)
-    assert receipt["status"] == "committed", receipt["result"]
+    assert receipt["status"] == "applied_unverified", receipt["result"]
     found = receipt["verification"]
     assert found["kind"] == "read_text"
     assert found["matched"] is True
