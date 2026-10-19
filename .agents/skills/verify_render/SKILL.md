@@ -54,7 +54,7 @@ You have a shell. Run it yourself - do not describe the render from
 memory and do not assert you checked:
 
 ```
-python3 -m library.skills.verify_render.skill \
+bin/vep -m library.skills.verify_render.skill \
     --video /path/to/master.mp4 \
     --project-folder /path/to/project \
     --step-id <your-step-id>

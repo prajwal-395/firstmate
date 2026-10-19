@@ -49,8 +49,9 @@ How you talk while doing it:
   step id or flag.** You run the verbs; anything a verb writes (the reel
   proposals, `project.yaml`, a response file) is never theirs to edit.
   A file to watch is the one path you hand over.
-- **Reply with the outcome**: what changed, what to watch, and at most one
-  question - with the default you will take if they do not mind.
+- **Reply with the outcome**: what changed and what to watch. Ask only
+  when a missing creative choice materially affects the result, and wait
+  for its answer before the dependent edit.
 - **Never ask what the footage, the series documents or the history
   already answer**; read them (`ren now`, `ren work-state`, `ren search`).
 - **A refusal is relayed, not pasted**: its first line in plain words,
@@ -182,12 +183,17 @@ it whenever the goal is about what is IN the footage.
 - `ren export-memory <project>` writes the path-portable footage memory;
   `ren eval-search <project>` scores search on the pre-registered set
   (docs/SOURCE_MEMORY.md, "The analysis-only run").
-- Every Resolve read or write goes through `bin/resolve-axi`
-  (`library/tools/resolve_axi.py`): `timeline list|get`, `items`,
-  `markers`, `captions`, `pool`, `render`. To read a built reel, call
-  `library/tools/reel_read.py`, never a new probe. Address a Resolve
-  project by its EXACT listed name, never a prefix. Judge every Resolve
-  call by what it RETURNS, never by `hasattr`.
+- For Resolve state or edits, load `resolve-axi` and discover the current
+  operation from AXI and its generated capability references. Keep the
+  user's editorial intent here; delegate target resolution, Resolve API,
+  MCP, UI, transaction and recovery mechanics to AXI. Confirm the exact
+  project and timeline from live state. A command return is provisional:
+  report an edit only after its receipt and task-specific read-back
+  establish the requested result. An unchecked rebuild is not a verified
+  edit. Resolve mechanics and their invariants live in
+  `.agents/skills/resolve-axi/SKILL.md`.
+- To read a built reel as a report, call `library/tools/reel_read.py`,
+  never invent a new probe.
 - Every native-engine read goes through `bin/native-axi`
   (`library/tools/native_axi.py`): `model` (a Project Model's clips,
   edits, renders + counts), `timeline` (a FilmCraft project's clips),
@@ -321,9 +327,9 @@ empty cell, which is then the only thing asked - the chat interview
 (`llm_requests/briefing_interview.json`, `kind=briefing_interview`)
 starts after the quick footage catalog is committed and before deeper
 analysis. The request includes a compact inventory, scoped intent, and
-only unresolved, decision-changing questions. State the visible assumed
-default, ask about goals or outcomes rather than editing methods, and
-let the creator correct methods later. Ask in conversation, one at a
+only unresolved, decision-changing questions. Ask about goals or outcomes
+rather than editing methods; do not invent a creative default for a
+missing answer. Ask in conversation, one at a
 time - do not paste JSON at them. Then write:
 
 ```json
@@ -383,18 +389,19 @@ happened next:
 | `awaiting_translation` | Answer the `LLM_REQUEST_READY` file exactly as below, then run `ren revise <project>` again |
 | `question` | Ask the person `reply` (it is exactly one question), then `ren revise <project> --answer "<their words>"` |
 | `patched` / `touched` | Done: the reel was changed in place; `reply` names the reel, rows and seconds |
-| `rebuilt` | Done: the owning steps re-ran and only that reel was rebuilt |
+| `rebuilt` | The owning steps rebuilt that reel. Check the operation receipt and requested result before reporting it as done |
 | `incomplete` | The rebuild stopped; fix what it printed, then `ren revise <project>` |
 | `refused` | Nothing changed; tell the person `reply` |
 
 A change to things already on a reel (a caption's or overlay's size or
-position, an overlay off, a marker) translates as an `edit_program` over the
-`reel_timeline` items the request carries; Ren generates the patch and its
-scope, applies it guarded (on Ren Qualification) or as a `ren touch`
-elsewhere, and records the verified outcome. A change to what plays or in
-what order translates as clauses, and Ren re-runs only their owners and
-rebuilds only that reel. `--plan` stops after showing what would change.
-Changing a signed-off reel asks first (`needs_question`), like a rebuild.
+position, an overlay off, a marker) is a local edit request; a change to
+what plays or in what order is an editorial revision. Use `ren revise`
+for the request, and use `resolve-axi` for Resolve operation discovery,
+execution and verification. A plan is not an applied edit. A staged
+timeline is not a promoted reel, and a promoted reel is not delivered
+until the signed-off export and its checks exist. `--plan` stops after
+showing what would change. Changing a signed-off reel asks first
+(`needs_question`), like a rebuild.
 
 The steps `ren revise` composes remain available one by one. Link the
 existing note id for a pulled marker; a direct chat or CLI request creates

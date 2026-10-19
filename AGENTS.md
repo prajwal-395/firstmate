@@ -185,97 +185,39 @@ A note whose `anchor.selector` is empty is REJECTED.
 
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
+Production Resolve control goes through AXI: discover capabilities from current state, execute guarded operations, verify read-back, and report only what evidence supports. Preserve approved edits; never issue uncontrolled direct mutations or overlap writers. One Resolve instance and its broker/lease are the shared execution authority. Details belong to [the resolve-axi skill](.agents/skills/resolve-axi/SKILL.md), [custom script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md), and the owning modules: `library/tools/resolve_axi.py`, `library/tools/edit_algebra.py`, `library/tools/edit_patch.py`, `library/tools/resolve_lock.py`, `library/tools/resolved/client.py`, `library/tools/timeline_shadow.py`, `library/tools/shadow_watcher.py`, `library/tools/resolve_transform.py`, `library/tools/comp_media_window.py`, `library/tools/build_sweep.py`, `library/tools/master_markers.py`, `library/tools/staging_holds.py`, `library/tools/resolve_organization.py`, `library/tools/orphan_removal.py`, and `library/steps/step_6_01_render/resolve_build_timeline.py`.
+
 ### Connection
-
-**A Resolve project is addressed by its EXACT listed name, never a prefix.**: `library/tools/timeline_ingest.py`.
-
-**Timeline speech is REBUILT from source, not rendered; the transcriber is a seam that FALLS BACK**: `library/tools/timeline_transcript.py`, `library/tools/hybrid_transcription.py`.
 
 ### Process isolation
 
-Never create a timeline and use `ImportFusionComp` in one Python process: `library/tools/execution/apply_fusion_comps.py`.
-
 ### One Resolve, many writers
-
-**The unit of exclusion is the instance CURSOR; a write REFUSES outside the lease, a foreign move is DETECTED.**: `library/tools/resolve_lock.py`.
-
-**Timeline reads use recorded generations; writes use EditPatch.**: `library/tools/timeline_shadow.py`, `library/tools/edit_patch.py`.
-
-**Continuous edit detection watches the shadow on a schedule.**: `library/tools/shadow_watcher.py`.
-
-**What runs in parallel is a TABLE**: `library/tools/concurrency_routing.py`; declarations contend per KEY: `library/tools/declaration_keys.py`.
-
-**The broker is a STANDALONE service any client starts on demand, never a worker's child**: `library/tools/resolved/client.py`.
-
-**One-off scripts are broker jobs, never direct.** Recorded path and safeguards: `docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md` (`library/tools/resolve_axi.py`).
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`**: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
-
-**A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render.**: `library/tools/comp_media_window.py`.
-
-**Pan/Tilt is ONE model, and a unit is not a pixel.**: `library/tools/resolve_transform.py`.
-
 ### Transitions go through Fusion or Resolve itself.
-
-**Do not wire FCPXML or DRP project-file surgery back in.**: `library/tools/transition_vocabulary.py`.
-
-**A DRAWN transition can only sit where a V1 clip ends.**: `library/tools/transition_carriers.py`.
 
 ### Stabilization is the memory ceiling, and it runs last
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp.**: `library/tools/fusion/comp_builder.py`.
-
 ### Fusion .comp files - ALWAYS
-
-**What a Fusion .comp must ALWAYS carry.**: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
 
-One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it: `library/tools/composed_edit.py`.
-
 ### Default transition values
-
-**The default transition values** - Brightness Flash, Crash Zoom, Glow: `library/tools/fusion/effects.py`.
 
 ### Tracks
 
-Rows are the SOP's: `docs/TIMELINE_SOP.md`; `library/tools/timeline_layout.py` owns index and name, `library/tools/execution/fusion_tracks.py` comp rows.
-
 ### Media pool and audio
-
-One enumeration: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
 
-**in dB**: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
-
 ### Visual verification
-
-**Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
-`library/tools/resolve_surfaces.py`.
-
-**A capture that did not happen RAISES.**
-`library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still-that-was-never-taken)
 
 ### Reading a killed build off disk
 
-**Copy the project database before opening it; never open it in place.**
-
 ### Organising the pool
-
-**FILED from measurements; nothing deleted. Smart bins are NOT scriptable.**: `library/tools/resolve_organization.py`.
-
-**REMOVING is a different act: `DeleteClips` on a TIMELINE's pool item DELETES THE TIMELINE.**: `library/tools/orphan_removal.py`.
-
-**Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**: `library/tools/build_sweep.py`.
-
-**A staged timeline awaiting promotion is HELD.**: `library/tools/staging_holds.py`.
-
-**Markers are the ONLY write the master takes, placed by footage overlap.**: `library/tools/master_markers.py`.
 
 ## 6. The spine contract
 

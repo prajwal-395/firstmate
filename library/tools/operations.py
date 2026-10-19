@@ -325,7 +325,7 @@ class OperationResult:
         """
         return self.refused or not self.payload or bool(self.hollow)
 
-    def as_refusal(self) -> "RenRefusal":
+    def as_refusal(self) -> RenRefusal:
         """This refusal as a `RenRefusal`, for the one `REN_RESULT` shape.
 
         The string paths (`run_reels`' `result.refused` branch, the
@@ -903,14 +903,14 @@ class Operation:
         so the two cannot drift.
         """
         return (
-            f"{self.name} is the PROMPT of {self.legacy_node}: its "
+            (f"{self.name} is the PROMPT of {self.legacy_node}: its "
             f"implementation is {self.owning_dir}/{self.body}, which the "
             f"runner asks a model to answer - and an operation runs "
             f"ALONE, with no model to ask.\n"
             f"\nRun {self.legacy_node} so the runner asks the model for "
-            f"it, or run the DAG.",
-            f"run {self.legacy_node} so the runner asks the model for "
-            f"it, or run the DAG")
+            f"it, or run the DAG."),
+            (f"run {self.legacy_node} so the runner asks the model for "
+            f"it, or run the DAG"))
 
     def _teach(self, missing: list) -> tuple:
         """The refusal, written so the reader can work out their next move.
@@ -1037,7 +1037,7 @@ class Operation:
         at = (f" --region {where.region_span.as_address()}"
               if where is not None and where.kind == REGION else "")
         return (
-            f"{self.name} runs {self.owning_dir}/{self.body}:{self.attr}, "
+            (f"{self.name} runs {self.owning_dir}/{self.body}:{self.attr}, "
             f"whose signature requires {named} - and nothing the DAG "
             f"routes to {self.legacy_node} carries "
             f"{'them' if len(unbound) > 1 else 'it'}.\n"
@@ -1049,9 +1049,9 @@ class Operation:
             f"  operations.get({self.name!r}).execute(project, "
             f"{first}=...)\n"
             f"\nRefused rather than called, because a step handed a "
-            f"guessed argument answers a question nobody asked.",
-            f"python3 -m library.tools.operations {self.name} "
-            f"--project <p>{at} --set {first}=@{first}.json")
+            f"guessed argument answers a question nobody asked."),
+            (f"python3 -m library.tools.operations {self.name} "
+            f"--project <p>{at} --set {first}=@{first}.json"))
 
     def _arguments(self, inputs: dict, scope: Scope = None,
                    project_folder: str = "") -> dict:
@@ -1377,8 +1377,8 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="model_memory",
                 lock_sites=(
-                    "library.tools.analysis.vision_pipeline_v3:"
-                    "_semantic_model_memory_reservation",),
+                    ("library.tools.analysis.vision_pipeline_v3:"
+                    "_semantic_model_memory_reservation"),),
                 why="Track the loaded Gemma weights as a resident model "
                     "session while the local inference lane yields to host "
                     "work; admission waits on live OS memory for its "
@@ -1388,8 +1388,8 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="inference",
                 lock_sites=(
-                    "library.tools.analysis.vision_pipeline_v3:"
-                    "_semantic_inference_admission",),
+                    ("library.tools.analysis.vision_pipeline_v3:"
+                    "_semantic_inference_admission"),),
                 why="Admit local Gemma loads, unloads and generations as "
                     "one model session; the model server and Resolve's own "
                     "locks arbitrate the hardware, not a static CPU/GPU "
@@ -2246,8 +2246,8 @@ _REGISTRY: tuple[Operation, ...] = (
             ExecutionPhase(
                 name="model_memory",
                 lock_sites=(
-                    "library.capabilities.objects.segment:"
-                    "_sam_model_memory_session",),
+                    ("library.capabilities.objects.segment:"
+                    "_sam_model_memory_session"),),
                 why="Track resident SAM 2 weights as a model session while "
                     "this batch waits between selected clips; admission "
                     "waits on live OS memory for its measured 8 GB "
@@ -2321,16 +2321,16 @@ _REGISTRY: tuple[Operation, ...] = (
                 locality=LOCALITY_TIMELINE,
                 freshness=FRESHNESS_TIMELINE_GENERATION,
                 lock_sites=(
-                    "library.steps.step_6_01_render.resolve_build_timeline:"
-                    "_build_timeline_under_lease",),
+                    ("library.steps.step_6_01_render.resolve_build_timeline:"
+                    "_build_timeline_under_lease"),),
                 entry_points=("library.steps.step_6_01_render.resolve_build_timeline",),
                 why="The edit timeline is built under the exclusive cursor lease."),
             ExecutionPhase(
                 name="render", resolve_mode=RESOLVE_EXCLUSIVE,
                 locality=LOCALITY_TIMELINE,
                 lock_sites=(
-                    "library.tools.execution.resolve_render:"
-                    "_render_timeline_under_lease",),
+                    ("library.tools.execution.resolve_render:"
+                    "_render_timeline_under_lease"),),
                 entry_points=("library.tools.execution.resolve_render",),
                 why="Resolve has one global render queue and render engine, "
                     "which arbitrate renders themselves (captain's ruling, "
@@ -2558,6 +2558,108 @@ def emit_skill() -> str:
     return "\n".join(out)
 
 
+def emit_resolve_axi_references() -> dict[str, str]:
+    """Project the editing algebra's executable status into AXI references.
+
+    These files are generated views: they contain no independently curated
+    operation roster and therefore cannot quietly claim a new writer is
+    qualified.  The editing algebra remains the operation authority.
+    """
+    from library.tools import edit_algebra
+
+    statuses = [edit_algebra.OP_STATUS[key]
+                for key in sorted(edit_algebra.OP_STATUS)]
+
+    def operation_rows(select):
+        rows = []
+        for status in statuses:
+            if not select(status):
+                continue
+            params = ", ".join(f"`{name}`" for name in
+                               status.param_schema["required"]) or "none"
+            rows.append(
+                f"| `{status.id}` | {params} | yes | "
+                f"{'yes' if status.compilable else 'no'} | "
+                f"{'yes' if status.qualified else 'no'} | "
+                f"{'yes' if status.production_enabled else 'no'} | "
+                f"{status.verification_contract} |")
+        return rows
+
+    header = ("| operation | required parameters | defined | compilable | "
+              "qualified | production enabled | verification contract |\n"
+              "|---|---|---:|---:|---:|---:|---|")
+    concepts = ["# Capability concepts", "", "Generated from `edit_algebra.OP_STATUS`.",
+                "", "Operation ids are editorial semantics. `defined` says the id is in the vocabulary; `compilable` says a listed backend can emit a write; `qualified` records exact live evidence; `production_enabled` is the production gate.",
+                "", "## Operation vocabulary", "", header]
+    concepts += operation_rows(lambda s: True)
+
+    transactions = ["# Transaction capability map", "", "Generated from `edit_algebra.OP_STATUS`.",
+                    "", "Before a write, use AXI's available typed operation path and its dry-run/guarded mode. Backend support is not permission to substitute another editorial operation.",
+                    "", "## Compilable operations", "", header]
+    transactions += operation_rows(lambda s: s.compilable)
+
+    verification = ["# Verification contracts", "", "Generated from `edit_algebra.OP_STATUS`.",
+                    "", "The contract names the operation's read-back verifier. A successful API return alone is not verification.",
+                    "", "## Operation contracts", "", header]
+    verification += operation_rows(lambda s: True)
+
+    recovery = ["# Recovery metadata", "", "Generated from `edit_algebra.OP_STATUS`.",
+                "", "Inverse metadata is descriptive. Follow the transaction receipt and recovery policy for the actual operation; do not retry a write based only on an exit code.",
+                "", "| operation | inverse | self inverse | irreversible reason |", "|---|---|---|---|"]
+    for status in statuses:
+        inverse = status.inverse_recovery
+        reason = str(inverse.get("irreversible_reason") or "none").replace("|", "\\|")
+        recovery.append(f"| `{status.id}` | `{inverse.get('op') or 'none'}` | {inverse.get('self_inverse')} | {reason} |")
+
+    invariant_sources = [
+        ("A Resolve project is addressed by its EXACT listed name, never a prefix.", "library/tools/timeline_ingest.py"),
+        ("The unit of exclusion is the instance CURSOR; a write REFUSES outside the lease, a foreign move is DETECTED.", "library/tools/resolve_lock.py"),
+        ("Timeline reads use recorded generations; writes use EditPatch.", "library/tools/timeline_shadow.py, library/tools/edit_patch.py"),
+        ("Continuous edit detection watches the shadow on a schedule.", "library/tools/shadow_watcher.py"),
+        ("The broker is a STANDALONE service any client starts on demand, never a worker's child.", "library/tools/resolved/client.py"),
+        ("One-off scripts are broker jobs, never direct.", "docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md"),
+        ("Judge a Resolve call by what it RETURNS, never by `hasattr`", "library/steps/step_6_01_render/probe_resolve_capabilities.py"),
+        ("A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render.", "library/tools/comp_media_window.py"),
+        ("Pan/Tilt is ONE model, and a unit is not a pixel.", "library/tools/resolve_transform.py"),
+        ("Do not wire FCPXML or DRP project-file surgery back in.", "library/tools/transition_vocabulary.py"),
+        ("A DRAWN transition can only sit where a V1 clip ends.", "library/tools/transition_carriers.py"),
+        ("Six things that must NEVER appear in a Fusion .comp.", "library/tools/fusion/comp_builder.py"),
+        ("What a Fusion .comp must ALWAYS carry.", "library/tools/fusion/comp_builder.py"),
+        ("One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it.", "library/tools/composed_edit.py"),
+        ("The default transition values.", "library/tools/fusion/effects.py"),
+        ("Rows are the SOP's.", "docs/TIMELINE_SOP.md; library/tools/timeline_layout.py"),
+        ("The mix goes through OTIO, and it goes in at placement time.", "library/tools/otio_mix.py"),
+        ("Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.", "library/tools/resolve_surfaces.py"),
+        ("A capture that did not happen RAISES.", "library/tools/marker_capture.py"),
+        ("Copy the project database before opening it; never open it in place.", "library/tools/resolve_axi.py"),
+        ("FILED from measurements; nothing deleted. Smart bins are NOT scriptable.", "library/tools/resolve_organization.py"),
+        ("REMOVING is a different act: `DeleteClips` on a TIMELINE's pool item DELETES THE TIMELINE.", "library/tools/orphan_removal.py"),
+        ("Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.", "library/tools/build_sweep.py"),
+        ("A staged timeline awaiting promotion is HELD.", "library/tools/staging_holds.py"),
+        ("Markers are the ONLY write the master takes, placed by footage overlap.", "library/tools/master_markers.py"),
+        ("Timeline speech is REBUILT from source, not rendered; the transcriber is a seam that FALLS BACK.", "library/tools/timeline_transcript.py, library/tools/hybrid_transcription.py"),
+        ("What runs in parallel is a TABLE.", "library/tools/concurrency_routing.py; library/tools/declaration_keys.py"),
+    ]
+    limitations = ["# Backend limitations", "", "Generated from `edit_algebra.OP_STATUS`.",
+                   "", "A missing backend row means this registry does not advertise that backend for the operation. Qualification is per operation and backend.",
+                   "", "## Cross-cutting Resolve invariants", "",
+                   "Consult the owning implementation for these constraints:", ""]
+    limitations.extend(f"- {rule} Owner: `{source}`" for rule, source in invariant_sources)
+    limitations += ["", "| operation | backend | compilable | qualified | production enabled | limitations | evidence |", "|---|---|---:|---:|---:|---|---|"]
+    for status in statuses:
+        for backend in status.backends:
+            limits = "; ".join(backend.limitations).replace("|", "\\|")
+            evidence = ", ".join(f"`{path}`" for path in backend.qualification_evidence) or "none"
+            limitations.append(f"| `{status.id}` | `{backend.backend}` | yes | {'yes' if backend.qualified else 'no'} | {'yes' if backend.production_enabled else 'no'} | {limits} | {evidence} |")
+    return {
+        "concepts.md": "\n".join(concepts) + "\n",
+        "transactions.md": "\n".join(transactions) + "\n",
+        "verification.md": "\n".join(verification) + "\n",
+        "recovery.md": "\n".join(recovery) + "\n",
+        "backend-limitations.md": "\n".join(limitations) + "\n",
+    }
+
+
 def parse_overrides(pairs: Iterable[str]) -> dict:
     """`--set name=<json>` and `--set name=@file.json`, into a dict.
 
@@ -2616,6 +2718,8 @@ def main(argv=None) -> int:
                         help="list every operation and exit")
     parser.add_argument("--emit-skill", action="store_true",
                         help="print the registry as an agent skill")
+    parser.add_argument("--emit-resolve-axi-references", action="store_true",
+                        help="print registry-generated AXI skill references as JSON")
     parser.add_argument("--project", default="",
                         help="project folder the operation runs against")
     parser.add_argument("--region", default="",
@@ -2637,6 +2741,9 @@ def main(argv=None) -> int:
 
     if args.emit_skill:
         print(emit_skill())
+        return 0
+    if args.emit_resolve_axi_references:
+        print(json.dumps(emit_resolve_axi_references(), indent=2, ensure_ascii=False))
         return 0
     if args.list or not args.operation:
         if args.json:
@@ -2691,8 +2798,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

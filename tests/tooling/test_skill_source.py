@@ -71,3 +71,19 @@ def test_pipeline_operations_skill_matches_the_registry():
         operations.emit_skill() + "\n"), (
         f"{skill_md} drifts from `operations.emit_skill()` - regenerate "
         "it with `python3 -m library.tools.operations --emit-skill`")
+
+
+def test_resolve_axi_capability_references_match_the_registry_byte_for_byte():
+    """Capability tables are projections of the editing algebra, never a
+    second hand-maintained list of operations or qualification claims."""
+    from library.tools import operations
+
+    refs = SOURCE / "resolve-axi" / "references"
+    assert refs.is_dir(), "resolve-axi generated capability references are missing"
+    expected = operations.emit_resolve_axi_references()
+    assert {p.name for p in refs.glob("*.md")} == set(expected)
+    for name, content in expected.items():
+        assert (refs / name).read_text(encoding="utf-8") == content, (
+            f"{refs / name} drifts from edit_algebra.OP_STATUS; regenerate "
+            "with `bin/vep -m library.tools.operations "
+            "--emit-resolve-axi-references`")

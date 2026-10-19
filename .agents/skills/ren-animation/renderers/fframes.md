@@ -1,11 +1,11 @@
 # FFrames renderer
 
-**PLANNED - not yet built.** This file describes the planned
-`ren-graphics-fframes` runtime: what it takes, what it outputs, and
-how it lowers Ren's Graphics IR. The runtime is being built in
-parallel with this skill.
+`ren-graphics-fframes` is an implemented Ren-owned renderer. This file
+describes its current scene input, frame output and lowering behavior.
+The executable renders frames; it does not provide the inspection CLI
+commands proposed in older versions of this skill.
 
-## The planned runtime
+## Runtime interface
 
 One Ren-owned Rust executable:
 
@@ -16,7 +16,7 @@ ren-graphics-fframes render scene.json
 - **Input**: `scene.json` - the Ren Graphics IR (scene graph with
   nodes, transforms, animations, easings).
 - **Output**: RGBA PNG frames, one per frame, named by frame index.
-- **Rendering**: Skia on the GPU (Metal on macOS, Vulkan elsewhere).
+- **Rendering**: the FFrames Skia renderer.
 - **No FFmpeg encoding**: the runtime renders frames only. Ren's
   overlay carriage encodes the PNG sequence to the delivery codec
   (ProRes 4444 or whatever Resolve consumes). This isolates FFrames
@@ -54,14 +54,9 @@ frames on Metal.
 
 ## Animation execution
 
-FFrames animations are keyframe-based:
-
-```rust
-frame.animate(&fframes::timeline!(
-    at 0.0, animate 0.92_f32 => 1.0, Easing::Spring { mass: 1.0, stiffness: 180.0, damping: 20.0 },
-    at 2.5 => 2.8, animate 0.0_f32 => 60.0, Easing::EaseIn,
-))
-```
+FFrames animations are keyframe-based. The renderer consumes key times,
+values and easing from the authored scene; use values declared by the
+project or creative brief, not sample constants from a renderer guide.
 
 - Before the first keyframe the value is `from`; after the last it
   stays at `to`.
@@ -102,10 +97,9 @@ place.
 
 - **No FFmpeg encoding in the runtime.** Frames are PNG only. Ren's
   carriage encodes.
-- **Shaders need the GPU backend.** CPU-only machines get blank
-  shader layers.
-- **Zero-sized SVG elements are invalid.** Animate from `0.5`, not
-  `0`. A zero-width rect or zero-radius circle is skipped.
+- **Degenerate SVG shapes may not draw.** Ensure the authored geometry
+  remains valid throughout the animation; do not use a zero-sized shape
+  as a visible state.
 - **A panic in `render_frame` stops the render.** No panics, file
   reads or heavy work in the render loop. Prepare data in the
   constructor.
@@ -114,25 +108,10 @@ place.
 - **Heavy filters on animated subtrees are slow on CPU.** Keep them
   on static subtrees (no `{}` inside) so they are cached, or use
   the Skia backend.
-- **Codec licensing.** FFrames' cargo features include GPL/nonfree
-  FFmpeg components. The runtime uses FFrames as a frame renderer
-  only; any future self-contained encoder needs an explicit legal
-  audit of the exact linked configuration.
 
-## Inspection commands (planned)
+## Inspection
 
-The FFrames CLI provides inspection primitives. When
-`ren-graphics-fframes` ships, equivalent commands will exist:
-
-| Command | Proves |
-|---|---|
-| `inspect` | missing fonts, text leaving canvas, invalid SVG, broken transforms |
-| `strip` | contact sheet - layout, rhythm, motion |
-| `frame` | full-size PNGs of key moments |
-| `onion` | movement path and easing |
-| `svg` | a frame's final SVG as text |
-| `snapshot` | frame diff against approved PNGs |
-| `audio analyze` | loudness, true peak, clipping, silence |
-
-Until the runtime ships, use the FFrames CLI directly (if installed)
-or Ren's own verification loop (`references/verification.md`).
+The renderer exposes rendering only. Use the actual rendered frames and
+Ren's verification loop (`references/verification.md`) for inspection;
+do not assume the binary provides separate inspect, contact-sheet,
+onion-skin or audio-analysis commands.

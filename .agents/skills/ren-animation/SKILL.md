@@ -84,24 +84,23 @@ Do NOT reach for this skill to learn a backend's API - see
 These are renderer-neutral. Each backend lowers them differently;
 the craft is the same.
 
-1. **One idea per scene.** A scene is one visual thought. If two
-   things must read at once, they are two scenes or one scene with
-   one focal element.
-2. **One focal movement at a time.** Secondary elements move less and
-   later. Everything moving at once reads as noise.
+1. **Give each scene a clear purpose.** Split or combine ideas based
+   on what the viewer needs to understand, not a fixed scene formula.
+2. **Use movement to support the scene hierarchy.** Multiple elements
+   may move together when that serves the intended result.
 3. **Animate transform and opacity, never layout.** Position, scale,
    rotation and opacity are compositor-friendly. Width, height,
    margin and font-size tweens cause jitter and reflow.
-4. **Enter with ease-out or a spring; exit with ease-in, faster.**
-   Entrances take 0.3-0.6 s; exits 0.2-0.3 s. The viewer reads an
-   arrival, not a departure.
-5. **Stagger related items by 60-120 ms.** Words and letters by
-   20-40 ms. A group arriving as one beat reads as intentional.
-6. **Give the viewer time to read.** About 3 words per second plus
-   1 s to notice the text, measured from when the motion settles.
-7. **Respect the safe area.** Nothing important inside the outer
-   8-10% of the frame. Ren's safe-area fractions come from
-   `library/tools/safe_area.py` - never a hardcoded margin.
+4. **Choose easing and duration for the intended motion and pacing.**
+   Do not impose generic timing values when the brief or measured audio
+   does not specify them.
+5. **Stagger only when it clarifies sequence or hierarchy.** Derive
+   timing from the beat, spoken words and declared creative direction.
+6. **Give the viewer time to read.** Set duration from the actual copy,
+   speech pace and project direction; do not apply a generic reading-rate
+   default.
+7. **Respect the declared safe area.** Read the delivery format and use
+   `library/tools/safe_area.py`; do not substitute a generic margin.
 8. **The final frame is part of the animation.** Hold readable
    states long enough to see. Do not end on black unless asked.
 9. **Deterministic.** No wall-clock, no unseeded randomness, no

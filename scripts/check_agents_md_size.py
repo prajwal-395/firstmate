@@ -168,7 +168,7 @@ SECTION_BUDGETS = {
     "## 2. Repo layout": 2188,
     "## 3. Pipeline execution": 5337,
     "## 4. Dashboard": 3118,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4044,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 1599,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1801,

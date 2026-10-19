@@ -48,10 +48,9 @@ the rest of the frame scales around it.
 
 ## Ken Burns
 
-A slow `translate` + `scale` on a still image. The move is small
-(5-10% scale change over 5-10 s) and the direction is chosen to
-reveal the subject. A Ken Burns with no directional intent reads
-as a random drift.
+A `translate` + `scale` on a still image. Set its amount and duration
+from the requested result and image; use a direction that reveals the
+subject. Do not apply a generic scale or timing range.
 
 ## Depth
 

@@ -94,7 +94,7 @@ npx remotion render <composition> --sequence --output-dir frames/
 npx remotion still <composition> out.png --frame=96
 
 # Deterministic gate over a rendered file
-python3 -m library.skills.verify_render.skill \
+bin/vep -m library.skills.verify_render.skill \
     --video /path/to/master.mp4 \
     --project-folder /path/to/project \
     --step-id <step-id>

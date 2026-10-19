@@ -63,7 +63,7 @@ You have a shell. Run it yourself - do not describe the timeline from
 memory and do not assert you checked:
 
 ```
-python3 -m library.skills.verify_timeline.skill \
+bin/vep -m library.skills.verify_timeline.skill \
     --project "Exact Project Name" \
     --timeline "Reel 09" \
     --project-folder /path/to/project \

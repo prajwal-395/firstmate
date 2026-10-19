@@ -83,13 +83,12 @@ A reel takes two passes, and the first one is free:
    carry them only by `prompt_ref`/`context_refs`), write all three
    answers together, do not re-read one to check it. The ask/answer
    round trip cost ~10 calls per reel where 2 suffice.
-3. **Build.** The real `reel.build` stages each reel onto a staging
-   timeline, verifies, then promotes over the final name. A build holds
-   Resolve's exclusive cursor lease for its whole body (measured mean
-   ~9.6 min) - launch it in the background and answer the NEXT reel's
-   asks while it runs. Nothing about reel N+1's take-pick or visual
-   answers depends on reel N's build. Every build in the measured batch
-   was a blocking foreground call; that blocked window is pure wait.
+3. **Build.** The `reel.build` workflow stages and checks each reel
+   before promotion. Use the supported `ren` entry point and follow its
+   result; do not infer that promotion or delivery happened from process
+   completion alone. Resolve access is coordinated through AXI's shared
+   instance broker and lease. Do independent planning only when the
+   documented execution mode allows it.
 4. **Verify off the build's record.** `reel.verify` grades only what the
    build placed, addressed off the build's own `reel_build` record -
    never re-derived from `project.yaml`. A `project.yaml` edited between
@@ -135,7 +134,7 @@ path:
 | `propose-reels` | publish step 3.04's chosen moments as PROPOSED (needs `--force` to overwrite a ruled proposal) |
 | `build-reels` | the build loop above (ask + build + verify) |
 | `drift` | compare each reel's build snapshot against its live timeline; REPORTS, never repairs |
-| `shift-rows [N ...] --move ROW[,ROW]=PX --draw-gain G [--skip PREFIX]` | move named rows of accepted reels up/down by delivery pixels as one journaled touch (Tilt per item from its own media size; G measured, 1.0 on geo-podcast 2026-09-25) |
+| `shift-rows [N ...] --move ROW[,ROW]=PX --draw-gain G [--skip PREFIX]` | move named rows of accepted reels up/down by delivery pixels as one journaled touch (Tilt per item from its own media size) |
 | `scale-rows [N ...] --rows ROWS --move-with ROWS (--by K \| --fit) --draw-gain G` | shrink or grow named rows about a point as one journaled touch: zoom times K and every centre pulled toward the point, riding rows keep their size (`@picture` = the camera rows under the TV frame) |
 | `fit-picture [N ...] (--scale S \| --fit) --move-with ROWS --draw-gain G` | put the TV picture at a scale no phone crops: camera rows scaled, the frame swapped for the TV drawn smaller in an opaque black surround, riding rows moved; `--fit` takes the scale `safe-zones --describe` prints; then declare `pipeline.tv_frame.scale` |
 | `caption-width [N ...] --draw-gain G [--max-width PX]` | narrow accepted reels' captions as one journaled touch per reel: only cards wrapping wider are re-rendered and swapped in place; the width defaults to the widest centred box clear of every platform's safe zones over the captions' rows, and captions inside a zone vertically are refused (move them with `shift-rows` first) |
