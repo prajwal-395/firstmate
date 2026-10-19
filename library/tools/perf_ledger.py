@@ -936,6 +936,7 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
     """
     waits = [s for s in spans if s.get("layer") == RESOLVE_WAIT]
     holds = [s for s in spans if s.get("layer") == RESOLVE_HOLD]
+    api_calls = [s for s in spans if s.get("layer") == "resolve_api_call"]
     renders = [s for s in spans if s.get("layer") == "resolve_render"]
     blocked = sum(float(s.get("wall_s") or 0.0) for s in waits)
     wait_values = [float(s.get("wall_s") or 0.0) for s in waits]
@@ -1003,6 +1004,9 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
         "exclusive_held_s": round(sum(float(s.get("held_s") or 0.0)
                                       for s in holds if s.get("exclusive")),
                                   3),
+        "api_s": round(sum(float(s.get("wall_s") or 0.0)
+                           for s in api_calls), 3),
+        "api_calls": sum(int(s.get("calls") or 0) for s in api_calls),
         "render_s": round(sum(float(s.get("wall_s") or 0.0)
                               for s in renders), 3),
         "timeline_switches": sum(int(s.get("timeline_switches") or 0)
@@ -1074,7 +1078,7 @@ def render(report: dict[str, Any]) -> str:
                    "them, or ran outside a front door): "
                    + ", ".join(report["spans_without_capability_row"]))
     kpi = report.get("resolve") or {}
-    if kpi.get("leases") or kpi.get("blocked_s"):
+    if kpi.get("leases") or kpi.get("blocked_s") or kpi.get("api_s"):
         out.append("")
         ratio = kpi["lost_ratio"]
         out.append(
@@ -1093,7 +1097,8 @@ def render(report: dict[str, Any]) -> str:
             f"{_seconds(kpi['hold_p50_s'])} p95 "
             f"{_seconds(kpi['hold_p95_s'])}; held {kpi['held_s']:.1f}s "
             f"({kpi['exclusive_held_s']:.1f}s exclusive); render "
-            f"{kpi['render_s']:.1f}s; {kpi['timeline_switches']} timeline "
+            f"{kpi['render_s']:.1f}s; API {kpi['api_s']:.1f}s across "
+            f"{kpi['api_calls']} calls; {kpi['timeline_switches']} timeline "
             f"switch(es); Resolve utilization {utilization}; "
             f"free-work concurrency {concurrency}")
     if report["overlap_s"] >= 0.05:

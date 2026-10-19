@@ -267,6 +267,30 @@ def test_qualification_only_borrow_keeps_the_existing_cursor(monkeypatch):
     assert events == [("begin", qp.QUALIFICATION_PROJECT), ("end",)]
 
 
+def test_qualification_session_reuses_the_already_current_project(monkeypatch):
+    resolve, _ = _captain()
+    resolve.LoadProject(qp.QUALIFICATION_PROJECT)
+    project = resolve.GetCurrentProject()
+    timeline = project.GetCurrentTimeline()
+    events = []
+    monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
+    monkeypatch.setattr(qp, "begin_qualification_session",
+                        lambda name: events.append(("begin", name)))
+    monkeypatch.setattr(qp, "end_qualification_session",
+                        lambda: events.append(("end",)))
+    monkeypatch.setattr(qp, "_run_session_step",
+                        lambda *args: {"ok": True})
+
+    result = qp.run_qualification_session(
+        {"params": {"steps": [{}]}}, resolve)
+
+    assert result["borrowed_from"]["qualification_only"] is True
+    assert resolve.GetCurrentProject() is project
+    assert project.GetCurrentTimeline() is timeline
+    assert resolve.saved == []
+    assert events == [("begin", qp.QUALIFICATION_PROJECT), ("end",)]
+
+
 def test_qualification_only_borrow_refuses_without_switching(monkeypatch):
     resolve, podcast = _captain()
     timeline = podcast.GetCurrentTimeline()

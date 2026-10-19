@@ -486,9 +486,14 @@ def run_qualification_session(job: dict, resolve) -> dict:
 
     params = job["params"]
     receipts = []
-    with borrowed(resolve) as found:
-        manager = resolve.GetProjectManager()
-        switch_project(manager, QUALIFICATION_PROJECT)
+    manager = resolve.GetProjectManager()
+    current = manager.GetCurrentProject() if manager else None
+    already_current = bool(
+        current and current.GetName() == QUALIFICATION_PROJECT)
+    with borrowed(resolve, qualification_only=already_current) as found:
+        if not already_current:
+            manager = resolve.GetProjectManager()
+            switch_project(manager, QUALIFICATION_PROJECT)
         for index, step in enumerate(params["steps"]):
             try:
                 receipts.append(_run_session_step(

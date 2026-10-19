@@ -9,6 +9,13 @@ project is never reset.
 
 Usage:
   bin/vep scripts/vc02_live_profile.py --ledger <ledger.jsonl> [--only ID ...]
+  bin/vep scripts/vc02_live_profile.py --ledger <ledger.jsonl> \\
+      --already-active-project [--only single_property_40px]
+
+The default mode measures qualification borrowing. The opt-in mode requires
+Ren Qualification to be current and measures the edit without switching or
+save/restore; its output labels the session mode. Compare these as separate
+runs. Neither mode has been run for VC-R10 in this change.
 
 The perf ledger is the source of truth. Aggregate each workflow with
 ``scripts/profile_reel_lifecycle.py --ledger <ledger> --run <run-id>
@@ -265,13 +272,15 @@ class Session:
     """One borrowed Resolve session with ledger phases available."""
 
     def __init__(
-        self, ledger: Path, run_id: str, capability: str, journal_dir: Path, store
+        self, ledger: Path, run_id: str, capability: str, journal_dir: Path, store,
+        *, already_active_project: bool = False,
     ) -> None:
         self.ledger = ledger
         self.run_id = run_id
         self.capability = capability
         self.journal_dir = journal_dir
         self.store = store
+        self.already_active_project = already_active_project
         self.resolve = None
         self.manager = None
         self.project = None
@@ -290,17 +299,38 @@ class Session:
         try:
             with perf_ledger.span("resolve_connection_setup", calls=1):
                 self.resolve = connect_resolve()
-            borrower = qp.borrowed(self.resolve)
-            self.borrowed_from = borrower.__enter__()
-            self._borrower = borrower
+            self.manager = call(
+                "project manager", self.resolve.GetProjectManager)
+            if self.manager is None:
+                raise RuntimeError("GetProjectManager() returned None")
+            if self.already_active_project:
+                project = call(
+                    "current project", self.manager.GetCurrentProject)
+                name = call("project name", project.GetName) if project else ""
+                if name != QUALIFICATION_PROJECT:
+                    raise RuntimeError(
+                        "--already-active-project requires "
+                        f"{QUALIFICATION_PROJECT!r} to be open; found "
+                        f"{name or 'no project'!r}")
+                self.project = project
+                self.borrowed_from = {"project": name,
+                                      "already_active": True}
+            else:
+                borrower = qp.borrowed(self.resolve)
+                self.borrowed_from = borrower.__enter__()
+                self._borrower = borrower
+                qp.switch_project(self.manager, QUALIFICATION_PROJECT)
         except Exception:
-            self.lease.__exit__(*sys.exc_info())
-            self.cap.end()
+            error = sys.exc_info()
+            try:
+                if getattr(self, "_borrower", None) is not None:
+                    self._borrower.__exit__(*error)
+            finally:
+                try:
+                    self.lease.__exit__(*error)
+                finally:
+                    self.cap.end()
             raise
-        self.manager = call("project manager", self.resolve.GetProjectManager)
-        if self.manager is None:
-            raise RuntimeError("GetProjectManager() returned None")
-        qp.switch_project(self.manager, QUALIFICATION_PROJECT)
         return self
 
     def __exit__(self, *exc):
@@ -1064,9 +1094,11 @@ def _item_by_index(timeline, index: int):
     return items[index]
 
 
-def _run_one(name: str, ledger: Path, journal_dir: Path, store, stamp: str) -> dict:
+def _run_one(name: str, ledger: Path, journal_dir: Path, store, stamp: str,
+             *, already_active_project: bool = False) -> dict:
     run_id = f"vc02-{name}-{stamp}"
-    session = Session(ledger, run_id, f"vc02:{name}", journal_dir, store)
+    session = Session(ledger, run_id, f"vc02:{name}", journal_dir, store,
+                      already_active_project=already_active_project)
     t0 = time.perf_counter()
     try:
         with session:
@@ -1074,6 +1106,8 @@ def _run_one(name: str, ledger: Path, journal_dir: Path, store, stamp: str) -> d
                 return {
                     "name": name,
                     "run_id": run_id,
+                    "session_mode": ("already_active_project"
+                                     if already_active_project else "borrowed"),
                     "result": wf_setup(session),
                     "wall_s": round(time.perf_counter() - t0, 3),
                 }
@@ -1088,6 +1122,8 @@ def _run_one(name: str, ledger: Path, journal_dir: Path, store, stamp: str) -> d
             return {
                 "name": name,
                 "run_id": run_id,
+                "session_mode": ("already_active_project"
+                                 if already_active_project else "borrowed"),
                 "result": FUNCS[name](session),
                 "wall_s": round(time.perf_counter() - t0, 3),
             }
@@ -1130,6 +1166,11 @@ def main() -> int:
     parser.add_argument(
         "--manifest", type=Path, default=None, help="write {workflow: run_id} JSON here"
     )
+    parser.add_argument(
+        "--already-active-project", action="store_true",
+        help=("measure with Ren Qualification already open; verifies the "
+              "project and skips borrow, switch, save, and restore"),
+    )
     args = parser.parse_args()
     selected = tuple(name for name in ORDER if args.only is None or name in args.only)
     unknown = [name for name in (args.only or ()) if name not in ORDER]
@@ -1146,7 +1187,9 @@ def main() -> int:
     manifest = {}
     outcomes = []
     for name in selected:
-        row = _run_one(name, args.ledger, journal_dir, store, stamp)
+        row = _run_one(
+            name, args.ledger, journal_dir, store, stamp,
+            already_active_project=args.already_active_project)
         manifest[name] = row["run_id"]
         outcomes.append(row)
         print(json.dumps(row, default=str))

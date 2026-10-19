@@ -43,6 +43,29 @@ def test_external_layer_overlap_is_subtracted_once_from_own_code():
     assert result["external_s"] == 6.0
 
 
+def test_resolve_kpis_report_api_time_separately_from_wait_and_hold():
+    rows = [
+        {"kind": "capability", "run_id": "r1", "capability": "edit",
+         "started_at": 10.0, "wall_s": 5.0},
+        {"kind": "span", "run_id": "r1", "capability": "edit",
+         "layer": perf_ledger.RESOLVE_WAIT, "started_at": 10.0,
+         "wall_s": 0.5, "outcome": "granted"},
+        {"kind": "span", "run_id": "r1", "capability": "edit",
+         "layer": perf_ledger.RESOLVE_HOLD, "started_at": 10.5,
+         "wall_s": 1.5, "held_s": 1.5, "exclusive": True},
+        {"kind": "span", "run_id": "r1", "capability": "edit",
+         "layer": "resolve_api_call", "started_at": 10.6,
+         "wall_s": 0.4, "calls": 2},
+    ]
+
+    resolve = perf_ledger.profile(rows, "r1")["resolve"]
+
+    assert resolve["blocked_s"] == 0.5
+    assert resolve["exclusive_held_s"] == 1.5
+    assert resolve["api_s"] == 0.4
+    assert resolve["api_calls"] == 2
+
+
 def test_recording_is_thread_local_and_counts_calls(tmp_path):
     path = tmp_path / "perf.jsonl"
     rows_before = perf_ledger.read_rows(tmp_path, path)

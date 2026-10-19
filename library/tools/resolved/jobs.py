@@ -677,7 +677,9 @@ def _run_impl(job: dict, resolve) -> dict | None:
         protocol_conformance.validate(params["patch"], "edit-patch")
     if kind == "resolve.qualification_session":
         # The broker never switches - except through borrowed(), which
-        # saves the open project first and reads the restore back.
+        # saves the open project first and reads the restore back. If the
+        # fixed Qualification target is already current, keep that session
+        # in place: there is no project to borrow or restore.
         from library.tools import qualification_project
         _start_checkpoint(job)
         return _commit_checkpoint(
