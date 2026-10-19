@@ -804,6 +804,13 @@ def build_staged_incremental(
             "the final drifted since its build (or its record is gone) "
             "- only the full rebuild restores it")
 
+    # VC-09: the strategy is selected before the candidate exists. The
+    # stale/conflict checks above are the eligibility evidence; the
+    # staging duplicate below is already backend-specific work.
+    from library.tools.execution_router import route_incremental
+    execution_routing = route_incremental(
+        reason="incremental eligibility checks passed for this staged diff")
+
     try:
         staging = final_timeline.DuplicateTimeline(staging_name)
     except Exception as exc:
@@ -833,11 +840,6 @@ def build_staged_incremental(
             semantic_segments=semantic_segments,
             lower_third_segments=lower_third_segments,
             ledger_rows=prepared.ledger_rows)
-
-        from library.tools.execution_router import route_compiled_edit
-        execution_routing = route_compiled_edit(
-            [{"op": "incremental.overlay_diff"}],
-            context={"incremental_eligibility": True})
 
         patch_out = apply_overlay_diffs(
             project=project, pool=project.GetMediaPool(), timeline=staging,

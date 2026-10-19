@@ -1096,21 +1096,26 @@ def cmd_markers_restore(args) -> int:
             emit(parts)
             return 0
         from library.tools import edit_patch
+        from library.tools.execution_router import route_axi_dispatch
         restored, refused = 0, []
         for row in missing:
             try:
                 frame = int(row["frame_in_timeline_space"])
+                axi_operations = [{
+                    "op": "marker.add", "frame": frame,
+                    "color": row.get("color") or "",
+                    "name": row.get("name") or "",
+                    "note": row.get("note") or "",
+                    "duration": int(row.get("duration_frames") or 1),
+                    "custom_data": row.get("custom_data_raw") or "",
+                }]
+                # VC-09: AXI dispatches share the routing contract - a
+                # refusal lands in the refused list below, never a write.
+                axi_routing = route_axi_dispatch(axi_operations)
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",
-                    operations=[{
-                        "op": "marker.add", "frame": frame,
-                        "color": row.get("color") or "",
-                        "name": row.get("name") or "",
-                        "note": row.get("note") or "",
-                        "duration": int(row.get("duration_frames") or 1),
-                        "custom_data": row.get("custom_data_raw") or "",
-                    }],
+                    operations=axi_operations,
                     conflict_domains=("markers",),
                     idempotency_key=f"markers.restore:{uuid.uuid4().hex}",
                     preconditions=[{"kind": "marker_absent",
@@ -1119,6 +1124,7 @@ def cmd_markers_restore(args) -> int:
             except Exception as exc:
                 refused.append((row, str(exc)))
                 continue
+            receipt["execution_routing"] = axi_routing
             if receipt["status"] == "committed":
                 restored += 1
             else:
@@ -4364,16 +4370,21 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid):
 def _drop_original(project, timeline, uid: str):
     """Delete a verified move/trim source item as a local EditPatch."""
     from library.tools import edit_patch
+    from library.tools.execution_router import route_axi_dispatch
 
     try:
+        axi_operations = [{"op": "clip.delete", "unique_id": uid}]
+        # VC-09: AXI dispatches share the routing contract.
+        axi_routing = route_axi_dispatch(axi_operations)
         receipt = edit_patch.apply_live_patch(
             project=project, timeline=timeline, capability="reel.touchup",
-            operations=[{"op": "clip.delete", "unique_id": uid}],
+            operations=axi_operations,
             conflict_domains=("timeline_structure",),
             idempotency_key=f"resolve-axi.replace-delete:{uuid.uuid4().hex}")
     except Exception as exc:
         return (f"the replacement landed but the local-delete EditPatch "
                 f"failed ({exc}) - remove one by hand.")
+    receipt["execution_routing"] = axi_routing
     if receipt["status"] != "committed":
         return (f"the replacement landed but the original could not be "
                 f"removed by EditPatch ({receipt}) - remove one by hand.")
@@ -4443,11 +4454,15 @@ def cmd_edit_delete(args) -> int:
                                 f"{TOOL} items --timeline "
                                 f"\"{timeline.GetName()}\"")
                 from library.tools import edit_patch
+                from library.tools.execution_router import route_axi_dispatch
                 try:
+                    axi_operations = [{"op": "clip.delete", "unique_id": uid}]
+                    # VC-09: AXI dispatches share the routing contract.
+                    axi_routing = route_axi_dispatch(axi_operations)
                     receipt = edit_patch.apply_live_patch(
                         project=project, timeline=timeline,
                         capability="reel.touchup",
-                        operations=[{"op": "clip.delete", "unique_id": uid}],
+                        operations=axi_operations,
                         conflict_domains=("timeline_structure",),
                         idempotency_key=(
                             f"resolve-axi.edit-delete:{uuid.uuid4().hex}"))
@@ -4456,6 +4471,7 @@ def cmd_edit_delete(args) -> int:
                         f"EditPatch refused or failed the delete ({exc}).",
                         f"{TOOL} items --timeline "
                         f"\"{timeline.GetName()}\"")
+                receipt["execution_routing"] = axi_routing
                 if receipt["status"] != "committed":
                     return fail(
                         f"the local-delete EditPatch did not verify: "
@@ -7361,14 +7377,18 @@ def cmd_sense_reframe(args) -> int:
                       "keys": list(_REFRAME_KEYS)},
                 gate_class="sense_reframe") as (journal, journal_state):
             from library.tools import edit_patch
+            from library.tools.execution_router import route_axi_dispatch
             try:
+                axi_operations = [{
+                    "op": "clip.smart_reframe", "unique_id": uid,
+                    "keys": list(_REFRAME_KEYS), "before": before,
+                }]
+                # VC-09: AXI dispatches share the routing contract.
+                axi_routing = route_axi_dispatch(axi_operations)
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",
-                    operations=[{
-                        "op": "clip.smart_reframe", "unique_id": uid,
-                        "keys": list(_REFRAME_KEYS), "before": before,
-                    }],
+                    operations=axi_operations,
                     conflict_domains=("picture_transform",),
                     idempotency_key=(
                         f"resolve-axi.sense-reframe:{uuid.uuid4().hex}"),
@@ -7380,6 +7400,7 @@ def cmd_sense_reframe(args) -> int:
                 return fail(f"Smart Reframe EditPatch failed ({exc}).",
                             f"{TOOL} items --timeline "
                             f"\"{timeline.GetName()}\" --transforms")
+            receipt["execution_routing"] = axi_routing
             if receipt["status"] != "committed":
                 return fail(
                     f"Smart Reframe did not verify from its EditPatch: "
@@ -7493,16 +7514,20 @@ def cmd_edit_transform(args) -> int:
             except AxiError as exc:
                 return fail(str(exc), exc.fix)
             from library.tools import edit_patch
+            from library.tools.execution_router import route_axi_dispatch
             try:
+                axi_operations = [
+                    {"op": "clip.set_property", "unique_id": args.item,
+                     "key": "Pan", "value": new_pan},
+                    {"op": "clip.set_property", "unique_id": args.item,
+                     "key": "Tilt", "value": new_tilt},
+                ]
+                # VC-09: AXI dispatches share the routing contract.
+                axi_routing = route_axi_dispatch(axi_operations)
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",
-                    operations=[
-                        {"op": "clip.set_property", "unique_id": args.item,
-                         "key": "Pan", "value": new_pan},
-                        {"op": "clip.set_property", "unique_id": args.item,
-                         "key": "Tilt", "value": new_tilt},
-                    ],
+                    operations=axi_operations,
                     conflict_domains=("picture_transform",),
                     idempotency_key=f"resolve-axi.transform:{uuid.uuid4().hex}",
                     preconditions=[{
@@ -7515,6 +7540,7 @@ def cmd_edit_transform(args) -> int:
                 return fail(f"transform EditPatch failed ({exc}).",
                             f"{TOOL} items --timeline "
                             f"\"{timeline.GetName()}\" --transforms")
+            receipt["execution_routing"] = axi_routing
             if receipt["status"] != "committed":
                 return fail(f"transform did not verify from read-back: "
                             f"{receipt}.", f"{TOOL} items --timeline "

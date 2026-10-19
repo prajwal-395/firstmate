@@ -1,13 +1,51 @@
-"""Inspectable routing for compiled timeline edits.
+"""Authoritative execution routing for compiled timeline edits.
 
-The router chooses a physical executor without changing the edit's meaning.
-It is deliberately data-only: callers can persist the decision beside the
-transaction receipt before invoking the selected executor.
+VC-03 / VC-04 / VC-06 / VC-09: exactly one strategy is assigned before any
+Resolve write - no-op | direct EditPatch | staged incremental | staged full
+rebuild - and the decision names its evidence. Qualification comes from
+``edit_algebra.OP_STATUS`` (defined / compilable / qualified /
+production_enabled per operation and backend); a native ``apply`` existing
+never qualifies a backend, it only states what an executor lists as
+compilable. A refusal that carries an incremental category (unsupported /
+stale / conflict / backend failure) is never collapsed into a rebuild here:
+only an explicit caller policy (``allow_full_rebuild``) or an explicit
+``requested_backend == "full_rebuild"`` selects the full rebuild.
+
+VC-06: staging stays the production default (``STAGING_IS_PRODUCTION_DEFAULT``).
+New routing behaviour runs observation-only through ``observe_with_gates``:
+the production decision stays authoritative, the candidate decision is
+compared and reported, per-op enablement lives on the gates object, dropping
+the gates rolls back instantly, and observations are process-local (stderr
+plus an in-memory ledger) - no persisted format changes.
 """
 from __future__ import annotations
 
+import sys
 from dataclasses import asdict, dataclass
 from typing import Mapping, Sequence
+
+#: VC-06: staging stays the production default. No router path promotes a
+#: direct-write default; gates may only observe candidates beside it.
+STAGING_IS_PRODUCTION_DEFAULT = True
+
+#: VC-03: refusal categories that must stay distinct end to end. Stale bases,
+#: conflicting live edits and broken reads are not backend-selection hints;
+#: only ``unsupported`` may fall back to a rebuild, and only under an
+#: explicit caller policy.
+ROUTING_REFUSAL_CATEGORIES = (
+    "unsupported",
+    "stale",
+    "conflict",
+    "backend_failure",
+)
+
+#: Strategy-only request ids kept for callers that select a physical plan
+#: rather than algebra operations. They are not algebra ops and are never
+#: reported as qualified; they delegate to the strategy entry points below.
+STRATEGY_FULL_BUILD_ID = "reel.full_build"
+STRATEGY_INCREMENTAL_ID = "incremental.overlay_diff"
+
+_PROPERTY_OPS = frozenset({"clip.set_property", "clip.set_enabled"})
 
 
 class RoutingRefused(RuntimeError):
@@ -36,9 +74,30 @@ class ExecutionDecision:
     rejected_alternatives: tuple[RejectedBackend, ...]
     verification: tuple[str, ...]
     algebra_status: tuple[tuple[str, str], ...]
+    mode: str = "direct"
+    qualification_gaps: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = ()
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class RoutingGates:
+    """Observation-only enablement for candidate routing (VC-06).
+
+    ``incremental_candidate_ops`` names algebra op ids the candidate route
+    may try incrementally beside the production decision. The candidate is
+    never executed: dropping this object rolls back instantly.
+    """
+
+    name: str
+    incremental_candidate_ops: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+#: Process-local observation ledger only. Never persisted: VC-06 forbids
+#: persisted-format changes until readers and migration tests pass.
+GATE_OBSERVATIONS: list = []
 
 
 def _ops(compiled_edit) -> list[dict]:
@@ -54,85 +113,384 @@ def _ops(compiled_edit) -> list[dict]:
     return result
 
 
+def _qualification_level(entry) -> str:
+    """Strongest true qualification level for one OP_STATUS entry."""
+    if entry is None:
+        return "unknown"
+    if entry.production_enabled:
+        return "production_enabled"
+    if entry.qualified:
+        return "qualified"
+    if entry.compilable:
+        return "compilable"
+    if entry.defined:
+        return "defined"
+    return "unknown"
+
+
+def _statuses(edit_algebra, ids: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    """Per-op qualification levels, read off the matrix, never hasattr."""
+    return tuple((op_id, _qualification_level(edit_algebra.status(op_id))) for op_id in ids)
+
+
+def _refuse_unproven(edit_algebra, operations: Sequence[dict]) -> None:
+    """Refuse unknown ids and ids no backend lists as compilable."""
+    unknown = [str(op.get("op", "")) for op in operations
+               if edit_algebra.status(str(op.get("op", ""))) is None]
+    if unknown:
+        raise RoutingRefused("no backend is proven for operations: " + ", ".join(unknown))
+    uncompilable = [str(op.get("op", "")) for op in operations
+                    if not edit_algebra.status(str(op.get("op", ""))).compilable]
+    if uncompilable:
+        raise RoutingRefused(
+            "no backend lists these operations as compilable: " + ", ".join(uncompilable))
+
+
+def _check_op_conditions(edit_algebra, operations: Sequence[dict],
+                         context: Mapping) -> tuple[str, ...]:
+    """Op-specific preconditions checkable before any write (VC-04).
+
+    Only what the operation declares and the caller provides is checked:
+    required params, unique item identity, and media-type fit. A required
+    key is missing when absent or None; an empty value stays the
+    executor's to judge against live state. A check that needs live
+    Resolve state belongs to the executor's guards, not here.
+    """
+    checked = []
+    media_type = context.get("media_type")
+    for op in operations:
+        op_id = str(op.get("op", ""))
+        spec = edit_algebra.get(op_id)
+        if spec is None:
+            continue
+        missing = [key for key in spec.required
+                   if key not in op or op.get(key) is None]
+        if missing:
+            raise RoutingRefused(
+                f"{op_id} is missing required parameters: {', '.join(missing)}")
+        if spec.item and not op.get("unique_id"):
+            raise RoutingRefused(
+                f"{op_id} targets an existing timeline item but names no unique_id")
+        if media_type is not None:
+            entry = edit_algebra.status(op_id)
+            if entry is not None and entry.media_types and str(media_type) not in entry.media_types:
+                raise RoutingRefused(
+                    f"{op_id} does not support media type {media_type!r} "
+                    f"(supports: {', '.join(entry.media_types)})")
+        checked.append(f"{op_id}: required parameters present")
+    return tuple(checked)
+
+
+def _qualification_gaps(edit_algebra, operations: Sequence[dict]
+                        ) -> tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]:
+    """Per op, which backends are qualified / production-enabled (VC-04).
+
+    A gap never silently passes: it is recorded on the decision and, under
+    ``require_qualified``, refuses. The production default records gaps and
+    executes under the caller's guarded path; nothing here invents evidence.
+    """
+    gaps = []
+    for op in operations:
+        op_id = str(op.get("op", ""))
+        entry = edit_algebra.status(op_id)
+        if entry is None:
+            continue
+        qualified = tuple(backend.backend for backend in entry.backends if backend.qualified)
+        production = tuple(backend.backend for backend in entry.backends
+                           if backend.production_enabled)
+        if not production:
+            gaps.append((op_id, qualified, production))
+    return tuple(gaps)
+
+
+def _gap_reasons(gaps) -> tuple[str, ...]:
+    reasons = []
+    for op_id, qualified, _production in gaps:
+        if qualified:
+            reasons.append(
+                f"{op_id} has no production-enabled executor in this path; "
+                f"live-qualified: {', '.join(qualified)} - executing under "
+                "the caller's guarded path with read-back verification")
+        else:
+            reasons.append(
+                f"{op_id} has no live-qualified executor on any backend - "
+                "executing under the caller's guarded path with read-back "
+                "verification; qualify it before trusting this route")
+    return tuple(reasons)
+
+
+def _mode_for(backend: str, context: Mapping) -> str:
+    if backend == "no_op":
+        return "no_op"
+    if backend == "incremental":
+        return "staged"
+    if backend == "full_rebuild":
+        return "staged_full_rebuild"
+    return "staged" if context.get("staged") else "direct"
+
+
+def _normalize_category(context: Mapping) -> str:
+    category = str(context.get("ineligibility_category") or "unsupported")
+    if category not in ROUTING_REFUSAL_CATEGORIES:
+        return "unsupported"
+    return category
+
+
+def route_full_rebuild(*, reason: str, ineligibility: str | None = None,
+                       operations: Sequence[dict] | None = None,
+                       context: Mapping | None = None) -> ExecutionDecision:
+    """Explicit full-rebuild strategy, selected before any Resolve write."""
+    from library.tools import edit_algebra
+
+    context = dict(context or {})
+    ops = [dict(op) for op in (operations or [])]
+    ids = [str(op.get("op", "")) for op in ops]
+    statuses = _statuses(edit_algebra, ids) if ids else ()
+    rejected_reason = ineligibility or str(context.get("ineligibility_reason")
+                                           or "not requested or not eligible")
+    return ExecutionDecision(
+        backend="full_rebuild",
+        reasons=(reason,),
+        rejected_alternatives=(RejectedBackend("incremental", rejected_reason),),
+        verification=("verify complete compiled timeline inventory",
+                      "verify no collateral changes"),
+        algebra_status=statuses,
+        mode="staged_full_rebuild",
+    )
+
+
+def route_incremental(*, reason: str = "incremental eligibility checks passed",
+                      operations: Sequence[dict] | None = None,
+                      context: Mapping | None = None) -> ExecutionDecision:
+    """Staged incremental strategy for an eligibility-proven plan."""
+    from library.tools import edit_algebra
+
+    context = dict(context or {})
+    ops = [dict(op) for op in (operations or [])]
+    ids = [str(op.get("op", "")) for op in ops]
+    return ExecutionDecision(
+        backend="incremental",
+        reasons=(reason,),
+        rejected_alternatives=(RejectedBackend(
+            "full_rebuild", "incremental editor can preserve unchanged timeline items"),),
+        verification=("verify patched inventory against the compiled plan",
+                      "verify unchanged rows and items"),
+        algebra_status=_statuses(edit_algebra, ids) if ids else (),
+        mode="staged",
+    )
+
+
+def route_no_op(*, reason: str, context: Mapping | None = None) -> ExecutionDecision:
+    """No-op strategy: the request is already satisfied, nothing is written."""
+    context = dict(context or {})
+    return ExecutionDecision(
+        backend="no_op",
+        reasons=(reason,),
+        rejected_alternatives=(RejectedBackend("edit_patch", "no write is needed"),
+                               RejectedBackend("full_rebuild", "no write is needed")),
+        verification=("no Resolve write issued", "recorded state already satisfies the request"),
+        algebra_status=(),
+        mode="no_op",
+    )
+
+
 def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> ExecutionDecision:
     """Choose a backend for an already compiled edit and explain every choice.
 
-    Existing-item property setters always use EditPatch's direct native
-    property executor. Incremental is selected only when the caller supplies
-    an affirmative eligibility result; an ineligible result is surfaced as
-    a named rejection and never converted into a rebuild here.
+    Strategy selection lands before any Resolve write. Existing-item
+    property setters use EditPatch's direct native property executor and
+    must not reconstruct the timeline. Incremental is selected only on an
+    affirmative eligibility result - eligibility evidence is that backend's
+    own qualification basis, so it precedes the algebra proof checks; an
+    ineligible result is surfaced as a named refusal and never converted
+    into a rebuild here. An explicit full rebuild never tries incremental,
+    even beside affirmative eligibility. Unknown or uncompilable operations
+    are refused, and op-specific conditions (required params, item
+    identity, media type) are checked before a targeted backend is named.
     """
     from library.tools import edit_algebra
 
     context = dict(context or {})
     operations = _ops(compiled_edit)
     ids = tuple(str(op.get("op", "")) for op in operations)
-    statuses = []
-    for op_id in ids:
-        spec = edit_algebra.get(op_id)
-        statuses.append((op_id, "unknown" if spec is None else
-                         "implemented" if spec.apply is not None else "defined"))
 
-    property_ops = {"clip.set_property", "clip.set_enabled"}
-    if all(op_id in property_ops for op_id in ids):
+    # Strategy-only requests name a physical plan, not algebra operations.
+    # They delegate to the strategy entry points and never read as qualified.
+    if set(ids) == {STRATEGY_FULL_BUILD_ID}:
+        if context.get("request_incremental"):
+            reason = str(context.get("ineligibility_reason") or "eligibility was not established")
+            category = _normalize_category(context)
+            if category == "unsupported" and context.get("allow_full_rebuild"):
+                return route_full_rebuild(
+                    reason="incremental eligibility rejected the plan",
+                    ineligibility=f"unsupported: {reason}",
+                    operations=operations, context=context)
+            raise IncrementalRoutingRefused(category, reason)
+        if context.get("requested_backend") == "full_rebuild":
+            return route_full_rebuild(
+                reason=str(context.get("reason") or "full build explicitly requested"),
+                operations=operations, context=context)
+        raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+    if set(ids) == {STRATEGY_INCREMENTAL_ID}:
+        if context.get("incremental_eligibility") is True:
+            return route_incremental(operations=operations, context=context)
+        raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+
+    # VC-03: an explicit full rebuild never tries incremental, so it is
+    # decided before eligibility or qualification can select another path.
+    if context.get("requested_backend") == "full_rebuild":
+        return route_full_rebuild(
+            reason=str(context.get("reason") or "full build explicitly requested"),
+            operations=operations, context=context)
+
+    # VC-09: the no-op outcome is distinguished, never silent.
+    if context.get("requested_backend") == "no_op" or context.get("already_satisfied"):
+        return route_no_op(
+            reason=str(context.get("reason") or "recorded state already satisfies the request"),
+            context=context)
+
+    # Eligibility is the incremental backend's own qualification basis (it
+    # applies planned overlay diffs, not algebra operations), so an
+    # affirmative result selects it before the algebra proof checks below.
+    # Qualification levels are still recorded truthfully beside the choice.
+    if context.get("incremental_eligibility") is True:
+        decision = route_incremental(operations=operations, context=context)
+        return ExecutionDecision(
+            backend=decision.backend, reasons=decision.reasons,
+            rejected_alternatives=decision.rejected_alternatives,
+            verification=decision.verification,
+            algebra_status=_statuses(edit_algebra, ids), mode=decision.mode,
+            qualification_gaps=_qualification_gaps(edit_algebra, operations),
+        )
+
+    # An ineligible incremental result is a named refusal, never a
+    # rebuild: only the unsupported category under an explicit caller
+    # policy falls back. This precedes the proof checks so a stale,
+    # conflicting or broken verdict keeps its category for unknown ids too.
+    if context.get("request_incremental"):
+        reason = str(context.get("ineligibility_reason") or "eligibility was not established")
+        category = _normalize_category(context)
+        if category == "unsupported" and context.get("allow_full_rebuild"):
+            return route_full_rebuild(
+                reason="incremental eligibility rejected the plan",
+                ineligibility=f"unsupported: {reason}",
+                operations=operations, context=context)
+        raise IncrementalRoutingRefused(category, reason)
+
+    # VC-04: refuse what no backend proves, and check op-specific
+    # conditions, before any targeted backend is named.
+    _refuse_unproven(edit_algebra, operations)
+    checked = _check_op_conditions(edit_algebra, operations, context)
+    gaps = _qualification_gaps(edit_algebra, operations)
+    if context.get("require_qualified") and gaps:
+        names = ", ".join(op_id for op_id, _q, _p in gaps)
+        raise RoutingRefused(
+            f"no production-enabled executor is qualified for: {names} - "
+            "run under observation or qualify the route first")
+    statuses = _statuses(edit_algebra, ids)
+    gap_reasons = _gap_reasons(gaps)
+
+    if all(op_id in _PROPERTY_OPS for op_id in ids):
         if any(not op.get("unique_id") for op in operations):
             raise RoutingRefused("property patch requires an existing-item unique_id")
         return ExecutionDecision(
             backend="edit_patch.property",
             reasons=("all operations set properties on identified existing items",
-                     "direct property patch preserves unrelated timeline items"),
+                      "direct property patch preserves unrelated timeline items",
+                      *checked, *gap_reasons),
             rejected_alternatives=(
                 RejectedBackend("incremental", "incremental editor applies planned overlay diffs, not item property setters"),
                 RejectedBackend("full_rebuild", "existing-item property changes must not reconstruct the timeline"),
                 RejectedBackend("composed_edit", "re-placement is unnecessary for native property setters"),
             ),
             verification=("read back each requested property", "compare timeline state outside declared targets"),
-            algebra_status=tuple(statuses),
+            algebra_status=statuses,
+            mode=_mode_for("edit_patch.property", context),
+            qualification_gaps=gaps,
         )
 
-    eligibility = context.get("incremental_eligibility")
-    if eligibility is True:
-        return ExecutionDecision(
-            backend="incremental",
-            reasons=("incremental eligibility checks passed",),
-            rejected_alternatives=(RejectedBackend("full_rebuild", "incremental editor can preserve unchanged timeline items"),),
-            verification=("verify patched inventory against the compiled plan", "verify unchanged rows and items"),
-            algebra_status=tuple(statuses),
-        )
-    if all(status == "implemented" for _op_id, status in statuses):
+    # EditPatch schedules exactly the ops its matrix row lists as
+    # compilable - read off OP_STATUS, never off a function existing.
+    if all((entry := edit_algebra.status(op_id)) is not None
+           and (row := entry.for_backend("edit_patch")) is not None
+           and row.compilable for op_id in ids):
         return ExecutionDecision(
             backend="edit_patch",
-            reasons=("all operations have native algebra executors",
-                     "EditPatch provides the scoped transaction and read-back"),
+            reasons=("all operations are listed compilable on the EditPatch matrix row",
+                     "EditPatch provides the scoped transaction and read-back",
+                     *checked, *gap_reasons),
             rejected_alternatives=(
                 RejectedBackend("full_rebuild", "a targeted transaction can apply these operations"),
                 RejectedBackend("incremental", "incremental editor is reserved for eligible compiled build diffs"),
             ),
             verification=("run algebra read-back verification", "check changes outside declared scope"),
-            algebra_status=tuple(statuses),
+            algebra_status=statuses,
+            mode=_mode_for("edit_patch", context),
+            qualification_gaps=gaps,
         )
-    if context.get("request_incremental"):
-        reason = str(context.get("ineligibility_reason") or "eligibility was not established")
-        category = str(context.get("ineligibility_category") or "unsupported")
-        if category == "unsupported" and context.get("allow_full_rebuild"):
-            return ExecutionDecision(
-                backend="full_rebuild",
-                reasons=("incremental eligibility rejected the plan",
-                         "full rebuild explicitly permitted by the caller"),
-                rejected_alternatives=(RejectedBackend(
-                    "incremental", f"unsupported: {reason}"),),
-                verification=("verify complete compiled timeline inventory",
-                              "verify no collateral changes"),
-                algebra_status=tuple(statuses),
-            )
-        raise IncrementalRoutingRefused(category, reason)
-
-    requested = context.get("requested_backend")
-    if requested == "full_rebuild":
-        return ExecutionDecision(
-            backend="full_rebuild", reasons=(str(context.get("reason") or "full build explicitly requested"),),
-            rejected_alternatives=(RejectedBackend("incremental", str(context.get("ineligibility_reason") or "not requested or not eligible")),),
-            verification=("verify complete compiled timeline inventory", "verify no collateral changes"),
-            algebra_status=tuple(statuses))
-
     raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+
+
+def route_axi_dispatch(operations: Sequence[dict], *,
+                       context: Mapping | None = None) -> dict:
+    """One routing contract for AXI's direct dispatches (VC-09).
+
+    AXI command handlers route their EditPatch operations through the same
+    boundary as build, incremental, touch-up and feedback paths, then
+    attach the returned dict beside the patch receipt. A refusal
+    propagates: the dispatch must not write what routing would not select.
+    """
+    decision = route_compiled_edit({"operations": [dict(op) for op in operations]},
+                                   context=dict(context or {}))
+    return decision.as_dict()
+
+
+def observe_with_gates(compiled_edit, *, context: Mapping | None = None,
+                       gates: RoutingGates) -> dict:
+    """Old-vs-new route comparison with the production route authoritative.
+
+    The production decision is what the caller executes. The candidate
+    applies the gates' per-op incremental enablement beside it and is only
+    reported. Observations stay process-local (returned, appended to
+    ``GATE_OBSERVATIONS``, noted on stderr); rollback is dropping ``gates``.
+    """
+    context = dict(context or {})
+    production = route_compiled_edit(compiled_edit, context=context)
+    operations = _ops(compiled_edit)
+    ids = [str(op.get("op", "")) for op in operations]
+    candidate: ExecutionDecision | dict
+    candidate_note = "no gate override applies to these operations"
+    if (production.backend != "incremental" and gates.incremental_candidate_ops
+            and all(op_id in gates.incremental_candidate_ops for op_id in ids)):
+        try:
+            candidate = route_incremental(
+                reason=f"observation candidate under gates {gates.name!r}",
+                operations=operations, context=context)
+            candidate_note = f"candidate tries incremental under gates {gates.name!r}"
+        except RoutingRefused as exc:
+            candidate = {"refused": str(exc)}
+            candidate_note = f"candidate refused under gates {gates.name!r}"
+    else:
+        candidate = production
+    record = {
+        "gates": gates.name,
+        "production_backend": production.backend,
+        "candidate_backend": (candidate.backend if isinstance(candidate, ExecutionDecision)
+                              else candidate.get("refused", "refused")),
+        "agree": ((candidate.backend if isinstance(candidate, ExecutionDecision)
+                   else None) == production.backend),
+        "note": candidate_note,
+    }
+    GATE_OBSERVATIONS.append(record)
+    print(f"[routing-gates:{gates.name}] production={record['production_backend']} "
+          f"candidate={record['candidate_backend']} agree={record['agree']}",
+          file=sys.stderr)
+    return {"production": production, "candidate": candidate,
+            "agree": record["agree"], "record": dict(record)}
+
+
+def reset_gate_observations() -> int:
+    """Drop all process-local gate observations; returns how many were held."""
+    held = len(GATE_OBSERVATIONS)
+    del GATE_OBSERVATIONS[:]
+    return held

@@ -15961,6 +15961,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         print(f"  {name}: incremental refused "
                               f"({_refused}) - full rebuild",
                               flush=True)
+                        # VC-09: the strategy is selected before the
+                        # backend-specific work below, and the refusal
+                        # category travels with it - the rebuild is an
+                        # explicit fallback, never a silent one.
+                        from library.tools.execution_router import (
+                            route_full_rebuild as _route_full_rebuild,
+                        )
+                        _full_rebuild_routing = _route_full_rebuild(
+                            reason="incremental eligibility rejected the plan",
+                            ineligibility=(
+                                f"{getattr(_refused, 'category', 'unsupported')}: "
+                                f"{_refused}"),
+                        )
                         build_result = build_reel_timeline(
                             project=project,
                             **prepared_artifact.reel_inputs,
@@ -15984,18 +15997,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             placement_compatibility_checked=True,
                             resolve_app=resolve,
                         )
-                        from library.tools.execution_router import (
-                            route_compiled_edit as _route_execution,
-                        )
                         build_result["execution_routing"] = (
-                            _route_execution(
-                                [{"op": "reel.full_build"}],
-                                context={
-                                    "requested_backend": "full_rebuild",
-                                    "reason": "incremental eligibility rejected the plan",
-                                    "ineligibility_reason": (
-                                        f"{_refused.category}: {_refused}"),
-                                }).as_dict())
+                            _full_rebuild_routing.as_dict())
                     except _otio.OtioPlacementRefused as exc:
                         # The mismatch route was selected free but refused
                         # live (an unprovable switch, a wedged sizing): with
