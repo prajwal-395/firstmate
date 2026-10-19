@@ -2417,6 +2417,23 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         "started": _dt.datetime.now(
             _dt.UTC).isoformat(timespec="seconds"),
     }
+    # VC-07: the touch-up spec as one typed edit request. Annotation
+    # only - the qualified plan below still executes; a spec that does
+    # not convert never fails the touch-up, it only leaves this unset.
+    try:
+        from library.tools import edit_request as _edit_request
+
+        _request = _edit_request.from_touchup_spec(
+            spec, project=resolve_name, timeline=final)
+        receipt["edit_request"] = {
+            "id": _request.id,
+            "operations": [
+                {"op": op.op, "kind": op.kind,
+                 "expected_effect": op.expected_effect}
+                for op in _request.operations],
+        }
+    except Exception:  # noqa: BLE001 - annotation must not fail the edit
+        receipt["edit_request"] = None
 
     project = connect(resolve_name)
     pool = project.GetMediaPool()

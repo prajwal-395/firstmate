@@ -115,13 +115,110 @@ def render_json(result: AxiResult) -> str:
     return json.dumps(result.as_dict(), ensure_ascii=False, separators=(",", ":"))
 
 
-def plan_transaction(transaction: AxiTransaction) -> dict[str, Any]:
-    """Validate a transaction against its recorded base without contacting Resolve.
+def _is_request_mapping(data: Mapping[str, Any]) -> bool:
+    """Whether a plain dict is an edit-request shape, not a patch shape.
 
-    EditPatch is the only qualified executor represented by this typed
-    transaction contract. The plan says so explicitly and requires separate
-    authorization before submission; it never queues or mutates anything.
+    A request carries `originator`/`expected_base_generation` and
+    operations with `expected_effect`/`target`; a patch carries
+    `base_generation`, `capability` and flat algebra operations. The
+    discriminator is the request's own addressing vocabulary, which a
+    patch dict never uses.
     """
+    if not isinstance(data, Mapping):
+        return False
+    if "originator" in data or "expected_base_generation" in data:
+        return True
+    operations = data.get("operations") or ()
+    return any(isinstance(op, Mapping)
+               and ("expected_effect" in op or "target" in op)
+               for op in operations)
+
+
+def _plan_request(request) -> dict[str, Any]:
+    """Validate an edit request against its recorded base, without Resolve.
+
+    The request names meaning, not a backend: no capability is
+    invented here. The plan carries the compiled ops, the affected
+    scope and the preparation verdict, and requires a capability
+    choice (the router) plus authorization before submission.
+    """
+    from library.tools import edit_preparation, timeline_shadow
+    from library.tools.edit_request import EditRequest, compile_request
+
+    if not isinstance(request, EditRequest):
+        request = EditRequest.from_dict(request)
+    store = timeline_shadow.ShadowStore()
+    candidates = [
+        (generation, snapshot)
+        for generation, snapshot in store.current_snapshots(request.project)
+        if generation.timeline_name == request.timeline
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"recorded base for {request.project!r}/{request.timeline!r} "
+            f"resolved to {len(candidates)} timelines")
+    generation, snapshot = candidates[0]
+    if (request.expected_base_generation is not None
+            and generation.generation != request.expected_base_generation):
+        raise ValueError(
+            f"request base generation {request.expected_base_generation} "
+            f"is stale; recorded head is {generation.generation}")
+    result = edit_preparation.prepare(
+        request, base_snapshot=snapshot,
+        base_generation=generation.generation)
+    if result.refusals:
+        raise ValueError(
+            "request does not prepare: " + "; ".join(result.refusals))
+    compiled = compile_request(request, snapshot)
+    return {
+        "status": "planned",
+        "request_id": request.id,
+        "transaction_id": request.id,
+        "project": request.project,
+        "timeline": request.timeline,
+        "base_generation": generation.generation,
+        "backend": None,
+        "backend_reason": ("a request names meaning, not a backend - "
+                           "the router assigns one from qualification"),
+        "needs_capability": True,
+        "operations": [dict(operation)
+                       for operation in compiled.operations],
+        "affected_spans": [list(span)
+                           for span in compiled.affected_spans],
+        "conflict_domains": list(compiled.conflict_domains),
+        "no_write_needed": result.no_write_needed,
+        "preparation": result.as_dict(),
+        "authorization_required": True,
+        "resolve_contacted": False,
+        "mutated": False,
+    }
+
+
+def plan_transaction(transaction) -> dict[str, Any]:
+    """Validate a transaction against its recorded base without Resolve.
+
+    Accepts a typed `AxiTransaction` (the qualified-executor path:
+    EditPatch only) or an `EditRequest` (meaning without a backend -
+    no capability is invented, the router assigns one). EditPatch is
+    the only qualified executor represented by the typed transaction
+    contract. The plan says so explicitly and requires separate
+    authorization before submission; it never queues or mutates
+    anything.
+    """
+    from library.tools.edit_request import EditRequest
+
+    if isinstance(transaction, EditRequest) or _is_request_mapping(
+            transaction):
+        return _plan_request(transaction)
+    if not isinstance(transaction, AxiTransaction):
+        raise TypeError(
+            "plan_transaction takes an AxiTransaction or an EditRequest, "
+            f"got {type(transaction).__name__}")
+    return _plan_transaction_patch(transaction)
+
+
+def _plan_transaction_patch(transaction: AxiTransaction) -> dict[str, Any]:
+    """The typed-transaction plan: EditPatch validation against the base."""
     from library.tools import edit_patch, timeline_shadow
 
     patch = edit_patch.EditPatch.from_dict(transaction.patch())

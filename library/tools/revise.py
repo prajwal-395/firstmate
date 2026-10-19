@@ -898,7 +898,8 @@ def _result(project: str, record: dict) -> dict:
         "assignment_id",
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question", "failed_command",
-        "landed_generation", "scope", "supersedes", "prior_bases")}
+        "landed_generation", "scope", "supersedes", "prior_bases",
+        "edit_request", "preparation")}
     out["reply"] = reply
     if status == STATUS_AWAITING:
         out["llm_request"] = record["request_path"]
@@ -965,6 +966,37 @@ def advance(project, revise_id: str, *, answer: str = "",
                                   rebuild_commands(
                                       project, record, spec,
                                       preview=preview)]
+        elif classification["route"] == ROUTE_PATCH:
+            # VC-07/VC-08: the proposed program as one typed edit
+            # request, prepared against the recorded reel - read-only,
+            # so `--plan` still changes nothing. A program that does
+            # not convert never fails the plan; it only leaves the
+            # explanation unset.
+            try:
+                from library.tools import edit_preparation, edit_request
+
+                _reel = ((spec.get("program") or {}).get("reel")
+                         or record["reel"])
+                _head, _snapshot = _recorded_reel(project, _reel)
+                _request = edit_request.from_edit_program(
+                    spec["program"], project=project,
+                    timeline=_reel,
+                    originator={"kind": "human", "name": "ren revise",
+                                "detail": record.get("note", "")})
+                _prepared = edit_preparation.prepare(
+                    _request, base_snapshot=_snapshot,
+                    base_generation=_head.generation)
+                record["edit_request"] = _request.to_dict()
+                record["preparation"] = {
+                    "ready": _prepared.ready,
+                    "no_write_needed": _prepared.no_write_needed,
+                    "refusals": list(_prepared.refusals),
+                    "assumptions": list(_prepared.assumptions),
+                    "affected": _prepared.affected.as_dict(),
+                    "explanation": edit_preparation.explain(_prepared),
+                }
+            except Exception:  # noqa: BLE001, S110 - annotation, never the plan
+                pass
         _status(record, STATUS_PROPOSED)
         return _result(project, _save(project, record))
     act = (_patch if classification["route"] == ROUTE_PATCH else _rebuild)

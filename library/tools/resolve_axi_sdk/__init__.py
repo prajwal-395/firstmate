@@ -43,19 +43,24 @@ def transaction(operations: Iterable[AxiOperation]) -> tuple[AxiResult, ...]:
 
 
 def apply_transaction(
-    transaction: AxiTransaction, *, owner: str = "resolve-axi", timeout: float = 120.0
+    transaction, *, owner: str = "resolve-axi", timeout: float = 120.0
 ) -> dict:
     """Apply one typed, multi-op EditPatch through the Resolve broker."""
     return submit_transaction(transaction, owner=owner, timeout=timeout)
 
 
-def plan(transaction: AxiTransaction) -> dict:
-    """Validate a transaction against the recorded generation, without Resolve access."""
+def plan(transaction) -> dict:
+    """Validate a transaction or edit request without Resolve access.
+
+    An `EditRequest` plans meaning without inventing a backend - the
+    returned plan requires a capability choice (the router) before
+    submission.
+    """
     return plan_transaction(transaction)
 
 
 def submit_transaction_job(
-    transaction: AxiTransaction, *, owner: str = "resolve-axi"
+    transaction, *, owner: str = "resolve-axi"
 ) -> dict:
     """Queue a typed transaction and return its broker job handle."""
     return submit_transaction_async(transaction, owner=owner)
