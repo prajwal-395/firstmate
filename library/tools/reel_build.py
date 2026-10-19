@@ -15440,6 +15440,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             promotion_target_by_name[_final])
         if isinstance(_parent_snapshot, _TimelineSnapshot):
             _parent_snapshot = _snapshot_to_dict(_parent_snapshot)
+        elif not isinstance(_parent_snapshot, dict):
+            # The durable candidate record is JSON. A non-contract object
+            # here is an unavailable snapshot, not data we can safely persist
+            # (Resolve's live reader returns TimelineSnapshot; injected
+            # readers may return None). Keep the baseline absent so later
+            # promotion checks take their existing conservative path.
+            _parent_snapshot = None
         _holds.record_candidate(project_folder, {
             "candidate_id": _candidate_id,
             "transaction_id": _candidate_transaction_id,
