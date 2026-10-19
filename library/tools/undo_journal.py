@@ -1554,9 +1554,21 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
             os.path.join(project_folder, "pipeline_output", "review"),
             entry["final"], after_snapshot, action="touchup",
             action_journal=entry["id"])
+    # VC-14: the reel's component manifest, built from existing
+    # records. Never-fail instrumentation like the history below: a
+    # manifest that cannot be built is recorded absent, never
+    # invented, and never fails the touch it instruments.
+    try:
+        from library.tools import reel_component_manifest as _manifests
+
+        component_manifest = _manifests.build_manifest(
+            project_folder, entry["final"], rows)
+    except Exception:  # noqa: BLE001 - absent, not invented
+        component_manifest = None
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_TOUCH,
-        rows=rows, journal=entry["id"], batch=entry.get("batch") or None)
+        rows=rows, journal=entry["id"], batch=entry.get("batch") or None,
+        component_manifest=component_manifest)
     entry["version"] = version["version"]
     entry["status"] = STATUS_APPLIED
     entry["applied_at"] = _now()

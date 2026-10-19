@@ -159,6 +159,28 @@ def attach_recovery_archive(project_folder, final: str, version: int,
         f"{final!r} has no version {version} to attach its recovery archive.")
 
 
+def attach_component_manifest(project_folder, final: str, version: int,
+                                manifest: Mapping) -> None:
+    """Attach a VC-14 component manifest to its exact version.
+
+    The backfill route (`reel_component_manifest.backfill_project`)
+    for revisions that were recorded before manifests existed. Like
+    `attach_recovery_archive`, it refuses a version that is not there
+    rather than filing the manifest where it does not belong.
+    """
+    document = read(project_folder)
+    history = list(document["reels"].get(final) or ())
+    for entry in history:
+        if int(entry.get("version", 0)) == int(version):
+            entry["component_manifest"] = dict(manifest)
+            document["reels"][final] = history
+            _write(project_folder, document)
+            return
+    raise ReelVersionsUnreadable(
+        f"{final!r} has no version {version} to attach its component "
+        "manifest.")
+
+
 def _emit_version_event(project_folder, version: int, kind: str,
                         final: str) -> None:
     """Emit one version event into the project's event log, or skip.
@@ -334,6 +356,7 @@ __all__ = [
     "KIND_UNDO",
     "ReelVersionsUnreadable",
     "build_before",
+    "attach_component_manifest",
     "attach_recovery_archive",
     "latest_act",
     "live_acts",

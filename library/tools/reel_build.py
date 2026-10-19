@@ -11876,6 +11876,19 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     written = []
     for final, rows in sorted(rows_by_final.items()):
+        # VC-14: the reel's component manifest, built from existing
+        # records (the promoted rows plus whatever the assembly,
+        # provenance, Fusion and ledger files hold). Never-fail
+        # instrumentation like the history below: a manifest that
+        # cannot be built is recorded absent, never invented, and
+        # never fails the promotion it instruments.
+        try:
+            from library.tools import reel_component_manifest as _manifests
+
+            component_manifest = _manifests.build_manifest(
+                project_folder, final, rows)
+        except Exception:  # noqa: BLE001 - absent, not invented
+            component_manifest = None
         redoes = _versions.take_pending_redo(project_folder, final)
         undoes = _versions.take_pending_rollback(project_folder, final)
         if redoes is not None:
@@ -11883,7 +11896,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 project_folder, final, kind=_versions.KIND_REDO,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
-                built_with=built_with.get(final) or None, redoes=redoes)
+                built_with=built_with.get(final) or None, redoes=redoes,
+                component_manifest=component_manifest)
             _versions.mark_redone(project_folder, final, redoes,
                                   entry["version"])
         elif undoes is not None:
@@ -11891,7 +11905,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 project_folder, final, kind=_versions.KIND_ROLLBACK,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
-                built_with=built_with.get(final) or None, undoes=undoes)
+                built_with=built_with.get(final) or None, undoes=undoes,
+                component_manifest=component_manifest)
             _versions.mark_undone(project_folder, final, undoes,
                                   entry["version"])
         else:
@@ -11899,7 +11914,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 project_folder, final, kind=_versions.KIND_BUILD,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
-                built_with=built_with.get(final) or None)
+                built_with=built_with.get(final) or None,
+                component_manifest=component_manifest)
         # The promotion half of the per-reel edit history
         # (`library/tools/reel_edit_history.py`): the build entry was
         # filed at build time under the staging name and moved here by
