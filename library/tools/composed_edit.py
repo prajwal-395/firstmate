@@ -1797,7 +1797,9 @@ def apply_composed_edit(*, timeline, media_pool,
     receipt.structural_patch = plan_structural_patch(
         tracks_before, changes, insertions,
         deletions=(write_context or {}).get("structural_deletions", ()),
-        component_manifest=component_manifest)
+        component_manifest=component_manifest,
+        sync_links=link_rows,
+        asset_root=(write_context or {}).get("project_folder"))
     assert_insertions_declared(tracks_before, insertions)
     receipt.rederivation_required = assert_rederivation_reachable(
         changes, rederiver, insertions)

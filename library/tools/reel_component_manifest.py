@@ -290,7 +290,9 @@ def _overlay_slice(assembly: dict, final: str, key: str) -> list:
     return out
 
 
-def _hash_generated_assets(project_folder: str, entries: list) -> tuple[list, int]:
+def _hash_generated_assets(
+    project_folder: str, entries: list, *, limit: int = MAX_HASHED_ASSETS
+) -> tuple[list, int]:
     """Content hashes of generated overlay assets this reel placed.
 
     Only `overlay_path` files inside the project folder are hashed -
@@ -304,7 +306,7 @@ def _hash_generated_assets(project_folder: str, entries: list) -> tuple[list, in
     assets: list = []
     skipped = 0
     for entry in entries:
-        if len(assets) >= MAX_HASHED_ASSETS:
+        if len(assets) >= limit:
             break
         candidate = entry.get("overlay_path") or ""
         if not candidate:
@@ -508,13 +510,42 @@ def build_manifest(
         },
     )
 
-    overlay_entries = []
+    caption_entries = []
+    motion_entries = []
     if assembly is not None:
-        overlay_entries = _overlay_slice(
-            assembly, final, "motion_graphics_overlay"
-        ) + _overlay_slice(assembly, final, "subtitle_overlay")
-    assets, skipped = _hash_generated_assets(project_folder, overlay_entries)
-    if assets or skipped:
+        caption_entries = _overlay_slice(assembly, final, "subtitle_overlay")
+        motion_entries = (
+            _overlay_slice(assembly, final, "motion_graphics_overlay")
+            + _overlay_slice(assembly, final, "timed_text_overlay")
+        )
+    caption_assets, skipped_captions = _hash_generated_assets(
+        project_folder, caption_entries)
+    motion_assets, skipped_motion = _hash_generated_assets(
+        project_folder, motion_entries,
+        limit=max(0, MAX_HASHED_ASSETS - len(caption_assets)))
+    if caption_assets or skipped_captions:
+        components.setdefault(
+            "captions",
+            _component(
+                reel_key,
+                "captions",
+                status=ABSENT,
+                detail="no assembly manifest to attribute caption renders",
+            ),
+        )
+        components["captions"]["assets"] = caption_assets
+        if skipped_captions:
+            prior = components["captions"].get("detail") or ""
+            components["captions"]["detail"] = (
+                f"{prior} {skipped_captions} caption entr"
+                f"{'y' if skipped_captions == 1 else 'ies'} without a "
+                "hashable generated asset"
+            ).strip()
+        components["captions"]["digest"] = _digest(
+            {key: components["captions"][key]
+             for key in ("id", "dependencies", "assets")}
+        )
+    if motion_assets or skipped_motion:
         components.setdefault(
             "motion_graphics",
             _component(
@@ -524,21 +555,18 @@ def build_manifest(
                 detail="no assembly manifest to attribute overlays",
             ),
         )
-        components["motion_graphics"]["assets"] = assets
-        if skipped:
+        components["motion_graphics"]["assets"] = motion_assets
+        if skipped_motion:
             note = (
-                f"{skipped} overlay entr"
-                f"{'y' if skipped == 1 else 'ies'} without a hashable "
+                f"{skipped_motion} motion-graphics entr"
+                f"{'y' if skipped_motion == 1 else 'ies'} without a hashable "
                 f"generated asset"
             )
             prior = components["motion_graphics"].get("detail") or ""
             components["motion_graphics"]["detail"] = f"{prior} {note}".strip()
         components["motion_graphics"]["digest"] = _digest(
-            {
-                "id": components["motion_graphics"]["id"],
-                "dependencies": components["motion_graphics"]["dependencies"],
-                "assets": assets,
-            }
+            {key: components["motion_graphics"][key]
+             for key in ("id", "dependencies", "assets")}
         )
 
     manifest: dict = {

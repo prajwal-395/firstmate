@@ -15498,6 +15498,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         provenance_with_registry as _read_prov,
     )
     _engine_code = _need.engine_code_digest()
+    # The component closure keeps a code edit to one producer from making
+    # every reel stale. An incomplete closure falls back to _engine_code
+    # inside derivation_digest, preserving the conservative broad rebuild.
+    _component_versions = _need.component_versions_for_reel()
     # The PROJECT-WIDE half: `project.yaml`, the brand template's
     # content, the project's artwork trees, every `external/declarations/`
     # declaration that is not a per-reel pin store, and the digests of
@@ -16335,6 +16339,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # byte-identical): a reel whose closing card moves rows
                 # reads as changed, which is what a stale row IS.
                 card_row_role=card_row_role,
+                component_versions=_component_versions,
                 # The speaker lower thirds travel in `extra` rather
                 # than under `explainer_segments`, and ONLY when there
                 # are some.
@@ -18147,6 +18152,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # `skipped_by_exclusion`: that one is content the captain
         # struck, this one is work that was already done.
         "reels_left_alone": left_alone,
+        # Measured avoidance from this run's own per-reel decisions and
+        # instrumentation; a skip counts only when the build actually
+        # leaves the approved reel untouched.
+        "avoided_work": {
+            "unchanged_reels_skipped": len(left_alone),
+            "full_rebuilds": sum(
+                int((facts.get("performance") or {}).get("full_rebuilds", 0))
+                for facts in summary_facts.values()),
+            "items_touched": sum(
+                int((facts.get("performance") or {}).get("items_touched", 0))
+                for facts in summary_facts.values()),
+            "project_model_records_touched": sum(
+                int((facts.get("performance") or {}).get(
+                    "model_records_touched", 0))
+                for facts in summary_facts.values()),
+        },
         # Which declared overlay pins this build honoured, and which
         # matched on no reel it placed - the aggregate above, carried
         # so the step output (not just stderr) says whether a pin

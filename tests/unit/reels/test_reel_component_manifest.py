@@ -136,6 +136,24 @@ def test_diff_names_only_the_changed_component(tmp_path):
     assert diff["detail"]["captions"]["fields"]
 
 
+def test_caption_and_motion_graphics_asset_hashes_belong_to_their_components(
+        tmp_path):
+    _project_with_assembly(tmp_path)
+    asset = tmp_path / "pipeline_output" / "renders" / "cap_07.mov"
+    asset.parent.mkdir(parents=True, exist_ok=True)
+    asset.write_bytes(b"generated overlay")
+
+    manifest = manifests.build_manifest(str(tmp_path), FINAL, ROWS)
+
+    caption_assets = manifest["components"]["captions"]["assets"]
+    motion_assets = manifest["components"]["motion_graphics"]["assets"]
+    assert [entry["path"] for entry in caption_assets] == [
+        "pipeline_output/renders/cap_07.mov"]
+    assert [entry["path"] for entry in motion_assets] == [
+        "pipeline_output/renders/cap_07.mov"]
+    assert caption_assets[0]["sha256"] == motion_assets[0]["sha256"]
+
+
 def test_diff_with_a_predate_revision_is_unknown_never_unchanged(tmp_path):
     _project_with_assembly(tmp_path)
     current = manifests.build_manifest(str(tmp_path), FINAL, ROWS)
