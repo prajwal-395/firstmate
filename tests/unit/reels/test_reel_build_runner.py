@@ -802,7 +802,7 @@ def test_derivation_runs_without_a_resolve_hold(built_with_spies):
 
 @pytest.mark.usefixtures("mock_dvr")
 def test_placement_holds_one_continuous_exclusive_lease(built_with_spies):
-    """The live read, decision and placement share the per-reel lease."""
+    """The physical placement has one continuous exclusive lease."""
     places = [e for e in built_with_spies["events"]
               if e[0] == "place-call"]
     assert len(places) == 1
@@ -811,16 +811,18 @@ def test_placement_holds_one_continuous_exclusive_lease(built_with_spies):
 
 
 @pytest.mark.usefixtures("mock_dvr")
-def test_placement_planning_runs_inside_the_per_reel_lease(
+def test_placement_planning_runs_outside_the_per_reel_lease(
         built_with_spies):
-    """Placement planning follows the live decision inside the per-reel hold."""
+    """Offline planning follows the decision and finishes before placement."""
     events = built_with_spies["events"]
     prepares = [e for e in events if e[0] == "prepare-call"]
     assert len(prepares) == 1
-    assert _holds_open(prepares[0]) == [
-        ("place Reel 01 (rebuild staging)", True)]
+    assert _holds_open(prepares[0]) == []
+    decision_release = (
+        "lease-exit", "decide Reel 01 (rebuild staging)", True)
+    assert events.index(decision_release) < events.index(prepares[0])
     place_lease = ("lease-held", "place Reel 01 (rebuild staging)", True)
-    assert events.index(prepares[0]) > events.index(place_lease)
+    assert events.index(prepares[0]) < events.index(place_lease)
 
 
 @pytest.mark.usefixtures("mock_dvr")

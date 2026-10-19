@@ -890,6 +890,36 @@ def main(argv=None) -> int:
     return 0 if args.verb != "qualify" or report["passed"] else 1
 
 
+def _measure_project_switch(function):
+    """Record each guarded LoadProject interval as run and edit cost."""
+    from functools import wraps
+
+    @wraps(function)
+    def measured(manager, name, *args, **kwargs):
+        from library.tools import perf_ledger
+
+        if manager is None:
+            return function(manager, name, *args, **kwargs)
+        before = manager.GetCurrentProject()
+        before_name = before.GetName() if before else ""
+        started_at = time.time()
+        try:
+            return function(manager, name, *args, **kwargs)
+        finally:
+            perf_ledger.count_call(
+                "project_switches", 1, from_project=before_name,
+                to_project=name)
+            perf_ledger.record(
+                "project_switch", time.time() - started_at,
+                started_at=started_at, from_project=before_name,
+                to_project=name, switches=1,
+                edit_ids=list(perf_ledger.current_edit_ids()))
+    return measured
+
+
+switch_project = _measure_project_switch(switch_project)
+
+
 if __name__ == "__main__":
     # ONE place renders every refusal on this verb's path, in the same
     # shape as the front door. With `REN_OUTPUT=json` both a refusal

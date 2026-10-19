@@ -7,7 +7,7 @@ cache records reuse - but each answers in its own log, so nothing could
 say what share of a RUN went where. This module is the one place those
 answers land, and `ren profile` reads it back.
 
-Two kinds of row, appended to `pipeline_output/logs/perf_ledger.jsonl`
+Three kinds of row, appended to `pipeline_output/logs/perf_ledger.jsonl`
 (append-only, every run, keyed by the unified `run_id`
 - `library/tools/run_id.py`, exported as `REN_RUN_ID` - which is the
 same value `pipeline_run.json` and the provenance runs record):
@@ -24,6 +24,12 @@ same value `pipeline_run.json` and the provenance runs record):
                 plus whatever the layer can say cheaply: backend, model,
                 calls, tokens, decoded source seconds, subprocesses,
                 cache hits/misses, bytes, peak RSS.
+
+    reel_edit   one completed reel build, with planning, Resolve lease,
+                execution, verification, promotion, attempt and touched-item
+                measurements. Resolve wait/hold spans carry the edit ids they
+                serve, so shared verification and promotion time is attributed
+                to each reel without guessing a split.
 
 The Resolve lease (`resolve_lock.resolve_lease`) writes two spans of its
 own: `resolve_wait`, the seconds an acquisition waited, granted or
@@ -62,6 +68,7 @@ import resource
 import sys
 import threading
 import time
+from contextvars import ContextVar
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -84,7 +91,8 @@ SCHEDULE = "schedule"
 # instead of implying that it was measured.
 COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
                   "probes", "hashes", "subprocess_spawns", "cli_starts",
-                  "media_decode_requests", "media_decode_cache_hits")
+                  "media_decode_requests", "media_decode_cache_hits",
+                  "project_switches")
 GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
                    "graphics_render", "hyperframes-caption",
                    "ffframes-caption"}
@@ -114,6 +122,14 @@ EXTERNAL_LAYERS = {
 # seconds a capability waited for its turn, and the seconds it held it.
 RESOLVE_WAIT = "resolve_wait"
 RESOLVE_HOLD = "resolve_hold"
+
+REEL_EDIT_METRICS = (
+    "intent_to_plan_s", "state_resolution_s", "backend_selection_s",
+    "lease_queue_wait_s", "lease_hold_s", "api_s", "cpu_s",
+    "verification_s", "commit_promotion_s", "total_s", "attempts",
+    "full_rebuilds", "items_touched", "model_records_touched",
+    "project_switch_s", "project_switches",
+)
 
 # ru_maxrss is bytes on macOS and kilobytes on Linux.
 _RSS_TO_MB = 1 / (1024 * 1024) if sys.platform == "darwin" else 1 / 1024
@@ -320,6 +336,8 @@ def commit(project_folder, row: dict[str, Any]) -> None:
 
 
 _local = threading.local()
+_active_edit_ids: ContextVar[tuple[str, ...]] = ContextVar(
+    "perf_ledger_active_edit_ids", default=())
 
 
 def _env(key: str) -> str | None:
@@ -523,6 +541,88 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
         count_call("graphics_renders", int(row.get("calls") or 1))
     _attach_backends(row)
     _append(path, row, required=_required_persistence())
+
+
+def record_reel_edit(reel: str, started_at: float,
+                     measurements: dict[str, Any]) -> None:
+    """Record the required per-edit performance measurements.
+
+    Missing measurements are rejected at the call site instead of being
+    silently represented as zero. ``None`` means the measurement could not
+    honestly be attributed to this edit (for example a shared batch stage).
+    """
+    missing = set(REEL_EDIT_METRICS) - set(measurements)
+    if missing:
+        raise ValueError(
+            f"reel edit performance is missing {sorted(missing)}")
+    total = measurements["total_s"]
+    record("reel_edit", float(total or 0.0), started_at=started_at,
+           reel=str(reel), measurements={
+               key: measurements[key] for key in REEL_EDIT_METRICS})
+
+
+def edit_lease_totals(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]:
+    """Sum Resolve and project-switch time from rows linked to edits."""
+    totals: dict[str, dict[str, float]] = {}
+    for row in rows:
+        layer = row.get("layer")
+        if layer not in (RESOLVE_WAIT, RESOLVE_HOLD, "project_switch"):
+            continue
+        edit_ids = row.get("edit_ids") or ()
+        if isinstance(edit_ids, str):
+            edit_ids = (edit_ids,)
+        if not isinstance(edit_ids, (list, tuple, set)):
+            continue
+        field = ({RESOLVE_WAIT: "lease_queue_wait_s",
+                  RESOLVE_HOLD: "lease_hold_s",
+                  "project_switch": "project_switch_s"}[layer])
+        seconds = row.get("wall_s", 0.0)
+        if layer == RESOLVE_HOLD:
+            seconds = row.get("held_s", seconds)
+        try:
+            seconds = max(0.0, float(seconds or 0.0))
+        except (TypeError, ValueError):
+            continue
+        for edit_id in edit_ids:
+            slot = totals.setdefault(str(edit_id), {
+                "lease_queue_wait_s": 0.0, "lease_hold_s": 0.0,
+                "project_switch_s": 0.0, "project_switches": 0})
+            slot[field] += seconds
+            if layer == "project_switch":
+                slot["project_switches"] += int(row.get("switches", 1))
+    for values in totals.values():
+        for key in values:
+            values[key] = round(values[key], 3)
+    return totals
+
+
+@contextmanager
+def edit_scope(edit_ids) -> Iterator[None]:
+    """Associate nested Resolve lease rows with the edits they serve."""
+    normalized = tuple(dict.fromkeys(
+        str(edit_id) for edit_id in (edit_ids or ()) if edit_id))
+    token = _active_edit_ids.set(normalized)
+    try:
+        yield
+    finally:
+        _active_edit_ids.reset(token)
+
+
+def current_edit_ids() -> tuple[str, ...]:
+    return _active_edit_ids.get()
+
+
+def resolve_lease_context(edit_ids, timeline: str = "",
+                          project: str = "") -> tuple[dict[str, Any], str]:
+    """Normalize edit ids and locality for Resolve lease rows."""
+    requested = ((edit_ids,) if isinstance(edit_ids, str)
+                 else (edit_ids or ()))
+    normalized = tuple(dict.fromkeys(
+        str(edit_id) for edit_id in (
+            *requested, *current_edit_ids()) if edit_id))
+    fields = {"edit_ids": list(normalized)} if normalized else {}
+    locality = "timeline" if timeline else "project" if project else "none"
+    return fields, locality
 
 
 def count_call(family: str, amount: int = 1, **fields: Any) -> None:

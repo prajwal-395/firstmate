@@ -214,3 +214,55 @@ def test_required_ledger_append_surfaces_write_errors(tmp_path, monkeypatch):
     perf_ledger._append(path, {"kind": perf_ledger.SPAN})
     with pytest.raises(OSError, match="disk full"):
         perf_ledger._append(path, {"kind": perf_ledger.SPAN}, required=True)
+
+
+def test_reel_edit_performance_records_every_required_measurement(
+        tmp_path, monkeypatch):
+    path = tmp_path / "perf.jsonl"
+    monkeypatch.setenv(perf_ledger.LEDGER_ENV, str(path))
+    monkeypatch.setenv(perf_ledger.RUN_ENV, "edit-run")
+    monkeypatch.setenv(perf_ledger.CAPABILITY_ENV, "reel.build")
+    values = {name: None for name in perf_ledger.REEL_EDIT_METRICS}
+    values.update(total_s=14.5, cpu_s=3.0, attempts=2,
+                  full_rebuilds=1, items_touched=8,
+                  model_records_touched=3, project_switch_s=1.25,
+                  project_switches=1)
+
+    perf_ledger.record_reel_edit("Reel 07", 1000.0, values)
+
+    row = perf_ledger.read_rows(tmp_path, path)[0]
+    assert row["layer"] == "reel_edit"
+    assert row["reel"] == "Reel 07"
+    assert set(row["measurements"]) == set(perf_ledger.REEL_EDIT_METRICS)
+    assert row["measurements"]["attempts"] == 2
+    assert row["measurements"]["lease_queue_wait_s"] is None
+
+
+def test_reel_edit_performance_refuses_an_omitted_measurement():
+    with pytest.raises(ValueError, match="missing"):
+        perf_ledger.record_reel_edit("Reel 07", 1000.0, {})
+
+
+def test_edit_lease_totals_include_only_linked_waits_and_holds():
+    totals = perf_ledger.edit_lease_totals([
+        {"layer": perf_ledger.RESOLVE_WAIT, "wall_s": 0.25,
+         "edit_ids": ["Reel 07"]},
+        {"layer": perf_ledger.RESOLVE_HOLD, "wall_s": 8.0,
+         "held_s": 7.75, "edit_ids": ["Reel 07", "Reel 08"]},
+        {"layer": "project_switch", "wall_s": 2.25, "switches": 1,
+         "edit_ids": ["Reel 07"]},
+        {"layer": perf_ledger.RESOLVE_WAIT, "wall_s": 9.0,
+         "edit_ids": ["Reel 09"]},
+    ])
+
+    assert totals == {
+        "Reel 07": {"lease_queue_wait_s": 0.25,
+                    "lease_hold_s": 7.75,
+                    "project_switch_s": 2.25, "project_switches": 1},
+        "Reel 08": {"lease_queue_wait_s": 0.0,
+                    "lease_hold_s": 7.75,
+                    "project_switch_s": 0.0, "project_switches": 0},
+        "Reel 09": {"lease_queue_wait_s": 9.0,
+                    "lease_hold_s": 0.0,
+                    "project_switch_s": 0.0, "project_switches": 0},
+    }

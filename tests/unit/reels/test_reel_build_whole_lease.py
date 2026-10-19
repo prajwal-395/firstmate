@@ -712,6 +712,17 @@ def test_graphics_prepare_runs_without_resolve_lease(
         assert prep["wall_s"] >= 0
         assert prep["output_digest"] == placement["output_digest"]
         assert len(prep["output_digest"]["derivation"]) == 64
+        from library.tools import perf_ledger as _perf
+        edit_rows = [row for row in rows
+                     if row.get("layer") == "reel_edit"]
+        assert len(edit_rows) == 1
+        edit_metrics = edit_rows[0]["measurements"]
+        assert set(edit_metrics) == set(_perf.REEL_EDIT_METRICS)
+        assert edit_metrics["attempts"] == 2
+        assert edit_metrics["full_rebuilds"] == 1
+        assert edit_metrics["items_touched"] >= 0
+        assert edit_metrics["lease_queue_wait_s"] >= 0
+        assert edit_metrics["lease_hold_s"] > 0
         holds = [row for row in rows if row.get("layer") == "resolve_hold"
                  and row.get("capability") == "reel.build"]
 
@@ -1061,3 +1072,69 @@ def test_placement_revalidation_accepts_fresh_wrappers_of_the_same_project():
     with pytest.raises(TimelineIngestError):
         resolve_project_exactly(
             _Manager("Podcast (field test)"), "Ren Scratch - exec deep")
+
+
+def test_reacquire_current_project_and_timeline_uses_live_handles():
+    from library.tools.reel_build import (
+        _reacquire_current_project_timeline,
+    )
+
+    class _Timeline:
+        def GetName(self):
+            return "GEO Podcast - Synced"
+
+        def GetUniqueId(self):
+            return "master-id"
+
+    class _Project:
+        def GetName(self):
+            return "Ren Scratch - exec deep"
+
+        def GetTimelineCount(self):
+            return 1
+
+        def GetTimelineByIndex(self, index):
+            return _Timeline() if index == 1 else None
+
+    class _Manager:
+        def GetProjectListInCurrentFolder(self):
+            return ["Ren Scratch - exec deep"]
+
+        def GetCurrentProject(self):
+            return _Project()
+
+    class _Resolve:
+        def GetProjectManager(self):
+            return _Manager()
+
+    project, timeline = _reacquire_current_project_timeline(
+        _Resolve(), "Ren Scratch - exec deep", "GEO Podcast - Synced",
+        "master-id")
+    assert project.GetName() == "Ren Scratch - exec deep"
+    assert timeline.GetUniqueId() == "master-id"
+
+
+def test_reacquire_current_project_refuses_a_different_active_project():
+    from library.tools.reel_build import (
+        ReelBuildError, _reacquire_current_project_timeline,
+    )
+
+    class _Project:
+        def GetName(self):
+            return "Ren Qualification"
+
+    class _Manager:
+        def GetProjectListInCurrentFolder(self):
+            return ["Ren Qualification"]
+
+        def GetCurrentProject(self):
+            return _Project()
+
+    class _Resolve:
+        def GetProjectManager(self):
+            return _Manager()
+
+    with pytest.raises(ReelBuildError, match="active project changed"):
+        _reacquire_current_project_timeline(
+            _Resolve(), "Ren Scratch - exec deep", "GEO Podcast - Synced",
+            "master-id")

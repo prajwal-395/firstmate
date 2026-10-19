@@ -834,7 +834,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                   qualification_project: str = "",
                   capability: str = "", phase: str = "",
                   project: str = "", timeline: str = "",
-                  description: str = "", progress: str = ""):
+                  description: str = "", progress: str = "", edit_ids=()):
     """Hold the Resolve instance for one critical section.
 
     Exclusive by default: a cursor operation is a write even when it
@@ -870,7 +870,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     qualification project and is the one open.
     """
     global _cursor_switches, _last_set_id
-    locality = "timeline" if timeline else "project" if project else "none"
+    _edit_fields, locality = perf_ledger.resolve_lease_context(edit_ids, timeline, project)
     if capability:
         from library.tools import capabilities
         declared = capabilities.get(capability).execution.phase(phase)
@@ -985,7 +985,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 _cursor_switches, _last_set_id = 0, None
                 perf_ledger.record(perf_ledger.RESOLVE_WAIT, wait_seconds,
                                    started_at=acquire_start, outcome="granted",
-                                   purpose=purpose, exclusive=exclusive)
+                                   purpose=purpose, exclusive=exclusive, **_edit_fields)
                 if established:
                     _emit_instance_event(event_log.INSTANCE_LEASE_ACQUIRED,
                                          purpose, exclusive,
@@ -994,7 +994,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 try:
                     with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
                                           purpose=purpose, exclusive=exclusive,
-                                          broker_job=broker_job) as held:
+                                          broker_job=broker_job, **_edit_fields) as held:
                         try:
                             yield lease
                         finally:
@@ -1027,7 +1027,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
             perf_ledger.record(perf_ledger.RESOLVE_WAIT,
                                time.time() - acquire_start,
                                started_at=acquire_start, outcome="refused",
-                               purpose=purpose, exclusive=exclusive)
+                               purpose=purpose, exclusive=exclusive, **_edit_fields)
 
 
 @contextmanager

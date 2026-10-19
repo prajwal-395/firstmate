@@ -210,6 +210,31 @@ def test_a_switch_past_a_dead_project_manager_is_refused():
         qp.switch_project(resolve, qp.QUALIFICATION_PROJECT, settle=0)
 
 
+def test_project_switch_records_wall_time_and_edit_attribution(
+        tmp_path, monkeypatch):
+    from library.tools import perf_ledger
+
+    path = tmp_path / "perf.jsonl"
+    monkeypatch.setenv(perf_ledger.LEDGER_ENV, str(path))
+    monkeypatch.setenv(perf_ledger.RUN_ENV, "switch-run")
+    monkeypatch.setenv(perf_ledger.CAPABILITY_ENV, "reel.build")
+    resolve, _ = _captain()
+
+    with perf_ledger.edit_scope(("Reel 07",)):
+        qp.switch_project(resolve, qp.QUALIFICATION_PROJECT, settle=0)
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    switch = next(row for row in rows if row.get("layer") == "project_switch")
+    assert switch["from_project"] == "Podcast (field test)"
+    assert switch["to_project"] == qp.QUALIFICATION_PROJECT
+    assert switch["switches"] == 1
+    assert switch["edit_ids"] == ["Reel 07"]
+    assert any(row.get("family") == "project_switches"
+               and row.get("count") == 1 for row in rows)
+    assert perf_ledger.edit_lease_totals(rows)["Reel 07"][
+        "project_switches"] == 1
+
+
 def test_borrowing_from_the_qualification_project_is_refused():
     resolve, _ = _captain()
     resolve.LoadProject(qp.QUALIFICATION_PROJECT)

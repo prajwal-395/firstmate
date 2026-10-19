@@ -147,7 +147,8 @@ from library.tools.resolve_lock import (
     ResolveBusy, assert_current_timeline, report_activity_progress,
     resolve_lease, under_lease)
 from library.tools import shadow_watcher
-from library.tools.timeline_ingest import resolve_project_exactly
+from library.tools.timeline_ingest import (
+    TimelineIngestError, resolve_project_exactly)
 from library.tools.timeline_layout import (
     A_ROLL,
     B_ROLL,
@@ -11793,6 +11794,55 @@ def _connect_resolve_project(resolve_project_name: str):
         _connect_resolve().GetProjectManager(), resolve_project_name)
 
 
+def _reacquire_current_project_timeline(
+        resolve, project_name: str, timeline_name: str,
+        expected_timeline_id: str):
+    """Revalidate active project and timeline after reacquiring a lease.
+
+    Resolve can switch projects while a reel is prepared offline. Resolving
+    the named project alone is insufficient: it may still be present in the
+    manager while another project is active. Require the active project and
+    the exact timeline identity to match before any live read or write.
+    """
+    manager = resolve.GetProjectManager()
+    try:
+        # This exact lookup also asserts that the matching project is the
+        # CURRENT project in Resolve's current folder, then returns its new
+        # live wrapper. Do not validate or keep the stale preparation handle.
+        project = resolve_project_exactly(manager, project_name)
+    except TimelineIngestError as exc:
+        active = manager.GetCurrentProject()
+        active_name = active.GetName() if active else ""
+        raise ReelBuildError(
+            "Resolve active project changed during reel preparation; "
+            f"expected {project_name!r}, found {active_name!r}; "
+            "refusing placement") from exc
+    if project.GetName() != project_name:
+        raise ReelBuildError(
+            f"Resolve project lookup returned {project.GetName()!r}, "
+            f"expected {project_name!r}; refusing placement")
+    timeline = None
+    for index in range(1, project.GetTimelineCount() + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if candidate and candidate.GetName() == timeline_name:
+            if timeline is not None:
+                raise ReelBuildError(
+                    f"Resolve timeline name {timeline_name!r} is ambiguous; "
+                    "refusing placement")
+            timeline = candidate
+    if timeline is None:
+        raise ReelBuildError(
+            f"Resolve timeline {timeline_name!r} disappeared during reel "
+            "preparation; refusing placement")
+    timeline_id = str(timeline.GetUniqueId() or "")
+    if not timeline_id or timeline_id != expected_timeline_id:
+        raise ReelBuildError(
+            f"Resolve timeline identity changed during reel preparation; "
+            f"expected {expected_timeline_id!r}, found {timeline_id!r}; "
+            "refusing placement")
+    return project, timeline
+
+
 def _connect_resolve():
     """The live Resolve app handle: this module's ONE scripting handshake.
 
@@ -14176,6 +14226,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 if str(getattr(moment.approval, "value", moment.approval))
                 == "approved"
                 and (wanted is None or int(moment.number) in wanted)]
+    _edit_lease_ids = tuple(
+        built_name(moment, name_suffix) for moment in building)
     # The captain's recorded strikes, read ONCE for the batch: the same
     # store `select_reels` enforces on new proposals, applied here to
     # APPROVED moments as cuts inside their own ranges. Selection never
@@ -14196,7 +14248,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # hold: a named-handle read that runs beside other readers while
     # no writer moves underneath it. `snapshot_timeline` takes the
     # same shared hold itself; the re-entry is a no-op.
-    with resolve_lease("build reels survey", exclusive=False):
+    with resolve_lease("build reels survey", exclusive=False,
+                       edit_ids=_edit_lease_ids):
         timeline = None
         for i in range(1, project.GetTimelineCount() + 1):
             t = project.GetTimelineByIndex(i)
@@ -14206,6 +14259,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
         if not timeline:
             raise ValueError(f"Could not find master timeline {master_timeline_name}")
+
+        _master_timeline_id = str(timeline.GetUniqueId() or "")
+        if not _master_timeline_id:
+            raise ReelBuildError(
+                f"Resolve could not identify master timeline "
+                f"{master_timeline_name!r}; refusing placement")
 
         snapshot = snapshot_timeline(timeline, project.GetName())
         # The master's own program streams, read once here so every
@@ -14269,7 +14328,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools.resolve_transform import (
         FALLBACK_DRAW_GAIN as _FALLBACK_GAIN)
     try:
-        with resolve_lease("draw-gain probe", exclusive=True):
+        with resolve_lease("draw-gain probe", exclusive=True,
+                           edit_ids=_edit_lease_ids):
             gain_record = _gain_probe.calibrate(
                 resolve, project, (reel_width, reel_height),
                 project_folder=project_folder)
@@ -14304,7 +14364,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         from library.tools import drift_check as _drift_start
         with resolve_lease("build reels drift baseline",
-                           exclusive=True):
+                           exclusive=True, edit_ids=_edit_lease_ids):
             _drift_start.check_project(
                 project_folder, when="build start", resolve=resolve,
                 project=project, only_reels=sorted(approved_target_names))
@@ -14326,7 +14386,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # census below, which reads through its own per-timeline holds
     # instead for exactly this reason.
     _backup_names = {backup_name(final) for final in approved_target_names}
-    with resolve_lease("build reels debris check", exclusive=False):
+    with resolve_lease("build reels debris check", exclusive=False,
+                       edit_ids=_edit_lease_ids):
         _debris_found = timelines_by_name(
             project, set(staged_names) | _backup_names)
         stale_staging = [timeline
@@ -14365,7 +14426,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   f"timeline(s) from the refused run: "
                   f"{_reclaimable} - discarding and re-staging",
                   flush=True)
-            with resolve_lease("reclaim refused staging", exclusive=True):
+            with resolve_lease("reclaim refused staging", exclusive=True,
+                               edit_ids=_edit_lease_ids):
                 # This run immediately replaces the reclaimed staging.
                 # File the pool once at promotion (or final refusal),
                 # instead of inventorying every timeline before placing.
@@ -14400,7 +14462,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # is allowed and a build must not be hostage to a warning.
     try:
         from library.tools import reel_prebuild_census as _census
-        with resolve_lease("build reels prebuild census", exclusive=False):
+        with resolve_lease("build reels prebuild census", exclusive=False,
+                           edit_ids=_edit_lease_ids):
             prebuild_census = _census.report_prebuild(
                 project, sorted(approved_target_names))
     except Exception as census_failed:  # noqa: BLE001
@@ -14416,7 +14479,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     _approved = [built_name(m) for m in building]
     try:
         with resolve_lease("build reels divergence survey",
-                           exclusive=False):
+                           exclusive=False, edit_ids=_edit_lease_ids):
             live_snapshots, live_unread = _divergence.snapshots_for(
                 project, _approved, snapshot_fn=snapshot_timeline)
     except Exception as _reads_failed:                    # noqa: BLE001
@@ -14590,7 +14653,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # EVERY reel's derivation - so a run that entered on another
     # timeline would rebuild the whole project. A cursor excursion,
     # so under an EXCLUSIVE hold like the baseline above.
-    with resolve_lease("build reels master digest", exclusive=True):
+    with resolve_lease("build reels master digest", exclusive=True,
+                       edit_ids=_edit_lease_ids):
         _master_digest = _need.carried_digest_live(project, timeline)
     # The edit ledger's rows, read ONCE: each reel's own rows ride its
     # derivation digest in `extra` below, so a row on one reel rebuilds
@@ -14786,6 +14850,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         started_at=_survey_started_at, reels=len(building))
     try:
         for build_index, moment in enumerate(building, start=1):
+            _edit_started_at = time.time()
+            _edit_cpu_started_at = time.process_time()
             _prepare_started_at = time.time()
             report_activity_progress(
                 f"Working {build_index}/{len(building)}")
@@ -14802,6 +14868,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 "staging": name, "final": final,
                 "number": _moment_number,
                 "moment_id": moment_key(moment),
+                "performance": {
+                    "started_at": _edit_started_at,
+                    "cpu_started_at": _edit_cpu_started_at,
+                    "intent_to_plan_s": None,
+                    "state_resolution_s": None,
+                    "backend_selection_s": None,
+                    "lease_queue_wait_s": 0.0,
+                    "lease_hold_s": 0.0,
+                    "api_s": None,
+                    "verification_s": None,
+                    "commit_promotion_s": None,
+                    "attempts": 0,
+                    "full_rebuilds": 0,
+                    "items_touched": 0,
+                    "model_records_touched": 0,
+                    "project_switch_s": 0.0,
+                    "project_switches": 0,
+                },
             }
             # Filed before anything can skip, for the same reason as
             # the summary slot above: a reel this call did NOT place
@@ -15429,30 +15513,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 _prepare_finished_at - _prepare_started_at,
                 started_at=_prepare_started_at, reel=name,
                 output_digest=build_signatures[name])
-            # Graphics rendering and per-reel derivation are complete.
-            # One EXCLUSIVE lease now spans the live read, placement-plan
-            # completion, rebuild decision and placement.
-            _placement_started_at = time.time()
+            # Resolve reads only to establish a live decision. Preparation
+            # and plan compilation happen after this short inspection hold.
+            _state_started_at = time.time()
             with resolve_lease(
-                    f"place {name}", capability="reel.build",
-                    phase="apply", project=resolve_name,
-                    timeline=name) as _lease:
-                # Preparation/rendering can take minutes. Revalidate the
-                # exact project, master revision, and plan inputs only after
-                # this placement owns the Resolve cursor, so stale work is
-                # refused before it creates or changes a staging timeline.
+                    f"decide {name}", exclusive=True,
+                    project=resolve_name, timeline=name,
+                    edit_ids=(final,)) as _lease:
+                # This cursor-moving live read establishes the decision
+                # baseline before offline planning starts. The same inputs
+                # are checked again in the placement hold after planning.
                 # Compared by exact project NAME, never by proxy identity:
                 # the scripting bridge mints a fresh wrapper per
                 # GetCurrentProject() call, so `is` refuses every build
                 # (measured 2026-10-17: three consecutive handles, three
                 # distinct objects, one name).
-                current_project = resolve_project_exactly(
-                    resolve.GetProjectManager(), resolve_name)
-                if (current_project.GetName() != resolve_name
-                        or project.GetName() != resolve_name):
-                    raise ReelBuildError(
-                        "Resolve project identity changed during reel "
-                        "preparation; refusing placement")
+                project, timeline = _reacquire_current_project_timeline(
+                    resolve, resolve_name, master_timeline_name,
+                    _master_timeline_id)
                 try:
                     _live_master_digest = _need.carried_digest_live(
                         project, timeline)
@@ -15478,9 +15556,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     raise ReelBuildError(
                         "approved reel plan changed during preparation; "
                         "refusing placement")
+                _carried_before_plan = _carried_self_read(final)
                 _decision = _need.decide(
-                    final, _derivation,
-                    _carried_self_read(final),
+                    final, _derivation, _carried_before_plan,
                     _recorded_signatures.get(final))
                 # Lane D (cascade engine): the LEAVE_ALONE verdict walks
                 # through the shared walker
@@ -15504,6 +15582,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"{_gated.reason}", flush=True)
                 _decision = _gated
                 rebuild_decisions.append(_decision.as_dict())
+                _state_wait = float(
+                    getattr(_lease, "wait_seconds", 0.0) or 0.0)
+                summary_facts[name]["performance"].update({
+                    "state_resolution_s": max(
+                        0.0, time.time() - _state_started_at - _state_wait),
+                    "lease_queue_wait_s": _state_wait,
+                    "lease_hold_s": max(
+                        0.0, time.time() - float(
+                            getattr(_lease, "since", time.time()))),
+                    "model_records_touched": sum(
+                        value is not None for value in (
+                            semantic_record, span_record, _motion_basis)),
+                })
                 # Derivation facts for the summary, stashed while every
                 # record is in hand: answers per channel with their drops,
                 # the captain's trims and keep-exclusions, the decision.
@@ -15575,164 +15666,227 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     left_alone.append(final)
                     current_staging = None
                     continue
-                print(f"  placing {name}: {_decision.reason}", flush=True)
-                # The build starts HERE: everything between the answers
-                # and this line was derivation plus the seconds-long
-                # decision read above, so the seconds since
-                # `answers_arrived` name exactly what an M05-class stall
-                # costs - and "no engine wait recorded between" says the
-                # stall sat upstream of the engine (worker loop, model
-                # turns, another lane's Resolve lease), not inside it.
+            _plan_started_at = time.time()
+            print(f"  placing {name}: {_decision.reason}", flush=True)
+            # The build starts HERE: everything between the answers
+            # and this line was derivation plus the seconds-long
+            # decision read above, so the seconds since
+            # `answers_arrived` name exactly what an M05-class stall
+            # costs - and "no engine wait recorded between" says the
+            # stall sat upstream of the engine (worker loop, model
+            # turns, another lane's Resolve lease), not inside it.
+            try:
+                _waited = _phase_log.seconds_since(_answers_event)
+                summary_facts[name]["performance"][
+                    "intent_to_plan_s"] = _waited
+                _phase_log.log_event(
+                    project_folder, moment.number, name,
+                    _phase_log.BUILD_STARTED,
+                    detail=(f"placing {name}: {_decision.reason}"
+                            + (f"; {_waited}s since answers arrived "
+                               f"(derivation only, no engine wait "
+                               f"recorded between)"
+                               if _waited is not None else "")))
+            except Exception:
+                pass
+            _reel_inputs = dict(
+                moment=moment,
+                master_clips=master_clips,
+                subtitle_segments=subtitle_segments,
+                fps=fps,
+                width=reel_width,
+                height=reel_height,
+                project_folder=project_folder,
+                transcript=transcript,
+                timeline_name=name,
+                cards=cards,
+                overlay_placements=(overlay_plan.placements
+                                    if overlay_plan else None),
+                explainer_segments=explainer_segments,
+                semantic_segments=semantic_segments,
+                lower_third_segments=lower_third_segments,
+                look=reel_look_decl,
+                # The live master is how the program stream resolves
+                # on projects whose catalog predates stream recording.
+                master_timeline=timeline,
+                extra_cuts=moment_cuts,
+                draw_gain=run_gain,
+                # The ranges the captions, overlays and explainers above
+                # were planned from - already trimmed of the captain's
+                # span_retime pins. Recomputing from the moment would
+                # un-trim them.
+                ranges=ranges,
+                # WHERE THIS REEL ENDS, and what draws over its tail -
+                # including a declared freeze, which the build renders
+                # and places as the ending shot's held last frame.
+                ending=_ending_decl,
+                # The declared card row: which NAMED row the closing
+                # card lands on. None where nothing declares one; the
+                # build refuses a card-carrying reel then rather than
+                # guessing V1.
+                card_row_role=card_row_role,
+                # The graphics the captain deleted ([] when they
+                # declared none): a rebuild holds the deletion without
+                # being told again.
+                do_not_draw=suppression_rules,
+                edit_ledger_rows=_ledger_mine,
+            )
+            prepared = prepare_reel_timeline(
+                **_reel_inputs,
+                live_program_channels=_live_program_channels)
+            from library.tools import reel_otio_placement as _otio
+            _backend_started_at = time.time()
+            reel_placement_mode, placement_incompatibilities = (
+                _otio.select_placement(
+                    placement_mode, prepared,
+                    _reel_inputs["overlay_placements"],
+                    target_resolution=(reel_width, reel_height),
+                    import_resolution=project_default_resolution))
+            summary_facts[name]["performance"]["backend_selection_s"] = (
+                time.time() - _backend_started_at)
+            if placement_mode == "otio" and placement_incompatibilities:
+                raise _otio.OtioPlacementRefused(
+                    f"{name}: OTIO cannot place this reel: "
+                    f"{'; '.join(placement_incompatibilities)} - build "
+                    f"this reel with the default placement")
+            if placement_mode == "auto":
+                if placement_incompatibilities:
+                    print(f"  {name}: --placement auto selected append "
+                          f"before placement: "
+                          f"{'; '.join(placement_incompatibilities)}",
+                          flush=True)
+                else:
+                    print(f"  {name}: --placement auto selected otio "
+                          f"(free compatibility check passed)",
+                          flush=True)
+            # The Fusion manifest is planned here, FREE: it reads the
+            # prepared plan, never the placed timeline.
+            manifest = None
+            if reel_look_decl is not None:
+                from library.tools import reel_look as _look
+                # The plan this reel was placed from, so the manifest's
+                # clips ride the same per-angle rows the picture sits on:
+                # a drift planned for a V2 shot must travel on V2, and
+                # the rows come from the layout owner rather than a
+                # hardcoded V1 beside it.
+                manifest = _look.fusion_manifest(
+                    # The TRIMMED ranges, for the reason the motion spine
+                    # above states: a recompute from the moment un-trims
+                    # the captain's pins. Plus the declared FREEZE, which
+                    # is a picture clip on the ending shot's row and the
+                    # last one there - so the tail element is armed on
+                    # the held frames rather than on the live tail.
+                    _with_freeze(
+                        plan_reel_picture(
+                            placements(
+                                ranges, master_clips,
+                                fps,
+                                lead_frames=lead_frames(
+                                    cards, fps)),
+                            project_folder, name, master_clips,
+                            ranges, transcript, fps,
+                            lead_in_frames=lead_frames(
+                                cards, fps),
+                            rows=_ledger_mine),
+                        prepared.freeze_tail, fps),
+                    reel_look_decl, reel_motion, fps,
+                    track_plan=prepared.build_record["track_plan"],
+                    angle_key=_angle_key,
+                    grade_look=reel_grade_look,
+                    # The reel's ending owns the tail element, declared
+                    # or inherited from its call to action. Resolved
+                    # with the SAME moment and transcript the ranges
+                    # seam used: two answers to "where does this reel
+                    # end" would arm the element on a clip the build
+                    # did not freeze.
+                    ending=_reel_ending.resolve_ending(
+                        project_folder, name, moment, transcript),
+                    locked_closing_positions=motion_record[
+                        "locked_closing_positions"])
+            # When the watcher's soft flag says the captain may be
+            # editing this reel, refuse before placement: a build must
+            # not write beside a live hand edit.
+            _editing = shadow_watcher.captain_editing_reel()
+            if _editing and _editing["timeline"] == name:
+                raise RenRefusal(
+                    what=(f"refusing to place {name}: the captain may be "
+                          f"editing (watcher observed generation "
+                          f"{_editing['generation']} on "
+                          f"{_editing['timeline']})"),
+                    why=("the shadow watcher saw an observed generation "
+                          "that no Ren act explains - a hand edit is live "
+                          "on this reel"),
+                    fix=("let the captain finish, then rebuild: "
+                         "`ren build-reels`"))
+            prepared_artifact = _PreparedReelArtifact(
+                derivation_digest=build_signatures[name],
+                reel_inputs=_reel_inputs,
+                placement_plan=prepared,
+                fusion_manifest=manifest)
+            if prepared_artifact.derivation_digest != build_signatures[name]:
+                raise ReelBuildError(
+                    f"{name}: prepared artifact no longer matches its "
+                    "derivation digest; refusing stale placement")
+            _perf.record(
+                "reel_build_plan", time.time() - _plan_started_at,
+                started_at=_plan_started_at, reel=name,
+                backend=reel_placement_mode)
+            # Keep the global order: Resolve lease first, machine-wide
+            # heavy-work lock second. A Resolve waiter must not reserve
+            # heavy work while it queues behind another lane.
+            _placement_started_at = time.time()
+            with resolve_lease(
+                    f"place {name}", capability="reel.build",
+                    phase="apply", project=resolve_name,
+                    timeline=name, edit_ids=(final,)) as _lease:
+                project, timeline = _reacquire_current_project_timeline(
+                    resolve, resolve_name, master_timeline_name,
+                    _master_timeline_id)
                 try:
-                    _waited = _phase_log.seconds_since(_answers_event)
-                    _phase_log.log_event(
-                        project_folder, moment.number, name,
-                        _phase_log.BUILD_STARTED,
-                        detail=(f"placing {name}: {_decision.reason}"
-                                + (f"; {_waited}s since answers arrived "
-                                   f"(derivation only, no engine wait "
-                                   f"recorded between)"
-                                   if _waited is not None else "")))
-                except Exception:
-                    pass
-                _reel_inputs = dict(
-                    moment=moment,
-                    master_clips=master_clips,
-                    subtitle_segments=subtitle_segments,
-                    fps=fps,
-                    width=reel_width,
-                    height=reel_height,
-                    project_folder=project_folder,
-                    transcript=transcript,
-                    timeline_name=name,
-                    cards=cards,
-                    overlay_placements=(overlay_plan.placements
-                                        if overlay_plan else None),
-                    explainer_segments=explainer_segments,
-                    semantic_segments=semantic_segments,
-                    lower_third_segments=lower_third_segments,
-                    look=reel_look_decl,
-                    # The live master is how the program stream resolves
-                    # on projects whose catalog predates stream recording.
-                    master_timeline=timeline,
-                    extra_cuts=moment_cuts,
-                    draw_gain=run_gain,
-                    # The ranges the captions, overlays and explainers above
-                    # were planned from - already trimmed of the captain's
-                    # span_retime pins. Recomputing from the moment would
-                    # un-trim them.
-                    ranges=ranges,
-                    # WHERE THIS REEL ENDS, and what draws over its tail -
-                    # including a declared freeze, which the build renders
-                    # and places as the ending shot's held last frame.
-                    ending=_ending_decl,
-                    # The declared card row: which NAMED row the closing
-                    # card lands on. None where nothing declares one; the
-                    # build refuses a card-carrying reel then rather than
-                    # guessing V1.
-                    card_row_role=card_row_role,
-                    # The graphics the captain deleted ([] when they
-                    # declared none): a rebuild holds the deletion without
-                    # being told again.
-                    do_not_draw=suppression_rules,
-                    edit_ledger_rows=_ledger_mine,
-                )
-                prepared = prepare_reel_timeline(
-                    **_reel_inputs,
-                    live_program_channels=_live_program_channels)
-                from library.tools import reel_otio_placement as _otio
-                reel_placement_mode, placement_incompatibilities = (
-                    _otio.select_placement(
-                        placement_mode, prepared,
-                        _reel_inputs["overlay_placements"],
-                        target_resolution=(reel_width, reel_height),
-                        import_resolution=project_default_resolution))
-                if placement_mode == "otio" and placement_incompatibilities:
-                    raise _otio.OtioPlacementRefused(
-                        f"{name}: OTIO cannot place this reel: "
-                        f"{'; '.join(placement_incompatibilities)} - build "
-                        f"this reel with the default placement")
-                if placement_mode == "auto":
-                    if placement_incompatibilities:
-                        print(f"  {name}: --placement auto selected append "
-                              f"before placement: "
-                              f"{'; '.join(placement_incompatibilities)}",
-                              flush=True)
-                    else:
-                        print(f"  {name}: --placement auto selected otio "
-                              f"(free compatibility check passed)",
-                              flush=True)
-                # The Fusion manifest is planned here, FREE: it reads the
-                # prepared plan, never the placed timeline.
-                manifest = None
-                if reel_look_decl is not None:
-                    from library.tools import reel_look as _look
-                    # The plan this reel was placed from, so the manifest's
-                    # clips ride the same per-angle rows the picture sits on:
-                    # a drift planned for a V2 shot must travel on V2, and
-                    # the rows come from the layout owner rather than a
-                    # hardcoded V1 beside it.
-                    manifest = _look.fusion_manifest(
-                        # The TRIMMED ranges, for the reason the motion spine
-                        # above states: a recompute from the moment un-trims
-                        # the captain's pins. Plus the declared FREEZE, which
-                        # is a picture clip on the ending shot's row and the
-                        # last one there - so the tail element is armed on
-                        # the held frames rather than on the live tail.
-                        _with_freeze(
-                            plan_reel_picture(
-                                placements(
-                                    ranges, master_clips,
-                                    fps,
-                                    lead_frames=lead_frames(
-                                        cards, fps)),
-                                project_folder, name, master_clips,
-                                ranges, transcript, fps,
-                                lead_in_frames=lead_frames(
-                                    cards, fps),
-                                rows=_ledger_mine),
-                            prepared.freeze_tail, fps),
-                        reel_look_decl, reel_motion, fps,
-                        track_plan=prepared.build_record["track_plan"],
-                        angle_key=_angle_key,
-                        grade_look=reel_grade_look,
-                        # The reel's ending owns the tail element, declared
-                        # or inherited from its call to action. Resolved
-                        # with the SAME moment and transcript the ranges
-                        # seam used: two answers to "where does this reel
-                        # end" would arm the element on a clip the build
-                        # did not freeze.
-                        ending=_reel_ending.resolve_ending(
-                            project_folder, name, moment, transcript),
-                        locked_closing_positions=motion_record[
-                            "locked_closing_positions"])
-                # When the watcher's soft flag says the captain may be
-                # editing this reel, refuse before placement: a build must
-                # not write beside a live hand edit.
-                _editing = shadow_watcher.captain_editing_reel()
-                if _editing and _editing["timeline"] == name:
-                    raise RenRefusal(
-                        what=(f"refusing to place {name}: the captain may be "
-                              f"editing (watcher observed generation "
-                              f"{_editing['generation']} on "
-                              f"{_editing['timeline']})"),
-                        why=("the shadow watcher saw an observed generation "
-                              "that no Ren act explains - a hand edit is live "
-                              "on this reel"),
-                        fix=("let the captain finish, then rebuild: "
-                             "`ren build-reels`"))
-                prepared_artifact = _PreparedReelArtifact(
-                    derivation_digest=build_signatures[name],
-                    reel_inputs=_reel_inputs,
-                    placement_plan=prepared,
-                    fusion_manifest=manifest)
-                if prepared_artifact.derivation_digest != build_signatures[name]:
+                    _fresh_master_digest = _need.carried_digest_live(
+                        project, timeline)
+                except Exception as _stale_master:
                     raise ReelBuildError(
-                        f"{name}: prepared artifact no longer matches its "
-                        "derivation digest; refusing stale placement")
-                # Keep the global order: Resolve lease first, machine-wide
-                # heavy-work lock second. A Resolve waiter must not reserve
-                # heavy work while it queues behind another lane.
+                        "master timeline could not be revalidated after "
+                        f"preparation: {_stale_master}; refusing placement") \
+                        from _stale_master
+                if _fresh_master_digest != _master_digest:
+                    raise ReelBuildError(
+                        "master timeline changed during reel preparation; "
+                        "refusing placement so the stale plan is not applied")
+                with open(os.path.join(
+                        project_folder, "pipeline_output/scratch/"
+                        "timeline_transcript/transcript.json"), "rb") as _f:
+                    _fresh_transcript_digest = hashlib.sha256(
+                        _f.read()).hexdigest()
+                if _fresh_transcript_digest != transcript_source_digest:
+                    raise ReelBuildError(
+                        "timeline transcript changed during reel preparation; "
+                        "refusing placement")
+                if _plan_hash(proposal_path) != _plan_digest:
+                    raise ReelBuildError(
+                        "approved reel plan changed during preparation; "
+                        "refusing placement")
+                _fresh_carried = _carried_self_read(final)
+                if _fresh_carried != _carried_before_plan:
+                    raise ReelBuildError(
+                        f"{name}: live reel changed while preparing its "
+                        "placement; refusing the stale plan")
+                _fresh_decision = _need.decide(
+                    final, _derivation, _fresh_carried,
+                    _recorded_signatures.get(final))
+                _fresh_decision = _cascade.gate_rebuild_decision(
+                    _fresh_decision, fresh_derivation=_derivation,
+                    recorded=_recorded_signatures.get(final),
+                    registry=_cascade_registry)
+                if _fresh_decision.action != _decision.action:
+                    raise ReelBuildError(
+                        f"{name}: live reel changed while preparing its "
+                        "placement; refusing the stale plan")
+                _edit_performance = summary_facts[name]["performance"]
+                _edit_performance["lease_queue_wait_s"] += float(
+                    getattr(_lease, "wait_seconds", 0.0) or 0.0)
+                _api_started_at = time.time()
                 with heavy_work_lock(f"reel placement {name}",
                                      "reel.build:apply"):
                     placement_hold_started = (
@@ -15763,6 +15917,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # to the full rebuild below, which stays the default.
                     from library.tools import reel_incremental as _incr
                     try:
+                        _edit_performance["attempts"] += 1
                         build_result = _incr.build_staged_incremental(
                             project=project,
                             staging_name=name,
@@ -15801,9 +15956,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         # erase the evidence (or the edit) that caused refusal.
                         raise
                     except _incr.IncrementalRefused as _refused:
-                        print(f"  {name}: selected full rebuild; "
-                              f"incremental rejected as "
-                              f"{_refused.category}: {_refused}",
+                        _edit_performance["attempts"] += 1
+                        _edit_performance["full_rebuilds"] += 1
+                        print(f"  {name}: incremental refused "
+                              f"({_refused}) - full rebuild",
                               flush=True)
                         build_result = build_reel_timeline(
                             project=project,
@@ -15853,6 +16009,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             raise
                         print(f"  {name}: OTIO placement refused live ({exc}) "
                               f"- falling back to append", flush=True)
+                        _edit_performance["attempts"] += 1
+                        _edit_performance["full_rebuilds"] += 1
                         build_result = build_reel_timeline(
                             project=project,
                             **prepared_artifact.reel_inputs,
@@ -15867,6 +16025,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             placement_compatibility_checked=True,
                             resolve_app=resolve,
                         )
+                    _edit_performance["api_s"] = max(
+                        0.0, time.time() - _api_started_at)
+                    _edit_performance["items_touched"] = sum(
+                        len(build_result.get(field) or [])
+                        for field in ("placements", "overlay_placements",
+                                      "caption_links", "transition_placements"))
                     _header_record = build_result.get("post_header")
                     if isinstance(_header_record, dict):
                         post_header_records.append(_header_record)
@@ -15986,6 +16150,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         "freeze_placement": build_result.get(
                             "freeze_placement"),
                     })
+            _edit_performance["lease_hold_s"] += max(
+                0.0, time.time() - float(
+                    getattr(_lease, "since", time.time())))
             _perf.record(
                 "reel_build_place", time.time() - _placement_started_at,
                 started_at=_placement_started_at, reel=name,
@@ -16030,7 +16197,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # Discarding deletes staging containers, so under an EXCLUSIVE
         # hold like every other write path - the loop above released
         # its per-reel holds as it went.
-        with resolve_lease("discard failed staging", exclusive=True):
+        with resolve_lease("discard failed staging", exclusive=True,
+                           edit_ids=_edit_lease_ids):
             discard_staged_reels(project, project_folder, placed,
                                  master_timeline_name)
         raise
@@ -16043,7 +16211,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # subprocess moves the cursor between timelines under this one hold.
     if _batch_comp_entries:
         try:
-            with resolve_lease("apply fusion comps", exclusive=True):
+            with resolve_lease(
+                    "apply fusion comps", exclusive=True,
+                    edit_ids=tuple(
+                        promotion_staged_to_final.get(name, name)
+                        for _manifest, name, _profile in _batch_comp_entries)):
                 _fusion_started = time.perf_counter()
                 _comp_results = _look.apply_comps_batch(
                     [(m, n) for m, n, _ in _batch_comp_entries],
@@ -16108,7 +16280,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         f"batch Fusion comp pass failed: {exc}")
             except Exception:
                 pass
-            with resolve_lease("discard failed staging", exclusive=True):
+            with resolve_lease("discard failed staging", exclusive=True,
+                               edit_ids=_edit_lease_ids):
                 discard_staged_reels(project, project_folder, placed,
                                      master_timeline_name)
             raise
@@ -16261,7 +16434,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     organised = None
     staged_out = dict(staged_to_final)
-    with resolve_lease("build reels staging inventory", exclusive=False):
+    with resolve_lease("build reels staging inventory", exclusive=False,
+                       edit_ids=_edit_lease_ids):
         inventory_at_staging = _inventory_guard.timeline_inventory(project)
     staged_timeline_ids = {
         entry["name"]: entry["unique_id"]
@@ -16325,6 +16499,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # The promotion record for the end-of-build summaries (None where
     # this build promoted nothing: unverified, refused, or left alone).
     _promoted_record: dict | None = None
+    _verification_s = None
+    _commit_promotion_s = None
     if verify and not built_reel_names and left_alone:
         # Nothing was placed, and that IS the answer: every reel this
         # call named already carries what this build would have given
@@ -16354,7 +16530,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         _verify_started_at = time.time()
         try:
             try:
-                with resolve_lease("verify built reels", exclusive=False):
+                with resolve_lease(
+                        "verify built reels", exclusive=False,
+                        edit_ids=tuple(
+                            promotion_staged_to_final.get(name, name)
+                            for name in built_reel_names)):
                     verify_built_reels(
                         project_folder=project_folder,
                         resolve_project_name=resolve_name,
@@ -16364,6 +16544,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         only_reels=list(built_reel_names),
                     )
             finally:
+                _verification_s = time.time() - _verify_started_at
                 _perf.record(
                     "reel_build_verify", time.time() - _verify_started_at,
                     started_at=_verify_started_at,
@@ -16432,7 +16613,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # and the raise below says so.
             if _failed:
                 with resolve_lease("discard refused staging",
-                                   exclusive=True):
+                                   exclusive=True,
+                                   edit_ids=tuple(
+                                       promotion_staged_to_final.get(name, name)
+                                       for name in _failed)):
                     discard_staged_reels(project, project_folder, _failed,
                                          master_timeline_name)
             else:
@@ -16473,18 +16657,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             pass
         _promote_started_at = time.time()
         try:
-            promoted = promote_staged_reels(
-                project_folder, resolve_name, master_timeline_name,
-                dict(promotion_staged_to_final), organise=organise,
-                allow_drops=declared_drops,
-                supersede=declared_supersede,
-                retain=declared_retain,
-                track_plans=track_plans,
-                accept_editor_changes=declared_accept_editor_changes,
-                timeline_inventory_before=build_inventory_before,
-                staged_timeline_ids=staged_timeline_ids,
-                archive_retiring=True)
+            with _perf.edit_scope(tuple(
+                    promotion_staged_to_final.values())):
+                promoted = promote_staged_reels(
+                    project_folder, resolve_name, master_timeline_name,
+                    dict(promotion_staged_to_final), organise=organise,
+                    allow_drops=declared_drops,
+                    supersede=declared_supersede,
+                    retain=declared_retain,
+                    track_plans=track_plans,
+                    accept_editor_changes=declared_accept_editor_changes,
+                    timeline_inventory_before=build_inventory_before,
+                    staged_timeline_ids=staged_timeline_ids,
+                    archive_retiring=True)
         finally:
+            _commit_promotion_s = time.time() - _promote_started_at
             _perf.record(
                 "reel_build_promote", time.time() - _promote_started_at,
                 started_at=_promote_started_at,
@@ -16587,7 +16774,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # may be changing. Full builds keep their established
         # whole-project sweep. The sweep is informational and never
         # refuses; scoped report writes merge under a file lock.
-        with resolve_lease("sweep all reels", exclusive=False):
+        with resolve_lease("sweep all reels", exclusive=False,
+                           edit_ids=tuple(approved_target_names)):
             sweep_all_reels_informational(
                 project_folder=project_folder,
                 resolve_project_name=resolve_name,
@@ -16644,7 +16832,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     _drift_end_report = None
     try:
         from library.tools import drift_check as _drift_end
-        with resolve_lease("build reels drift end", exclusive=True):
+        with resolve_lease("build reels drift end", exclusive=True,
+                           edit_ids=tuple(approved_target_names)):
             _drift_end_report = _drift_end.check_project(
                 project_folder, when="build end",
                 resolve=resolve, project=project,
@@ -16668,6 +16857,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         _summary_rows = {}
     _drift_reels = ((_drift_end_report or {}).get("reels")
                     if isinstance(_drift_end_report, dict) else None)
+    _edit_lease_totals = _perf.edit_lease_totals(
+        _perf.read_rows(
+            project_folder, ledger_override=os.environ.get(_perf.LEDGER_ENV)))
     if _promoted_record is not None:
         _retired = (_promoted_record.get("retirement") or {})
         _archived = (_retired.get("archived") or {})
@@ -16675,6 +16867,39 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         for _final in _promoted_record.get("promoted") or ():
             _staging = promotion_staged_to_final.get(_final, "")
             _facts = summary_facts.get(_staging, {})
+            _performance = _facts["performance"]
+            _performance["verification_s"] = _verification_s
+            _performance["commit_promotion_s"] = _commit_promotion_s
+            _performance.update(_edit_lease_totals.get(_final, {}))
+            _perf.record_reel_edit(
+                _final, _performance["started_at"], {
+                    "intent_to_plan_s": _performance["intent_to_plan_s"],
+                    "state_resolution_s": _performance[
+                        "state_resolution_s"],
+                    "backend_selection_s": _performance[
+                        "backend_selection_s"],
+                    "lease_queue_wait_s": _performance[
+                        "lease_queue_wait_s"],
+                    "lease_hold_s": _performance["lease_hold_s"],
+                    "api_s": _performance["api_s"],
+                    "cpu_s": max(0.0, time.process_time()
+                                 - _performance["cpu_started_at"]),
+                    "verification_s": _performance["verification_s"],
+                    "commit_promotion_s": _performance[
+                        "commit_promotion_s"],
+                    "total_s": max(
+                        0.0, time.time() - _performance["started_at"]
+                        - _performance["project_switch_s"]),
+                    "attempts": _performance["attempts"],
+                    "full_rebuilds": _performance["full_rebuilds"],
+                    "items_touched": _performance["items_touched"],
+                    "model_records_touched": _performance[
+                        "model_records_touched"],
+                    "project_switch_s": _performance[
+                        "project_switch_s"],
+                    "project_switches": _performance[
+                        "project_switches"],
+                })
             _file_reel_summary(
                 project_folder,
                 number=_facts.get(
@@ -16786,7 +17011,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     try:
         if not (verify and built_reel_names):
             with resolve_lease("build reels inventory reconcile",
-                               exclusive=False):
+                               exclusive=False,
+                               edit_ids=_edit_lease_ids):
                 _inventory_now = _inventory_guard.timeline_inventory(project)
             _inventory_provenance.record_unattributed_timeline_changes(
                 os.path.join(project_folder, "pipeline_output", "review"),
@@ -16800,7 +17026,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             _inventory_final = _inventory_now
         else:
             with resolve_lease("build reels inventory finish",
-                               exclusive=False):
+                               exclusive=False,
+                               edit_ids=_edit_lease_ids):
                 _inventory_final = _inventory_guard.timeline_inventory(project)
         _inventory_provenance.finish_timeline_inventory(
             os.path.join(project_folder, "pipeline_output", "review"),
@@ -16813,7 +17040,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             from library.tools import staging_holds as _holds
             try:
                 with resolve_lease("pending promotions census",
-                                   exclusive=False):
+                                   exclusive=False,
+                                   edit_ids=_edit_lease_ids):
                     _live_hold_names = _holds.live_timeline_names(project)
             except Exception as _census_failed:  # noqa: BLE001
                 _live_hold_names = None
