@@ -45,6 +45,15 @@ _OBJECT_TYPES = {
     "Graph": "graph", "MediaPool": "media_pool", "ProjectManager": "project_manager",
 }
 
+# Effect is an AXI contract, not something inferred from an English verb.
+# In particular, Resolve has setters that are context-sensitive, methods
+# called `Add*` that return a query-like object, and destructive methods
+# whose names do not consistently advertise their reach. The AXI registry
+# supplies this per operation/method decision after qualification review.
+SIDE_EFFECTS = frozenset({
+    "read_only", "reversible_mutation", "mutation", "destructive", "unknown",
+})
+
 
 def _resolve_reference(resolve: Any, reference: ObjectReference,
                        project: Any,
@@ -122,7 +131,12 @@ def _check_type(name: str, parameter: dict, value: Any,
 
 
 def is_mutation(method_name: str) -> bool:
-    """Resolve API verb classification used for mandatory authorization."""
+    """Deprecated name heuristic retained for callers; never used for policy.
+
+    Production invocation uses the AXI operation-specific classifier. This
+    helper remains for compatibility with diagnostics and must not be used
+    to authorize or route a write.
+    """
     return method_name.startswith((
         "Add", "Apply", "Append", "Create", "Delete", "Import", "Insert",
         "Load", "Move", "Remove", "Rename", "Set", "Update", "Write",
@@ -133,11 +147,16 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
            arguments: dict[str, Any], capability_map: dict,
            project: Any = None, operation_id: str | None = None,
            authorize: Callable[[str, str], bool] | None = None,
+           classify_side_effect: Callable[[str | None, str, str, dict], str] | None = None,
            resolve_object: Callable[[ObjectReference], Any] | None = None,
            verify: Callable[[Any], bool] | None = None) -> dict[str, Any]:
     """Validate, authorize, invoke, and compactly report one API call.
 
-    `authorize(operation_id, method_name)` is AXI's production policy hook.
+    `classify_side_effect(operation_id, class_name, method_name, metadata)`
+    is AXI's per-method contract lookup. Missing or unknown classifications
+    fail closed; method spelling is not used to decide whether a call writes.
+    `authorize(operation_id, qualified_method)` is AXI's production policy
+    hook; the qualified name is ``Class.method`` to avoid same-name collisions.
     This API is never a substitute for the existing `run --unsafe` diagnostic
     escape hatch, which remains implemented by Resolve AXI itself.
     """
@@ -147,6 +166,18 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
         raise NativeInvocationError(f"{class_name}.{method_name} is undocumented; refusing")
     if method_name in _NEVER_INVOKE:
         raise NativeInvocationError(f"{method_name} is destructive and unavailable generically")
+
+    if classify_side_effect is None:
+        raise NativeInvocationError(
+            "native invocation requires AXI's operation-specific side-effect classification")
+    effect = classify_side_effect(operation_id, class_name, method_name, method_meta)
+    if effect not in SIDE_EFFECTS:
+        raise NativeInvocationError(
+            f"{class_name}.{method_name} has invalid AXI side-effect classification {effect!r}")
+    if effect in {"unknown", "destructive"}:
+        raise NativeInvocationError(
+            f"{class_name}.{method_name} is {effect}; generic invocation is unavailable")
+    mutating = effect != "read_only"
 
     if isinstance(target, ObjectReference):
         expected_kind = _OBJECT_TYPES.get(class_name)
@@ -163,8 +194,10 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
         raise NativeInvocationError(
             f"argument mismatch: unknown={sorted(unknown)} missing={sorted(missing)}")
 
-    if is_mutation(method_name):
-        allowed = bool(operation_id and authorize and authorize(operation_id, method_name))
+    if mutating:
+        allowed = bool(
+            operation_id and authorize
+            and authorize(operation_id, f"{class_name}.{method_name}"))
         if not allowed:
             raise NativeInvocationError(
                 "mutation requires AXI operation authorization; use the existing run --unsafe diagnostic path for exploratory scripts")
@@ -180,7 +213,7 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
     if method is None:
         raise NativeInvocationError(f"{class_name}.{method_name} is not callable on this Resolve proxy")
     result = method(**converted)
-    if is_mutation(method_name):
+    if mutating:
         if result is False:
             raise NativeInvocationError(f"{method_name} returned false")
         verified = bool(verify(result))
@@ -198,7 +231,8 @@ def invoke(*, resolve: Any, target: Any, class_name: str, method_name: str,
         "method": f"{class_name}.{method_name}",
         "operation_id": operation_id,
         "documented": True,
-        "mutating": is_mutation(method_name),
+        "mutating": mutating,
+        "side_effect": effect,
         "returned": compact_result,
         "verified": verified,
     }

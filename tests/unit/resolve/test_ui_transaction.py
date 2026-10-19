@@ -1517,3 +1517,11 @@ def test_run_forwards_the_region(lock_dir, unguarded, backend):
     reads = [params for method, params in driver.calls
              if method == "read_text"]
     assert reads == [{"region": {"x": 1, "y": 2, "width": 3, "height": 4}}]
+
+
+def test_ui_operation_adapter_descriptors_are_not_production_enabled():
+    descriptor = ui_transaction.ui_operation_adapter("color.window.create")
+    assert descriptor["qualification"] == "built, run deferred"
+    assert descriptor["production_enabled"] is False
+    assert "node count increments exactly once" in descriptor["verification"]
+    assert ui_transaction.ui_operation_adapter("unknown.operation") is None

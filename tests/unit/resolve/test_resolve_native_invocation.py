@@ -44,10 +44,11 @@ def test_read_invocation_validates_typed_args_and_returns_compact_result(capabil
     timeline = Timeline()
     result = invoke(
         resolve=object(), target=timeline, class_name="Timeline",
-        method_name="GetName", arguments={}, capability_map=capability_map)
+        method_name="GetName", arguments={}, capability_map=capability_map,
+        classify_side_effect=lambda *_: "read_only")
     assert result == {
         "method": "Timeline.GetName", "operation_id": None,
-        "documented": True, "mutating": False,
+        "documented": True, "mutating": False, "side_effect": "read_only",
         "returned": "Example", "verified": True,
     }
 
@@ -62,6 +63,8 @@ def test_mutation_requires_authorization_and_readback_before_call(capability_map
         "capability_map": capability_map,
         "operation_id": "marker.add",
         "authorize": lambda _op, _method: True,
+        "classify_side_effect": lambda _op, _class, method, _meta:
+            "mutation" if method == "AddMarker" else "read_only",
     }
     with pytest.raises(NativeInvocationError, match="read-back verifier"):
         invoke(**kwargs)
@@ -81,6 +84,7 @@ def test_mutation_refuses_unauthorized_or_bad_typed_arguments(capability_map):
                method_name="AddMarker", arguments=args,
                capability_map=capability_map,
                operation_id="marker.add", authorize=lambda *_: False,
+               classify_side_effect=lambda *_: "mutation",
                verify=lambda _: True)
     args["frameId"] = "10"
     with pytest.raises(NativeInvocationError, match="requires int"):
@@ -88,7 +92,24 @@ def test_mutation_refuses_unauthorized_or_bad_typed_arguments(capability_map):
                method_name="AddMarker", arguments=args,
                capability_map=capability_map,
                operation_id="marker.add", authorize=lambda *_: True,
+               classify_side_effect=lambda *_: "mutation",
                verify=lambda _: True)
+    assert timeline.calls == []
+
+
+def test_side_effect_classification_is_required_and_destructive_fails_closed(
+        capability_map):
+    timeline = Timeline()
+    with pytest.raises(NativeInvocationError, match="requires AXI's operation-specific"):
+        invoke(resolve=object(), target=timeline, class_name="Timeline",
+               method_name="GetName", arguments={},
+               capability_map=capability_map)
+
+    with pytest.raises(NativeInvocationError, match="is destructive"):
+        invoke(resolve=object(), target=timeline, class_name="Timeline",
+               method_name="GetName", arguments={},
+               capability_map=capability_map,
+               classify_side_effect=lambda *_: "destructive")
     assert timeline.calls == []
 
 
@@ -111,12 +132,14 @@ def test_structured_timeline_reference_is_exact(capability_map):
     with pytest.raises(NativeInvocationError, match="identity resolver"):
         invoke(resolve=Resolve(), target=Timeline(), class_name="Timeline",
                method_name="ReadItem", arguments={"item": ref},
-               capability_map=capability_map, project=current_project)
+               capability_map=capability_map, project=current_project,
+               classify_side_effect=lambda *_: "read_only")
     item = object()
     resolved = invoke(
         resolve=Resolve(), target=Timeline(), class_name="Timeline",
         method_name="ReadItem", arguments={"item": ref},
         capability_map=capability_map, project=current_project,
+        classify_side_effect=lambda *_: "read_only",
         resolve_object=lambda candidate: item if candidate == ref else None)
     assert resolved["returned"] == "str"
 
@@ -124,5 +147,6 @@ def test_structured_timeline_reference_is_exact(capability_map):
     by_reference = invoke(
         resolve=Resolve(), target=timeline_ref, class_name="Timeline",
         method_name="GetName", arguments={}, capability_map=capability_map,
-        project=current_project)
+        project=current_project,
+        classify_side_effect=lambda *_: "read_only")
     assert by_reference["returned"] == "Example"

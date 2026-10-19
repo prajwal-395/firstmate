@@ -63,6 +63,7 @@ import contextlib
 import logging
 import subprocess
 import time
+from types import MappingProxyType
 
 from library.tools.resolved.jobs import JobRefused
 
@@ -127,6 +128,82 @@ TAKE_SECONDS = 60
 
 #: The api_readback getters the runner can read off the resolve handle.
 _API_READBACKS = ("page", "playhead", "timeline")
+
+# Operation adapters available for the AXI registry to discover. These are
+# explicit adapters for controls with no equivalent in the installed native
+# API. They remain non-production until their declared live qualification is
+# run; a descriptive row never enables a write. The underlying recipes own
+# measured locators and their domain-specific verification.
+UI_OPERATION_ADAPTERS = MappingProxyType({
+    "color.window.create": MappingProxyType({
+        "provider": "resolve.ui",
+        "resolve_versions": ("21.1",),
+        "implementation": "library.tools.computer_use.window_recipe",
+        "target": ("timeline_unique_id", "node_index"),
+        "control": "Color > Nodes > Add Serial Node + CPW/LPW/PPW/PCW",
+        "preconditions": ("exact project and timeline", "Color page visible",
+                          "selected clip unique_id matches target",
+                          "target node is the appended node"),
+        "verification": ("node count increments exactly once",
+                          "rendered pixels change"),
+        "recovery": "restore captured node graph; remove only the appended node after identity read-back",
+        "qualification": "built, run deferred",
+        "production_enabled": False,
+    }),
+    "color.window.modify": MappingProxyType({
+        "provider": "resolve.ui",
+        "resolve_versions": ("21.1",),
+        "implementation": "library.tools.computer_use.window_modify",
+        "target": ("timeline_unique_id", "node_index", "named parameters"),
+        "control": "Color page node panel; measured OCR labels Size/Aspect/Pan/Tilt/Rotate/Opacity; value field offset +55x/+5pt",
+        "preconditions": ("exact project and timeline", "Color page visible",
+                          "selected clip unique_id and node index match target"),
+        "verification": ("independent rendered-pixel comparison",
+                          "property read-back when available"),
+        "recovery": "restore captured node parameters and verify pixels and properties",
+        "qualification": "built, run deferred",
+        "production_enabled": False,
+    }),
+    "color.window.track": MappingProxyType({
+        "provider": "resolve.ui",
+        "resolve_versions": ("21.1",),
+        "implementation": "library.tools.computer_use.window_track",
+        "target": ("timeline_unique_id", "node_index", "viewer region"),
+        "control": "Color page tracker controls through measured accessibility/OCR locators",
+        "preconditions": ("exact project and timeline", "Color page visible",
+                          "selected clip and node match target", "tracking range is explicit"),
+        "verification": ("tracker result read-back", "rendered-pixel comparison over sampled frames"),
+        "recovery": "restore captured tracker parameters and re-render the sampled range",
+        "qualification": "built, run deferred",
+        "production_enabled": False,
+    }),
+    "fairlight.eq.set": MappingProxyType({
+        "provider": "resolve.ui",
+        "resolve_versions": ("21.1",),
+        "implementation": "library.tools.fairlight_eq",
+        "target": ("dialogue track role", "band type", "frequency", "gain"),
+        "control": "Fairlight page dialogue track EQ controls; unmapped controls refuse",
+        "preconditions": ("exact project and timeline", "Fairlight page visible",
+                          "one uniquely resolved dialogue track", "mapped control anchors"),
+        "verification": ("control-value read-back", "audio render measurement"),
+        "recovery": "restore captured band values; render and compare audio before accepting",
+        "qualification": "built, run deferred",
+        "production_enabled": False,
+    }),
+})
+
+
+def ui_operation_adapter(operation_id: str) -> dict | None:
+    """Return a copy of one adapter descriptor for AXI discovery/registration.
+
+    The returned record is descriptive qualification metadata only. Routing
+    still requires the canonical operation/backend registry to independently
+    mark the pair qualified and production-enabled.
+    """
+    descriptor = UI_OPERATION_ADAPTERS.get(operation_id)
+    if descriptor is None:
+        return None
+    return {**descriptor}
 
 
 # ── The spec, validated before the job is queued ─────────────────────

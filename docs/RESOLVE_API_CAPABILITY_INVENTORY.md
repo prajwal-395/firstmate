@@ -41,7 +41,10 @@ backend primitive. It consumes the installed-reference metadata, validates
 argument names and known scalar/container types, supports structured project
 and timeline references, rejects undocumented calls and a conservative set of
 destructive methods, and requires an AXI operation authorization plus an
-operation-specific read-back verifier for writes. It does not auto-enable
+operation-specific read-back verifier for writes. The AXI registry must also
+classify the exact operation/method side effect; invocation never decides
+mutability from method spelling. Unknown and destructive effects refuse.
+It does not auto-enable
 methods. `resolve-axi run --unsafe` remains the separate diagnostic escape
 hatch for exploratory scripts; typed invocation cannot use it to bypass
 documented-method, destructive-method, argument, authorization, or read-back
