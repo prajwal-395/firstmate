@@ -1993,9 +1993,8 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "fade"),
         merge="replace",
         inverse=_self("the inverse carries the previous envelope"),
-        note="Fade in/out with curve. OTIO writes and reads levels during "
-             "the build, but no candidate-preserving semantic adapter "
-             "exists yet."),
+        note="Fade in/out in seconds; the staged native adapter converts "
+             "to frame counts and reads all item fades back."),
     "audio.automation": AlgebraOp(
         id="audio.automation", domain="audio_mix",
         required=("unique_id", "param", "keyframes"),
@@ -2997,10 +2996,9 @@ _ROUTE_EVALUATION = {
     },
     "audio.fade": {
         "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities"],
-        "available": ["OTIO mix writes and reads volume keyframes in the build path"],
-        "gaps": ["no measured native per-item writer", "deliver_audio_mix replaces the timeline and is not a candidate semantic adapter", "no rendered fade-envelope acceptance evidence for this request path"],
-        "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins", "Resolve Fairlight UI-independent controls"],
-        "next": "Evaluate remaining scripted routes, then expose the fastest safe route on a protected candidate and verify rendered audio.",
+        "available": ["staged TimelineItem.SetFades/GetFades adapter uses frame-count durations and checks every audio item fade before and after the write"],
+        "gaps": ["the touch-up preservation snapshot does not include audio fades, so this adapter independently compares all native fade states on source and staged timelines", "audio-only request is required; mixed structural operations refuse", "independent rendered-audio acceptance evidence is not yet supplied, so normal production access remains disabled"],
+        "next": "Run the deferred live qualification with rendered audio evidence, recovery and preservation checks before enabling normal routing.",
     },
     "clip.split": {
         "inspected": ["native scripting", "composed_edit", "OTIO"],
@@ -3038,6 +3036,12 @@ _WORKFLOW_EVIDENCE = {
 }
 
 _IMPLEMENTATION_EVIDENCE = {
+    ("audio.fade", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_audio_fade",
+        "library/tools/reel_touchup.py:_apply_in_place",
+        "library/tools/reel_touchup.py:_audio_fades",
+    ),
     ("clip.delete", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_delete",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
@@ -3069,6 +3073,8 @@ _IMPLEMENTATION_EVIDENCE = {
 }
 
 _BACKEND_OPERATION_LIMITATIONS = {
+    ("audio.fade", "reel_touchup"):
+        ("one audio-only request; fade durations are frame-rounded at the timeline rate; every audio item's native fades must match on source/staging before write and all unrelated fade values must read unchanged afterward; no independent rendered-audio evidence is recorded yet",),
     ("clip.trim", "resolve_axi"):
         ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
     ("clip.delete", "resolve_axi"):
@@ -3112,7 +3118,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but

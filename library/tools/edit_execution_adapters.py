@@ -140,7 +140,28 @@ def _touchup(context) -> dict:
     else:
         row, index = _target_position(
             context.snapshot, str(operation["unique_id"]))
-        if operation_id == "clip.move":
+        if operation_id == "audio.fade":
+            import math
+
+            if len(request.operations) != 1:
+                raise ValueError(
+                    "audio.fade currently requires a single-operation "
+                    "request so composition cannot replace unrelated audio")
+            fps = float(context.snapshot["reported_fps"])
+            fade_in = float(operation["fade_in"])
+            fade_out = float(operation["fade_out"])
+            if (not math.isfinite(fade_in) or not math.isfinite(fade_out)
+                    or fade_in < 0 or fade_out < 0):
+                raise ValueError(
+                    "audio.fade durations must be finite and non-negative")
+            from library.tools.frame_utils import duration_to_frames
+
+            edit = {
+                "op": "audio_fade", "row": row, "item": index,
+                "fade_in_frames": duration_to_frames(fade_in, fps),
+                "fade_out_frames": duration_to_frames(fade_out, fps),
+            }
+        elif operation_id == "clip.move":
             edit = {"op": "move", "row": row, "item": index,
                     "to_record": int(operation["to_frame"])}
         elif operation_id == "clip.ripple":
@@ -203,6 +224,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.move", "reel_touchup"): _touchup,
         ("clip.ripple", "reel_touchup"): _touchup,
         ("clip.slip", "reel_touchup"): _touchup,
+        ("audio.fade", "reel_touchup"): _touchup,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

@@ -11,7 +11,7 @@ from library.tools import edit_execution_adapters as adapters
 def _context(operation):
     return SimpleNamespace(
         operation=operation,
-        snapshot={"tracks": [{
+        snapshot={"reported_fps": 30.0, "tracks": [{
             "type": "video", "index": 2,
             "clips": [{
                 "unique_id": "clip-17", "record_in": 20, "record_out": 80,
@@ -20,7 +20,8 @@ def _context(operation):
             }],
         }]},
         request=SimpleNamespace(id="request-1", project="project-1",
-                                timeline="Reel 01 - opening"),
+                                timeline="Reel 01 - opening",
+                                operations=[operation]),
     )
 
 
@@ -155,6 +156,103 @@ def test_slip_adapter_routes_source_window_delta_to_staged_touchup(monkeypatch):
     assert calls[0]["edits"] == [{
         "op": "slip", "row": "V2", "item": 0, "delta_frames": 7,
     }]
+
+
+def test_audio_fade_adapter_converts_seconds_using_timeline_rate(monkeypatch):
+    from library.tools import project_registry, reel_proposal, reel_touchup
+
+    operation = {"op": "audio.fade", "unique_id": "clip-17",
+                 "fade_in": 0.5, "fade_out": 1.0}
+    context = _context(operation)
+    context.snapshot["tracks"][0]["type"] = "audio"
+    context.snapshot["tracks"][0]["index"] = 1
+    monkeypatch.setattr(project_registry, "resolve_project_path",
+                        lambda _project: Path("/tmp/project/project.yaml"))
+    proposal = SimpleNamespace(number=1, timeline_name="Reel 01 - opening")
+    monkeypatch.setattr(reel_proposal, "proposal_path",
+                        lambda _folder: "/tmp/project/proposal.json")
+    monkeypatch.setattr(reel_proposal, "read_proposal",
+                        lambda _path: [proposal])
+    calls = []
+    monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
+        calls.append(spec) or {"transaction": {
+            "verification": {"status": "verified"}}}))
+
+    adapters._touchup(context)
+
+    assert calls[0]["edits"] == [{
+        "op": "audio_fade", "row": "A1", "item": 0,
+        "fade_in_frames": 15, "fade_out_frames": 30,
+    }]
+
+
+def test_audio_fade_stages_native_frames_and_preserves_other_item_fades(
+        monkeypatch):
+    from library.tools import reel_read, reel_touchup
+
+    class PoolItem:
+        def GetClipProperty(self, name):
+            return "/media/music.wav" if name == "File Path" else None
+
+    class AudioItem:
+        def __init__(self, fades):
+            self.fades = dict(fades)
+            self.writes = []
+
+        def GetMediaPoolItem(self):
+            return PoolItem()
+
+        def GetSourceStartFrame(self):
+            return 0
+
+        def GetSourceEndFrame(self):
+            return 39
+
+        def GetStart(self):
+            return 10
+
+        def GetEnd(self):
+            return 50
+
+        def GetFades(self):
+            return dict(self.fades)
+
+        def SetFades(self, fades):
+            self.writes.append(dict(fades))
+            self.fades = dict(fades)
+            return True
+
+    class Timeline:
+        def __init__(self, item):
+            self.item = item
+
+        def GetTrackCount(self, track_type):
+            return 1 if track_type == "audio" else 0
+
+        def GetItemListInTrack(self, track_type, _index):
+            return [self.item] if track_type == "audio" else []
+
+    source_item = AudioItem({"FadeIn": 2, "FadeOut": 3})
+    staged_item = AudioItem({"FadeIn": 2, "FadeOut": 3})
+    source, staged = Timeline(source_item), Timeline(staged_item)
+    monkeypatch.setattr(reel_read, "live_items", lambda timeline: [{
+        "type": "audio", "index": 1, "items": [timeline.item],
+    }])
+    entry = {
+        "kind": "audio_fade", "row": "A1", "item_index": 0,
+        "record_frame": 10, "record_out": 50, "source_in": 0,
+        "source_out": 39, "source_file": "/media/music.wav",
+        "fade_in_frames": 15, "fade_out_frames": 20,
+    }
+
+    receipt = reel_touchup._apply_in_place(
+        None, staged,
+        reel_touchup.Qualification("composed", in_place=[entry]),
+        "/tmp/comps", "journal-1", source=source)
+
+    assert source_item.GetFades() == {"FadeIn": 2, "FadeOut": 3}
+    assert staged_item.GetFades() == {"FadeIn": 15, "FadeOut": 20}
+    assert receipt["audio_fades"][0]["verified"] is True
 
 
 def test_slip_touchup_keeps_record_span_and_refuses_source_overrun():

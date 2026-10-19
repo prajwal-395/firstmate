@@ -1545,6 +1545,54 @@ def _op_set_enabled(edit, position, tracks, spans, changes, insertions,
     return False
 
 
+def _op_audio_fade(edit, position, tracks, spans, changes, insertions,
+                   removals, moves, exclude, notes, in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    try:
+        fade_in = int(edit["fade_in_frames"])
+        fade_out = int(edit["fade_out_frames"])
+    except (KeyError, TypeError, ValueError) as invalid:
+        raise TouchupRefused(
+            f"edit {position} (`audio_fade`) needs integer frame counts",
+            "Resolve's native fade API takes frame durations",
+            "re-read the audio item and provide non-negative fade durations"
+        ) from invalid
+    if not row.startswith("A") or item_index is None:
+        raise TouchupRefused(
+            f"edit {position} (`audio_fade`) needs an audio row and item",
+            "native item fades must target one audio clip",
+            "address the exact audio row and item")
+    if fade_in < 0 or fade_out < 0 or (fade_in == 0 and fade_out == 0):
+        raise TouchupRefused(
+            f"edit {position} (`audio_fade`) needs at least one positive "
+            "fade duration and no negative values",
+            "an empty or negative fade is not a meaningful edit",
+            "provide non-negative fade durations with one greater than zero")
+    clip = _find_clip(tracks, row, int(item_index))
+    duration = int(clip["duration"])
+    if fade_in + fade_out > duration:
+        raise TouchupRefused(
+            f"edit {position} fades total {fade_in + fade_out} frames on "
+            f"a {duration}-frame item",
+            "overlapping endpoint fades are outside this adapter's "
+            "supported conditions",
+            "shorten the fades so their combined duration fits the item")
+    in_place.append({
+        "kind": "audio_fade", "row": row,
+        "item_index": int(item_index),
+        "record_frame": int(clip["record_in"]),
+        "record_out": int(clip["record_out"]),
+        "source_in": int(clip["source_in_frame"]),
+        "source_out": int(clip["source_out_frame"]),
+        "source_file": str(clip["source_file"]),
+        "fade_in_frames": fade_in, "fade_out_frames": fade_out,
+    })
+    notes.append(f"edit {position}: set {row}[{item_index}] audio fades "
+                 f"to {fade_in}f in / {fade_out}f out")
+    return False
+
+
 def _op_entry_motion(edit, position, tracks, spans, changes,
                      insertions, removals, moves, exclude, notes,
                      in_place) -> bool:
@@ -1756,6 +1804,7 @@ _OP_HANDLERS = {
     "add_overlay": _op_add_overlay,
     "add_row": _op_add_row,
     "set_enabled": _op_set_enabled,
+    "audio_fade": _op_audio_fade,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
     "slip": _op_slip,
@@ -2590,6 +2639,39 @@ def _live_in_place_no_op(qualification: Qualification,
             + " - no Resolve write is needed")
 
 
+def _audio_fades(timeline: Any) -> dict:
+    """Read every audio item's native frame fades for preservation checks."""
+    fades = {}
+    count = int(timeline.GetTrackCount("audio") or 0)
+    for track_index in range(1, count + 1):
+        for item in timeline.GetItemListInTrack("audio", track_index) or ():
+            pool_item = item.GetMediaPoolItem()
+            if pool_item is None:
+                raise TouchupError(
+                    f"A{track_index} contains an audio item with no media item; "
+                    "its fade state cannot be preserved")
+            path = str(pool_item.GetClipProperty("File Path") or "")
+            if not path:
+                raise TouchupError(
+                    f"A{track_index} item has no readable source path; "
+                    "its fade state cannot be preserved")
+            key = (track_index, path, int(item.GetSourceStartFrame()),
+                   int(item.GetSourceEndFrame()), int(item.GetStart()),
+                   int(item.GetEnd()))
+            if key in fades:
+                raise TouchupError(
+                    f"A{track_index} has ambiguous duplicate audio item "
+                    f"identity {key!r}; fade state cannot be preserved")
+            values = item.GetFades()
+            if not isinstance(values, Mapping) or not {
+                    "FadeIn", "FadeOut"} <= values.keys():
+                raise TouchupError(
+                    f"A{track_index} returned incomplete GetFades state")
+            fades[key] = {"FadeIn": int(values["FadeIn"]),
+                          "FadeOut": int(values["FadeOut"])}
+    return fades
+
+
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -2757,6 +2839,19 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
 
     tracks = _read.read_tracks(source)
     qualification = qualify(tracks, spec)
+    audio_fades = [entry for entry in qualification.in_place
+                   if entry.get("kind") == "audio_fade"]
+    if audio_fades and (
+            len(audio_fades) != 1 or len(qualification.in_place) != 1
+            or qualification.changes or qualification.insertions
+            or qualification.removals or qualification.moves
+            or qualification.new_rows):
+        raise TouchupRefused(
+            "audio.fade must be the only edit in a touch-up request",
+            "the native fade writer has only been bounded for a localized "
+            "in-place change; composition could otherwise replace audio "
+            "items and lose their fade state",
+            "submit one audio.fade operation by itself")
     if (qualification.gate_class == COMPOSED_STILL_RESIZE
             and resolve_app is None):
         from library.tools.reel_build import _connect_resolve
@@ -3006,7 +3101,8 @@ def _add_rows(staged: Any, new_rows: Sequence[Mapping]) -> list:
 def _apply_in_place(project: Any, staged: Any,
                     qualification: Qualification, comp_dir: str,
                     journal_id: str,
-                    project_folder: str | None = None) -> dict:
+                    project_folder: str | None = None,
+                    source: Any = None) -> dict:
     """Write in-place edits onto staging; EditPatch owns timeline writes.
 
     Runs BEFORE the composition, addressed by pre-edit record frame
@@ -3017,7 +3113,7 @@ def _apply_in_place(project: Any, staged: Any,
     diagnosis and the approved timeline was never touched.
     """
 
-    applied: dict = {"properties": [], "enabled": [],
+    applied: dict = {"properties": [], "enabled": [], "audio_fades": [],
                      "entry_motion": [], "hold_windows": []}
     if not qualification.in_place:
         return applied
@@ -3037,6 +3133,78 @@ def _apply_in_place(project: Any, staged: Any,
                 f"timeline disagree. Nothing further is written "
                 f"and the approved timeline stands.")
         item = hits[0]
+        if entry.get("kind") == "audio_fade":
+            if source is None:
+                raise TouchupRefused(
+                    "audio.fade has no approved source timeline handle",
+                    "existing native audio fade state cannot be compared "
+                    "with staging",
+                    "execute the fade through the staged reel touch-up path")
+            before_source = _audio_fades(source)
+            before_staged = _audio_fades(staged)
+            if before_source != before_staged:
+                raise TouchupRefused(
+                    "the staging copy changed existing audio fade state",
+                    "all audio item fades must survive timeline duplication "
+                    "before the requested fade is applied",
+                    "restore the audio fades and retry on a clean staging copy")
+            key = (int(row[1:]), str(entry["source_file"]),
+                   int(entry["source_in"]), int(entry["source_out"]),
+                   int(entry["record_frame"]), int(entry["record_out"]))
+            if key not in before_staged:
+                raise TouchupError(
+                    f"staged audio item {row}@{entry['record_frame']} has no "
+                    "matching native fade-state identity")
+            previous = dict(before_staged[key])
+            wanted = {"FadeIn": int(entry["fade_in_frames"]),
+                      "FadeOut": int(entry["fade_out_frames"])}
+            setter = getattr(item, "SetFades", None)
+            getter = getattr(item, "GetFades", None)
+            if not callable(setter) or not callable(getter):
+                raise TouchupRefused(
+                    "Resolve does not expose TimelineItem.SetFades/GetFades "
+                    "on the staged audio clip",
+                    "the documented method is not callable on this item",
+                    "use a Resolve version with the documented audio fade API")
+            try:
+                result = setter(dict(wanted))
+                readback = getter()
+                got = {"FadeIn": int(readback["FadeIn"]),
+                       "FadeOut": int(readback["FadeOut"])}
+            except Exception as failed:  # noqa: BLE001 - API failures need compensation.
+                result, got, failure = False, None, failed
+            else:
+                failure = None
+            if result is not True or got != wanted:
+                try:
+                    restored = setter(dict(previous))
+                    restored_values = getter()
+                    restore_ok = (
+                        restored is True
+                        and int(restored_values["FadeIn"]) == previous["FadeIn"]
+                        and int(restored_values["FadeOut"]) == previous["FadeOut"])
+                except Exception:  # noqa: BLE001 - report failed compensation.
+                    restore_ok = False
+                raise TouchupError(
+                    f"SetFades read back {got!r}, expected {wanted!r}; "
+                    f"compensation {'verified' if restore_ok else 'FAILED'}"
+                    + (f" ({failure})" if failure else ""))
+            expected_all = dict(before_source)
+            expected_all[key] = wanted
+            after_staged = _audio_fades(staged)
+            if after_staged != expected_all:
+                raise TouchupError(
+                    "audio fade read-back changed unrelated audio fade state "
+                    "or lost an item during the staged write")
+            applied["audio_fades"].append({
+                "row": row, "record_frame": entry["record_frame"],
+                "record_out": entry["record_out"],
+                "source_file": entry["source_file"],
+                "source_in": entry["source_in"],
+                "source_out": entry["source_out"],
+                "before": previous, "after": wanted, "verified": True,
+            })
+            continue
         if entry.get("kind") == "set_enabled":
             want = bool(entry["enabled"])
             try:
@@ -3306,7 +3474,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     receipt["new_rows"] = _add_rows(staged, qualification.new_rows)
     receipt["in_place"] = _apply_in_place(
         project, staged, qualification, comp_dir, journal["id"],
-        project_folder)
+        project_folder, source=source)
     if receipt["in_place"].get("patch_receipt"):
         receipt.setdefault("edit_patches", []).append(
             receipt["in_place"]["patch_receipt"])
@@ -3482,6 +3650,40 @@ def _promote(project_folder: str, project: Any, pool: Any,
         raise TouchupError(
             f"the staging {staging!r} or the approved {final!r} "
             f"vanished mid-touchup - nothing was renamed.")
+
+    audio_fade_entries = [entry for entry in qualification.in_place
+                          if entry.get("kind") == "audio_fade"]
+    if audio_fade_entries:
+        if len(audio_fade_entries) != 1:
+            raise TouchupError(
+                "audio.fade promotion needs exactly one target item")
+        entry = audio_fade_entries[0]
+        row = str(entry["row"]).upper()
+        key = (int(row[1:]), str(entry["source_file"]),
+               int(entry["source_in"]), int(entry["source_out"]),
+               int(entry["record_frame"]), int(entry["record_out"]))
+        recorded = (receipt.get("in_place") or {}).get("audio_fades") or []
+        if len(recorded) != 1 or recorded[0].get("verified") is not True:
+            raise TouchupError(
+                "audio.fade has no exact staged read-back receipt")
+        before = _audio_fades(originals[final])
+        after = _audio_fades(staged_found[staging])
+        prior = recorded[0]["before"]
+        requested = recorded[0]["after"]
+        if before.get(key) != prior:
+            raise TouchupError(
+                "the approved audio fade changed after staging; promotion "
+                "refuses to overwrite that newer edit")
+        expected = dict(before)
+        expected[key] = requested
+        if after != expected:
+            raise TouchupError(
+                "audio fade promotion read-back found a changed target or "
+                "unrelated audio fade state")
+        receipt["audio_fade_promotion_readback"] = {
+            "before": len(before), "after": len(after),
+            "target": key, "verified": True,
+        }
 
     live_full = _guard.full_timeline_snapshot(
         originals[final], project, project_folder)

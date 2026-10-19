@@ -40,9 +40,9 @@ _REPO = os.path.dirname(os.path.dirname(_TOOLS))
 if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
-from library.tools import otio_mix  # noqa: E402
-from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
-from library.tools.resolve_lock import assert_current_timeline  # noqa: E402
+from library.tools import otio_mix
+from library.tools.project_layout import Area, ProjectLayout
+from library.tools.resolve_lock import assert_current_timeline
 
 # What the placement timeline is called while the mixed one takes its
 # name.  It exists for the length of one import and is deleted, or
@@ -157,7 +157,9 @@ def _refuse_picture_drift(project, media_pool, original, replacement,
 
 
 def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
-                fps: float, project_folder: str) -> dict:
+                fps: float, project_folder: str,
+                targets_override: list | None = None,
+                strict_preservation: bool = False) -> dict:
     """Put the planned levels on the timeline.  Returns what happened.
 
     On success `timeline` in the report is the NEW timeline object and
@@ -174,7 +176,8 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
         "picture_differences": [],
     }
 
-    targets = otio_mix.mix_targets(manifest, fps=fps)
+    targets = (list(targets_override) if targets_override is not None
+               else otio_mix.mix_targets(manifest, fps=fps))
     swaps = otio_mix.stem_swaps(manifest)
     if not targets and not swaps:
         planned = len((manifest.get("audio_mix", {}) or {})
@@ -207,7 +210,8 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             f"the build cannot read must refuse, never mix past it.")
     if _pins:
         from library.tools.timeline_transcript import (
-            transcript_path as _transcript_path)
+            transcript_path as _transcript_path,
+        )
         _transcript: dict = {}
         try:
             _transcript_file = str(_transcript_path(project_folder))
@@ -253,6 +257,11 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
 
     try:
         picture_before = _picture_structure(timeline)
+        full_before = None
+        if strict_preservation:
+            from library.tools.reel_replace_guard import full_timeline_snapshot
+            full_before = full_timeline_snapshot(
+                timeline, project, project_folder)
     except Exception as exc:  # noqa: BLE001 - Resolve getters fail independently.
         report["reason"] = (
             "could not fingerprint picture before the OTIO export; "
@@ -276,6 +285,25 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             f"the import answers None without naming one: "
             + ", ".join(os.path.basename(p) for p in missing[:4]))
         return report
+
+    if strict_preservation:
+        ambiguous = []
+        for target in targets:
+            matches = [
+                (track, clip, start)
+                for track, clip, start, _frames in otio_mix.audio_clips(otio)
+                if otio_mix.clip_media_path(clip) == target["source_file"]
+                and abs(start - int(target["start_frame"]))
+                <= otio_mix.MATCH_TOLERANCE_FRAMES
+            ]
+            if len(matches) != 1:
+                ambiguous.append({"target": target.get("label", "?"),
+                                  "matches": len(matches)})
+        if ambiguous:
+            report["reason"] = (
+                "candidate audio targets must resolve to exactly one OTIO "
+                f"item: {ambiguous!r}")
+            return report
 
     written = otio_mix.apply_mix(otio, targets)
     report["unmatched"] = written["unmatched"]
@@ -340,6 +368,35 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             "refusing the mix and keeping the original timeline")
         return report
 
+    if strict_preservation:
+        from library.tools.reel_replace_guard import (
+            full_timeline_snapshot,
+            snapshot_diff,
+        )
+        try:
+            full_after = full_timeline_snapshot(
+                imported, project, project_folder)
+        except Exception as exc:  # noqa: BLE001 - unreadable state refuses.
+            _refuse_picture_drift(project, media_pool, timeline, imported, name)
+            report["reason"] = (
+                "could not verify full candidate preservation after OTIO "
+                f"import; discarded it and kept the source timeline: {exc}")
+            return report
+        full_differences = [
+            row for row in snapshot_diff(full_before, full_after)
+            if not (row.get("kind") == "timeline_identity"
+                    and row.get("field") == "unique_id")
+        ]
+        if full_differences:
+            _refuse_picture_drift(project, media_pool, timeline, imported, name)
+            report["preservation_differences"] = full_differences
+            report["reason"] = (
+                "OTIO import changed full candidate state "
+                f"({len(full_differences)} difference(s)); discarded it and "
+                "kept the source timeline")
+            return report
+        report["full_preservation_verified"] = True
+
     report["timeline"] = imported
     report["timeline_name"] = imported.GetName()
     report["applied"] = written["applied"]
@@ -359,6 +416,15 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             otio_mix.verify_stems(reloaded, stemmed["applied"]))
     else:
         report["complaints"] = ["could not re-export the mixed timeline to check it"]
+
+    if strict_preservation and report["complaints"]:
+        _refuse_picture_drift(project, media_pool, timeline, imported, name)
+        report["timeline"] = timeline
+        report["delivered"] = False
+        report["reason"] = (
+            "the imported mix failed OTIO level read-back; discarded it and "
+            "kept the source timeline")
+        return report
 
     media_pool.DeleteTimelines([timeline])
     return report
