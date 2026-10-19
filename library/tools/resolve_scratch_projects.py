@@ -14,9 +14,11 @@ before any switch, exactly like `borrowed`.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import json
 import math
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools import resolve_switch_guard
@@ -367,12 +369,110 @@ def delete(resolve, manager, name: str) -> dict:
     if not _listed(manager, name):
         raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
     with _preserve_origin(resolve, manager) as state:
+        # Resolve's DeleteProject is irreversible. Export and verify a
+        # recovery archive before asking it to remove this exact Ren
+        # namespace project; keep the receipt beside the archive.
+        from library.tools.shared_environment import vep_home
+
+        backup_root = vep_home() / "resolve-scratch-backups"
+        backup_root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_"
+                            for c in name)
+        backup = backup_root / f"{safe_name}_{stamp}.drp"
+        if not manager.ExportProject(name, str(backup)):
+            raise ScratchProjectError(
+                f"Resolve could not export {name!r}; project was not deleted")
+        if not backup.is_file() or backup.stat().st_size <= 0:
+            raise ScratchProjectError(
+                f"Resolve export for {name!r} did not produce a readable "
+                "non-empty .drp; project was not deleted")
+        receipt = backup.with_suffix(".json")
+        receipt.write_text(json.dumps({
+            "project": name,
+            "backup": str(backup),
+            "exported_at": datetime.now(UTC).isoformat(),
+            "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+        }, indent=2) + "\n", encoding="utf-8")
         if not manager.DeleteProject(name):
             raise ScratchProjectError(f"Resolve refused to delete scratch project {name!r}")
         _settle_after_lifecycle_call()
         if _listed(manager, name):
             raise ScratchProjectError(f"deleted project {name!r} remains in the project list")
         return {"project": name, "deleted": True,
+                "backup": str(backup), "receipt": str(receipt),
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
                              "page": state["page"], "verified": True}}
+
+
+def plan_collection(manager) -> Path:
+    """Write an editable manifest of closed, exactly Ren-namespaced projects."""
+    from library.tools.shared_environment import vep_home
+
+    current = manager.GetCurrentProject()
+    current_name = current.GetName() if current else None
+    names = sorted(name for name in (manager.GetProjectListInCurrentFolder() or [])
+                   if str(name).startswith(SCRATCH_PREFIX)
+                   and str(name) != current_name)
+    names_digest = hashlib.sha256(
+        json.dumps(names, separators=(",", ":")).encode("utf-8")).hexdigest()
+    directory = vep_home() / "resolve-scratch-gc"
+    directory.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    manifest = directory / f"plan_{stamp}.json"
+    manifest.write_text(json.dumps({
+        "format": "ren-resolve-scratch-gc/1",
+        "created_at": datetime.now(UTC).isoformat(),
+        "current_project_kept": current_name,
+        "candidate_names_sha256": names_digest,
+        "candidates": [{"project": name, "selected": False}
+                       for name in names],
+    }, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
+def apply_collection(resolve, manager, manifest: str | Path) -> dict:
+    """Apply only reviewed manifest rows, exporting each .drp first."""
+    path = Path(manifest).expanduser().resolve()
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ScratchProjectError(f"cannot read scratch collection manifest: {exc}") from exc
+    if document.get("format") != "ren-resolve-scratch-gc/1":
+        raise ScratchProjectError("unsupported scratch collection manifest")
+    rows = document.get("candidates")
+    if not isinstance(rows, list):
+        raise ScratchProjectError("scratch collection manifest has no candidate list")
+    planned_names = [_name(row.get("project")) for row in rows
+                     if isinstance(row, dict)]
+    digest = hashlib.sha256(json.dumps(
+        planned_names, separators=(",", ":")).encode("utf-8")).hexdigest()
+    if digest != document.get("candidate_names_sha256"):
+        raise ScratchProjectError(
+            "candidate names changed since planning; create a fresh manifest")
+    names = []
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("selected"):
+            continue
+        name = _name(row.get("project"))
+        if name not in set(planned_names):
+            raise ScratchProjectError(
+                f"{name!r} was not in the original candidate list")
+        if name not in names:
+            names.append(name)
+    available = set(manager.GetProjectListInCurrentFolder() or [])
+    current = manager.GetCurrentProject()
+    current_name = current.GetName() if current else None
+    for name in names:
+        if name == current_name or name not in available:
+            raise ScratchProjectError(
+                f"{name!r} is open or no longer present; nothing was collected")
+    removed = []
+    for name in names:
+        removed.append(delete(resolve, manager, name))
+        document["collected"] = removed
+        document["updated_at"] = datetime.now(UTC).isoformat()
+        path.write_text(json.dumps(document, indent=2) + "\n",
+                        encoding="utf-8")
+    return {"manifest": str(path), "removed": removed}

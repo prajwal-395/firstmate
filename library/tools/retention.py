@@ -841,10 +841,11 @@ def database_paths(project_folder: str) -> list:
 def after_signoff(project_folder: str, db_paths=None) -> str:
     """What a sign-off does about retention. Returns the lines to print.
 
-    `keep` does nothing. `lean` PLANS - writes the manifest, removes
-    nothing - and says how to apply it, so the removal is always a
-    second, named act on a list someone could read. A plan that cannot
-    be made is reported, never raised: the sign-off already landed.
+    `keep` does nothing. `lean` writes a plan manifest, then applies
+    that exact manifest through the normal fresh-plan re-proof. The
+    durable manifest remains as the account of what was removed. A
+    purge failure is reported, never raised: the sign-off already
+    landed.
     """
     try:
         mode = retention_mode()
@@ -858,8 +859,21 @@ def after_signoff(project_folder: str, db_paths=None) -> str:
     except Exception as unavailable:  # noqa: BLE001 - Resolve unreachable
         return (f"Purge not planned: {unavailable}. Plan it with "
                 f"`ren purge {project_folder}` once Resolve is open.")
-    manifest = write_plan(plan)
+    try:
+        manifest = write_plan(plan)
+    except OSError as unavailable:
+        return f"Purge not planned: could not write plan manifest ({unavailable})."
+    try:
+        record = apply_purge(manifest, db_paths,
+                             project_folder=project_folder)
+    except (PurgeRefused, RetentionSettingInvalid, OSError) as refused:
+        return (f"Lean retention plan listed in {manifest}; purge refused: "
+                f"{refused}. Nothing was removed.")
+    except Exception as unavailable:  # noqa: BLE001 - sign-off already landed
+        return (f"Lean retention plan listed in {manifest}; purge not "
+                f"completed: {unavailable}. Nothing was removed.")
     gib = plan.reclaimable_bytes / (1024 ** 3)
-    return (f"Lean retention: {len(plan.candidates)} path(s), {gib:.2f} GiB, "
-            f"listed in {manifest}. Nothing removed yet - apply with "
-            f"`ren purge {project_folder} --apply {manifest}`.")
+    return (f"Lean retention: removed {record['removed_count']} path(s), "
+            f"{record['bytes'] / (1024 ** 3):.2f} GiB (planned "
+            f"{len(plan.candidates)} path(s), {gib:.2f} GiB). Manifest: "
+            f"{manifest}.")

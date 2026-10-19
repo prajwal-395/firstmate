@@ -1078,8 +1078,7 @@ def cmd_sign_off(args):
           + f", by {entry['by']}.")
     print(f"  A promotion that would replace it now REFUSES unless it "
            f"declares `build-reels --supersede {entry['reel']!r}`.")
-    from library.tools import retention
-    print(f"  {retention.after_signoff(project_folder)}")
+    print(f"  {entry['retention_summary']}")
 
 
 def cmd_purge(args):
@@ -1119,6 +1118,29 @@ def cmd_purge(args):
           f"{plan.reclaimable_bytes / (1024 ** 3):.2f} GiB would go - "
           f"listed in {manifest}. Nothing was removed; apply with "
           f"`ren purge {args.slug} --apply {manifest}`.")
+
+
+def cmd_workspace_gc(args):
+    """Collect bounded, unreachable data from Ren's machine data home."""
+    from library.tools import workspace_gc
+
+    try:
+        if args.apply:
+            result = workspace_gc.apply_plan(args.apply)
+            print(f"Removed {len(result['removed'])} file(s), "
+                  f"{result['bytes'] / (1024 ** 3):.2f} GiB. Manifest "
+                  f"updated at {args.apply}.")
+            return
+        document = workspace_gc.plan()
+        manifest = workspace_gc.write_plan(document)
+    except workspace_gc.WorkspaceGcRefused as refused:
+        print(f"workspace-gc: refused - {refused}", file=sys.stderr)
+        sys.exit(REFUSAL_EXIT_CODE)
+    candidates = document["candidates"]
+    total = sum(row["bytes"] for row in candidates)
+    print(f"{len(candidates)} file(s), {total / (1024 ** 3):.2f} GiB "
+          f"would go. Nothing was removed; review {manifest} and apply "
+          f"with `ren workspace-gc --apply {manifest}`.")
 
 
 def cmd_discharge_uncarried(args):
@@ -5261,6 +5283,12 @@ def main():
                          help="Resolve Project.db path (repeatable); read "
                               "through a copy. Default: the running Resolve's")
     p_purge.set_defaults(func=cmd_purge)
+
+    p_workspace_gc = _add_command(sub, "workspace-gc")
+    p_workspace_gc.add_argument(
+        "--apply", default="", metavar="MANIFEST",
+        help="apply a reviewed Ren data-home collection manifest")
+    p_workspace_gc.set_defaults(func=cmd_workspace_gc)
 
     p_discharge = _add_command(sub, "discharge-uncarried")
     p_discharge.add_argument("slug", metavar="PROJECT",

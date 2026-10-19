@@ -250,6 +250,12 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     learned_context.record_reel_signoff(
         project_folder, reel, note=str(note or ""), by=str(by or "captain"),
         round_number=round_number)
+    # Retention belongs to the sign-off act, not just its CLI wrapper:
+    # programmatic sign-offs (for example choosing a reel variant) must
+    # obey the same per-user D6 policy. The sign-off remains durable if
+    # Resolve is unavailable or a purge cannot be proved.
+    from library.tools import retention
+    entry["retention_summary"] = retention.after_signoff(project_folder)
     return entry
 
 

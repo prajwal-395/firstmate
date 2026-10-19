@@ -6178,7 +6178,7 @@ def cmd_project_checkpoint(args) -> int:
 
 def cmd_project_scratch(args) -> int:
     """Operate on Ren-owned scratch projects under the exclusive lease."""
-    if not args.apply:
+    if not getattr(args, "apply", False) and args.scratch_command != "collect":
         return fail(
             "scratch project lifecycle changes the Resolve session; pass --apply",
             f"{TOOL} project scratch --help")
@@ -6202,6 +6202,16 @@ def cmd_project_scratch(args) -> int:
                 result = scratch.open_project(resolve, manager, args.name)
             elif args.scratch_command == "restore":
                 result = scratch.restore_recorded(resolve, manager)
+            elif args.scratch_command == "collect":
+                if args.apply:
+                    if not args.manifest:
+                        raise AxiError("scratch collection apply needs --manifest")
+                    result = scratch.apply_collection(
+                        resolve, manager, args.manifest)
+                else:
+                    manifest = scratch.plan_collection(manager)
+                    result = {"planned": True, "manifest": str(manifest),
+                              "note": "review and select exact project rows before --apply"}
             elif args.scratch_command == "delete":
                 result = scratch.delete(resolve, manager, args.name)
             else:
@@ -8783,6 +8793,10 @@ def build_parser() -> Parser:
         sq.set_defaults(func=cmd_project_scratch)
     sq = ss.add_parser("restore", help="restore the project, timeline and page recorded by scratch open")
     sq.add_argument("--apply", action="store_true", help="restore the recorded origin")
+    sq.set_defaults(func=cmd_project_scratch)
+    sq = ss.add_parser("collect", help="plan or apply manifest-selected Ren scratch project retirement")
+    sq.add_argument("--manifest", default="", help="reviewed manifest to apply")
+    sq.add_argument("--apply", action="store_true", help="export .drp backups and remove selected exact Ren Scratch projects")
     sq.set_defaults(func=cmd_project_scratch)
 
     p = subs.add_parser(
