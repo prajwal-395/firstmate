@@ -403,6 +403,8 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
             f"{len(gaps)} operation target(s) sit outside the declared "
             f"scope - refusing before Resolve is written: {gaps}")
     inverses = inverse_operations(operations, made["snapshot"])
+    from library.tools.execution_router import route_compiled_edit
+    routing = route_compiled_edit({"operations": operations}).as_dict()
     receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline, capability=capability,
         operations=operations, conflict_domains=conflict_domains,
@@ -416,7 +418,8 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     outside = changes_outside_scope(made["snapshot"], after, scope)
     if not outside:
         return {"backup": {k: made[k] for k in ("generation", "hash")},
-                "patch": receipt, "outside_scope": []}
+                "patch": receipt, "outside_scope": [],
+                "routing": routing}
     restore_receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline, capability=capability,
         operations=inverses, conflict_domains=conflict_domains,

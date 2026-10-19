@@ -2795,6 +2795,9 @@ EXEMPT_IMPORTS = {
     # to admit work, but those declarations change no measured footage
     # result and must not invalidate a preflight analysis cache.
     "library/tools/capabilities.py",
+    # Edit routing selects an executor but does not measure footage; it
+    # must not invalidate a cached catalog result.
+    "library/tools/execution_router.py",
     # The operation registry and its DAG-node translator: capability
     # addressing and execution routing.  The preflight measurement
     # chain (vision_pipeline_v3, picture_quality, camera_stability)

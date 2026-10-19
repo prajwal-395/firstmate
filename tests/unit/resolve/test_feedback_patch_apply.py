@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirna
 
 from library.tools import feedback_patch_apply as apply_mod  # noqa: E402
 from library.tools import timeline_shadow as shadow  # noqa: E402
+from library.tools import transaction_receipt  # noqa: E402
 
 
 def _clip(unique_id: str, **kw) -> dict:
@@ -161,8 +162,9 @@ class _FakeResolve:
         self.applied.append([dict(op) for op in operations])
         for op in operations:
             self._one(op)
-        return {"status": "committed",
-                "operations": len(operations)}
+        return transaction_receipt.standardize({
+            "status": "committed", "operations": operations,
+            "generation": 8, "patch_id": "live-test-patch"})
 
     def _one(self, op):
         op_id = op["op"]
@@ -217,6 +219,12 @@ def test_guarded_apply_commits_in_scope_change(live):
         idempotency_key="test-1")
     assert receipt["outside_scope"] == []
     assert receipt["patch"]["status"] == "committed"
+    assert receipt["patch"]["planned"]["status"] == "planned"
+    assert receipt["patch"]["applied"]["status"] == "applied"
+    assert receipt["patch"]["verified"]["status"] == "verified"
+    assert receipt["patch"]["committed"]["status"] == "committed"
+    assert receipt["patch"]["delivered"]["status"] == "not_requested"
+    assert receipt["routing"]["backend"] == "edit_patch"
     assert receipt["backup"] == {"generation": 7, "hash": "hash"}
 
 

@@ -23,7 +23,24 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 
 class IncrementalRefused(Exception):
-    """The diff is not applicable - fall back to the full rebuild."""
+    """The incremental backend cannot apply this plan safely."""
+
+    category = "unsupported"
+
+
+class IncrementalStale(IncrementalRefused):
+    """The recorded base no longer matches the live timeline."""
+    category = "stale"
+
+
+class IncrementalConflict(IncrementalRefused):
+    """A live edit conflicts with the planned incremental diff."""
+    category = "conflict"
+
+
+class IncrementalBroken(IncrementalRefused):
+    """Live state could not be read or the staging operation malfunctioned."""
+    category = "broken"
 
 
 class _RowInventory:
@@ -92,14 +109,14 @@ def live_row_inventory(timeline, indices: Sequence[int],
         try:
             items = timeline.GetItemListInTrack(media_type, int(index)) or []
         except Exception as exc:
-            raise IncrementalRefused(
+            raise IncrementalBroken(
                 f"{media_type}{index} would not list ({exc}) - refusing "
                 f"to diff against an unreadable row") from exc
         rows = []
         for item in items:
             span = _live_span(item)
             if span is None:
-                raise IncrementalRefused(
+                raise IncrementalBroken(
                     f"{media_type}{index} holds an item whose span cannot "
                     f"be read - refusing to diff against it")
             rows.append((span[0], span[1], _live_source(item)))
@@ -148,12 +165,12 @@ def check_rows_identical(expected: Mapping[tuple, list],
                          live: Mapping[tuple, list], what: str) -> None:
     """Refuse unless the plan's inventory is exactly what is there."""
     if set(expected) != set(live):
-        raise IncrementalRefused(
+        raise IncrementalConflict(
             f"{what} rows differ (plan {sorted(expected)} vs timeline "
             f"{sorted(live)}) - refusing")
     for row in expected:
         if list(expected[row]) != list(live[row]):
-            raise IncrementalRefused(
+            raise IncrementalConflict(
                 f"{what} on row {row} differs from the plan - refusing; "
                 f"a full rebuild places it")
 
@@ -229,7 +246,7 @@ def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
             live_by_row[int(index)] = list(
                 timeline.GetItemListInTrack("video", int(index)) or [])
     except Exception as exc:
-        raise IncrementalRefused(
+        raise IncrementalBroken(
             f"{kind} rows would not list ({exc}) - refusing") from exc
     live_by_span: Dict[tuple, list] = {}
     for index, items in live_by_row.items():
@@ -238,7 +255,7 @@ def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
                 continue
             span = _live_span(item)
             if span is None:
-                raise IncrementalRefused(
+                raise IncrementalBroken(
                     f"{kind} holds an item whose span cannot be read - "
                     f"refusing")
             live_by_span.setdefault((int(index), span[0], span[1]),
@@ -247,14 +264,14 @@ def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
     claimed: set = set()
     for segment in segments or ():
         if not isinstance(segment, Mapping):
-            raise IncrementalRefused(
+            raise IncrementalBroken(
                 f"{kind} carries an unreadable segment - refusing")
         row = overlay_segment_row(segment, rows)
         span = helper_span_frames(segment, fps)
         key = (row, span[0], span[1])
         path = segment.get("overlay_path") or ""
         if not path or not os.path.isfile(path):
-            raise IncrementalRefused(
+            raise IncrementalBroken(
                 f"{kind} segment {segment.get('segment_id')!r} names "
                 f"{path!r}, which is not a file - refusing; the full "
                 f"build raises naming it")
@@ -263,7 +280,7 @@ def diff_overlay_kind(timeline, kind: str, rows: Sequence[int],
             diff.added.append(dict(segment))
             continue
         if len(found) > 1:
-            raise IncrementalRefused(
+            raise IncrementalConflict(
                 f"{kind} has {len(found)} items at {key} - refusing an "
                 f"ambiguous match")
         live = found[0]
@@ -351,7 +368,7 @@ def decide_incremental(*, timeline, track_plan, prepared,
             try:
                 count = timeline.GetTrackCount(media_type) or 0
             except Exception as exc:
-                raise IncrementalRefused(
+                raise IncrementalBroken(
                     f"{media_type} rows would not count ({exc}) - "
                     f"refusing") from exc
             for index in range(1, count + 1):
@@ -359,13 +376,13 @@ def decide_incremental(*, timeline, track_plan, prepared,
                     live_rows[(media_type, index)] = (
                         timeline.GetTrackName(media_type, index) or "")
                 except Exception as exc:
-                    raise IncrementalRefused(
+                    raise IncrementalBroken(
                         f"{media_type}{index} would not name itself "
                         f"({exc}) - refusing") from exc
     except IncrementalRefused:
         raise
     if planned_rows != live_rows:
-        raise IncrementalRefused(
+        raise IncrementalConflict(
             f"timeline rows differ from the plan - refusing; rows are "
             f"the plan's own packing")
 
@@ -472,7 +489,7 @@ def _check_native_hold(timeline, freeze, video_row_by_angle):
     if row is None or len(_freeze_tail_matches(
             timeline, row, freeze.reel_start_frame, freeze.end_frame,
             freeze.held_from, freeze.held_source_frame, require_hold=True)) != 1:
-        raise IncrementalRefused("native ending hold differs from the plan")
+        raise IncrementalConflict("native ending hold differs from the plan")
     return {"called": False, "reused": True, "landed": True,
             "append_verified": True, "verified": True,
             "expected": {"source_file": freeze.held_from,
@@ -676,7 +693,7 @@ def _reconstruct_sweep_records(*, timeline, project, track_plan,
             try:
                 items = (timeline.GetItemListInTrack("video", row) or [])
             except Exception as exc:
-                raise IncrementalRefused(
+                raise IncrementalBroken(
                     f"{kind} row {row} would not list ({exc}) - "
                     f"refusing") from exc
             for item in items:
@@ -687,7 +704,7 @@ def _reconstruct_sweep_records(*, timeline, project, track_plan,
                     found = item
                     break
             if found is None:
-                raise IncrementalRefused(
+                raise IncrementalBroken(
                     f"{kind} segment {segment.get('segment_id')!r} at "
                     f"{span} has no item on V{row} after the patch - "
                     f"refusing")
@@ -728,8 +745,9 @@ def build_staged_incremental(
         placement_mode: str, transcript: dict) -> dict:
     """Duplicate the final, patch only what changed, return a build record.
 
-    The caller falls back to the full `build_reel_timeline` on any
-    `IncrementalRefused`. The returned dict carries the same keys the
+    Unsupported plans may be routed to the full `build_reel_timeline`
+    with the refusal reason recorded. Stale, conflicting or broken live
+    state is raised to the caller and never rebuilt over. The returned dict carries the same keys the
     rebuild loop reads off a full build's record, so verify and promote
     run unchanged. Must run under the same exclusive Resolve hold the
     full build takes (the duplicate, the deletes and the re-applied
@@ -755,7 +773,7 @@ def build_staged_incremental(
     try:
         count = project.GetTimelineCount() or 0
     except Exception as exc:
-        raise IncrementalRefused(
+        raise IncrementalBroken(
             f"the project would not count its timelines ({exc}) - "
             f"falling back to the full rebuild") from exc
     final_timeline = None
@@ -778,22 +796,22 @@ def build_staged_incremental(
     try:
         live_carried = _need.carried_digest_live(project, final_timeline)
     except Exception as exc:
-        raise IncrementalRefused(
+        raise IncrementalBroken(
             f"the final timeline could not be read ({exc}) - refusing"
         ) from exc
     if not recorded_carried or live_carried != recorded_carried:
-        raise IncrementalRefused(
+        raise IncrementalStale(
             "the final drifted since its build (or its record is gone) "
             "- only the full rebuild restores it")
 
     try:
         staging = final_timeline.DuplicateTimeline(staging_name)
     except Exception as exc:
-        raise IncrementalRefused(
+        raise IncrementalBroken(
             f"the final could not be duplicated ({exc}) - falling back "
             f"to the full rebuild") from exc
     if staging is None or staging.GetName() != staging_name:
-        raise IncrementalRefused(
+        raise IncrementalBroken(
             "the staging copy did not land under its staging name - "
             "falling back to the full rebuild")
     _assert_placing(project, staging)
@@ -815,6 +833,11 @@ def build_staged_incremental(
             semantic_segments=semantic_segments,
             lower_third_segments=lower_third_segments,
             ledger_rows=prepared.ledger_rows)
+
+        from library.tools.execution_router import route_compiled_edit
+        execution_routing = route_compiled_edit(
+            [{"op": "incremental.overlay_diff"}],
+            context={"incremental_eligibility": True})
 
         patch_out = apply_overlay_diffs(
             project=project, pool=project.GetMediaPool(), timeline=staging,
@@ -1077,8 +1100,10 @@ def build_staged_incremental(
             explainer_segments=explainer_segments, semantic_segments=semantic_segments,
             lower_third_segments=lower_third_segments, ledger_rows=prepared.ledger_rows)
         if final_plan.touches_overlays:
-            raise IncrementalRefused("incremental placement inventory still differs from the plan")
+            raise IncrementalBroken(
+                "incremental placement inventory still differs from the plan")
         build_record["placement_check"] = {"passed": True, "repair_attempted": False}
+        build_record["execution_routing"] = execution_routing.as_dict()
 
         from library.tools.reel_graphics import assert_timeline_media_online
         from library.tools.reel_otio_placement import RecordingTimeline
@@ -1129,7 +1154,7 @@ def _check_frame_zoom(staging, track_plan, frame_segments, look,
         try:
             items = (staging.GetItemListInTrack("video", row) or [])
         except Exception as exc:
-            raise IncrementalRefused(
+            raise IncrementalBroken(
                 f"frame row {row} would not list ({exc}) - refusing"
             ) from exc
         found = None
@@ -1141,7 +1166,7 @@ def _check_frame_zoom(staging, track_plan, frame_segments, look,
                 found = item
                 break
         if found is None:
-            raise IncrementalRefused(
+            raise IncrementalBroken(
                 "a frame segment has no item after the patch - refusing")
         held = _held_transform(found, staging) or {}
         for key, value in want.items():
@@ -1150,7 +1175,7 @@ def _check_frame_zoom(staging, track_plan, frame_segments, look,
             except (TypeError, ValueError):
                 same = held.get(key) == value
             if not same:
-                raise IncrementalRefused(
+                raise IncrementalConflict(
                     f"the TV frame's {key} reads {held.get(key)!r}, not "
                     f"the planned {value!r} - refusing; only the full "
                     f"build re-places the frame")

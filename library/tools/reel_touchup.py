@@ -2604,6 +2604,9 @@ def _apply_in_place(project: Any, staged: Any,
                 "properties": dict(entry.get("properties") or {})})
     if patch_operations:
         from library.tools import edit_patch
+        from library.tools.execution_router import route_compiled_edit
+        applied["routing"] = route_compiled_edit(
+            {"operations": patch_operations}).as_dict()
         applied["patch_receipt"] = edit_patch.apply_live_patch(
             project=project, timeline=staged, capability="reel.touchup",
             operations=patch_operations,
