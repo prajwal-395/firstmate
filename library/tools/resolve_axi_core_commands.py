@@ -4261,7 +4261,9 @@ def cmd_edit_place(args) -> int:
         if args.source_in is not None:
             payload["startFrame"] = args.source_in
         if args.source_out is not None:
-            payload["endFrame"] = args.source_out
+            # AppendToTimeline uses an exclusive end frame. The CLI's
+            # source_out is inclusive, like GetSourceEndFrame.
+            payload["endFrame"] = args.source_out + 1
         if args.media == "video":
             payload["mediaType"] = 1
         elif args.media == "audio":

@@ -115,8 +115,16 @@ def run_batch(actions: dict[str, Callable[[], dict]]) -> dict:
     point. A missing adapter is itself reported as an unqualified scenario;
     the harness never invents a substitute operation or retries it.
     """
+    selected = os.environ.get("REN_QUAL_ONLY")
+    scenarios = SCENARIOS
+    if selected:
+        ids = set(selected.split(","))
+        unknown = ids - {scenario.id for scenario in SCENARIOS}
+        if unknown:
+            raise ValueError(f"unknown qualification scenario IDs: {sorted(unknown)}")
+        scenarios = tuple(s for s in SCENARIOS if s.id in ids)
     results = []
-    for scenario in SCENARIOS:
+    for scenario in scenarios:
         action = actions.get(scenario.id)
         if action is None:
             results.append({
@@ -246,6 +254,7 @@ def _logo_base_commands() -> list[list[str]]:
 
 def _live_batch_script() -> str:
     """Run production AXI calls and capture direct before/after Resolve state."""
+    only = os.environ.get("REN_QUAL_ONLY")
     cases = {
         "add_video": [_place_video(),
                       ["items", "--project", PROJECT, "--timeline", TIMELINE,
@@ -344,12 +353,17 @@ def _live_batch_script() -> str:
              "--refresh-live"],
         ],
     }
+    if only:
+        selected = set(only.split(","))
+        cases = {key: value for key, value in cases.items()
+                 if key in selected}
     return f'''\
 import contextlib, io, json, re, time
 from library.tools import resolve_axi
 
 PROJECT = {PROJECT!r}
 TIMELINE = {TIMELINE!r}
+only = {only!r}
 CASES = {cases!r}
 
 def call(argv):
@@ -533,21 +547,45 @@ def cleanup(expected_items):
                      "--refresh-live"])
         observations.append(read)
         rows = re.findall(r"^\\s+(video\\d+),", read["stdout"], re.MULTILINE)
-        if len(rows) > expected_items:
-            collateral.append(
-                f"cleanup found {{len(rows)}} items after {{expected_items}} "
-                "successful fixture placements")
         if read["exit_code"] or not rows:
             return {{"clean": read["exit_code"] == 0 and not rows,
                     "observations": observations,
                     "collateral_changes": collateral}}
-        row = rows[-1]
-        index = sum(found == row for found in rows) - 1
-        deleted = call(["edit", "delete", "--track", row, "--index",
-                        str(index), "--apply", "--project", PROJECT,
-                        "--timeline", TIMELINE])
-        observations.append(deleted)
-        if deleted["exit_code"]:
+        # Fixture cleanup runs inside this AXI --unsafe broker lease. The
+        # public clip.delete capability is intentionally not qualified yet.
+        current = manager.GetCurrentProject()
+        current_timeline = current.GetCurrentTimeline()
+        placed = []
+        allowed_names = {{"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
+                         "fm-qual-logo-180x64.png",
+                         "fm-qual-logo-alt-180x64.png",
+                         "fm-qual-tight-caption-480x120.png",
+                         "fm-qual-full-frame-caption-1920x1080.png"}}
+        for track_index in range(1, int(current_timeline.GetTrackCount(
+                "video") or 0) + 1):
+            for item in current_timeline.GetItemListInTrack(
+                    "video", track_index) or ():
+                pool_item = item.GetMediaPoolItem()
+                name = str(item.GetName())
+                path = str(pool_item.GetClipProperty("File Path") or "")
+                if name not in allowed_names:
+                    collateral.append("refused fixture cleanup of " + name)
+                    return {{"clean": False, "observations": observations,
+                            "collateral_changes": collateral}}
+                expected_path = ("/Users/prajwal/.local/share/vep/qualification/"
+                                 "622307e41719/" + name
+                                 if name.startswith("qual_") else "/tmp/" + name)
+                if path != expected_path:
+                    collateral.append("refused fixture cleanup path mismatch for "
+                                      + name)
+                    return {{"clean": False, "observations": observations,
+                            "collateral_changes": collateral}}
+                placed.append(item)
+        deleted_ok = bool(current_timeline.DeleteClips(placed, False))
+        observations.append({{"argv": ["fixture_cleanup", "DeleteClips"],
+                             "exit_code": 0 if deleted_ok else 1,
+                             "stdout": str(len(placed)), "stderr": ""}})
+        if not deleted_ok:
             return {{"clean": False, "observations": observations,
                     "collateral_changes": collateral}}
     return {{"clean": False, "observations": observations,
@@ -699,6 +737,8 @@ for name, commands in CASES.items():
 # recorded as the expected outcome, with a live timeline snapshot on either
 # side proving the approved picture was not changed.
 for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict"):
+    if only and name not in only.split(","):
+        continue
     started = time.perf_counter()
     before = live_state()
     operation = {{"status": "not_run", "error": ""}}

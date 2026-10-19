@@ -91,9 +91,11 @@ PROTECTED_TIMELINES = frozenset([
     "Reel 09 - your-website-is-only-20-percent (reaction-cutaway)",
     "Reel 09 - your-website-is-only-20-percent",
     "GEO Podcast - Synced",
+    "fm-scratch qualify",
+    "Q Promotion Proof R5",
 ])
-"""Timelines this path must never touch.  Named by the captain's brief
-of 2026-09-10; asking for any of them - or the master - refuses."""
+"""Timelines this path must never touch. Named by the captain's briefs;
+asking for any of them - or the master - refuses."""
 
 CAPTAINS_PROOF_TIMELINE = "SOP Proof_min-canvas-rail"
 """The proof timeline the captain authorised removing, verbatim from
@@ -194,8 +196,6 @@ CAPTAIN_TASK_TIMELINES = {
         "eb64cb97-015e-4d88-87f8-d103841f0978",
     ("Podcast (field test)", "Depth Blur Comparison - IMG_1808 - 001"):
         "540a9c27-4755-4cfc-9b3d-8b6613a175ab",
-    ("Ren Qualification", "fm-scratch qualify"): None,
-    ("Ren Qualification", "Q Promotion Proof R5"): None,
     ("Ren Qualification", "Q Promotion Proof R5 (rebuild staging)"): None,
     ("Ren Qualification", "Q Promotion Proof Ambiguous R5"): None,
     ("Ren Qualification",
