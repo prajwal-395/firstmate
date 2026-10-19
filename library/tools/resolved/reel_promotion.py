@@ -334,6 +334,8 @@ def _promote_and_record(job: dict, params: dict, resolve, project) -> dict:
         project_folder, review_dir, final, baseline, version_record)
     return {
         "project": QUALIFICATION_PROJECT,
+        "promotion_transaction_id": promotion.get(
+            "promotion_transaction_id"),
         "master_timeline_name": master,
         "final_timeline_name": final,
         "staging_timeline_name": staging,

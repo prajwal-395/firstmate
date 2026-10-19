@@ -11661,6 +11661,510 @@ def backup_name(final_name: str) -> str:
     return f"{final_name}{BACKUP_SUFFIX}"
 
 
+def _promotion_journal_path(project_folder: str, transaction_id: str) -> str:
+    if (len(transaction_id) != 32
+            or any(character not in "0123456789abcdef"
+                   for character in transaction_id)):
+        raise ReelBuildError(
+            "Promotion transaction identity is malformed; refusing to "
+            "construct a journal path.")
+    return os.path.join(project_folder, "pipeline_output", "review",
+                        "promotion_transactions", f"{transaction_id}.json")
+
+
+def _write_promotion_journal(project_folder: str, record: dict) -> str:
+    """Atomically persist the promotion boundary before its first rename."""
+    import json
+    import tempfile
+
+    path = _promotion_journal_path(project_folder, str(record["transaction_id"]))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        dir=os.path.dirname(path), prefix=".promotion_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(record, handle, indent=2, sort_keys=True,
+                      ensure_ascii=False, default=str)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def _promotion_timeline_inventory(project) -> dict:
+    """Resolve timeline handles by stable id, refusing duplicate ids."""
+    found = {}
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is None:
+            continue
+        timeline_id = str(timeline.GetUniqueId() or "")
+        if timeline_id:
+            if timeline_id in found:
+                raise ReelBuildError(
+                    f"Resolve returned duplicate timeline id {timeline_id!r}; "
+                    "promotion recovery refuses to guess.")
+            found[timeline_id] = timeline
+    return found
+
+
+def recover_interrupted_promotions(project, project_folder: str) -> list:
+    """Resume only journaled swaps whose two timeline identities still match.
+
+    Unjournaled staging and user timelines are never inspected for deletion.
+    A changed candidate or base leaves both generations in place for review.
+    """
+    import json
+    from pathlib import Path
+
+    directory = Path(project_folder) / "pipeline_output" / "review" / \
+        "promotion_transactions"
+    if not directory.is_dir():
+        return []
+    inventory = _promotion_timeline_inventory(project)
+    recovered = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            with path.open(encoding="utf-8") as handle:
+                record = json.load(handle)
+        except (OSError, ValueError) as exc:
+            raise ReelBuildError(
+                f"REFUSING promotion recovery: journal {path} is unreadable "
+                f"({exc}); no timeline was changed or removed.") from exc
+        if (not isinstance(record, dict)
+                or record.get("version") != 1
+                or not isinstance(record.get("rows"), list)
+                or record.get("transaction_id") != path.stem):
+            raise ReelBuildError(
+                f"REFUSING promotion recovery: journal {path} has an "
+                "unsupported shape; no timeline was changed or removed.")
+        if record.get("project") != project.GetName():
+            raise ReelBuildError(
+                f"REFUSING promotion recovery: journal {path} belongs to "
+                f"project {record.get('project')!r}, but "
+                f"{project.GetName()!r} is open. No timeline was changed.")
+        if record.get("state") in {"recorded", "complete"}:
+            from library.tools.versions import reel_versions as _versions
+            if not all(any(
+                    item.get("promotion_transaction_id")
+                    == record.get("transaction_id")
+                    for item in _versions.versions_of(
+                        project_folder, row.get("final", "")))
+                       for row in record["rows"]):
+                raise ReelBuildError(
+                    f"Promotion journal {path} claims completion without a "
+                    "matching committed reel version; the journal is kept.")
+            from library.tools import staging_holds as _candidate_store
+            candidate_records = _candidate_store.candidate_records(
+                project_folder)
+            for row in record["rows"]:
+                candidate_key = str(row.get("candidate_key") or "")
+                candidate_record = candidate_records.get(candidate_key) \
+                    if candidate_key else None
+                if candidate_key and (
+                        not isinstance(candidate_record, dict)
+                        or str(candidate_record.get("resolve_timeline_id")
+                                or "") != str(row.get("candidate_id") or "")
+                        or candidate_record.get("owning_transaction")
+                        != row.get("candidate_transaction_id")):
+                    raise ReelBuildError(
+                        f"Promotion journal {path} candidate identity "
+                        "does not match the durable candidate record; the "
+                        "journal is kept.")
+                if (candidate_record
+                        and candidate_record.get("status")
+                        in {"promoted", "promotion_failed"}):
+                    _candidate_store.record_candidate(
+                        project_folder, {"candidate_id": candidate_key},
+                        transition="retired")
+            try:
+                path.unlink()
+            except OSError as exc:
+                raise ReelBuildError(
+                    f"Promotion {record.get('transaction_id')!r} is recorded "
+                    f"but its journal could not be retired ({exc}).") from exc
+            continue
+        rows = record["rows"]
+        preserve = set(record.get("preserve_originals") or ())
+        from library.tools import staging_holds as _candidate_store
+        candidate_records = _candidate_store.candidate_records(project_folder)
+        matches = []
+        for row in rows:
+            candidate = inventory.get(str(row.get("candidate_id") or ""))
+            candidate_key = str(row.get("candidate_key") or "")
+            if candidate_key:
+                candidate_record = candidate_records.get(candidate_key)
+                if (not isinstance(candidate_record, dict)
+                        or str(candidate_record.get("resolve_timeline_id")
+                                or "") != str(row["candidate_id"])
+                        or candidate_record.get("owning_transaction")
+                        != row.get("candidate_transaction_id")):
+                    raise ReelBuildError(
+                        f"REFUSING promotion recovery for "
+                        f"{row.get('final')!r}: the durable candidate "
+                        "identity record does not match the journal; both "
+                        "generations are kept.")
+            original_id = str(row.get("original_id") or "")
+            original = inventory.get(original_id) if original_id else None
+            from library.tools.versions import reel_versions as _versions
+            has_commit = any(
+                item.get("promotion_transaction_id")
+                == record.get("transaction_id")
+                for item in _versions.versions_of(project_folder,
+                                                  row.get("final", "")))
+            if candidate is None:
+                raise ReelBuildError(
+                    f"REFUSING promotion recovery for {row.get('final')!r}: "
+                    "the journaled candidate identity is absent; no timeline "
+                    "was changed or removed.")
+            if (original_id and original is None
+                    and (not has_commit or row.get("final") in preserve)):
+                raise ReelBuildError(
+                    f"REFUSING promotion recovery for {row.get('final')!r}: "
+                    "the journaled approved generation is absent; no timeline "
+                    "was changed or removed.")
+            if original is not None:
+                allowed_original_names = {row["final"], row["backup"]}
+                archived_name = original.GetName().startswith(
+                    f"{row['final']} (archived round ")
+                if (original.GetName() not in allowed_original_names
+                        and not (has_commit and archived_name)):
+                    raise ReelBuildError(
+                        f"REFUSING promotion recovery: approved timeline id "
+                        f"{original_id!r} now has unexpected name "
+                        f"{original.GetName()!r}; both generations are kept.")
+                if original.GetName() == row["final"] and not has_commit:
+                    history = _versions.versions_of(
+                        project_folder, row["final"])
+                    current_revision = ({
+                        "version": history[-1].get("version"),
+                        "rows_digest": history[-1].get("rows_digest"),
+                    } if history else None)
+                    if current_revision != row.get("base_revision"):
+                        raise ReelBuildError(
+                            f"REFUSING promotion recovery for "
+                            f"{row['final']!r}: its recorded base revision "
+                            "changed since preparation; both generations "
+                            "are kept.")
+            if candidate.GetName() not in {row["staging"], row["final"]}:
+                raise ReelBuildError(
+                    f"REFUSING promotion recovery: candidate id "
+                    f"{row['candidate_id']!r} now has unexpected name "
+                    f"{candidate.GetName()!r}; both generations are kept.")
+            matches.append((row, original, candidate))
+        # Reconcile only identity-proven renames. If the original is still
+        # approved, verify the base snapshot before moving it aside.
+        from library.tools import reel_replace_guard as _guard
+        import json as _json
+
+        def same_snapshot(left, right):
+            def without_name(snapshot):
+                snapshot = dict(snapshot or {})
+                timeline = dict(snapshot.get("timeline") or {})
+                timeline.pop("name", None)
+                snapshot["timeline"] = timeline
+                items = []
+                for item in snapshot.get("items", ()):
+                    item = dict(item)
+                    item.pop("graphic_identity", None)
+                    items.append(item)
+                if "items" in snapshot:
+                    snapshot["items"] = items
+                return snapshot
+            return _json.dumps(without_name(left), sort_keys=True,
+                               default=str) == _json.dumps(
+                                   without_name(right), sort_keys=True,
+                                   default=str)
+
+        for row, original, candidate in matches:
+            if original is not None:
+                snapshot = _guard.full_timeline_snapshot(
+                    original, project, project_folder)
+                if not same_snapshot(snapshot, row.get("original_snapshot")):
+                    raise ReelBuildError(
+                        f"REFUSING promotion recovery for {row['final']!r}: "
+                        "the approved base changed since preparation; both "
+                        "generations are kept.")
+            snapshot = _guard.full_timeline_snapshot(
+                candidate, project, project_folder)
+            if not same_snapshot(snapshot, row.get("candidate_snapshot")):
+                raise ReelBuildError(
+                    f"REFUSING promotion recovery for {row['final']!r}: "
+                    "the verified candidate has unresolved edits; both "
+                    "generations are kept.")
+        for row, original, candidate in matches:
+            if original is not None and original.GetName() == row["final"]:
+                if not original.SetName(row["backup"]):
+                    raise ReelBuildError(
+                        f"Promotion recovery could not preserve "
+                        f"{row['final']!r} as {row['backup']!r}; candidate "
+                        "remains identifiable.")
+            if candidate.GetName() == row["staging"]:
+                if not candidate.SetName(row["final"]):
+                    raise ReelBuildError(
+                        f"Promotion recovery preserved the original as "
+                        f"{row.get('backup')!r}, but could not activate "
+                        f"candidate {row['staging']!r}; both remain "
+                        "identifiable.")
+            if (candidate.GetName() != row["final"]
+                    or str(candidate.GetUniqueId() or "")
+                    != str(row["candidate_id"])):
+                raise ReelBuildError(
+                    f"Promotion recovery read-back failed for "
+                    f"{row['final']!r}; both generations are kept.")
+        rows_by_final = {
+            row["final"]: row["incoming_rows"] for row in rows
+        }
+        claimed = {row["staging"]: row["final"] for row in rows}
+        from library.tools.plan_provenance import (
+            drop_reel_entries, read_provenance, rename_reel_entries)
+        review_dir = os.path.join(project_folder, "pipeline_output", "review")
+        recorded_names = set((read_provenance(review_dir) or {}).get(
+            "built_reels") or [])
+        unrecorded = {staging: final for staging, final in claimed.items()
+                      if staging not in recorded_names}
+        if unrecorded:
+            drop_reel_entries(review_dir, sorted(unrecorded.values()))
+        rename_reel_entries(
+            review_dir, {staging: final for staging, final in claimed.items()
+                         if staging not in unrecorded})
+        _rename_overlay_records(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            claimed)
+        from library.tools.explainer_plan import rename_plan_reels
+        rename_plan_reels(project_folder, claimed)
+        from library.tools.reel_semantic_visual import (
+            rename_record_reels, rename_span_record_reels)
+        rename_record_reels(project_folder, claimed)
+        rename_span_record_reels(project_folder, claimed)
+        from library.tools.speaker_identity import (
+            rename_plan_reels as rename_lower_third_plans)
+        rename_lower_third_plans(project_folder, claimed)
+        from library.tools.reel_post_header import (
+            rename_plan_reels as rename_post_headers)
+        rename_post_headers(project_folder, claimed)
+        from library.tools.caption_asset_gc import rename_ledger_timelines
+        from library.tools.project_layout import Area, ProjectLayout
+        rename_ledger_timelines(
+            str(ProjectLayout(project_folder).read_dir(Area.SUBTITLE_SEGMENTS)),
+            claimed)
+        from library.tools.versions import rounds as _rounds
+        stamped = _rounds.stamp_promotion(
+            project_folder, rows_by_final,
+            read_provenance(review_dir))
+        from library.tools import reel_signoff as _signoff
+        for final, expected in (record.get("supersede_entries") or {}).items():
+            if expected is None:
+                continue
+            live = _signoff.signoff_for(project_folder, final)
+            if live is not None:
+                if live != expected:
+                    raise ReelBuildError(
+                        f"REFUSING promotion recovery for {final!r}: its "
+                        "sign-off changed after preparation; both generations "
+                        "are kept.")
+                _signoff.supersede(
+                    project_folder, final,
+                    round_number=stamped.get("round"))
+            else:
+                document = _signoff.read_signoffs(project_folder)
+                if not any(
+                        entry.get("reel") == expected.get("reel")
+                        and entry.get("signed_off_at")
+                        == expected.get("signed_off_at")
+                        and entry.get("rows_digest")
+                        == expected.get("rows_digest")
+                        for entry in document.get("superseded", ())):
+                    raise ReelBuildError(
+                        f"REFUSING promotion recovery for {final!r}: the "
+                        "declared sign-off is neither live nor recorded as "
+                        "superseded; both generations are kept.")
+        _record_reel_versions(
+            project_folder, rows_by_final,
+            round_number=stamped.get("round"),
+            transaction_id=record["transaction_id"])
+        from library.tools import plan_provenance as _provenance
+        for row, _original, candidate in matches:
+            snapshot = _guard.full_timeline_snapshot(
+                candidate, project, project_folder)
+            _provenance.record_timeline_snapshot(
+                os.path.join(project_folder, "pipeline_output", "review"),
+                row["final"], snapshot, action="build_promotion_recovery",
+                action_journal=record["transaction_id"])
+        from library.tools import reel_retirement as _retirement
+        pool = project.GetMediaPool()
+        preserve = set(record.get("preserve_originals") or ())
+        retained = {
+            row["final"]: inventory[row["original_id"]]
+            for row in rows if row.get("original_id")
+            and row["original_id"] in inventory
+            and inventory[row["original_id"]].GetName() == row["backup"]
+            and row["final"] in preserve
+        }
+        discarded = {
+            row["backup"]: inventory[row["original_id"]]
+            for row in rows if row.get("original_id")
+            and row["original_id"] in inventory
+            and inventory[row["original_id"]].GetName() == row["backup"]
+            and row["final"] not in preserve
+        }
+        if retained:
+            boundaries = _rounds.discover(project_folder)
+            current_round = boundaries[-1]["round"] if boundaries else 1
+            retirement_rounds = {
+                final: _retirement.retiring_round(
+                    boundaries, final, current_round)
+                for final in retained
+            }
+            _retirement.retire_timelines(
+                project, pool, retained, retirement_rounds)
+        if discarded:
+            _retirement.delete_backups(project, pool, discarded)
+        from library.tools import staging_holds as _holds
+        _holds.release_holds(
+            project_folder, [row["staging"] for row in rows])
+        for row in rows:
+            candidate_key = str(row.get("candidate_key") or "")
+            candidate_record = candidate_records.get(candidate_key) \
+                if candidate_key else None
+            if not candidate_record:
+                continue
+            candidate_state = candidate_record.get("status")
+            if candidate_state == "promoting":
+                _candidate_store.record_candidate(
+                    project_folder, {"candidate_id": candidate_key,
+                                     "candidate_name": row["final"]},
+                    transition="promoted")
+                candidate_state = "promoted"
+            if candidate_state in {"promoted", "promotion_failed"}:
+                _candidate_store.record_candidate(
+                    project_folder, {"candidate_id": candidate_key,
+                                     "candidate_name": row["final"]},
+                    transition="retired")
+        record["state"] = "recorded"
+        _write_promotion_journal(project_folder, record)
+        path.unlink()
+        recovered.append(record["transaction_id"])
+    return recovered
+
+
+def cleanup_disposable_candidates(project, project_folder: str) -> list:
+    """Remove only an untouched duplicate proven by its durable candidate id.
+
+    Edited, verified, failed, stale, and unidentifiable candidates remain
+    available for review. A prepared candidate is disposable only when its
+    transaction, candidate id, Resolve id, unchanged parent, and complete
+    timeline snapshot all agree.
+    """
+    import json
+
+    from library.tools import reel_replace_guard as _guard
+    from library.tools import staging_holds as _candidates
+
+    records = _candidates.candidate_records(project_folder)
+    holds = _candidates.read_holds(project_folder)
+    inventory = _promotion_timeline_inventory(project)
+    removed = []
+
+    def normalized(snapshot):
+        snapshot = dict(snapshot or {})
+        timeline = dict(snapshot.get("timeline") or {})
+        timeline.pop("name", None)
+        timeline.pop("unique_id", None)
+        snapshot["timeline"] = timeline
+        if "items" in snapshot:
+            snapshot["items"] = [
+                {key: value for key, value in dict(item).items()
+                 if key not in {"unique_id", "graphic_identity"}}
+                for item in snapshot["items"]
+            ]
+        return json.dumps(snapshot, sort_keys=True, default=str)
+
+    for candidate_id, record in records.items():
+        if (not isinstance(record, dict)
+                or record.get("status") != "prepared"
+                or record.get("failure")
+                or record.get("failure_evidence")
+                or record.get("errors")
+                or record.get("unresolved_edits")
+                or record.get("recovery_required")):
+            continue
+        timeline_id = str(record.get("resolve_timeline_id") or "")
+        transaction_id = str(record.get("owning_transaction") or "")
+        name = str(record.get("candidate_name") or "")
+        parent_id = str(record.get("parent_approved_timeline_id") or "")
+        entry = holds.get(name) or {}
+        if (not timeline_id or not transaction_id or not name or not parent_id
+                or entry.get("candidate_id") != candidate_id
+                or entry.get("transaction_id") != transaction_id):
+            continue
+        candidate = inventory.get(timeline_id)
+        if candidate is None:
+            # The recorded candidate is already gone. Retire only its stale
+            # bookkeeping; no Resolve object is selected by name.
+            _candidates.release_hold(project_folder, name)
+            _candidates.record_candidate(
+                project_folder, {"candidate_id": candidate_id},
+                transition="stale")
+            _candidates.record_candidate(
+                project_folder, {"candidate_id": candidate_id},
+                transition="retired")
+            removed.append(candidate_id)
+            continue
+        if candidate.GetName() != name:
+            continue
+        same_name = [timeline for timeline in inventory.values()
+                     if timeline.GetName() == name]
+        if len(same_name) != 1:
+            continue
+        parent = inventory.get(parent_id)
+        if (parent is None
+                or parent.GetName() != record.get("destination_timeline")):
+            continue
+        from library.tools.versions import reel_versions as _versions
+        history = _versions.versions_of(
+            project_folder, str(record.get("destination_timeline") or ""))
+        current_revision = (
+            f"reel:{record['destination_timeline']}:v{history[-1]['version']}"
+            if history else f"unversioned:{parent_id}")
+        if current_revision != record.get("parent_approved_revision"):
+            continue
+        parent_snapshot = record.get("parent_snapshot")
+        if not isinstance(parent_snapshot, dict):
+            continue
+        live_parent = _guard.full_timeline_snapshot(
+            parent, project, project_folder)
+        live_candidate = _guard.full_timeline_snapshot(
+            candidate, project, project_folder)
+        if (live_parent != parent_snapshot
+                or normalized(live_candidate) != normalized(parent_snapshot)):
+            continue
+        project.GetMediaPool().DeleteTimelines([candidate])
+        if timeline_id in _promotion_timeline_inventory(project):
+            raise ReelBuildError(
+                f"Candidate {candidate_id!r} was selected for cleanup but "
+                "Resolve still reports its timeline identity; the candidate "
+                "record remains for review.")
+        discard_staged_reels(
+            project, project_folder, [name], expect_holds=True,
+            organise=False)
+        _candidates.record_candidate(
+            project_folder, {"candidate_id": candidate_id},
+            transition="stale")
+        _candidates.record_candidate(
+            project_folder, {"candidate_id": candidate_id},
+            transition="retired")
+        removed.append(candidate_id)
+    return removed
+
+
 def _archive_retiring_generation(resolve, project, timeline,
                                  project_folder: str) -> dict:
     """Export and inventory-check the exact retiring Resolve object."""
@@ -11869,7 +12373,7 @@ def _connect_resolve():
 
 
 def _record_reel_versions(project_folder: str, rows_by_final: dict,
-                          round_number=None) -> list:
+                          round_number=None, transaction_id=None) -> list:
     """One `build` (or `rollback`) version per promoted reel, with its plan."""
     from library.tools.plan_provenance import provenance_with_registry
     from library.tools.reel_proposal import proposal_path, read_proposal
@@ -11887,6 +12391,13 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     written = []
     for final, rows in sorted(rows_by_final.items()):
+        existing = _versions.versions_of(project_folder, final)
+        transaction_entry = next((entry for entry in existing
+                                  if entry.get("promotion_transaction_id")
+                                  == transaction_id), None)
+        if transaction_entry is not None:
+            written.append(transaction_entry)
+            continue
         # VC-14: the reel's component manifest, built from existing
         # records (the promoted rows plus whatever the assembly,
         # provenance, Fusion and ledger files hold). Never-fail
@@ -11908,7 +12419,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, redoes=redoes,
-                component_manifest=component_manifest)
+                component_manifest=component_manifest,
+                promotion_transaction_id=transaction_id)
             _versions.mark_redone(project_folder, final, redoes,
                                   entry["version"])
         elif undoes is not None:
@@ -11917,7 +12429,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, undoes=undoes,
-                component_manifest=component_manifest)
+                component_manifest=component_manifest,
+                promotion_transaction_id=transaction_id)
             _versions.mark_undone(project_folder, final, undoes,
                                   entry["version"])
         else:
@@ -11926,7 +12439,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 rows=rows, round=round_number,
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None,
-                component_manifest=component_manifest)
+                component_manifest=component_manifest,
+                promotion_transaction_id=transaction_id)
         # The promotion half of the per-reel edit history
         # (`library/tools/reel_edit_history.py`): the build entry was
         # filed at build time under the staging name and moved here by
@@ -11991,6 +12505,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          timeline_inventory_before=None,
                          staged_timeline_ids=None,
                          candidate_ids_by_staging=None,
+                         candidate_transaction_id=None,
                          parent_snapshots_by_final=None,
                          archive_retiring: bool = False,
                          resolve=None,
@@ -12029,7 +12544,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        explainer plans) are renamed staging -> final, so the next
        verifier grades the promoted timelines against the baseline the
        gate just passed rather than refusing on absence;
-    4. only then is the backup DELETED - unless the caller named the
+    4. sidecars, the round, and the reel version are durably recorded;
+       only then is the backup DELETED - unless the caller named the
        reel in `retain`, when it is retired instead: renamed to
        `... (archived round NNN)` and filed in `05 - Reels/Archive`
        (`library/tools/reel_retirement.py`). A generation the
@@ -12040,10 +12556,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        carrying a durable sign-off always retires: the captain approved
        that cut, and deleting its only copy is what "unless i
        explicitly ask for otherwise" does not cover;
-    5. the round is stamped (`library/tools/versions/rounds.py`): the
-       rows the guard read in phase 0 are stored against the round
-       this batch of the captain's feedback opened, which is what
-       makes `round-diff` answer off disk afterwards.
+    A promotion journal is flushed before the first rename. It carries
+    both timeline identities, the observed base revision and snapshots,
+    and the verified incoming rows. If interrupted, recovery resumes only
+    when those identities and contents still match; otherwise it keeps
+    both generations for review. The journal is retired after durable
+    version linkage and backup cleanup.
 
     A reel whose approved timeline carries a durable SIGN-OFF
     (`library/tools/reel_signoff.py`) refuses in phase 0 unless the
@@ -12144,6 +12662,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         # second scripting client or infer a project by prefix.
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_project_name)
+    recovered_promotions = recover_interrupted_promotions(
+        project, project_folder)
+    if recovered_promotions:
+        raise ReelBuildError(
+            "Recovered interrupted promotion transaction(s) "
+            f"{recovered_promotions}. The committed timelines and revision "
+            "records are now consistent; re-run the requested build so it "
+            "prepares against that recovered base.")
     pool = project.GetMediaPool()
     from library.tools import plan_provenance as _provenance
     from library.tools import reel_replace_guard as _guard
@@ -12715,9 +13241,29 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     } for final in ok_finals]
     candidate_lifecycles = []
     from library.tools import staging_holds as _candidate_store
+    candidate_ids_by_staging = dict(candidate_ids_by_staging or {})
+    stored_candidate_records = _candidate_store.candidate_records(
+        project_folder)
+    candidate_transactions_by_staging = {}
     for row in rename_rows:
         _candidate_key = str((candidate_ids_by_staging or {}).get(
             row["staging"]) or "")
+        if not _candidate_key:
+            _candidate_key = next((candidate_id
+                                   for candidate_id, candidate_record
+                                   in stored_candidate_records.items()
+                                   if isinstance(candidate_record, dict)
+                                   and candidate_record.get("candidate_name")
+                                   == row["staging"]
+                                   and str(candidate_record.get(
+                                       "resolve_timeline_id") or "")
+                                   == str(row["candidate_id"])), "")
+            if _candidate_key:
+                candidate_ids_by_staging[row["staging"]] = _candidate_key
+        if _candidate_key:
+            candidate_transactions_by_staging[row["staging"]] = str(
+                (stored_candidate_records.get(_candidate_key) or {}).get(
+                    "owning_transaction") or candidate_transaction_id or "")
         if _candidate_key:
             from library.tools.reel_replace_guard import full_timeline_snapshot
             _verified_snapshot = full_timeline_snapshot(
@@ -12743,10 +13289,85 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                       "timeline_conformance": "passed",
                       "candidate_identity": row["candidate_id"]})
         candidate_lifecycles.append(lifecycle)
+    import uuid as _uuid
+    transaction_id = _uuid.uuid4().hex
+    from library.tools import reel_replace_guard as _promotion_guard
+    journal_rows = []
+    from library.tools.versions import reel_versions as _promotion_versions
+    from library.tools.versions import rounds as _promotion_rounds
+    for row in rename_rows:
+        candidate_snapshot = _promotion_guard.full_timeline_snapshot(
+            row["candidate"], project, project_folder)
+        original_snapshot = (
+            _promotion_guard.full_timeline_snapshot(
+                row["original"], project, project_folder)
+            if row["original"] is not None else None)
+        history = _promotion_versions.versions_of(
+            project_folder, row["final"])
+        journal_rows.append({
+            "final": row["final"],
+            "staging": row["staging"],
+            "backup": row["backup"],
+            "candidate_id": str(row["candidate_id"]),
+            "candidate_key": str((candidate_ids_by_staging or {}).get(
+                row["staging"]) or ""),
+            "candidate_transaction_id": candidate_transactions_by_staging.get(
+                row["staging"], str(candidate_transaction_id or "")),
+            "original_id": str(row["original_id"] or ""),
+            "candidate_snapshot": candidate_snapshot,
+            "original_snapshot": original_snapshot,
+            "incoming_rows": incoming_by_final.get(row["final"], []),
+            "base_revision": ({
+                "version": history[-1].get("version"),
+                "rows_digest": history[-1].get("rows_digest"),
+            } if history else None),
+            "candidate_revision": {
+                "transaction_id": transaction_id,
+                "rows_digest": _promotion_rounds.digest_rows(
+                    incoming_by_final.get(row["final"], {})),
+            },
+        })
+    promotion_journal = {
+        "version": 1,
+        "transaction_id": transaction_id,
+        "project": resolve_project_name,
+        "candidate_transaction_id": str(candidate_transaction_id or ""),
+        "state": "prepared",
+        "preserve_originals": sorted({
+            final for final in ok_finals if final in originals
+            and (_signoff.base_name(final) in declared_retain
+                 or _signoff.base_name(final) in
+                 set(_signoff.signed_off(project_folder)))
+        }),
+        "supersede_entries": {
+            final: supersede_entries.get(final)
+            for final in ok_finals
+            if final in declared_supersessions
+        },
+        "rows": journal_rows,
+    }
+    try:
+        _write_promotion_journal(project_folder, promotion_journal)
+    except Exception as journal_failed:  # noqa: BLE001 - no rename without record
+        raise PromotionFailure(
+            "REFUSING to promote: the durable promotion record could not be "
+            f"prepared ({journal_failed}); approved and candidate timelines "
+            "remain unchanged.",
+            failure_class=PromotionFailure.DELIVERY) from journal_failed
+
+    def persist_lifecycle_update(records):
+        promotion_journal["candidate_lifecycles"] = records
+        promotion_journal["state"] = (
+            "promoting" if any(item.get("state") == "promoting"
+                                for item in records)
+            else promotion_journal["state"])
+        _write_promotion_journal(project_folder, promotion_journal)
+
     try:
         _rename_result, candidate_lifecycle_records = _promote_candidates(
             candidate_lifecycles,
-            lambda: _rename_candidate_set(rename_rows))
+            lambda: _rename_candidate_set(rename_rows),
+            on_update=persist_lifecycle_update)
     except _CandidatePromotionError as failed_rename:
         for row in rename_rows:
             _candidate_key = str((candidate_ids_by_staging or {}).get(
@@ -12760,6 +13381,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"({failed_rename}). Approved generations remain identifiable; "
             "inspect their current names before retrying.",
             failure_class=PromotionFailure.EXECUTION) from failed_rename
+    promotion_journal["state"] = "promoted"
+    promotion_journal["candidate_lifecycles"] = candidate_lifecycle_records
+    _write_promotion_journal(project_folder, promotion_journal)
     for row in rename_rows:
         final = row["final"]
         staging = row["staging"]
@@ -13103,41 +13727,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             for final in ok_finals:
                 if timeline.GetName() == backups[final]:
                     backup_objects[final] = timeline
-        if retain_finals:
-            retirement.update(_retire.retire_timelines(
-                project, pool,
-                {final: backup_objects[final] for final in retain_finals
-                 if final in backup_objects},
-                rounds_by_final))
-        if delete_finals:
-            discarded = _retire.delete_backups(
-                project, pool,
-                {backups[final]: backup_objects[final]
-                 for final in delete_finals
-                 if final in backup_objects})
-            retirement["deleted"] = discarded["deleted"]
-        live_names = set()
-        for index in range(1, project.GetTimelineCount() + 1):
-            timeline = project.GetTimelineByIndex(index)
-            if timeline:
-                live_names.add(timeline.GetName())
-        protected_timeline_names = _provenance.protected_timeline_names(
-            review_dir, _guard.timeline_inventory(project))
-        if retirement["archived"]:
-            retirement.update(_retire.collect_superseded(
-                project, pool, live_names, list(retirement["archived"]),
-                signed, protected_names=protected_timeline_names))
-        if delete_finals:
-            # Nothing was retired for these reels, so the bound above
-            # has nothing to bound: their earlier archived generations
-            # go too (retention 0, signed-off ones excepted), and the
-            # archive ends empty for them.
-            legacy = _retire.collect_superseded(
-                project, pool, live_names, delete_finals, signed,
-                retained=0, protected_names=protected_timeline_names)
-            retirement["collected"].extend(legacy["collected"])
-            retirement["kept"].extend(legacy["kept"])
-        print(_retire.render(retirement), flush=True)
+        # Destructive cleanup is deferred until the promotion's round and
+        # reel-version records have been durably written below.
     except Exception as retirement_failed:  # noqa: BLE001
         raise ReelBuildError(
             f"REFUSING to report this promotion: the reels above are "
@@ -13298,7 +13889,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             project_folder,
             {final: incoming_by_final[final] for final in ok_finals
              if incoming_by_final.get(final)},
-            round_number=(stamped_round or {}).get("round"))
+            round_number=(stamped_round or {}).get("round"),
+            transaction_id=transaction_id)
     except Exception as record_failed:  # noqa: BLE001
         raise PromotionFailure(
             f"REFUSING to report this promotion: the reels above are "
@@ -13307,6 +13899,48 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"rebuild back - re-run once it is writable.",
             failure_class=PromotionFailure.DELIVERY) \
             from record_failed
+
+    # The version linkage is durable now. Only at this point may the old
+    # generation be archived or removed; a failure leaves its backup in
+    # Resolve beside the journaled candidate.
+    try:
+        if retain_finals:
+            retirement.update(_retire.retire_timelines(
+                project, pool,
+                {final: backup_objects[final] for final in retain_finals
+                 if final in backup_objects},
+                rounds_by_final))
+        if delete_finals:
+            discarded = _retire.delete_backups(
+                project, pool,
+                {backups[final]: backup_objects[final]
+                 for final in delete_finals if final in backup_objects})
+            retirement["deleted"] = discarded["deleted"]
+        live_names = {
+            timeline.GetName()
+            for index in range(1, project.GetTimelineCount() + 1)
+            if (timeline := project.GetTimelineByIndex(index)) is not None
+        }
+        protected_timeline_names = _provenance.protected_timeline_names(
+            review_dir, _guard.timeline_inventory(project))
+        if retirement["archived"]:
+            retirement.update(_retire.collect_superseded(
+                project, pool, live_names, list(retirement["archived"]),
+                signed, protected_names=protected_timeline_names))
+        if delete_finals:
+            legacy = _retire.collect_superseded(
+                project, pool, live_names, delete_finals, signed,
+                retained=0, protected_names=protected_timeline_names)
+            retirement["collected"].extend(legacy["collected"])
+            retirement["kept"].extend(legacy["kept"])
+        print(_retire.render(retirement), flush=True)
+    except Exception as retirement_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"Promotion records are durable, but retiring old timelines "
+            f"failed ({retirement_failed}); the journal and any remaining "
+            "backup timelines are retained for recovery.") from retirement_failed
+    promotion_journal["state"] = "recorded"
+    _write_promotion_journal(project_folder, promotion_journal)
 
     # ── CLOSE EACH PROMOTED REEL'S BUILD SIGNATURE ──────────────
     # The carried half (`library/tools/reel_rebuild_need.py`): what
@@ -13490,7 +14124,16 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             _candidate_store.record_candidate(project_folder, {
                 "candidate_id": _candidate_key,
             }, transition="retired")
+    promotion_journal["state"] = "complete"
+    _write_promotion_journal(project_folder, promotion_journal)
+    try:
+        os.unlink(_promotion_journal_path(project_folder, transaction_id))
+    except OSError as journal_cleanup_failed:
+        import sys as _sys
+        print(f"  promotion record cleanup deferred: "
+              f"{journal_cleanup_failed}", file=_sys.stderr, flush=True)
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
+            "promotion_transaction_id": transaction_id,
             "candidate_lifecycles": candidate_lifecycle_records,
             "replace_reports": replace_reports,
             "refused": dict(refused),
@@ -14108,6 +14751,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             from library.tools.reel_otio_placement import (
                 project_timeline_resolution as _read_default_resolution)
             project_default_resolution = _read_default_resolution(project)
+    with resolve_lease("recover reel promotions", exclusive=True):
+        recovered_promotions = recover_interrupted_promotions(
+            project, project_folder)
+    if recovered_promotions:
+        raise ReelBuildError(
+            "Recovered interrupted promotion transaction(s) "
+            f"{recovered_promotions}. The committed timelines and revision "
+            "records are now consistent; re-run the build so it prepares "
+            "against that recovered base.")
+    with resolve_lease("cleanup abandoned reel candidates", exclusive=True):
+        cleaned_candidates = cleanup_disposable_candidates(
+            project, project_folder)
+    if cleaned_candidates:
+        print(f"  cleaned {len(cleaned_candidates)} unchanged, "
+              f"identity-verified candidate(s): {cleaned_candidates}",
+              flush=True)
     from library.tools import reel_replace_guard as _inventory_guard
     from library.tools import plan_provenance as _inventory_provenance
     with resolve_lease("build reels inventory start", exclusive=False):
@@ -16838,6 +17497,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     timeline_inventory_before=build_inventory_before,
                     staged_timeline_ids=staged_timeline_ids,
                     candidate_ids_by_staging=candidate_id_by_staging,
+                    candidate_transaction_id=_candidate_transaction_id,
                     parent_snapshots_by_final={
                         final: live_snapshots.get(final)
                         for final in promotion_staged_to_final},
