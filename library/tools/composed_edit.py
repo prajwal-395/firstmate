@@ -1533,6 +1533,7 @@ class ComposedEditReceipt:
     lifecycle: dict = field(default_factory=dict)
     staged: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
+    structural_patch: dict = field(default_factory=dict)
     rederivation_required: dict = field(default_factory=dict)
     captured: list = field(default_factory=list)
     deleted: dict = field(default_factory=dict)
@@ -1553,7 +1554,8 @@ def apply_composed_edit(*, timeline, media_pool,
                         link_rows: Mapping[str, str] = None,
                         picture_row: str = "V1",
                         still_placer=None,
-                        write_context: Mapping[str, Any] | None = None
+                        write_context: Mapping[str, Any] | None = None,
+                        component_manifest: Mapping[str, Any] | None = None
                         ) -> ComposedEditReceipt:
     """Steps 3 to 7, in the one order that works, on a STAGED timeline.
 
@@ -1585,6 +1587,10 @@ def apply_composed_edit(*, timeline, media_pool,
 
     # BEFORE anything is captured, and long before anything is deleted.
     tracks_before = reel_read.read_tracks(timeline)
+    from library.tools.structural_patch import plan_structural_patch
+    receipt.structural_patch = plan_structural_patch(
+        tracks_before, changes, insertions,
+        component_manifest=component_manifest)
     assert_insertions_declared(tracks_before, insertions)
     receipt.rederivation_required = assert_rederivation_reachable(
         changes, rederiver, insertions)

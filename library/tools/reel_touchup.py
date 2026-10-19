@@ -3284,6 +3284,9 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                 timeline_name=final)
 
     edit_started = time.time()
+    from library.tools import reel_component_manifest as _component_manifest
+    prior_component_manifest = _component_manifest.latest_manifest(
+        project_folder, final)
     composed = _ce.apply_composed_edit(
         timeline=staged, media_pool=pool, changes=changes,
         insertions=insertions,
@@ -3294,7 +3297,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         link_rows={},
         picture_row="V1",
         still_placer=still_placer,
-        write_context={"project_folder": project_folder})
+        write_context={"project_folder": project_folder},
+        component_manifest=prior_component_manifest)
     receipt["composed_seconds"] = round(time.time() - edit_started,
                                         3)
     receipt["composed"] = {
