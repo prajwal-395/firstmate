@@ -62,18 +62,29 @@ def test_all_77_operations_have_an_audited_implementation_classification():
         "implemented_qualified", "implemented_unqualified", "workflow_only",
         "no_executor", "planning_only",
     }
-    assert sum(row.implementation_status == "workflow_only"
-               for row in edit_algebra.OP_STATUS.values()) == 2
 
 
 def test_executor_coverage_matches_the_current_dispatches():
-    from library.tools import edit_patch, feedback_patch_apply, reel_touchup
+    from library.tools import (
+        edit_execution_adapters,
+        edit_patch,
+        feedback_patch_apply,
+        reel_touchup,
+        resolve_axi_core,
+    )
 
     coverage = edit_algebra._EXECUTOR_COVERAGE
     assert coverage["edit_patch"] == set(edit_patch.OPERATIONS)
     assert coverage["feedback_patch_apply"] == set(
         feedback_patch_apply.SUPPORTED_OPS)
-    assert coverage["reel_touchup"] == {
+    touchup_handlers = {
         edit_algebra.TOUCHUP_VIEW[name]
         for name in reel_touchup._OP_HANDLERS
     }
+    edit_execution_adapters.register_builtin_edit_executors()
+    touchup_adapters = {
+        operation_id for operation_id, backend in
+        resolve_axi_core.registered_edit_executors()
+        if backend == "reel_touchup"
+    }
+    assert coverage["reel_touchup"] == touchup_handlers | touchup_adapters

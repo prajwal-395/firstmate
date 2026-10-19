@@ -87,13 +87,17 @@ def test_broker_workflow_job_is_confined_to_copied_qualification_media(
     source.write_bytes(b"fixture")
     output_dir = qp.media_dir() / "workflow-runs" / "run-1" / "exports"
     output_dir.mkdir(parents=True)
+    lifecycle_project = output_dir.parent / "analysis-project"
+    lifecycle_project.mkdir()
     run_stamp = "20261019T120000123456Z"
     params = {"project": "Ren Qualification", "source_copy": str(source),
               "timeline": f"Q Workflow {run_stamp} 1",
               "run_stamp": run_stamp, "source_start": 0.0,
               "source_end": 15.0, "output_dir": str(output_dir),
               "output_name": "Q_Workflow_Test", "timeout_seconds": 600,
-              "source_sha256": hashlib.sha256(b"fixture").hexdigest()}
+              "source_sha256": hashlib.sha256(b"fixture").hexdigest(),
+              "lifecycle_project_folder": str(lifecycle_project),
+              "lifecycle_run_id": "run-1"}
 
     shape = qw.prepare_broker_job(params)
 

@@ -1867,12 +1867,6 @@
   ],
   [
     "library/tools/reel_retirement.py",
-    "delete_backups",
-    "DeleteTimelines",
-    1
-  ],
-  [
-    "library/tools/reel_retirement.py",
     "collect_superseded",
     "DeleteTimelines",
     1
@@ -2067,12 +2061,6 @@
     "library/tools/resolve_scratch_projects.py",
     "import_project",
     "ImportProject",
-    1
-  ],
-  [
-    "library/tools/resolve_scratch_projects.py",
-    "delete",
-    "DeleteProject",
     1
   ],
   [
@@ -2661,6 +2649,48 @@
     "library/tools/versions/variants.py",
     "choose",
     "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/composed_edit.py",
+    "apply_composed_edit",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/execution/remove_proof.py",
+    "retire_captain_task_timeline",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "DeleteTimelines",
+    2
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "SetCurrentTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "SetCurrentTimeline",
+    2
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "retire_exact",
+    "DeleteProject",
     1
   ]
 ]

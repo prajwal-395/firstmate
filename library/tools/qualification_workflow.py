@@ -130,7 +130,8 @@ def _register_new_semantic_measurements(root: Path, run_stamp: str,
 def _reconcile_prior_runs(current_root: Path) -> list[dict]:
     """Resume recorded file cleanup jobs and hold interrupted or legacy runs."""
     from library.tools import artifact_lifecycle as lifecycle
-    from library.tools.event_log import CLEANUP_JOB, emit, emit_once, read_events
+    from library.tools.artifact_lifecycle import CLEANUP_JOB
+    from library.tools.event_log import emit, emit_once, read_events
 
     results = []
     parent = current_root.parent
@@ -348,7 +349,8 @@ def set_failed_run_pin(run_stamp: str, *, pinned: bool) -> dict:
 def _retire_successful_run_files(root: Path, run_stamp: str) -> dict:
     """Plan and retire only registered run-private files after successful QA."""
     from library.tools import artifact_lifecycle as lifecycle
-    from library.tools.event_log import CLEANUP_JOB, emit_once
+    from library.tools.artifact_lifecycle import CLEANUP_JOB
+    from library.tools.event_log import emit_once
 
     records = _run_artifact_records(root, run_stamp)
     owner = _lifecycle_project(root)
@@ -1339,11 +1341,8 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
         report["report_path"] = str(report_path)
         try:
             if report["passed"]:
-                from library.tools.event_log import (
-                    CLEANUP_JOB,
-                    emit,
-                    emit_once,
-                )
+                from library.tools.artifact_lifecycle import CLEANUP_JOB
+                from library.tools.event_log import emit, emit_once
 
                 timelines = [
                     {"name": one["resolve"]["timeline"],

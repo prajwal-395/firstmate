@@ -2335,9 +2335,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         verify=lambda op, after: None,
         key=lambda op: ("overlay", op["unique_id"]), merge="replace",
         inverse=_self("the inverse carries the previous size"),
-        note="Width and height are output-geometry values. Existing "
-             "resize_still changes duration only; no candidate adapter "
-             "currently links the geometry model to pixel verification."),
+        note="Width and height are output-geometry values. The staged "
+             "candidate adapter links the geometry model to rendered-pixel "
+             "verification; live qualification remains deferred."),
     "overlay.entry_motion": AlgebraOp(
         id="overlay.entry_motion", domain="fusion",
         required=("unique_id", "frames"),
@@ -2811,8 +2811,15 @@ TOUCHUP_VIEW = {
     "swap_pixels": "overlay.swap_pixels",
     "add_overlay": "overlay.add",
     "remove_overlay": "overlay.remove",
+    "native_transition": "transition",
     "retime": "retime",
     "resize_still": "overlay.resize",
+    "resize_overlay": "overlay.resize",
+    "audio_fade": "audio.fade",
+    "split": "clip.split",
+    "slide": "clip.slide",
+    "roll": "clip.roll",
+    "slip": "clip.slip",
     "set_properties": "clip.set_property",
     "add_row": "track.add",
     "set_enabled": "clip.set_enabled",

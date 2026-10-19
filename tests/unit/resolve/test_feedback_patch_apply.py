@@ -19,9 +19,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 
-from library.tools import feedback_patch_apply as apply_mod  # noqa: E402
-from library.tools import timeline_shadow as shadow  # noqa: E402
-from library.tools import transaction_receipt  # noqa: E402
+from library.tools import feedback_patch_apply as apply_mod
+from library.tools import timeline_shadow as shadow
+from library.tools import transaction_receipt
 
 
 def _clip(unique_id: str, **kw) -> dict:
@@ -194,8 +194,7 @@ class _FakeResolve:
 
 @pytest.fixture
 def live(monkeypatch, before):
-    from library.tools import resolve_lock
-    from library.tools import edit_patch
+    from library.tools import edit_patch, resolve_lock
 
     fake = _FakeResolve(before)
     project = SimpleNamespace(GetName=lambda: "Ren Qualification")
@@ -210,22 +209,16 @@ def live(monkeypatch, before):
     return SimpleNamespace(project=project, timeline=timeline, fake=fake)
 
 
-def test_guarded_apply_commits_in_scope_change(live):
-    receipt = apply_mod.guarded_apply(
-        project=live.project, timeline=live.timeline,
-        operations=[{"op": "marker.add", "frame": 24, "color": "Green",
-                     "name": "reply", "note": "done"}],
-        scope={"clips": [], "marker_frames": [24], "clip_markers": []},
-        idempotency_key="test-1")
-    assert receipt["outside_scope"] == []
-    assert receipt["patch"]["status"] == "committed"
-    assert receipt["patch"]["planned"]["status"] == "planned"
-    assert receipt["patch"]["applied"]["status"] == "applied"
-    assert receipt["patch"]["verified"]["status"] == "verified"
-    assert receipt["patch"]["committed"]["status"] == "committed"
-    assert receipt["patch"]["delivered"]["status"] == "not_requested"
-    assert receipt["routing"]["backend"] == "edit_patch"
-    assert receipt["backup"] == {"generation": 7, "hash": "hash"}
+def test_guarded_apply_refuses_unqualified_operation_before_writing(live):
+    with pytest.raises(apply_mod.PatchRefused,
+                       match="production routing fails closed"):
+        apply_mod.guarded_apply(
+            project=live.project, timeline=live.timeline,
+            operations=[{"op": "marker.add", "frame": 24, "color": "Green",
+                         "name": "reply", "note": "done"}],
+            scope={"clips": [], "marker_frames": [24], "clip_markers": []},
+            idempotency_key="test-1")
+    assert live.fake.applied == []
 
 
 def test_guarded_apply_refuses_out_of_scope_before_writing(live):
@@ -250,19 +243,16 @@ def test_guarded_apply_restores_and_reports_outside_movement(
                     50.0 if op["op"] == "marker.add" else 100.0)
 
     live.fake.quirk = quirk
-    with pytest.raises(apply_mod.PatchMovedTooMuch) as excinfo:
+    with pytest.raises(apply_mod.PatchRefused,
+                       match="production routing fails closed"):
         apply_mod.guarded_apply(
             project=live.project, timeline=live.timeline,
             operations=[{"op": "marker.add", "frame": 24, "color": "Green",
                          "name": "reply", "note": "done"}],
             scope={"clips": [], "marker_frames": [24], "clip_markers": []},
             idempotency_key="test-3")
-    assert excinfo.value.outside == [
-        {"where": "clip", "unique_id": "bbb", "change": "transform.Opacity",
-         "before": 100.0, "after": 50.0}]
-    # Restored: the live state matches the backup inventory again.
+    assert live.fake.applied == []
     assert apply_mod.inventory_changes(before, live.fake.state) == []
-    assert excinfo.value.backup["snapshot"] == before
 
 
 def test_guarded_apply_names_unrestorable_residue(monkeypatch, live):
@@ -273,16 +263,15 @@ def test_guarded_apply_names_unrestorable_residue(monkeypatch, live):
                     clip["transform"]["Opacity"] = 50.0
 
     live.fake.quirk = quirk
-    with pytest.raises(apply_mod.PatchRestoreFailed) as excinfo:
+    with pytest.raises(apply_mod.PatchRefused,
+                       match="production routing fails closed"):
         apply_mod.guarded_apply(
             project=live.project, timeline=live.timeline,
             operations=[{"op": "marker.add", "frame": 24, "color": "Green",
                          "name": "reply", "note": "done"}],
             scope={"clips": [], "marker_frames": [24], "clip_markers": []},
             idempotency_key="test-4")
-    assert excinfo.value.residue == [
-        {"where": "clip", "unique_id": "bbb", "change": "transform.Opacity",
-         "before": 100.0, "after": 50.0}]
+    assert live.fake.applied == []
 
 
 # ── The offline audit caller ─────────────────────────────────────────

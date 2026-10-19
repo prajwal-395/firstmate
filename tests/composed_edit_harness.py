@@ -177,7 +177,7 @@ def build_reel(tmp_path, *, head_duration=479, head_comp=True):
         "A1": [item(tone, 590, head_duration, 3151),
                item(tone, 590 + head_duration, 186, 1200)],
     }
-    timeline = reel_timeline("LAB staged", rows)
+    timeline = reel_timeline("LAB staged", rows, {"V4": "Captions"})
     return (timeline, media_pool(timeline),
             {"aroll": aroll, "card": card, "freeze": freeze,
              "broll": broll, "tone": tone, "overlay": overlay})
@@ -211,6 +211,12 @@ def duplicate(timeline, name="LAB control", drift=()):
         rows[key] = copied
     project = timeline._project
     current = project.GetCurrentTimeline()
-    copy_of = reel_timeline(name, rows, project=project)
+    track_names = {}
+    for row in rows:
+        media_type = "video" if row.startswith("V") else "audio"
+        track_names[row] = timeline.GetTrackName(
+            media_type, int(row[1:]))
+    copy_of = reel_timeline(name, rows, track_names=track_names,
+                            project=project)
     project.SetCurrentTimeline(current)
     return copy_of

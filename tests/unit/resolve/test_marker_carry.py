@@ -6,11 +6,13 @@ promotion replaced the timeline object and they went with it, and
 nothing said so. These fakes stand in for Resolve; the API surface
 they answer is the one `promote_staged_reels` drives.
 """
-from library.tools import marker_carry
-from unittest.mock import patch
-import pytest
 import threading
 import time
+from unittest.mock import patch
+
+import pytest
+
+from library.tools import marker_carry
 
 
 @pytest.fixture(autouse=True)
@@ -19,30 +21,31 @@ def _leases_off_machine(tmp_path, monkeypatch):
     directory = tmp_path / "locks"
     directory.mkdir()
     monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from library.tools import feedback_ledger as ledger
+from library.tools import marker_gate
+from library.tools import reel_signoff as signoff
+from library.tools import uncarried_notes as owed
+from library.tools.reel_build import (
+    ReelBuildError,
+    promote_staged_reels,
+)
 from tests.promotion_test_helpers import (
     install_fake_timeline_snapshots,
     no_a_roll_track_plans,
 )
-from library.tools.reel_build import (
-    promote_staged_reels,
-)
-from tests.resolve_double import FakeProject, FakeTimeline, timeline_item
-import json
-from library.tools import reel_signoff as signoff
-from library.tools import uncarried_notes as owed
-from library.tools import feedback_ledger as ledger
-import subprocess
-import sys
-from library.tools import marker_gate
-from library.tools.reel_build import (
-    ReelBuildError,
-)
 from tests.resolve_double import (
     FakeMediaPoolItem,
+    FakeProject,
+    FakeTimeline,
     FakeTimelineItem,
+    timeline_item,
 )
-import importlib.util
-from pathlib import Path
 
 
 class _Pool:
@@ -218,8 +221,7 @@ def _reel04():
 
 def _reply_payload(timeline_name, name, note, anchor):
     from library.tools import marker_feedback as _feedback
-    from library.tools.feedback_ledger import (
-        durable_identity as _identity)
+    from library.tools.feedback_ledger import durable_identity as _identity
     text = "\n\n".join(part for part in (name, note) if part)
     return _feedback.reply_custom_data(
         "", _identity(timeline_name, text), note, "",
@@ -1021,6 +1023,9 @@ class _Project:
     def GetName(self):
         return "Mock Project"
 
+    def GetUniqueId(self):
+        return "mock-project-id"
+
     def GetMediaPool(self):
         project = self
 
@@ -1096,8 +1101,7 @@ def test_a_stranded_reply_is_reported_never_re_filed_as_blue(capsys):
     note of his with a fresh Green beside it. Asserted on TEXT and
     colour: no Blue may carry our reply's words."""
     from library.tools import marker_feedback as _feedback
-    from library.tools.feedback_ledger import (
-        durable_identity as _identity)
+    from library.tools.feedback_ledger import durable_identity as _identity
     retiring = _retiring_2()
     retiring._markers[641] = {
         "color": "Green", "name": "reply: trimmed",
@@ -1365,8 +1369,7 @@ def test_partial_promotion_carries_its_marker_losses(project):
     """A batch that raises after its passing reels landed still hands
     their drops to the step - on the exception, where no return record
     exists to carry them. The message is unchanged."""
-    from library.tools.reel_build import (
-        ReelBuildError, _raise_partial_promotion)
+    from library.tools.reel_build import ReelBuildError, _raise_partial_promotion
 
     markers = _markers(uncarried=[_ask()])
     with pytest.raises(ReelBuildError) as partial:
@@ -1986,7 +1989,10 @@ def test_carrying_waits_for_a_touchup_on_the_replacement():
     the holder releases.
     """
     from library.tools.resource_leases import (
-        LeaseDeclaration, ResourceRef, resource_lease)
+        LeaseDeclaration,
+        ResourceRef,
+        resource_lease,
+    )
     replacement = _Timeline(
         [("SpeakerOne", [_Item(1579, 1889, "/f/LC4932.MXF", left=1000)])])
     touchup = LeaseDeclaration(

@@ -591,7 +591,7 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         required: &["carrier", "transition"],
         merge: MergeSemantics::Ordered, temporal: TemporalEffect::Local,
         item: false, has_apply: false,
-        inverse: Inverse { op: None, self_inverse: false, reason: String::from("a planner re-run has no timeline inverse (C-04)") },
+        inverse: Inverse { op: None, self_inverse: false, reason: String::from("transition deletion has no qualified compensation") },
     },
     OpDeclaration {
         id: "shot_selection", domain: "timeline_structure",

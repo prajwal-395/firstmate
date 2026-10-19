@@ -779,7 +779,8 @@ def _finish_qualification_workspace(directory: Path, run_id: str, *,
                                    passed: bool, pinned: bool = False) -> dict:
     """Track the private broker files and retire them only after clean exit."""
     from library.tools import artifact_lifecycle as lifecycle
-    from library.tools.event_log import CLEANUP_JOB, emit, emit_once
+    from library.tools.artifact_lifecycle import CLEANUP_JOB
+    from library.tools.event_log import emit, emit_once
 
     owner = media_dir()
     from library.tools.project_layout import Area, ProjectLayout
@@ -795,6 +796,9 @@ def _finish_qualification_workspace(directory: Path, run_id: str, *,
             if path.suffix.lower() in {".drt", ".drp", ".otio"}:
                 raise lifecycle.LifecycleRefused(
                     f"protected recovery archive in broker workspace: {path}")
+            if path.is_symlink():
+                raise lifecycle.LifecycleRefused(
+                    f"unknown broker workspace symlink: {path}")
             identity = lifecycle.FileIdentity.capture(path)
             relative = path.relative_to(directory).as_posix()
             record = lifecycle.ArtifactRecord(

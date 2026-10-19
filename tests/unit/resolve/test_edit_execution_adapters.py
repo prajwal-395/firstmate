@@ -95,13 +95,16 @@ def test_p0_adapters_register_only_the_implemented_operation_backend_pairs():
     } <= set(resolve_axi_core.registered_edit_executors())
 
 
-def test_capability_discovery_explains_missing_routes_without_claiming_resize():
+def test_capability_discovery_reports_staged_resize_without_qualification():
     from library.tools import edit_algebra
 
     resize = edit_algebra.capability("overlay.resize")
-    assert resize["backends"] == []
-    assert "protected adapter" in " ".join(
-        resize["route_evaluation"]["gaps"])
+    assert [backend["id"] for backend in resize["backends"]] == [
+        "reel_touchup"]
+    assert resize["implemented"] is True
+    assert resize["production_enabled"] is False
+    assert any("live Resolve qualification remains deferred" in gap
+               for gap in resize["route_evaluation"]["gaps"])
     assert edit_algebra.capability("clip.slip")["backends"][0]["id"] == (
         "reel_touchup")
 

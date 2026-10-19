@@ -479,7 +479,7 @@ VERBS = (
     Verb("workspace-gc", "Maintenance", "Plan or apply bounded collection of unreachable Ren workspace data",
          effects=("read", "project_write"), subcommand="workspace-gc",
          detail="Plan or apply manifest-guarded cleanup of old qualification runs, unreferenced source-memory entries and Ren scratch files"),
-    Verb("storage", "Maintenance", "Account for storage and operate on owned lifecycle artifacts",
+    Verb("storage", "Maintenance", "Account for storage and reconcile owned lifecycle artifacts",
          effects=("read", "project_write"), builtin="storage",
          detail="Usage: `ren storage status|plan|collect|purge|restore|legacy-inventory|reconcile`; legacy inventories flag uncertain resources for review, and reconciliation retries lifecycle jobs only after fresh guarded checks",
          params=(MCP_STORAGE_OPERATION,), json=True),

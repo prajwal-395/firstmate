@@ -5,11 +5,11 @@ History: docs/evidence/resolve_test_history.md#test_resolve_guard_wiring.
 import ast
 import importlib
 from pathlib import Path
-import pytest
-from library.tools.ast_cache import parse_file, parse_source
-from library.tools.concurrency_routing import (
-    OPERATIONS, RESOLVE_CURSOR, RESOLVE_READ)
 
+import pytest
+
+from library.tools.ast_cache import parse_file, parse_source
+from library.tools.concurrency_routing import OPERATIONS, RESOLVE_CURSOR, RESOLVE_READ
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIBRARY = REPO_ROOT / "library"
@@ -56,10 +56,10 @@ def _lease_failures(op):
             lease_plan = getattr(entry_point, "__resolve_lease_plan__", None)
             if lease_plan == ("cursor_sections", "exclusive"):
                 return []
-            return [f"{op.entry_point} is routed {op.exclusion} and does not "
-                    f"take the instance. Decorate it with "
-                    f"`resolve_lock.under_lease(...)`, or move the row to "
-                    f"the class it really belongs in."]
+            return [(f"{op.entry_point} is routed {op.exclusion} and does not "
+                     f"take the instance. Decorate it with "
+                     f"`resolve_lock.under_lease(...)`, or move the row to "
+                     f"the class it really belongs in.")]
         out = []
         if leased[1] is not True:
             out.append(f"{op.entry_point} holds a SHARED lease")
@@ -71,13 +71,13 @@ def _lease_failures(op):
                        f"human_initiated={op.human_initiated}")
         return out
     if leased is None:
-        return [f"{op.entry_point} is routed {op.exclusion} and takes "
-                f"nothing. It will block inside the scriptapp handshake "
-                f"instead, which is the starvation the routing table "
-                f"exists to end."]
+        return [(f"{op.entry_point} is routed {op.exclusion} and takes "
+                 f"nothing. It will block inside the scriptapp handshake "
+                 f"instead, which is the starvation the routing table "
+                 f"exists to end.")]
     if leased[1] is not False:
-        return [f"{op.entry_point} is a READ holding an EXCLUSIVE lease - "
-                f"two readers would serialise for no reason."]
+        return [(f"{op.entry_point} is a READ holding an EXCLUSIVE lease - "
+                 f"two readers would serialise for no reason.")]
     return []
 
 
@@ -271,10 +271,9 @@ def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
 
 
 def test_non_routed_live_resolve_entry_points_take_the_lease():
-    from library.tools import reel_build, timeline_ingest
-    from library.tools import native_mcp
-    from library.tools.execution import resolve_render
     import manage_project
+    from library.tools import native_mcp, reel_build, timeline_ingest
+    from library.tools.execution import resolve_render
 
     leased = {
         "timeline_ingest.connect": timeline_ingest.connect,
@@ -422,6 +421,8 @@ CURSOR_SETTERS = {
     # Incremental staging cleanup runs under the build lease.
     "library/tools/reel_incremental.py": (
         1, "exclusive: build_staged_incremental runs under the build lease"),
+    "library/tools/reel_retirement.py": (
+        2, "exclusive: delete_exact borrows Qualification under the broker lease"),
 }
 
 METHOD = "SetCurrentTimeline"
@@ -454,11 +455,15 @@ def _is_exclusive_decorator(node) -> bool:
     return _explicitly_exclusive(exclusive)
 
 
-def _exclusive_context(node) -> bool:
+def _exclusive_context(node, relative_path) -> bool:
     if not isinstance(node, ast.Call):
         return False
     name = _call_name(node.func)
     if name == "cursor_fence":
+        return True
+    if name == "borrowed" and relative_path == "library/tools/reel_retirement.py":
+        # qualification_project.borrowed refuses unless the caller already
+        # holds the exclusive instance lease.
         return True
     if name != "resolve_lease":
         return False
@@ -470,7 +475,7 @@ def _exclusive_context(node) -> bool:
 class _CursorWriterVisitor(ast.NodeVisitor):
     """Find direct cursor/project switches outside exclusive sections."""
 
-    methods = {"SetCurrentTimeline", "SetCurrentProject"}
+    methods = frozenset({"SetCurrentTimeline", "SetCurrentProject"})
 
     def __init__(self, relative_path):
         self.relative_path = relative_path
@@ -491,7 +496,8 @@ class _CursorWriterVisitor(ast.NodeVisitor):
 
     def visit_With(self, node):
         previous = self.exclusive
-        if any(_exclusive_context(item.context_expr) for item in node.items):
+        if any(_exclusive_context(item.context_expr, self.relative_path)
+               for item in node.items):
             self.exclusive = True
         for statement in node.body:
             self.visit(statement)

@@ -114,16 +114,17 @@ def test_same_request_same_ops_on_every_backend():
     ]
 
 
-def test_router_sees_the_compiled_ops_unchanged():
+def test_router_refuses_unqualified_compiled_ops_without_losing_the_request():
     from library.tools import execution_router
 
     request = _request(_op())
     compiled = compile_request(request)
     compiled_edit, _context = compiled.to_router_input(
         {"staged": True})
-    decision = execution_router.route_compiled_edit(
-        compiled_edit, context={"staged": True})
-    assert decision.backend in ("edit_patch", "edit_patch.property")
+    with pytest.raises(execution_router.RoutingRefused,
+                       match="production routing fails closed"):
+        execution_router.route_compiled_edit(
+            compiled_edit, context={"staged": True})
     assert [op["op"] for op in compiled.operations] == ["clip.set_property"]
 
 
