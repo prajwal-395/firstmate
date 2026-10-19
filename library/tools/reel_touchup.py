@@ -2813,6 +2813,10 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             f"the staging copy did not land as {staging!r} "
             f"({candidate_error}) - nothing was edited and the approved "
             f"timeline stands.") from candidate_error
+    from library.tools.composed_edit import CandidateLifecycle
+    candidate_lifecycle = CandidateLifecycle.create(source, staged, final)
+    candidate_lifecycle.operations = list(
+        (receipt.get("edit_request") or {}).get("operations") or ())
     # The staging double is a BRANCH off the final timeline's latest
     # commit. Best-effort, like the commit - a branch that cannot be
     # recorded never fails the touch (the journal is the way back), but
@@ -2844,7 +2848,8 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                          staged, staging, qualification, rederiver,
                          receipt, declared_drops, declared_supersede,
                          accept_editor_changes, final, stage_started, journal,
-                         spec, resolve_app=resolve_app)
+                         spec, candidate_lifecycle=candidate_lifecycle,
+                         resolve_app=resolve_app)
     except Exception as failed:
         # A refused or failed touch cleans up after itself: its staging
         # is a duplicate of the approved timeline, which still stands
@@ -2874,10 +2879,13 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     # this additive view links its verified candidate to the revision it
     # produced without claiming success before promotion returns.
     receipt["transaction"] = {
-        "transaction_id": journal["id"],
+        "transaction_id": candidate_lifecycle.transaction_id,
+        "journal_id": journal["id"],
         "backend": "reel_touchup",
-        "status": ("committed" if receipt.get("promoted")
-                   and receipt.get("version") else "verification_failed"),
+        "status": (receipt.get("candidate_lifecycle") or {}).get(
+            "state", "promotion_failed"),
+        "revision_recorded": bool(receipt.get("version")
+                                   and receipt.get("commit")),
         "operations": (receipt.get("edit_request") or {}).get(
             "operations", []),
         "base_revision": receipt.get("branch_base"),
@@ -3168,6 +3176,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                  receipt: dict, declared_drops, declared_supersede,
                  accept_editor_changes, final: str, stage_started: float,
                  journal: dict, spec: Mapping, *,
+                 candidate_lifecycle=None,
                  resolve_app=None) -> None:
     """Conform, compose, verify and promote the staging copy.
 
@@ -3298,7 +3307,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         picture_row="V1",
         still_placer=still_placer,
         write_context={"project_folder": project_folder},
-        component_manifest=prior_component_manifest)
+        component_manifest=prior_component_manifest,
+        candidate_lifecycle=candidate_lifecycle)
     receipt["composed_seconds"] = round(time.time() - edit_started,
                                         3)
     receipt["composed"] = {
@@ -3331,7 +3341,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
 
     _promote(project_folder, project, pool, final, staging,
              declared_drops, declared_supersede, accept_editor_changes,
-             receipt, journal, spec, qualification)
+             receipt, journal, spec, qualification,
+             candidate_lifecycle=candidate_lifecycle)
 
 
 def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
@@ -3348,7 +3359,8 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
              declared_supersede, accept_editor_changes, receipt: dict,
-             journal: dict, spec: Mapping, qualification) -> None:
+             journal: dict, spec: Mapping, qualification,
+             candidate_lifecycle=None) -> None:
     """Guard, swap names, carry markers, close the journal, delete the
     replaced generation, close the signature."""
     from library.tools import plan_provenance as _provenance
@@ -3502,18 +3514,39 @@ def _promote(project_folder: str, project: Any, pool: Any,
     fleet_before = _gate.fleet_snapshot(project)
 
     backup = backup_name(final)
-    if not originals[final].SetName(backup):
+    from library.tools.composed_edit import (
+        CandidateLifecycle,
+        promote_candidates,
+        rename_candidate_set,
+    )
+    if candidate_lifecycle is None:
+        candidate_lifecycle = CandidateLifecycle.create(
+            originals[final], staged_found[staging], final)
+        candidate_lifecycle.mark_applied()
+    candidate_lifecycle.mark_verified(
+        modified=bool(receipt.get("verification_read")),
+        preserved=(not receipt["replace_report"].get("refused")
+                   and not receipt["editor_changes"].get("refused")),
+        evidence={"readback": receipt.get("verification_read"),
+                  "replacement": receipt["replace_report"],
+                  "editor_changes": receipt["editor_changes"].get(
+                      "preservation")})
+    try:
+        _rename_result, lifecycle_records = promote_candidates(
+            [candidate_lifecycle],
+            lambda: rename_candidate_set([{
+                "original": originals[final],
+                "candidate": staged_found[staging],
+                "final": final, "staging": staging, "backup": backup,
+                "original_id": originals[final].GetUniqueId(),
+                "candidate_id": staged_found[staging].GetUniqueId(),
+            }]))
+    except Exception as promotion_error:
         raise TouchupError(
-            f"Resolve would not rename {final!r} aside to "
-            f"{backup!r}. Nothing was deleted and the staging "
-            f"{staging!r} is untouched.")
-    if not staged_found[staging].SetName(final):
-        # The approved content is safe under the backup name; say so
-        # by name rather than leaving the operator to infer it.
-        raise TouchupError(
-            f"Resolve would not rename staging {staging!r} to "
-            f"{final!r}. The approved content is safe under "
-            f"{backup!r} - rename it back in Resolve and re-run.")
+            f"the verified candidate {staging!r} could not be promoted "
+            f"({promotion_error}); its approved generation remains "
+            f"recoverable.") from promotion_error
+    receipt["candidate_lifecycle"] = lifecycle_records[0]
     receipt["promoted"] = {"staging": staging, "final": final,
                            "backup": backup}
     if carried_markers and carried_markers["carried"]:

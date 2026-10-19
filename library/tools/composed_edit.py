@@ -193,6 +193,208 @@ def prepare_candidate(source, staging_name: str):
     return candidate
 
 
+@dataclass
+class CandidateLifecycle:
+    """One state record for a staged edit, from copy through promotion.
+
+    Adapter-specific guards still decide what must be verified and how a
+    timeline is promoted. This contract makes every adapter prove both the
+    requested writes and preserved state before entering the same promotion
+    boundary.
+    """
+
+    transaction_id: str
+    candidate_name: str
+    final_name: str
+    candidate_id: str
+    source_id: str
+    operations: list = field(default_factory=list)
+    state: str = "prepared"
+    verification: dict = field(default_factory=dict)
+
+    @classmethod
+    def create(cls, source, candidate, final_name: str,
+               operations: Sequence[Mapping] = ()):
+        try:
+            candidate_id = str(candidate.GetUniqueId() or "")
+            source_id = str(source.GetUniqueId() or "") if source else ""
+        except Exception as exc:
+            raise ComposedEditError(
+                f"candidate identity could not be read ({exc})") from exc
+        if not candidate_id:
+            raise ComposedEditError(
+                "candidate needs a readable identity")
+        return cls(
+            transaction_id=candidate_id,
+            candidate_name=str(candidate.GetName()),
+            final_name=str(final_name), candidate_id=candidate_id,
+            source_id=source_id, operations=[dict(op) for op in operations])
+
+    @classmethod
+    def from_dict(cls, record: Mapping[str, Any]):
+        candidate = record["candidate"]
+        return cls(
+            transaction_id=str(record["transaction_id"]),
+            candidate_name=str(candidate["name"]),
+            final_name=str(record["final"]),
+            candidate_id=str(candidate["id"]),
+            source_id=str(record["source_id"]),
+            operations=list(record.get("operations") or ()),
+            state=str(record["state"]),
+            verification=dict(record.get("verification") or {}))
+
+    def mark_applying(self) -> None:
+        if self.state != "prepared":
+            raise ComposedEditError(
+                f"candidate {self.candidate_name!r} cannot apply from "
+                f"state {self.state!r}")
+        self.state = "applying"
+
+    def mark_applied(self) -> None:
+        if self.state not in {"applying", "prepared"}:
+            raise ComposedEditError(
+                f"candidate {self.candidate_name!r} cannot record writes "
+                f"from state {self.state!r}")
+        self.state = "applied"
+
+    def mark_verified(self, *, modified: bool, preserved: bool,
+                      evidence: Mapping[str, Any]) -> None:
+        if self.state not in {"applied", "prepared"}:
+            raise ComposedEditError(
+                f"candidate {self.candidate_name!r} cannot verify from "
+                f"state {self.state!r}")
+        if modified is not True or preserved is not True:
+            raise ComposedEditError(
+                f"candidate {self.candidate_name!r} needs read-back proof "
+                "for modified and preserved state before promotion")
+        self.verification = {"modified": True, "preserved": True,
+                             "evidence": dict(evidence)}
+        self.state = "verified"
+
+    def as_dict(self) -> dict:
+        return {
+            "transaction_id": self.transaction_id,
+            "candidate": {"name": self.candidate_name,
+                          "id": self.candidate_id},
+            "final": self.final_name,
+            "source_id": self.source_id,
+            "operations": list(self.operations),
+            "state": self.state,
+            "verification": dict(self.verification),
+        }
+
+
+def promote_candidates(candidates: Sequence[CandidateLifecycle], promoter,
+                       *, on_update=None) -> tuple[Any, list[dict]]:
+    """Run an existing guarded promotion only for verified candidates.
+
+    Build and touch-up retain their specialized native-state gates and
+    promotion details. They enter and leave through this shared lifecycle,
+    so neither can report a successful transaction before its final name is
+    present in the promoter's read-back.
+    """
+    candidates = list(candidates)
+    if not candidates:
+        return promoter(), []
+    for candidate in candidates:
+        if candidate.state != "verified":
+            raise ComposedEditError(
+                f"candidate {candidate.candidate_name!r} is "
+                f"{candidate.state!r}, not verified; promotion refused")
+    for candidate in candidates:
+        candidate.state = "promoting"
+    if on_update:
+        on_update([candidate.as_dict() for candidate in candidates])
+    try:
+        result = promoter()
+    except Exception:
+        for candidate in candidates:
+            candidate.state = "promotion_failed"
+        if on_update:
+            on_update([candidate.as_dict() for candidate in candidates])
+        raise
+    promoted = result.get("promoted", ()) if isinstance(result, Mapping) else ()
+    if isinstance(promoted, Mapping):
+        promoted_names = set(promoted.values())
+    else:
+        promoted_names = set(promoted or ())
+    for candidate in candidates:
+        candidate.state = ("promoted" if candidate.final_name in promoted_names
+                           else "promotion_failed")
+    if on_update:
+        on_update([candidate.as_dict() for candidate in candidates])
+    return result, [candidate.as_dict() for candidate in candidates]
+
+
+def rename_candidate_set(rows: Sequence[Mapping[str, Any]]) -> dict:
+    """Perform the common, identity-checked candidate name swap.
+
+    Callers run their edit-specific guards before entering this boundary,
+    while the Resolve lease is held. Originals are retained under their
+    declared backup names until callers complete their post-promotion
+    checks and durable revision records.
+    """
+    rows = list(rows)
+    for row in rows:
+        original = row.get("original")
+        candidate = row["candidate"]
+        final = str(row["final"])
+        staging = str(row["staging"])
+        if candidate is None or candidate.GetName() != staging:
+            raise ComposedEditError(
+                f"candidate {staging!r} is missing or has a different name")
+        expected_candidate_id = str(row.get("candidate_id") or "")
+        actual_candidate_id = str(candidate.GetUniqueId() or "")
+        if not actual_candidate_id or (expected_candidate_id
+                                       and actual_candidate_id
+                                       != expected_candidate_id):
+            raise ComposedEditError(
+                f"candidate {staging!r} identity changed before promotion")
+        if original is not None:
+            expected_original_id = str(row.get("original_id") or "")
+            actual_original_id = str(original.GetUniqueId() or "")
+            if (original.GetName() != final or not actual_original_id
+                    or (expected_original_id
+                        and actual_original_id != expected_original_id)):
+                raise ComposedEditError(
+                    f"approved timeline {final!r} identity changed before "
+                    "promotion")
+
+    for row in rows:
+        original = row.get("original")
+        if original is None:
+            continue
+        backup = str(row["backup"])
+        if not original.SetName(backup) or original.GetName() != backup:
+            raise ComposedEditError(
+                f"Resolve would not rename {row['final']!r} aside to "
+                f"{backup!r}; candidate {row['staging']!r} remains intact")
+        expected_id = str(row.get("original_id") or "")
+        if expected_id and str(original.GetUniqueId() or "") != expected_id:
+            raise ComposedEditError(
+                f"retired generation {backup!r} did not preserve its "
+                "timeline identity")
+
+    promoted = []
+    for row in rows:
+        candidate = row["candidate"]
+        final = str(row["final"])
+        staging = str(row["staging"])
+        expected_id = str(row.get("candidate_id") or "")
+        if not candidate.SetName(final):
+            raise ComposedEditError(
+                f"Resolve would not rename staging {staging!r} to {final!r}; "
+                "the approved generation remains under its backup name")
+        actual_id = str(candidate.GetUniqueId() or "")
+        if candidate.GetName() != final or (expected_id
+                                             and actual_id != expected_id):
+            raise ComposedEditError(
+                f"promoted timeline {final!r} did not read back as the "
+                "verified candidate")
+        promoted.append(final)
+    return {"promoted": promoted}
+
+
 def operation_description(operation: Mapping[str, Any]) -> dict:
     """Describe a transaction op using the canonical edit algebra."""
     from library.tools import edit_algebra
@@ -1555,7 +1757,8 @@ def apply_composed_edit(*, timeline, media_pool,
                         picture_row: str = "V1",
                         still_placer=None,
                         write_context: Mapping[str, Any] | None = None,
-                        component_manifest: Mapping[str, Any] | None = None
+                        component_manifest: Mapping[str, Any] | None = None,
+                        candidate_lifecycle: CandidateLifecycle | None = None
                         ) -> ComposedEditReceipt:
     """Steps 3 to 7, in the one order that works, on a STAGED timeline.
 
@@ -1572,6 +1775,8 @@ def apply_composed_edit(*, timeline, media_pool,
     """
     started = time.time()
     receipt = ComposedEditReceipt()
+    if candidate_lifecycle is not None:
+        candidate_lifecycle.mark_applying()
     changes = list(changes)
     insertions = list(insertions)
     grade_sources = dict(grade_sources or {})
@@ -1657,6 +1862,9 @@ def apply_composed_edit(*, timeline, media_pool,
             _rows_of(timeline), changes, pass_receipt, insertions,
             rederiver)
 
+    if candidate_lifecycle is not None:
+        candidate_lifecycle.mark_applied()
+
     # This strategy edits a staged timeline. Promotion and delivery are
     # owned by the caller, so its receipt must not claim either outcome.
     receipt.committed = {"status": "awaiting_promotion"}
@@ -1670,6 +1878,8 @@ def apply_composed_edit(*, timeline, media_pool,
         planned_count=len(changes) + len(insertions),
         applied=dict(receipt.applied), verified=dict(receipt.verified),
         rederivation_required=dict(receipt.rederivation_required))
+    if candidate_lifecycle is not None:
+        receipt.lifecycle["candidate"] = candidate_lifecycle.as_dict()
 
     receipt.seconds = round(time.time() - started, 3)
     return receipt

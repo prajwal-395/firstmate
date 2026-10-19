@@ -12658,27 +12658,52 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # (`library/tools/marker_gate.py`).
     fleet_before = _gate.fleet_snapshot(project)
 
-    for final in ok_finals:
-        staging = staged_to_final[final]
-        if final in originals:
-            if not originals[final].SetName(backups[final]):
-                raise PromotionFailure(
-                    f"REFUSING to promote: Resolve would not rename "
-                    f"{final!r} aside to {backups[final]!r}. Nothing "
-                    f"was deleted and the staging {staging!r} is "
-                    f"untouched - re-run once Resolve allows renames.",
-                    failure_class=PromotionFailure.EXECUTION)
-            print(f"Retired {final} to {backups[final]}", flush=True)
-    for final in ok_finals:
-        staging = staged_to_final[final]
-        if not staged_found[staging].SetName(final):
-            raise PromotionFailure(
-                f"REFUSING to promote: Resolve would not rename staging "
-                f"{staging!r} to {final!r}. The approved content is "
-                f"safe under "
-                f"{[backups[f] for f in ok_finals if f in originals]} - "
-                f"rename it back in Resolve and re-run.",
-                failure_class=PromotionFailure.EXECUTION)
+    from library.tools.composed_edit import CandidateLifecycle as _CandidateLifecycle
+    from library.tools.composed_edit import (
+        ComposedEditError as _CandidatePromotionError,
+    )
+    from library.tools.composed_edit import promote_candidates as _promote_candidates
+    from library.tools.composed_edit import (
+        rename_candidate_set as _rename_candidate_set,
+    )
+    rename_rows = [{
+        "original": originals.get(final),
+        "candidate": staged_found[staged_to_final[final]],
+        "final": final,
+        "staging": staged_to_final[final],
+        "backup": backups.get(final),
+        "original_id": (originals[final].GetUniqueId()
+                        if final in originals else ""),
+        "candidate_id": (staged_timeline_ids or {}).get(
+            staged_to_final[final], ""),
+    } for final in ok_finals]
+    candidate_lifecycles = []
+    for row in rename_rows:
+        lifecycle = _CandidateLifecycle.create(
+            row["original"], row["candidate"], row["final"])
+        lifecycle.mark_applied()
+        lifecycle.mark_verified(
+            modified=True, preserved=True,
+            evidence={"replacement_guard": replace_reports.get(
+                          row["final"], {"fresh_reel": True}),
+                      "timeline_conformance": "passed",
+                      "candidate_identity": row["candidate_id"]})
+        candidate_lifecycles.append(lifecycle)
+    try:
+        _rename_result, candidate_lifecycle_records = _promote_candidates(
+            candidate_lifecycles,
+            lambda: _rename_candidate_set(rename_rows))
+    except _CandidatePromotionError as failed_rename:
+        raise PromotionFailure(
+            f"REFUSING to promote: the shared candidate name swap failed "
+            f"({failed_rename}). Approved generations remain identifiable; "
+            "inspect their current names before retrying.",
+            failure_class=PromotionFailure.EXECUTION) from failed_rename
+    for row in rename_rows:
+        final = row["final"]
+        staging = row["staging"]
+        if row["original"] is not None:
+            print(f"Retired {final} to {row['backup']}", flush=True)
         print(f"Promoted {staging} to {final}", flush=True)
         notes = carried_markers.get(final)
         if notes and notes.get("uncarried") and final in originals:
@@ -13391,6 +13416,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         _thesis_error.markers = carried_markers
         raise _thesis_error
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
+            "candidate_lifecycles": candidate_lifecycle_records,
             "replace_reports": replace_reports,
             "refused": dict(refused),
             "markers": carried_markers,

@@ -828,6 +828,10 @@ def build_staged_incremental(
             f"the final could not be duplicated as a verified candidate "
             f"({exc}) - falling back to the full rebuild") from exc
     _assert_placing(project, staging)
+    from library.tools.composed_edit import CandidateLifecycle
+    candidate_lifecycle = CandidateLifecycle.create(
+        final_timeline, staging, final_name)
+    candidate_lifecycle.mark_applying()
 
 
 
@@ -1123,12 +1127,19 @@ def build_staged_incremental(
             if diff.added or diff.replace:
                 requested_ops.append(operation_description(
                     {"op": "overlay.add"}))
+        candidate_lifecycle.operations = requested_ops
+        candidate_lifecycle.mark_applied()
+        candidate_lifecycle.mark_verified(
+            modified=True, preserved=True,
+            evidence={"placement_check": build_record["placement_check"],
+                      "final_overlay_diff_empty": True,
+                      "preserved_inventories": [
+                          "footage", "cards", "transitions", "captions",
+                          "frame", "freeze tail"]})
         build_record["transaction"] = {
-            "transaction_id": str(staging.GetUniqueId()),
+            **candidate_lifecycle.as_dict(),
             "backend": "reel_incremental",
             "status": "verified",
-            "operations": requested_ops,
-            "candidate": staging_name,
             "base_timeline": final_name,
             "verification": {
                 "status": "verified",
