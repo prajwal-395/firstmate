@@ -112,7 +112,7 @@ def test_async_axi_transaction_tools_are_discoverable_and_guarded(monkeypatch):
     })
     assert refused["result"]["isError"] is True
     from library.tools import resolve_axi_sdk
-    monkeypatch.setattr(resolve_axi_sdk, "get_transaction_job", lambda job_id,
+    monkeypatch.setattr(resolve_axi_sdk, "get_edit_job", lambda job_id,
                         wait=0: {"id": job_id, "status": "running"})
     response = handle_message({
         "jsonrpc": "2.0", "id": 11, "method": "tools/call",
@@ -121,6 +121,35 @@ def test_async_axi_transaction_tools_are_discoverable_and_guarded(monkeypatch):
     })
     assert json.loads(response["result"]["content"][0]["text"]) == {
         "id": "job-1", "status": "running"}
+
+
+def test_semantic_edit_request_mcp_uses_sdk_and_requires_apply(monkeypatch):
+    tools = {tool["name"]: tool for tool in _list_tools()}
+    assert tools["resolve_axi_edit_request_plan"]["annotations"]["readOnlyHint"]
+    assert tools["resolve_axi_edit_request"]["_meta"]["execution_mode"] == (
+        "semantic_request_submit")
+    refused = handle_message({
+        "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+        "params": {"name": "resolve_axi_edit_request",
+                   "arguments": {"request": {}, "apply": False}},
+    })
+    assert refused["result"]["isError"] is True
+    from library.tools import resolve_axi_sdk
+    seen = []
+
+    def submit(request, *, authorized=False, owner="resolve-axi"):
+        seen.append((request, authorized))
+        return {"id": "request-job", "status": "queued"}
+
+    monkeypatch.setattr(resolve_axi_sdk, "submit_edit", submit)
+    response = handle_message({
+        "jsonrpc": "2.0", "id": 14, "method": "tools/call",
+        "params": {"name": "resolve_axi_edit_request",
+                   "arguments": {"request": {"id": "req-2"}, "apply": True}},
+    })
+    assert json.loads(response["result"]["content"][0]["text"]) == {
+        "id": "request-job", "status": "queued"}
+    assert seen == [({"id": "req-2"}, True)]
 
 
 def test_axi_transaction_plan_is_read_only_and_uses_shared_sdk(monkeypatch):

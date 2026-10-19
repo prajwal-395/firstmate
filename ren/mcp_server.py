@@ -200,6 +200,22 @@ def axi_transaction_retrieve_tool() -> dict:
     }
 
 
+def axi_transaction_cancel_tool() -> dict:
+    return {
+        "name": "resolve_axi_transaction_cancel",
+        "description": "Request broker cancellation when the job declares a safe stop path.",
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"job_id": {"type": "string", "minLength": 1}},
+            "required": ["job_id"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True,
+                         "idempotentHint": True, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "safe_job_cancel"},
+    }
+
+
 def axi_transaction_plan_tool() -> dict:
     return {
         "name": "resolve_axi_transaction_plan",
@@ -214,6 +230,79 @@ def axi_transaction_plan_tool() -> dict:
         "_meta": {"control_boundary": "resolve-axi",
                   "execution_mode": "transaction_plan"},
     }
+
+
+def axi_edit_request_tool() -> dict:
+    return {
+        "name": "resolve_axi_edit_request",
+        "description": ("Submit one semantic EditRequest through the AXI "
+                        "router. apply must be explicitly true; the SDK "
+                        "prepares and authorizes the selected backend."),
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "request": {"type": "object", "minProperties": 1},
+                "apply": {"type": "boolean"},
+            },
+            "required": ["request", "apply"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True,
+                         "idempotentHint": False, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "semantic_request_submit"},
+    }
+
+
+def axi_edit_request_plan_tool() -> dict:
+    return {
+        "name": "resolve_axi_edit_request_plan",
+        "description": "Prepare and route an EditRequest without contacting Resolve.",
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"request": {"type": "object", "minProperties": 1}},
+            "required": ["request"],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                         "idempotentHint": True, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "semantic_request_plan"},
+    }
+
+
+def call_axi_edit_request_plan(arguments: dict) -> dict:
+    request = arguments.get("request")
+    if not isinstance(request, dict):
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2, "error": "request must be an EditRequest object"})}],
+            "isError": True}
+    from library.tools.resolve_axi_sdk import prepare_edit
+    try:
+        result = prepare_edit(request)
+        return {"content": [{"type": "text", "text": json.dumps(
+            result, ensure_ascii=False, default=str)}]}
+    except (KeyError, TypeError, ValueError, RuntimeError, PermissionError) as exc:
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2, "error": str(exc)})}], "isError": True}
+
+
+def call_axi_edit_request(arguments: dict) -> dict:
+    if arguments.get("apply") is not True:
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 4,
+            "error": "semantic edits require apply: true"})}], "isError": True}
+    request = arguments.get("request")
+    if not isinstance(request, dict):
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2, "error": "request must be an EditRequest object"})}],
+            "isError": True}
+    from library.tools.resolve_axi_sdk import submit_edit
+    try:
+        result = submit_edit(request, authorized=True)
+        return {"content": [{"type": "text", "text": json.dumps(
+            result, ensure_ascii=False, default=str)}]}
+    except (KeyError, TypeError, ValueError, RuntimeError, PermissionError) as exc:
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 4, "error": str(exc)})}], "isError": True}
 
 
 def call_axi_transaction_plan(arguments: dict) -> dict:
@@ -266,10 +355,26 @@ def call_axi_transaction_retrieve(arguments: dict) -> dict:
         return {"content": [{"type": "text", "text": json.dumps({
             "ok": False, "exit": 2, "error": "wait must be non-negative"})}],
             "isError": True}
-    from library.tools.resolve_axi_sdk import get_transaction_job
-    job = get_transaction_job(job_id, wait=float(wait))
+    from library.tools.resolve_axi_sdk import get_edit_job
+    job = get_edit_job(job_id, wait=float(wait))
     return {"content": [{"type": "text", "text": json.dumps(
         job, ensure_ascii=False, default=str)}]}
+
+
+def call_axi_transaction_cancel(arguments: dict) -> dict:
+    job_id = arguments.get("job_id")
+    if not isinstance(job_id, str) or not job_id.strip():
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2, "error": "job_id must be non-empty"})}],
+            "isError": True}
+    from library.tools.resolve_axi_sdk import cancel_edit_job
+    try:
+        result = cancel_edit_job(job_id)
+        return {"content": [{"type": "text", "text": json.dumps(
+            result, ensure_ascii=False, default=str)}]}
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 4, "error": str(exc)})}], "isError": True}
 
 
 def _typed_axi_transaction(transaction_type, patch: dict):
@@ -545,8 +650,10 @@ def handle_message(message, execute=run_verb):
         return _result(request_id, {})
     if method == "tools/list":
         return _result(request_id, {
-        "tools": [axi_tool(), axi_transaction_tool(),
+        "tools": [axi_tool(), axi_edit_request_tool(),
+                  axi_edit_request_plan_tool(), axi_transaction_tool(),
                   axi_transaction_submit_tool(), axi_transaction_retrieve_tool(),
+                  axi_transaction_cancel_tool(),
                   axi_transaction_plan_tool(),
                       *[tool_for_verb(verb) for verb in VERBS]]})
     if method == "tools/call":
@@ -565,10 +672,16 @@ def handle_message(message, execute=run_verb):
             return _result(request_id, call_axi(arguments))
         if tool == "resolve_axi_transaction":
             return _result(request_id, call_axi_transaction(arguments))
+        if tool == "resolve_axi_edit_request":
+            return _result(request_id, call_axi_edit_request(arguments))
+        if tool == "resolve_axi_edit_request_plan":
+            return _result(request_id, call_axi_edit_request_plan(arguments))
         if tool == "resolve_axi_transaction_submit":
             return _result(request_id, call_axi_transaction_submit(arguments))
         if tool == "resolve_axi_transaction_retrieve":
             return _result(request_id, call_axi_transaction_retrieve(arguments))
+        if tool == "resolve_axi_transaction_cancel":
+            return _result(request_id, call_axi_transaction_cancel(arguments))
         if tool == "resolve_axi_transaction_plan":
             return _result(request_id, call_axi_transaction_plan(arguments))
         by_tool = {tool_name(verb.name): verb for verb in VERBS}

@@ -8020,6 +8020,34 @@ def cmd_update(_args) -> int:
     return 0
 
 
+def cmd_edit_request(args) -> int:
+    """Semantic EditRequest lifecycle through the shared AXI SDK."""
+    from library.tools.resolve_axi_sdk import (
+        cancel_edit_job,
+        get_edit_job,
+        prepare_edit,
+        submit_edit,
+    )
+    try:
+        if args.request_command in {"plan", "submit"}:
+            request = json.loads(Path(args.file).read_text(encoding="utf-8"))
+            if not isinstance(request, dict):
+                raise ValueError("request file must contain a JSON object")
+            if args.request_command == "plan":
+                result = prepare_edit(request)
+            else:
+                result = submit_edit(request, authorized=bool(args.apply))
+        elif args.request_command == "status":
+            result = get_edit_job(args.job_id, wait=args.wait)
+        else:
+            result = cancel_edit_job(args.job_id)
+        print(json.dumps(result, ensure_ascii=False, default=str))
+        return 0
+    except (OSError, json.JSONDecodeError, KeyError, TypeError,
+            ValueError, PermissionError) as exc:
+        return fail(str(exc), "correct the request or job id and retry")
+
+
 # ── Argument wiring ──────────────────────────────────────────────────
 
 
@@ -8336,6 +8364,24 @@ def build_parser() -> Parser:
                    help="ripple the timeline (never defaulted - "
                         "moves every later cut)")
     q.set_defaults(func=cmd_edit_speed)
+
+    p = subs.add_parser("edit-request", help="prepare or submit semantic edit intent")
+    rsubs = p.add_subparsers(dest="request_command", required=True)
+    q = rsubs.add_parser("plan", help="prepare and route without Resolve writes")
+    q.add_argument("file", help="JSON EditRequest file")
+    q.set_defaults(func=cmd_edit_request)
+    q = rsubs.add_parser("submit", help="submit through the selected AXI backend")
+    q.add_argument("file", help="JSON EditRequest file")
+    q.add_argument("--apply", action="store_true",
+                   help="authorize the prepared semantic edit")
+    q.set_defaults(func=cmd_edit_request)
+    q = rsubs.add_parser("status", help="read a semantic edit job")
+    q.add_argument("job_id")
+    q.add_argument("--wait", type=float, default=0.0)
+    q.set_defaults(func=cmd_edit_request)
+    q = rsubs.add_parser("cancel", help="request a broker-safe cancellation")
+    q.add_argument("job_id")
+    q.set_defaults(func=cmd_edit_request)
 
     p = subs.add_parser("ingest", help="import files into the pool's "
                                        "current folder; --apply writes")

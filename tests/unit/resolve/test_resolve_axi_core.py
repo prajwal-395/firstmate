@@ -142,3 +142,28 @@ def test_transaction_plan_validates_recorded_base_without_resolve(monkeypatch):
     assert plan["authorization_required"] is True
     assert plan["resolve_contacted"] is False
     assert plan["mutated"] is False
+
+
+def test_semantic_submission_requires_authorization_before_preparation():
+    import pytest
+
+    from library.tools.resolve_axi_core import submit_edit_request_async
+
+    with pytest.raises(PermissionError, match="explicit authorization"):
+        submit_edit_request_async({}, authorized=False)
+
+
+def test_sdk_semantic_submit_uses_shared_request_pipeline(monkeypatch):
+    from library.tools import resolve_axi_sdk
+
+    seen = []
+
+    def submit(request, *, authorized=False, owner="resolve-axi"):
+        seen.append((request, authorized, owner))
+        return {"id": "semantic-job", "status": "queued"}
+
+    monkeypatch.setattr(resolve_axi_sdk, "submit_edit_request_async", submit)
+    result = resolve_axi_sdk.submit_edit(
+        {"id": "req-1"}, authorized=True, owner="test-owner")
+    assert result == {"id": "semantic-job", "status": "queued"}
+    assert seen == [({"id": "req-1"}, True, "test-owner")]
