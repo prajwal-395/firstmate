@@ -46,7 +46,9 @@ def test_absolute_box_lowers_even_when_full_canvas_has_no_hint(monkeypatch):
             assert anchor == (0.5, 0.5)
             return SimpleNamespace(
                 scaling=1.0, pan=0.0, tilt=0.0,
-                zoom_x=1080 / 728, zoom_y=1920 / 480)
+                zoom_x=1080 / 728, zoom_y=1920 / 480,
+                rotation=0.0, anchor_x=0.5, anchor_y=0.5,
+                crop=(0.0, 0.0, 0.0, 0.0))
 
     monkeypatch.setattr(overlay_intent, "resolve",
                         lambda *args, **kwargs: (None, "computed"))

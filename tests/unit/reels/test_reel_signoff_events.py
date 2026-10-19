@@ -52,10 +52,14 @@ def test_withdraw_leaves_a_withdrawn_event_and_keeps_the_approval(project):
     assert reel_signoff.withdraw(project, "Reel 09",
                                  why="grade shifted") is True
     events = read_events(project)
-    assert [e["type"] for e in events] == [
+    # Sign-off now runs inside the project activity lease; lease lifecycle
+    # events are expected alongside the editorial events.
+    editorial = [e for e in events if e["type"] in {
+        event_log.REEL_SIGNED_OFF, event_log.SIGNOFF_WITHDRAWN}]
+    assert [e["type"] for e in editorial] == [
         event_log.REEL_SIGNED_OFF, event_log.SIGNOFF_WITHDRAWN]
-    assert events[1]["fields"] == {"reel": "Reel 09",
-                                   "why": "grade shifted"}
+    assert editorial[1]["fields"] == {"reel": "Reel 09",
+                                       "why": "grade shifted"}
 
 
 def test_withdraw_of_nothing_leaves_no_event(project):

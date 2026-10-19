@@ -605,8 +605,22 @@ def project_activity_lease(function):
             try:
                 project_path = project_root(str(project_folder))
             except (FileNotFoundError, ValueError) as exc:
-                raise LifecycleRefused(
-                    f"cannot resolve project for activity lease: {project_folder}") from exc
+                # Commands such as ``build-reels`` accept a project slug.
+                # Resolve that slug through the same registry the command
+                # uses before taking its project activity lease.
+                from library.tools import project_registry
+
+                try:
+                    project = project_registry.get_project(str(project_folder))
+                except Exception:  # noqa: BLE001 - preserve the command refusal
+                    project = None
+                if project is None:
+                    raise ValueError(f"Unknown project {project_folder!r}") from exc
+                root = getattr(project, "project_root", None)
+                if not root:
+                    raise LifecycleRefused(
+                        f"project registry entry has no root: {project_folder}") from exc
+                project_path = Path(root).expanduser()
         project_path = project_path.resolve()
         # A durable job left by a process interruption is resumed the next
         # time Ren enters this project; its lease arbitrates with this run.
@@ -617,5 +631,5 @@ def project_activity_lease(function):
         with resource_leases.resource_lease(
                 declaration, purpose="project-pipeline-run",
                 project=str(project_path), wait=True):
-            return function(project_folder, *args, **kwargs)
+            return function(str(project_path), *args, **kwargs)
     return guarded

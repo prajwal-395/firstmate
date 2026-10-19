@@ -108,6 +108,11 @@ def _project_with_master(tmp_path, monkeypatch):
     from library.tools import resolve_lock
 
     timeline, _pool, _media = build_reel(tmp_path)
+    # Model the real reel's semantic overlay rows. Unknown row names now
+    # fail closed as continuous program, so the fixture must name its
+    # frame and caption tracks before testing staging cleanup.
+    timeline.SetTrackName("video", 3, "Frame")
+    timeline.SetTrackName("video", 4, "Subtitles")
     timeline.SetName(MASTER)
     project = timeline._project
     other = FakeTimeline("Reel 05 - something", project)
@@ -210,6 +215,8 @@ def _project_with_reel(tmp_path, monkeypatch):
     from library.tools import resolve_lock
 
     timeline, _pool, _media = build_reel(tmp_path)
+    timeline.SetTrackName("video", 3, "Frame")
+    timeline.SetTrackName("video", 4, "Subtitles")
     timeline.SetName(REEL_NAME)
     project = timeline._project
     other = FakeTimeline("Reel 02 - another", project)

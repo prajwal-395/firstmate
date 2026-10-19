@@ -1359,12 +1359,11 @@ def _op_resize_still(edit, position, tracks, spans, changes, insertions,
             "frame duration",
             f"give edit {position} all three keys, then re-run `ren touch`")
     if (not row.startswith("V") or not row[1:].isdigit()
-            or _is_continuous_row(row, tracks)
-            or _row_has_live_comps(row, tracks)):
+            or _is_continuous_row(row, tracks)):
         raise TouchupRefused(
             f"edit {position} (`resize_still`) targets {row}",
-            "only an overlay on a non-comp-bearing V3+ row can be "
-            "re-placed without a Fusion pass",
+            "only an overlay on a sparse V3+ row can be re-placed without "
+            "changing the picture program",
             "name a native still on an untreated overlay row, then "
             "re-run `ren touch`")
     clip = _find_clip(tracks, row, int(item_index))

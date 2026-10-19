@@ -10,6 +10,10 @@ def test_touchup_routing_preserves_overlay_and_row_operation_identity():
         "remove_overlay": "overlay.remove",
         "swap_pixels": "overlay.swap_pixels",
         "resize_still": "overlay.resize",
+        "resize_overlay": "overlay.resize",
+        "split": "clip.split",
+        "slide": "clip.slide",
+        "roll": "clip.roll",
         "add_row": "track.add",
         "move": "clip.move",
     }

@@ -112,6 +112,17 @@ def _ledger(project: Path) -> list:
     return edit_ledger.load_rows(str(project))
 
 
+def _assert_program_refused_unqualified(result: dict, live) -> None:
+    """The AXI policy now refuses semantic ops without production proof."""
+    from library.tools import revise
+
+    assert result["status"] == revise.STATUS_REFUSED
+    assert result["classification"]["verdict"] == "refused"
+    assert "no production-qualified executor" in (
+        result["classification"]["reason"])
+    assert live.applied == []
+
+
 @pytest.fixture
 def live(monkeypatch):
     """Resolve, as the patch path meets it: handles, read-back, apply."""
@@ -155,11 +166,9 @@ def _scale(uid: str, key: str) -> dict:
             "params": {"unique_id": uid, "key": key, "value": 1.25}}
 
 
-def test_a_caption_size_note_is_patched_in_place_and_says_where(
+def test_unqualified_caption_size_program_is_refused_before_any_write(
         project, live, monkeypatch):
-    """Catches: a caption-size note going to a rebuild (or nowhere) instead
-    of a patch on the captions already placed, an outcome that is not
-    recorded, and a reply that does not say where the change landed."""
+    """Typed programs cannot bypass AXI's production qualification gate."""
     from library.tools import revise
 
     started = revise.start(project, "the captions are too small", reel=REEL)
@@ -185,37 +194,9 @@ def test_a_caption_size_note_is_patched_in_place_and_says_where(
                             for key in ("ZoomX", "ZoomY")]}})
     result = revise.advance(project, started["revise_id"], **live.options)
 
-    assert result["status"] == revise.STATUS_PATCHED
-    assert result["route"] == revise.ROUTE_PATCH
-    assert result["classification"]["verdict"] == "patch"
-    # The ops and the scope JSON the flow used to take by hand.
-    [applied] = live.applied
-    assert applied["scope"] == {"clips": ["cap-1", "cap-2"],
-                                "marker_frames": [], "clip_markers": []}
-    assert [op["op"] for op in applied["operations"]] == [
-        "clip.set_property"] * 4
-    # The summary names the region: the reel, the row, the seconds.
-    change = result["change"]
-    assert change["region"] == {"reel": REEL, "rows": ["V5 Subtitles"],
-                                "start_seconds": 1.0, "end_seconds": 5.0}
-    assert "captions" in change["changed_categories"]
-    assert result["reply"] == change["summary"]
-    assert "V5 Subtitles" in result["reply"] and REEL in result["reply"]
-    assert "0:01.0" in result["reply"] and "0:05.0" in result["reply"]
-    # Verified by the read-back, and recorded with that summary.
-    assert result["verification"]["record"]["status"] == "resolved_verified"
-    [outcome] = _outcomes(project)
-    assert outcome["status"] == "resolved_verified"
-    assert outcome["action"]["kind"] == "patch"
-    assert outcome["action"]["summary"] == change["summary"]
-    assert outcome["verification"]["state"] == "timeline_readback"
-    # The program is in the ledger, and the assignment says a revision
-    # happened to the reel it owns - still in review, the reel still built.
-    assert [row["op"] for row in _ledger(project)] == ["edit_program"]
-    record = _assignment(project)
-    assert record["history"][-1]["event"] == "revise"
-    assert record["state"] == "review"
-    assert next(iter(record["reels"].values()))["status"] == "built"
+    _assert_program_refused_unqualified(result, live)
+    assert "route" not in result
+    assert _ledger(project) == []
 
 
 def test_a_shot_order_note_becomes_a_scoped_rebuild(project, monkeypatch):
@@ -242,7 +223,7 @@ def test_a_shot_order_note_becomes_a_scoped_rebuild(project, monkeypatch):
     result = revise.advance(project, started["revise_id"],
                             run=lambda argv: ran.append(argv) or 0)
 
-    assert result["status"] == revise.STATUS_REBUILT
+    assert result["status"] == revise.STATUS_UNVERIFIED
     assert result["route"] == revise.ROUTE_REBUILD
     assert result["classification"]["verdict"] == "rebuild"
     assert ran == [["run", str(project), "--rerun", "speech_sequence"],
@@ -250,7 +231,7 @@ def test_a_shot_order_note_becomes_a_scoped_rebuild(project, monkeypatch):
     assert result["commands"] == [
         f"ren edit {project} --rerun speech_sequence",
         f"ren build {project} --only-reel 2"]
-    assert REEL in result["reply"] and "speech_sequence" in result["reply"]
+    assert result["verification"]["state"] == "not_proven"
     assert [row["op"] for row in _ledger(project)] == ["plan_change"]
     # One outcome: planned before the run, then answered after it - and
     # answered honestly: no check proves a re-planned order, so it is
@@ -283,7 +264,7 @@ def test_preview_flag_reaches_the_scoped_build(project, monkeypatch):
     result = revise.advance(
         project, started["revise_id"], run=lambda argv: ran.append(argv) or 0)
 
-    assert result["status"] == revise.STATUS_REBUILT
+    assert result["status"] == revise.STATUS_UNVERIFIED
     assert ran[-1] == ["build-reels", str(project), "--only-reel", "2",
                        "--preview"]
 
@@ -335,9 +316,8 @@ def test_an_ambiguous_note_asks_exactly_one_question_and_changes_nothing(
     assert "Answered: the price reveal" in request["prompt"]
 
 
-def test_revising_signed_off_work_asks_first(project, live):
-    """Catches: a patch quietly changing a reel the creator already
-    approved - D2 asks, exactly as a rebuild of approved work does."""
+def test_unqualified_program_does_not_touch_signed_off_work(project, live):
+    """A refused program leaves approved work and its assignment untouched."""
     from library.tools import assignment_spine as spine
     from library.tools import revise
 
@@ -348,15 +328,15 @@ def test_revising_signed_off_work_asks_first(project, live):
         "program": {"kind": "edit_program", "reel": REEL,
                     "base_generation": "1", "idempotency_key": "k",
                     "ops": [_scale("cap-1", "ZoomX")]}})
-    with pytest.raises(spine.AssignmentDecisionRequired):
-        revise.advance(project, started["revise_id"], **live.options)
+    result = revise.advance(project, started["revise_id"], **live.options)
+    _assert_program_refused_unqualified(result, live)
+    assert spine.current(project, spine.KIND_REELS)["state"] == "approved"
     assert live.applied == [] and _ledger(project) == []
 
 
-def test_a_program_against_a_moved_reel_is_refused_before_any_write(
+def test_unqualified_program_is_refused_before_any_write(
         project, live):
-    """Catches: ops naming items as they were applied to what the reel
-    holds now."""
+    """A stale semantic program is stopped by qualification before write."""
     from library.tools import revise
 
     started = revise.start(project, "the captions are too small", reel=REEL)
@@ -365,15 +345,13 @@ def test_a_program_against_a_moved_reel_is_refused_before_any_write(
         "program": {"kind": "edit_program", "reel": REEL,
                     "base_generation": "0", "idempotency_key": "k",
                     "ops": [_scale("cap-1", "ZoomX")]}})
-    with pytest.raises(revise.ReviseRefused, match="changed since"):
-        revise.advance(project, started["revise_id"], **live.options)
+    result = revise.advance(project, started["revise_id"], **live.options)
+    _assert_program_refused_unqualified(result, live)
     assert live.applied == [] and _ledger(project) == []
 
 
-def test_off_qualification_the_same_patch_is_a_touch_up(project, monkeypatch):
-    """Catches: the guarded patch path (live only on Ren Qualification)
-    being routed around on a real project - the same ops go through
-    `ren touch`, stated by row and position."""
+def test_off_qualification_unqualified_patch_is_refused(project, monkeypatch):
+    """No project scope bypasses the production executor qualification."""
     from library.tools import edit_spec, revise
 
     monkeypatch.setattr(edit_spec, "_resolve_project_name",
@@ -392,13 +370,12 @@ def test_off_qualification_the_same_patch_is_a_touch_up(project, monkeypatch):
     result = revise.advance(project, started["revise_id"],
                             run=lambda argv: ran.append(argv) or 0)
 
-    assert result["status"] == revise.STATUS_TOUCHED
-    [argv] = ran
-    assert argv[:3] == ["touch-reel", str(project), "2"]
-    assert json.loads(argv[4]) == [{
-        "op": "set_properties", "row": "V5", "item": 2,
-        "properties": {"ZoomX": 1.25, "ZoomY": 1.25}}]
-    assert result["change"]["region"]["start_seconds"] == 20.0
+    assert result["status"] == revise.STATUS_REFUSED
+    assert result["classification"]["verdict"] == "refused"
+    assert "no production-qualified executor" in (
+        result["classification"]["reason"])
+    assert ran == []
+    assert "route" not in result
 
 
 def _prop(uid: str, key: str, value: float) -> dict:
@@ -415,122 +392,49 @@ def _program(reel: str, base: str, ops: list, key: str) -> dict:
                     "anchor": {"kind": "reel"}, "ops": ops}}
 
 
-def _record_landed_generation(reel: str, head: int) -> None:
-    """Record what Resolve now holds, the way the real guarded apply does.
-
-    The `live` double applies without recording a shadow generation; the
-    test records the double's own read-back so the next revision meets a
-    moved reel exactly as it would live.
-    """
-    from library.tools import timeline_shadow as shadow
-
-    shadow.ShadowStore().record(
-        project=QUALIFICATION, timeline_id="tl-02", timeline_name=reel,
-        snapshot=json.loads(json.dumps(
-            shadow.read_live(QUALIFICATION, reel))),
-        source=shadow.PATCH, expected_head=head)
-
-
-def _zoom(read_back: dict) -> dict:
-    return {clip["unique_id"]: (clip.get("transform") or {}).get("ZoomX")
-            for track in read_back["tracks"] for clip in track["clips"]
-            if clip.get("unique_id")}
-
-
-def test_a_second_revision_lands_on_the_first_and_keeps_its_change(
+def test_a_second_property_program_is_still_refused(
         project, live):
-    """Catches: a repeated revision losing the earlier revision's change
-    (F08 repeated revisions). The first revision lands, the reel moves to
-    generation 2, the second is refused naming the first, retranslates,
-    lands - and the read-back holds both changes."""
+    """A second property program cannot bypass fail-closed AXI routing."""
     from library.tools import revise
-    from library.tools import timeline_shadow as shadow
 
     first = revise.start(project, "the first caption is small", reel=REEL)
     _answer(project, first, _program(
         REEL, "1", [_prop("cap-1", "ZoomX", 1.25)], "first"))
     landed_a = revise.advance(project, first["revise_id"], **live.options)
-
-    assert landed_a["status"] == revise.STATUS_PATCHED
-    assert landed_a["landed_generation"] == 2
-    assert landed_a["scope"] == {"clips": ["cap-1"], "marker_frames": [],
-                                 "clip_markers": []}
-    assert landed_a["supersedes"] == []
-    _record_landed_generation(REEL, head=1)
+    _assert_program_refused_unqualified(landed_a, live)
 
     second = revise.start(project, "the second caption is small", reel=REEL)
     _answer(project, second, _program(
         REEL, "1", [_prop("cap-2", "ZoomX", 1.5)], "second"))
-    with pytest.raises(revise.ReviseRefused) as refused:
-        revise.advance(project, second["revise_id"], **live.options)
-    message = str(refused.value)
-    assert "changed since" in message
-    # The refusal says what moved: the first revision, elsewhere on the
-    # reel (disjoint scopes are stale, not conflicting).
-    assert first["revise_id"] in message
-    assert "elsewhere on the reel" in message
-    assert "cap-2" not in message
-    assert live.applied and len(live.applied) == 1
-    assert [row["op"] for row in _ledger(project)] == ["edit_program"]
-
-    retranslated = revise.advance(
-        project, second["revise_id"], retranslate=True)
-    assert retranslated["status"] == revise.STATUS_AWAITING
-    assert revise.load(str(project), second["revise_id"])["prior_bases"] == [1]
-    _answer(project, retranslated, _program(
-        REEL, "2", [_prop("cap-2", "ZoomX", 1.5)], "second-again"))
     landed_b = revise.advance(project, second["revise_id"], **live.options)
-
-    assert landed_b["status"] == revise.STATUS_PATCHED
-    assert landed_b["landed_generation"] == 2
-    assert landed_b["supersedes"] == []
-    held = shadow.read_live(QUALIFICATION, REEL)
-    assert _zoom(held)["cap-1"] == 1.25
-    assert _zoom(held)["cap-2"] == 1.5
+    _assert_program_refused_unqualified(landed_b, live)
+    assert _ledger(project) == []
 
 
-def test_a_revision_over_a_landed_rival_names_it_and_records_supersede(
+def test_a_rival_property_program_is_refused_before_any_write(
         project, live):
-    """Catches: two conflicting revisions collapsing into a silent
-    last-writer-wins (F08 conflicting revisions). Both target the same
-    clip property; the second is refused naming the first as conflicting,
-    and after retranslation its landing records the supersede."""
+    """Conflicting property programs are both refused before any write."""
     from library.tools import revise
-    from library.tools import timeline_shadow as shadow
 
     first = revise.start(project, "the caption is small", reel=REEL)
     _answer(project, first, _program(
         REEL, "1", [_prop("cap-1", "ZoomX", 1.25)], "first"))
     landed_a = revise.advance(project, first["revise_id"], **live.options)
-    assert landed_a["status"] == revise.STATUS_PATCHED
-    _record_landed_generation(REEL, head=1)
+    _assert_program_refused_unqualified(landed_a, live)
 
     second = revise.start(project, "the caption is tiny", reel=REEL)
     _answer(project, second, _program(
         REEL, "1", [_prop("cap-1", "ZoomX", 1.5)], "second"))
-    with pytest.raises(revise.ReviseRefused) as refused:
-        revise.advance(project, second["revise_id"], **live.options)
-    message = str(refused.value)
-    assert first["revise_id"] in message
-    assert "clip cap-1" in message
-    assert "same targets" in message
-
-    retranslated = revise.advance(
-        project, second["revise_id"], retranslate=True)
-    _answer(project, retranslated, _program(
-        REEL, "2", [_prop("cap-1", "ZoomX", 1.5)], "second-again"))
     landed_b = revise.advance(project, second["revise_id"], **live.options)
-
-    assert landed_b["status"] == revise.STATUS_PATCHED
-    assert landed_b["supersedes"] == [first["revise_id"]]
-    assert _zoom(shadow.read_live(QUALIFICATION, REEL))["cap-1"] == 1.5
+    _assert_program_refused_unqualified(landed_b, live)
+    assert _ledger(project) == []
 
 
 def test_an_interrupted_rebuild_resumes_where_it_stopped(project):
     """Catches: an interrupted revision losing its plan (F08 interrupted
     revisions). The first run fails mid-rebuild and the record holds the
     failed command; continuing the same id reruns the same scoped
-    commands and lands."""
+    commands and records the result as unverified."""
     from library.tools import revise
 
     started = revise.start(
@@ -562,41 +466,29 @@ def test_an_interrupted_rebuild_resumes_where_it_stopped(project):
     resumed = revise.advance(project, started["revise_id"],
                              run=lambda argv: ran.append(argv) or 0)
 
-    assert resumed["status"] == revise.STATUS_REBUILT
+    assert resumed["status"] == revise.STATUS_UNVERIFIED
     assert resumed["route"] == revise.ROUTE_REBUILD
     assert ran == [["run", str(project), "--rerun", "speech_sequence"],
                    ["build-reels", str(project), "--only-reel", "2"]]
     assert [entry["status"] for entry in
             revise.load(str(project), started["revise_id"])["history"]] == [
         revise.STATUS_AWAITING, revise.STATUS_INCOMPLETE,
-        revise.STATUS_REBUILT]
+        revise.STATUS_UNVERIFIED]
 
 
 def test_a_failed_patch_leaves_the_revision_open_for_retry(project, live):
-    """Catches: a patch that blows up mid-apply stranding the revision
-    (F08 interrupted revisions). The failure raises, the record stays
-    open, and continuing the same id lands the change exactly once."""
+    """An unqualified setter is refused before any live patch is attempted."""
     from library.tools import revise
 
     started = revise.start(project, "the captions are too small", reel=REEL)
     _answer(project, started, _program(
         REEL, "1", [_prop("cap-1", "ZoomX", 1.25)], "once"))
 
-    def explode(**_kwargs):
-        raise RuntimeError("Resolve fell over mid-write")
-
-    options = {**live.options,
-               "patch_overrides": {"apply_patch": explode}}
-    with pytest.raises(revise.ReviseRefused, match="did not land verified"):
-        revise.advance(project, started["revise_id"], **options)
-    assert (revise.load(str(project), started["revise_id"])["status"]
-            not in revise.FINISHED)
-    assert live.applied == []
-
     result = revise.advance(project, started["revise_id"], **live.options)
-
-    assert result["status"] == revise.STATUS_PATCHED
-    assert len(live.applied) == 1
+    _assert_program_refused_unqualified(result, live)
+    assert revise.load(str(project), started["revise_id"])["status"] == (
+        revise.STATUS_REFUSED)
+    assert _ledger(project) == []
 
 
 def test_the_verb_is_on_both_front_doors():

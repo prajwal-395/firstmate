@@ -36,7 +36,19 @@ from tests.resolve_double import FakeProject, FakeResolve  # noqa: E402
 
 
 def _tracks(timeline):
-    return reel_read.read_tracks(timeline)
+    tracks = reel_read.read_tracks(timeline)
+    # The fake timeline calls every track Vn by default.  Supply the
+    # semantic row names a real reel carries so the fail-closed role
+    # classifier can distinguish overlays from continuous picture.
+    for track in tracks:
+        index = int(track["index"])
+        if track["type"] == "video" and index == 3:
+            track["name"] = "Frame"
+        elif track["type"] == "video" and index == 4:
+            track["name"] = "Subtitles"
+        elif track["type"] == "video" and index >= 5:
+            track["name"] = "Motion Graphics"
+    return tracks
 
 
 def _v4_first_record(timeline):
@@ -227,7 +239,7 @@ def test_resize_still_refuses_unqualified_or_combined_edits(tmp_path, failure):
         edit = {"op": "resize_still", "row": "V1", "item": 0,
                 "duration": 120}
         edits = [edit]
-        expected = "non-comp-bearing V3+"
+        expected = "picture program"
     elif failure == "mixed":
         edits.append({"op": "set_enabled", "row": "V5", "item": 0,
                       "enabled": False})
@@ -290,14 +302,14 @@ def test_each_unclassifiable_spec_refuses_by_name(tmp_path):
     timeline, _pool, _media = build_reel(tmp_path)
     first = _v4_first_record(timeline)
     card = {"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
-            "duration": 40, "properties": {}}
+            "duration": 40, "left_offset": 0, "properties": {}}
     rows = [
         ([{"op": "move", "row": row, "item": 0, "to_row": "V4",
            "to_record": 1300}], "continuous program")
         for row in ("V1", "V2", "A1")
     ] + [
         ([{"op": "move", "row": "V4", "item": 0, "to_row": "V4",
-           "to_record": first + 100}], "collides"),
+           "to_record": first + 100}], "would collide"),
         ([{"op": "add_overlay", "row": "V4", "media": "/lab/card.mov",
            "record": 1300, "duration": 40}], "declares no `properties`"),
         ([{"op": "swap_pixels", "row": "V1", "item": 0,
@@ -497,9 +509,10 @@ def test_add_to_a_comp_row_refuses_and_names_rebuild(tmp_path):
         assert "build-reels" in message
     # The overlay rows stay servable: the refusal is about the row,
     # not about adds.
+    timeline.add_track("video", "Motion Graphics")
     qualified = tu.qualify(_tracks(timeline),
                            {"reel": 1, "edits": [
-                               {"op": "add_overlay", "row": "V4",
+                               {"op": "add_overlay", "row": "V5",
                                 "media": "/lab/card.mov", "record": 1300,
                                 "duration": 40, "properties": {}}]})
     assert qualified.gate_class == tu.COMPOSED
