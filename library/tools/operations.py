@@ -2598,6 +2598,43 @@ def emit_resolve_axi_references() -> dict[str, str]:
                     "", "## Compilable operations", "", header]
     transactions += operation_rows(lambda s: s.compilable)
 
+    matrix = [
+        "# Unified edit capability matrix", "",
+        ("Generated from `edit_algebra.OP_STATUS`; each row is an algebra operation. "
+         "Desired strategies in the architecture plan are targets, not qualification claims."),
+        ("The minimal safe mechanism follows the enforced safety class and current operation evidence. "
+         "Native state listed here lacks a preservation qualification for this operation."),
+        ("Costs are live VC-02 measurements from the controlled Ren Qualification fixture; combined scenarios are labeled. "
+         "Unmeasured means no operation-specific measurement is recorded."), "",
+        "| operation | defined | implemented | live-qualified | production-enabled | backend evidence | target strategy | safety class | minimal safe mechanism | inverse / recovery | unsupported native state | measured cost |",
+        "|---|---:|---:|---:|---:|---|---|---|---|---|---|---|",
+    ]
+    for status in statuses:
+        inverse = status.inverse_recovery
+        proven = [backend.backend for backend in status.backends
+                  if edit_algebra.proven_inverse(status.id, backend.backend)]
+        inv = (f"{inverse.get('op') or 'none'}; self-inverse={inverse.get('self_inverse')}; "
+               f"proven on {', '.join(proven) if proven else 'no backend'}; "
+               f"{inverse.get('irreversible_reason') or 'no irreversible reason recorded'}")
+        cost = status.measured_cost or {"status": "unmeasured"}
+        wall = f"{cost['wall_s']}s" if "wall_s" in cost else "not recorded"
+        lease = (f"{cost['exclusive_lease_hold_s']}s"
+                 if "exclusive_lease_hold_s" in cost else "not recorded")
+        resolve_ops = (f"{cost['resolve_ops_s']}s"
+                       if "resolve_ops_s" in cost else "not recorded")
+        cost_text = (f"{cost.get('scenario', 'unmeasured')}; wall={wall}; "
+                     f"lease={lease}; Resolve ops={resolve_ops}")
+        backend_text = "; ".join(
+            f"{backend.backend}: implemented={'yes' if backend.compilable else 'no'}, "
+            f"qualified={'yes' if backend.qualified else 'no'}, "
+            f"enabled={'yes' if backend.production_enabled else 'no'}"
+            for backend in status.backends) or "no executor advertised"
+        matrix.append(
+            f"| `{status.id}` | yes | {'yes' if status.compilable else 'no'} | "
+            f"{'yes' if status.qualified else 'no'} | {'yes' if status.production_enabled else 'no'} | {backend_text} | "
+            f"{status.target_strategy} | {status.safety_class} | {status.minimal_safe_mechanism} | {inv} | "
+            f"not preservation-qualified: {', '.join(status.unsupported_native_state)} | {cost_text} |")
+
     verification = ["# Verification contracts", "", "Generated from `edit_algebra.OP_STATUS`.",
                     "", "The contract names the operation's read-back verifier. A successful API return alone is not verification.",
                     "", "## Operation contracts", "", header]
@@ -2654,6 +2691,7 @@ def emit_resolve_axi_references() -> dict[str, str]:
     return {
         "concepts.md": "\n".join(concepts) + "\n",
         "transactions.md": "\n".join(transactions) + "\n",
+        "capability-matrix.md": "\n".join(matrix) + "\n",
         "verification.md": "\n".join(verification) + "\n",
         "recovery.md": "\n".join(recovery) + "\n",
         "backend-limitations.md": "\n".join(limitations) + "\n",

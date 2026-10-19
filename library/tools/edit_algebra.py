@@ -54,7 +54,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from library.tools import edit_backend
 from library.tools import timeline_shadow as shadow
@@ -2882,6 +2882,11 @@ class OpStatus:
     compilable: bool
     qualified: bool
     production_enabled: bool
+    safety_class: str = ""
+    minimal_safe_mechanism: str = ""
+    unsupported_native_state: tuple[str, ...] = ()
+    measured_cost: dict | None = None
+    target_strategy: str = "not specified in VC-20"
 
     def for_backend(self, backend: str) -> BackendStatus | None:
         return next((entry for entry in self.backends
@@ -3042,6 +3047,69 @@ OP_STATUS: dict[str, OpStatus] = {
     for op_id, op in ALGEBRA.items()
 }
 
+# VC-20 uses the live lifecycle measurements, not target-strategy claims.
+# Only operations represented by an isolated or clearly named benchmark
+# scenario carry numeric costs; combined workflows say so explicitly.
+_MEASURED_EDIT_COSTS = {
+    "clip.set_property": {
+        "scenario": "single_property_40px",
+        "wall_s": 12.9, "exclusive_lease_hold_s": 12.89,
+        "resolve_ops_s": 0.57,
+        "source": "docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md",
+    },
+    "clip.insert": {
+        "scenario": "clip_insert_replace (combined)",
+        "wall_s": 13.2, "exclusive_lease_hold_s": 13.14,
+        "resolve_ops_s": 0.92,
+        "source": "docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md",
+    },
+    "clip.replace": {
+        "scenario": "clip_insert_replace (combined)",
+        "wall_s": 13.2, "exclusive_lease_hold_s": 13.14,
+        "resolve_ops_s": 0.92,
+        "source": "docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md",
+    },
+    "clip.ripple": {
+        "scenario": "ripple_edit",
+        "wall_s": 13.4, "exclusive_lease_hold_s": 13.36,
+        "resolve_ops_s": 1.13,
+        "source": "docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md",
+    },
+}
+
+
+def _vc20_metadata(op_id: str) -> tuple[str, str, tuple[str, ...], dict]:
+    """Return conservative route guidance and recorded evidence for VC-20."""
+    safety = OP_SAFETY_CLASS.get(op_id, SAFETY_UNREPRESENTABLE)
+    status = OP_STATUS[op_id]
+    if safety == SAFETY_READ_ONLY:
+        mechanism = "Planner delivery only; no timeline write."
+    elif safety == SAFETY_REVERSIBLE_MUTATION:
+        mechanism = ("Direct transaction only when the selected backend has a "
+                     "qualified executor, independent read-back, and proven inverse; "
+                     "otherwise protected staging or refusal.")
+    elif safety == SAFETY_COMPLEX_LOCALIZED:
+        mechanism = "Protected staged edit with modified and preserved state read-back."
+    elif safety == SAFETY_STRUCTURAL:
+        mechanism = ("Protected staged edit with dependent-range verification; "
+                     "full staged rebuild or refusal when dependencies are unproven.")
+    else:
+        mechanism = "Refuse until a qualified executor and verification path exist."
+    domain = status.state_domains[0] if status.state_domains else "unknown"
+    native_state = {
+        "timeline_structure": ("markers", "linked_groups", "grades", "Fusion", "audio_effects"),
+        "picture_transform": ("grades", "Fusion", "linked_groups", "markers"),
+        "color": ("Fusion", "audio_effects", "markers", "linked_groups"),
+        "fusion": ("grades", "audio_effects", "markers", "linked_groups"),
+        "audio_mix": ("grades", "Fusion", "markers", "linked_groups"),
+        "markers": ("grades", "Fusion", "audio_effects", "linked_groups"),
+        "captions": ("grades", "Fusion", "audio_effects", "markers"),
+    }.get(domain, ("grades", "Fusion", "audio_effects", "markers", "linked_groups"))
+    return safety, mechanism, native_state, dict(_MEASURED_EDIT_COSTS.get(op_id, {
+        "status": "unmeasured",
+        "source": "docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md",
+    }))
+
 # AXI's user-facing control names resolve to the same algebra entries used
 # by the executors. These are declarations, not claims of live support:
 # the evidence-backed status above remains authoritative for qualification.
@@ -3113,6 +3181,17 @@ def capability(op_id: str) -> dict | None:
         "timeline_conditions": list(entry.timeline_conditions),
         "verification": entry.verification_contract,
         "inverse_recovery": entry.inverse_recovery,
+        "recovery_capability": {
+            "proven_backends": [
+                backend.backend for backend in entry.backends
+                if proven_inverse(op_id, backend.backend)],
+            "proven_evidence": list(proven_inverse(op_id)),
+        },
+        "safety_class": entry.safety_class,
+        "minimal_safe_mechanism": entry.minimal_safe_mechanism,
+        "target_strategy": entry.target_strategy,
+        "unsupported_native_state": list(entry.unsupported_native_state),
+        "measured_cost": entry.measured_cost,
     }
 
 
@@ -3307,6 +3386,53 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "color.qualifier.sample": SAFETY_UNREPRESENTABLE,
     "color.qualifier.adjust": SAFETY_UNREPRESENTABLE,
     "multicam.angle": SAFETY_UNREPRESENTABLE,
+}
+
+VC20_TARGET_STRATEGY = {
+    "clip.set_property": "property patch",
+    "clip.set_enabled": "property patch",
+    "marker.add": "direct transaction, after inverse qualification",
+    "marker.delete": "direct transaction, after inverse qualification",
+    "clip_marker.add": "direct transaction, after inverse qualification",
+    "clip_marker.delete": "direct transaction, after inverse qualification",
+    "overlay.add": "incremental staged edit",
+    "overlay.remove": "incremental staged edit",
+    "clip.move": "incremental staged edit",
+    "clip.replace": "incremental staged edit with source/effect preservation",
+    "clip.trim": "incremental staged edit with timing verification",
+    "caption_fix": "targeted caption regeneration",
+    "clip.ripple": "dependency-aware structural transaction",
+    "grade.node_set": "native grade transaction once qualified",
+    "grade.node_add": "native grade transaction once qualified",
+    "grade.node_remove": "native grade transaction once qualified",
+    "grade.node_reorder": "native grade transaction once qualified",
+    "mask.create": "native Fusion transaction once qualified",
+    "mask.delete": "native Fusion transaction once qualified",
+    "mask.edit": "native Fusion transaction once qualified",
+    "mask.track": "native Fusion transaction once qualified",
+    "compound.create": "full staged rebuild for restructure",
+    "compound.flatten": "full staged rebuild for restructure",
+    "track.add": "full staged rebuild for restructure",
+    "track.delete": "full staged rebuild for restructure",
+    "track.reorder": "full staged rebuild for restructure",
+    "clip.split": "full staged rebuild for restructure",
+    "clip.join": "full staged rebuild for restructure",
+}
+
+# Complete the status registry after its safety vocabulary is available.
+# Every op receives a conservative route and an explicit measured or
+# unmeasured cost record.
+OP_STATUS = {
+    op_id: replace(
+        entry,
+        safety_class=(metadata := _vc20_metadata(op_id))[0],
+        minimal_safe_mechanism=metadata[1],
+        unsupported_native_state=metadata[2],
+        measured_cost=metadata[3],
+        target_strategy=VC20_TARGET_STRATEGY.get(
+            op_id, "not specified in VC-20"),
+    )
+    for op_id, entry in OP_STATUS.items()
 }
 
 #: Ops whose verifier reads the after-snapshot and can fail. A vacuous
