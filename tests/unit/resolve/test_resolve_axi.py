@@ -1174,7 +1174,7 @@ def test_restore_refuses_snapshot_with_clip_notes(field_reel, tmp_path,
     assert field_reel["timeline"].added == []
 
 
-def test_restore_allow_partial_apply_writes_timeline_plane_only(
+def test_restore_allow_partial_apply_refuses_unqualified_timeline_plane(
         field_reel, tmp_path, capsys):
     in_file = tmp_path / "reel24.json"
     _write_round_trip_snapshot(field_reel["timeline"],
@@ -1184,11 +1184,11 @@ def test_restore_allow_partial_apply_writes_timeline_plane_only(
     assert cmd_markers_restore(
         _ns(project="", timeline="Reel 24 - field",
             in_file=str(in_file), apply=True,
-            allow_partial=True)) == 0
+            allow_partial=True)) == 1
     out = capsys.readouterr().out
-    assert field_reel["timeline"].added == [
-        (40, "Green", "feedback", "good take", 1, "")]
-    assert "restored: 1" in out
+    assert field_reel["timeline"].added == []
+    assert "restored: 0" in out
+    assert "no production-qualified executor is available for: marker.add" in out
     assert "skipped: 1" in out
     assert "re-apply them by hand" in out
 
@@ -2457,22 +2457,28 @@ _VERIFIED_APPLIES = [
      cmd_edit_place, _place_ns(apply=True), 0,
      ["items_delta: 1", "no retry"],
      lambda env, _o: _track_count(env) == 3),
-    ("delete", "edit", None, cmd_edit_delete, _item_ns(apply=True), 0,
-     ["unique id absent"],
-     lambda env, _o: _track_count(env) == 1
-     and env["timeline"].deleted == [(["uid-1"], False)]),
+    # The current matrix has no production-qualified local-delete route.
+    # The command must refuse before claiming a delete or changing the fake.
+    ("delete-unqualified", "edit", None, cmd_edit_delete,
+     _item_ns(apply=True), 1,
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("delete-flaky-first-attempt", "edit",
      _set(lambda env: env["timeline"], _delete_fail_once=True),
-     cmd_edit_delete, _item_ns(apply=True), 0, ["unique id absent"],
-     lambda env, _o: _track_count(env) == 1),
+     cmd_edit_delete, _item_ns(apply=True), 1,
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("delete-ripple-explicit", "edit", None, cmd_edit_delete,
      _item_ns(apply=True, ripple=True), 0, [],
      lambda env, _o: env["timeline"].deleted == [(["uid-1"], True)]),
     ("move", "edit", None, cmd_edit_move,
-     _item_ns(to=200, track_to="", apply=True), 0, ["verified"], _moved),
+     _item_ns(to=200, track_to="", apply=True), 1,
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("trim", "edit", None, cmd_edit_trim,
-     _at(source_in=1010, source_out=1049, apply=True), 0, ["verified"],
-     _trimmed),
+     _at(source_in=1010, source_out=1049, apply=True), 1,
+     ["trim refused before writing", "no production-qualified executor"],
+     _untouched),
     ("title", "edit", None, cmd_edit_title,
      _at(text="new words", apply=True), 0,
      ["read back equal", "Styled Text"], None),
@@ -2540,8 +2546,10 @@ _VERIFIED_APPLIES = [
      _add_pool_clip(lambda: _sense_clip("raw.mov")),
      cmd_sense_classify, _clip_ns("raw.mov"), 0,
      ["read back after True"], None),
-    ("reframe-moved", "edit", _set(_item0, _reframe_moves=True),
-     cmd_sense_reframe, _at(apply=True), 0, ["transform moved"], None),
+    ("reframe-unqualified", "edit", _set(_item0, _reframe_moves=True),
+     cmd_sense_reframe, _at(apply=True), 1,
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("mask-gained-node", "edit", _set(_item0, _mask_ok=True),
      cmd_sense_mask, _at(mode="BI", apply=True), 0, ["node gained"],
      None),
@@ -2587,14 +2595,16 @@ _REFUSALS = [
     ("delete-persistent-failure", "edit",
      _set(lambda env: env["timeline"], _delete_fail_always=True),
      cmd_edit_delete, _item_ns(apply=True), 1,
-     ["local-delete EditPatch did not verify"], _untouched),
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("delete-bad-track", "edit", None, cmd_edit_delete,
      _item_ns(track="video9", apply=True), 1, [], _untouched),
     ("delete-bad-index", "edit", None, cmd_edit_delete,
      _item_ns(index=9, apply=True), 1, ["holds 2"], _untouched),
     ("move-place-failure-keeps-original", "edit", _raise_on_append,
      cmd_edit_move, _item_ns(to=200, track_to="", apply=True), 1,
-     ["untouched"], _untouched),
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("trim-past-handles", "edit", None, cmd_edit_trim,
      _at(source_in=999, source_out=1049, apply=True), 1, ["handles"],
      _untouched),
@@ -2715,7 +2725,9 @@ _REFUSALS = [
      ["unverified"], None),
     # Twice measured: True with Pan/Tilt/ZoomX unchanged.
     ("reframe-unchanged-reread", "edit", None, cmd_sense_reframe,
-     _at(apply=True), 1, ["read back unchanged"], None),
+     _at(apply=True), 1,
+     ["no production-qualified executor", "production routing fails closed"],
+     _untouched),
     ("mask-false-answer", "edit", None, cmd_sense_mask,
      _at(mode="F", apply=True), 1, ["answered False"], None),
     ("mask-bad-mode", "edit", None, cmd_sense_mask,
@@ -2880,29 +2892,28 @@ def test_audio_isolate_apply_journals_and_ledgers(edit_patched, tmp_path,
     assert rows[0]["op"] == "voice_isolation"
 
 
-def test_edit_trim_apply_journals(edit_patched, tmp_path, capsys):
-    """A structural edit (trim) journals through the undo journal so the
-    write is reversible, even though the build does not replay it."""
+def test_edit_trim_refuses_before_write_without_qualified_delete(
+        edit_patched, tmp_path, capsys):
+    """A replace-then-delete trim refuses before placing its replacement
+    when the current matrix cannot authorize deleting the source."""
     project_folder = tmp_path / "trim-project"
     project_folder.mkdir()
     args = _at(source_in=1010, source_out=1049, apply=True,
                project_folder=str(project_folder))
-    assert cmd_edit_trim(args) == 0
+    before = [_item_span(item) for item in _items(edit_patched)]
+    assert cmd_edit_trim(args) == 1
     out = capsys.readouterr().out
-    assert "journal:" in out
-    assert "entry:" in out
-    entries = _journal_entries(project_folder)
-    assert len(entries) == 1
-    assert entries[0]["status"] == "applied"
-    assert entries[0]["gate_class"] == "edit_trim"
-    assert entries[0]["final"] == "Reel 29 - salvage"
+    assert "trim refused before writing" in out
+    assert "no production-qualified executor" in out
+    assert [_item_span(item) for item in _items(edit_patched)] == before
+    assert _track_count(edit_patched) == 2
 
 
-def test_edit_trim_restores_source_when_replacement_does_not_read_back(
+def test_edit_trim_preflights_delete_before_replacement(
         edit_patched, monkeypatch, capsys):
-    """A failed narrowed replacement restores the original source span."""
+    """The router refuses before the replacement can land or need restore."""
     env = edit_patched
-    original, neighbor = _items(env)
+    original, _neighbor = _items(env)
     original_span = _item_span(original)
     returned_but_unplaced = _Item(
         "LC0001.MXF", 10, 50, pool=original.GetMediaPoolItem(),
@@ -2922,17 +2933,15 @@ def test_edit_trim_restores_source_when_replacement_does_not_read_back(
 
     assert result == 1
     assert len(_items(env)) == 2
-    assert _items(env)[0] is not original
-    assert (_item_span(_items(env)[0])["source_in"]
-            == original_span["source_in"])
-    assert (_item_span(_items(env)[0])["source_out"]
-            == original_span["source_out"])
-    assert "did not verify" in capsys.readouterr().out
+    assert _items(env)[0] is original
+    assert _item_span(_items(env)[0]) == original_span
+    assert calls == 0
+    assert "trim refused before writing" in capsys.readouterr().out
 
 
-def test_edit_trim_caches_pool_item_before_deleting_source(
+def test_edit_trim_does_not_write_before_delete_qualification(
         edit_patched, monkeypatch, capsys):
-    """Resolve may invalidate a deleted timeline item's pool-item handle."""
+    """An unavailable source delete blocks replacement before mutation."""
     env = edit_patched
     original = _items(env)[0]
     pool_item = original.GetMediaPoolItem()
@@ -2948,12 +2957,10 @@ def test_edit_trim_caches_pool_item_before_deleting_source(
 
     result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
 
-    assert result == 0
-    assert env["project"].GetMediaPool().appended[-1]["mediaPoolItem"] is pool_item
-    assert env["project"].GetMediaPool().appended[-1]["startFrame"] == 1010
-    assert env["project"].GetMediaPool().appended[-1]["endFrame"] == 1050
-    assert any(item.GetMediaPoolItem() is pool_item for item in _items(env))
-    assert "verified: yes" in capsys.readouterr().out
+    assert result == 1
+    assert _items(env)[0].GetMediaPoolItem() is pool_item
+    assert _track_count(env) == 2
+    assert "trim refused before writing" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
@@ -2993,7 +3000,7 @@ def test_replace_item_matches_live_resolve_endpoint_measurements(
 
 def test_edit_trim_failed_verification_restores_exact_timeline(
         edit_patched, monkeypatch, capsys):
-    """A failed post-append verification removes that append before restore."""
+    """An unqualified source delete refuses before the append is attempted."""
     env = edit_patched
     before = resolve_axi._timeline_trim_snapshot(env["timeline"])
     replace = resolve_axi._replace_item
@@ -3011,6 +3018,7 @@ def test_edit_trim_failed_verification_restores_exact_timeline(
     result = cmd_edit_trim(_at(source_in=1010, source_out=1049, apply=True))
 
     assert result == 1
+    assert calls == 0
     after = resolve_axi._timeline_trim_snapshot(env["timeline"])
     before_target = next(row for row in before if row["uid"] == "uid-1")
     after_target = next(row for row in after
@@ -3020,7 +3028,7 @@ def test_edit_trim_failed_verification_restores_exact_timeline(
     assert len(after) == len(before)
     assert sorted(row["uid"] for row in after if row["uid"] != after_target["uid"]) == \
         sorted(row["uid"] for row in before if row["uid"] != before_target["uid"])
-    assert "full timeline snapshot was restored and verified" in \
+    assert "trim refused before writing" in \
         capsys.readouterr().out
 
 
@@ -3039,20 +3047,16 @@ def test_edit_speed_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["gate_class"] == "edit_speed"
 
 
-def test_edit_delete_apply_journals(edit_patched, tmp_path, capsys):
-    """A delete journals through the undo journal so `ren undo` can
-    restore the deleted item."""
+def test_edit_delete_refuses_when_route_is_unqualified(
+        edit_patched, tmp_path, capsys):
+    """A local delete obeys the fail-closed production matrix."""
     project_folder = tmp_path / "delete-project"
     project_folder.mkdir()
     args = _item_ns(apply=True, project_folder=str(project_folder))
-    assert cmd_edit_delete(args) == 0
+    assert cmd_edit_delete(args) == 1
     out = capsys.readouterr().out
-    assert "journal:" in out
-    assert "entry:" in out
-    entries = _journal_entries(project_folder)
-    assert len(entries) == 1
-    assert entries[0]["status"] == "applied"
-    assert entries[0]["gate_class"] == "edit_delete"
+    assert "no production-qualified executor" in out
+    assert _track_count(edit_patched) == 2
 
 
 def test_edit_place_apply_journals(edit_patched, tmp_path, capsys):
@@ -3070,20 +3074,20 @@ def test_edit_place_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["gate_class"] == "edit_place"
 
 
-def test_edit_move_apply_journals(edit_patched, tmp_path, capsys):
-    """A move journals through the undo journal."""
+def test_edit_move_refuses_before_write_without_qualified_delete(
+        edit_patched, tmp_path, capsys):
+    """A move must not place a new item before its source delete is allowed."""
     project_folder = tmp_path / "move-project"
     project_folder.mkdir()
     args = _item_ns(to=200, track_to="", apply=True,
                     project_folder=str(project_folder))
-    assert cmd_edit_move(args) == 0
+    before = [_item_span(item) for item in _items(edit_patched)]
+    assert cmd_edit_move(args) == 1
     out = capsys.readouterr().out
-    assert "journal:" in out
-    assert "entry:" in out
-    entries = _journal_entries(project_folder)
-    assert len(entries) == 1
-    assert entries[0]["status"] == "applied"
-    assert entries[0]["gate_class"] == "edit_move"
+    assert "move refused before writing" in out
+    assert "no production-qualified executor" in out
+    assert [_item_span(item) for item in _items(edit_patched)] == before
+    assert _track_count(edit_patched) == 2
 
 
 def test_edit_transition_apply_journals(edit_patched, tmp_path, capsys):
@@ -3102,23 +3106,20 @@ def test_edit_transition_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["gate_class"] == "edit_transition"
 
 
-def test_sense_reframe_apply_journals(edit_patched, tmp_path, capsys,
-                                       monkeypatch):
-    """Smart Reframe journals through the undo journal."""
+def test_sense_reframe_refuses_when_route_is_unqualified(
+        edit_patched, tmp_path, capsys, monkeypatch):
+    """Smart Reframe obeys the fail-closed production matrix."""
     from library.tools.transform_write_log import write_scope
     _set(_item0, _reframe_moves=True)(edit_patched, monkeypatch)
     project_folder = tmp_path / "reframe-project"
     project_folder.mkdir()
     args = _at(apply=True, project_folder=str(project_folder))
+    before = _item0(edit_patched).GetProperties()
     with write_scope(project_folder=str(project_folder)):
-        assert cmd_sense_reframe(args) == 0
+        assert cmd_sense_reframe(args) == 1
     out = capsys.readouterr().out
-    assert "journal:" in out
-    assert "entry:" in out
-    entries = _journal_entries(project_folder)
-    assert len(entries) == 1
-    assert entries[0]["status"] == "applied"
-    assert entries[0]["gate_class"] == "sense_reframe"
+    assert "no production-qualified executor" in out
+    assert _item0(edit_patched).GetProperties() == before
 
 
 def test_sense_mask_apply_journals(edit_patched, tmp_path, capsys,

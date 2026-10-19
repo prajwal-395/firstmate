@@ -898,7 +898,7 @@ def test_entry_motion_refuses_an_item_that_already_carries_a_comp(
     timeline.rows["V4"][0].comps = [FakeComp({
         "MediaIn1": FakeTool("MediaIn", covering_window(40, 0, 200)),
         "Transform1": FakeTool("Transform", {"Size": 1.0})})]
-    with pytest.raises(tu.TouchupRefused, match="drawing comp"):
+    with pytest.raises(tu.TouchupRefused, match="comp-bearing row"):
         tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
             {"op": "entry_motion", "row": "V4", "item": 0,
              "fade_in_frames": 6}]})
@@ -923,14 +923,8 @@ def test_one_source_item_means_one_edit(tmp_path):
         tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
             {"op": "set_properties", "row": "V4", "item": 0,
              "properties": {"ZoomX": 1.5}},
-            {"op": "move", "row": "V4", "item": 0, "to_row": "V4",
-             "to_record": 1300}]})
-    with pytest.raises(tu.TouchupRefused, match="same item"):
-        tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
-            {"op": "entry_motion", "row": "V4", "item": 0,
-             "fade_in_frames": 6},
             {"op": "set_properties", "row": "V4", "item": 0,
-             "properties": {"ZoomX": 1.5}}]})
+             "properties": {"Opacity": 80.0}}]})
 
 
 def test_a_rewrite_shadowed_by_an_in_place_write_is_pruned(tmp_path):
@@ -939,7 +933,13 @@ def test_a_rewrite_shadowed_by_an_in_place_write_is_pruned(tmp_path):
     composition's capture reads the staged item after the write, so
     pruning the rewrite loses nothing and avoids the churn."""
     timeline, _pool, _media = build_reel(tmp_path)
-    qualification = tu.qualify(_tracks(timeline), {"reel": 1, "edits": [
+    tracks = _tracks(timeline)
+    # `V4` is an unknown row name in this fixture, so continuity must
+    # conservatively treat it as program. Name the test row for its actual
+    # overlay role so removing one card is a valid premise for rewrite pruning.
+    next(track for track in tracks if track["type"] == "video"
+         and track["index"] == 4)["name"] = "Captions"
+    qualification = tu.qualify(tracks, {"reel": 1, "edits": [
         {"op": "remove_overlay", "row": "V4", "item": 1},
         {"op": "set_properties", "row": "V4", "item": 0,
          "properties": {"ZoomX": 1.5}}]})

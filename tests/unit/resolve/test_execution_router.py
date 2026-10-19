@@ -103,15 +103,15 @@ def test_incremental_refusal_classes_remain_distinct():
 
 def test_router_reports_matrix_qualification_not_function_existence():
     entry = edit_algebra.status("marker.add")
-    if entry is None or not entry.production_enabled:
-        pytest.skip("matrix changed: marker.add lost production status")
-    decision = route_compiled_edit([{
-        "op": "marker.add", "frame": 12, "color": "Blue", "name": "note",
-    }])
-
-    assert decision.backend == "edit_patch"
-    assert decision.algebra_status == (("marker.add", "production_enabled"),)
-    assert decision.qualification_gaps == ()
+    assert entry is not None
+    assert not entry.production_enabled
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit([{
+            "op": "marker.add", "frame": 12,
+            "color": "Blue", "name": "note",
+        }])
+    assert entry.for_backend("edit_patch").qualification_status == (
+        "evidence_incomplete")
 
 
 def test_router_refuses_unqualified_production_route():

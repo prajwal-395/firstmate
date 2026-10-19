@@ -4564,6 +4564,22 @@ def _drop_original(project, timeline, uid: str):
     return ""
 
 
+def _preflight_replace_delete(uid: str) -> str:
+    """Refuse an unsupported replacement before placing anything live.
+
+    Move and trim are implemented as place-then-delete. Their delete must
+    be routable before the first write, or a fail-closed router can leave
+    both the replacement and the approved source on the timeline.
+    """
+    from library.tools.execution_router import route_axi_dispatch
+
+    try:
+        route_axi_dispatch([{"op": "clip.delete", "unique_id": uid}])
+    except Exception as exc:
+        return str(exc)
+    return ""
+
+
 def cmd_edit_delete(args) -> int:
     """Delete one item off the reel through a generation patch.
 
@@ -4750,6 +4766,12 @@ def cmd_edit_move(args) -> int:
                 f"{span['name']!r} would not report its source range "
                 f"- the move cannot be re-placed faithfully.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        refusal = _preflight_replace_delete(uid)
+        if refusal:
+            return fail(
+                f"move refused before writing because its source delete is "
+                f"not authorized ({refusal}).",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_move", "timeline": timeline.GetName(),
@@ -4857,6 +4879,12 @@ def cmd_edit_trim(args) -> int:
                       f"--source-in {new_in} --source-out {new_out} "
                       f"--apply"])])
             return 0
+        refusal = _preflight_replace_delete(uid)
+        if refusal:
+            return fail(
+                f"trim refused before writing because its source delete is "
+                f"not authorized ({refusal}).",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_trim", "timeline": timeline.GetName(),
