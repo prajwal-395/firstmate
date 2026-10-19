@@ -49,7 +49,9 @@ def _stable_keys(tracks: Sequence[Mapping]) -> dict[tuple[str, int], str]:
 
 def plan_structural_patch(
     tracks: Sequence[Mapping], changes: Sequence[object],
-    insertions: Sequence[object] = (), *, component_manifest: Mapping | None = None,
+    insertions: Sequence[object] = (), *,
+    deletions: Sequence[Mapping] = (),
+    component_manifest: Mapping | None = None,
 ) -> dict:
     """Describe the smallest structurally affected interval and dependencies.
 
@@ -96,11 +98,26 @@ def plan_structural_patch(
                            "new_duration": int(insertion.duration),
                            "identity": "new-item"})
 
+    for deletion in deletions:
+        row = str(deletion["row"]).upper()
+        changed_rows.add(row)
+        start_frame = int(deletion["record_frame"])
+        duration = int(deletion["duration"])
+        changed_frames.extend((start_frame, start_frame + duration))
+        placements.append({
+            "row": row,
+            "stable_id": deletion.get("stable_id"),
+            "old_start": start_frame,
+            "old_duration": duration,
+            "identity": "deleted-item",
+        })
+
     if not placements:
         return {"status": "no_op", "affected_range": None,
                 "changed_rows": [], "dependencies": [],
                 "stable_identity_proven": True,
-                "reuse_proven": True, "full_reconstruction_required": False}
+                "sync_proven": True, "reuse_proven": True,
+                "full_reconstruction_required": False}
 
     stable = all(item.get("stable_id") for item in placements
                  if item.get("identity") != "new-item")
@@ -123,13 +140,21 @@ def plan_structural_patch(
         for item in placements)
 
     dependencies = []
+    remapped_components: set[str] = set()
     for row in sorted(changed_rows):
         entity_id = f"structural:{row}:{start}"
-        kind = "audio_decision" if row.startswith("A") else "placement_timing"
-        dependencies.append(cascade_graph.selective_invalidation(
+        has_deletion = any(str(deletion["row"]).upper() == row
+                           for deletion in deletions)
+        kind = ("overlay_plan" if has_deletion and row.startswith("V")
+                else "audio_decision" if row.startswith("A")
+                else "placement_timing")
+        dependency = cascade_graph.selective_invalidation(
             {"kind": kind, "entity_id": entity_id,
              "components": ["audio"] if kind == "audio_decision" else
-             ["footage", "captions", "lower_thirds", "overlays"]}))
+             ["overlays"] if kind == "overlay_plan" else
+             ["footage", "captions", "lower_thirds", "overlays"]})
+        dependencies.append(dependency)
+        remapped_components.update(dependency["remapped_components"])
 
     required = {"aroll", "captions", "motion_graphics", "audio",
                 "fusion", "timeline"}
@@ -149,6 +174,25 @@ def plan_structural_patch(
                        ", ".join(unplanned_ripple_items))
     if not manifest_complete:
         reasons.append("component manifest does not prove every dependent component")
+    sync_proven = not any(
+        str(track["type"]).lower().startswith("a") and track.get("clips")
+        for track in tracks)
+    if not sync_proven:
+        reasons.append(
+            "audio item linkage is not represented in the timeline read, so sync cannot be proven")
+    render_assets = []
+    if manifest_complete:
+        manifest_components = components
+        if {"captions", "lower_thirds", "overlays"} & remapped_components:
+            for name in ("captions", "motion_graphics"):
+                component = manifest_components.get(name) or {}
+                for asset in component.get("assets", ()):
+                    if isinstance(asset, Mapping) and asset.get("sha256"):
+                        render_assets.append({
+                            "component": name,
+                            "sha256": asset["sha256"],
+                            "bytes": asset.get("bytes"),
+                        })
     return {
         "status": "planned",
         "operation": "structural",
@@ -157,12 +201,17 @@ def plan_structural_patch(
         "shifted_rows": sorted(shifted_rows),
         "placements": placements,
         "dependencies": dependencies,
+        "recomputed_source_to_timeline_mappings": placements,
+        "remapped_components": sorted(remapped_components),
+        "reused_render_assets": render_assets,
         "stable_identity_proven": stable,
         "ripple_complete": not unplanned_ripple_items,
-        "reuse_proven": (stable and manifest_complete
+        "sync_proven": sync_proven,
+        "reuse_proven": (stable and manifest_complete and sync_proven
                          and not unplanned_ripple_items),
         "full_reconstruction_required": not (
-            stable and manifest_complete and not unplanned_ripple_items),
+            stable and manifest_complete and sync_proven
+            and not unplanned_ripple_items),
         "reason": "; ".join(reasons) if reasons else "all dependent components and identities are proven",
     }
 

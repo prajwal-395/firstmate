@@ -1736,6 +1736,7 @@ class ComposedEditReceipt:
     staged: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
     structural_patch: dict = field(default_factory=dict)
+    structural_routing: dict = field(default_factory=dict)
     rederivation_required: dict = field(default_factory=dict)
     captured: list = field(default_factory=list)
     deleted: dict = field(default_factory=dict)
@@ -1795,10 +1796,31 @@ def apply_composed_edit(*, timeline, media_pool,
     from library.tools.structural_patch import plan_structural_patch
     receipt.structural_patch = plan_structural_patch(
         tracks_before, changes, insertions,
+        deletions=(write_context or {}).get("structural_deletions", ()),
         component_manifest=component_manifest)
     assert_insertions_declared(tracks_before, insertions)
     receipt.rederivation_required = assert_rederivation_reachable(
         changes, rederiver, insertions)
+    structural_ops = list((write_context or {}).get("structural_operations") or ())
+    if not structural_ops:
+        if insertions:
+            structural_ops.append({"op": "clip.insert"})
+        if any(change.how in (SHIFT, EXTEND) for change in changes):
+            structural_ops.append({"op": "clip.ripple"})
+        elif changes and not insertions:
+            structural_ops.append({"op": "clip.trim"})
+    if structural_ops:
+        from library.tools.execution_router import observe_structural_candidate
+        receipt.structural_routing = observe_structural_candidate(
+            operations=structural_ops,
+            structural_plan=receipt.structural_patch,
+            context={
+                "project_folder": (write_context or {}).get(
+                    "project_folder", ""),
+                "native_effects_proven": bool(
+                    not receipt.rederivation_required.get("required")
+                    or rederiver is not None),
+            })
     assert_every_frame_covered(tracks_before, changes, insertions,
                                row=picture_row)
 

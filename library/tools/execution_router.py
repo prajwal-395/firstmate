@@ -111,6 +111,7 @@ class RoutingGates:
 
     name: str
     incremental_candidate_ops: tuple[str, ...] = ()
+    structural_candidate_ops: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
 
 
@@ -592,7 +593,20 @@ def observe_with_gates(compiled_edit, *, context: Mapping | None = None,
     ids = [str(op.get("op", "")) for op in operations]
     candidate: ExecutionDecision | dict
     candidate_note = "no gate override applies to these operations"
-    if (production.backend != "incremental" and gates.incremental_candidate_ops
+    if (gates.structural_candidate_ops
+            and all(op_id in gates.structural_candidate_ops for op_id in ids)):
+        try:
+            candidate = route_structural_candidate(
+                operations=operations, context=context)
+            candidate_note = (
+                f"candidate evaluates dependency-aware structural execution "
+                f"under gates {gates.name!r}; it is observation-only")
+        except RoutingRefused as exc:
+            candidate = {"refused": str(exc)}
+            candidate_note = (
+                f"structural candidate refused under gates {gates.name!r}; "
+                "production route remains authoritative")
+    elif (production.backend != "incremental" and gates.incremental_candidate_ops
             and all(op_id in gates.incremental_candidate_ops for op_id in ids)):
         try:
             candidate = route_incremental(
@@ -618,6 +632,117 @@ def observe_with_gates(compiled_edit, *, context: Mapping | None = None,
           f"candidate={record['candidate_backend']} agree={record['agree']}",
           file=sys.stderr)
     return {"production": production, "candidate": candidate,
+            "agree": record["agree"], "record": dict(record)}
+
+
+def route_structural_candidate(*, operations: Sequence[dict],
+                               context: Mapping | None = None
+                               ) -> ExecutionDecision:
+    """Observation-only structural route, gated by proof and VC-11.
+
+    This decision is never an execution authorization.  ``observe_with_gates``
+    keeps the production decision authoritative until exact operation and
+    native-state qualification enables a later rollout.
+    """
+    from library.tools import edit_algebra
+
+    context = dict(context or {})
+    ops = [dict(op) for op in operations]
+    ids = tuple(str(op.get("op", "")) for op in ops)
+    if not ids or any(edit_algebra.safety_class(op_id)
+                      != edit_algebra.SAFETY_STRUCTURAL for op_id in ids):
+        raise RoutingRefused(
+            "structural candidate requires only VC-11 structural operations")
+    safety = edit_algebra.SAFETY_CLASS_POLICY[edit_algebra.SAFETY_STRUCTURAL]
+    if (safety.direct_allowed or not safety.staged_allowed
+            or not safety.requires_qualified_executor
+            or not safety.requires_readback):
+        raise RoutingRefused(
+            "VC-11 structural policy does not permit a staged, qualified, "
+            "read-back verified executor")
+    plan = context.get("structural_patch")
+    if not isinstance(plan, Mapping):
+        raise RoutingRefused(
+            "structural candidate has no dependency plan; full reconstruction "
+            "is required")
+    if plan.get("full_reconstruction_required"):
+        reason = str(plan.get("reason") or
+                     "dependency graph cannot prove localized reuse")
+        return route_full_rebuild(
+            reason="structural dependencies are unproven; escalate to full reconstruction",
+            ineligibility=reason, operations=ops, context=context)
+    if context.get("native_effects_proven") is not True:
+        return route_full_rebuild(
+            reason="native effects are not proven for the affected structural range",
+            ineligibility="native effect preservation/rederivation is unproven",
+            operations=ops, context=context)
+
+    backend = str(context.get("structural_executor_backend") or "composed_edit")
+    gaps = []
+    for op_id in ids:
+        status = edit_algebra.status(op_id)
+        row = status.for_backend(backend) if status is not None else None
+        if row is None or not row.compilable or not row.production_enabled:
+            gaps.append(op_id)
+    if gaps:
+        reason = ("no production-enabled structural executor is qualified for: "
+                  + ", ".join(gaps))
+        return route_full_rebuild(
+            reason="structural executor is not qualified; escalate to full reconstruction",
+            ineligibility=reason, operations=ops, context=context)
+
+    return ExecutionDecision(
+        backend="composed_edit.structural",
+        reasons=("VC-11 structural class requires protected staging",
+                 "dependency graph proves the affected range and reused components",
+                 "candidate is observation-only under VC-06"),
+        rejected_alternatives=(RejectedBackend(
+            "direct", "structural operations never execute directly"),),
+        verification=("read back every changed placement",
+                      "verify continuity, audio synchronization, and supported effects",
+                      "preserve proven unaffected rendered assets"),
+        algebra_status=_statuses(edit_algebra, ids),
+        mode="staged",
+        qualification_gaps=(),
+    )
+
+
+def observe_structural_candidate(*, operations: Sequence[dict],
+                                 structural_plan: Mapping,
+                                 production_backend: str = "composed_edit",
+                                 context: Mapping | None = None) -> dict:
+    """Record a structural route comparison without changing the writer.
+
+    The caller has already selected its established staged executor. This
+    function evaluates the VC-24 candidate beside it and never returns an
+    authorization that can be mistaken for the production decision.
+    """
+    context = dict(context or {})
+    context["structural_patch"] = dict(structural_plan)
+    ids = [str(op["op"]) for op in operations]
+    gates = RoutingGates(
+        name="vc24-structural-observation",
+        structural_candidate_ops=tuple(ids))
+    try:
+        candidate = route_structural_candidate(
+            operations=operations, context=context)
+        candidate_value = candidate.as_dict()
+    except RoutingRefused as exc:
+        candidate_value = {"refused": str(exc)}
+    record = {
+        "gates": gates.name,
+        "production_backend": str(production_backend),
+        "candidate_backend": candidate_value.get("backend", "refused"),
+        "agree": candidate_value.get("backend") == production_backend,
+        "note": "observation-only; established staged executor remains authoritative",
+        "structural_plan": dict(structural_plan),
+    }
+    GATE_OBSERVATIONS.append(record)
+    print(f"[routing-gates:{gates.name}] production={record['production_backend']} "
+          f"candidate={record['candidate_backend']} agree={record['agree']}",
+          file=sys.stderr)
+    return {"production": production_backend,
+            "candidate": candidate_value,
             "agree": record["agree"], "record": dict(record)}
 
 

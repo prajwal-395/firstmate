@@ -1142,6 +1142,15 @@ def _op_remove_overlay(edit, position, tracks, spans, changes,
     removals.append({"row": row, "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
                      "duration": int(clip["duration"]),
+                     "stable_id": (
+                         f"{row}:{clip.get('media_pool_item_id') or clip.get('source_file') or ''}:"
+                         f"{clip.get('source_in_frame')}:{clip.get('source_out_frame')}:"
+                         f"{item_index}"
+                         if (clip.get("media_pool_item_id")
+                             or clip.get("source_file"))
+                         and clip.get("source_in_frame") is not None
+                         and clip.get("source_out_frame") is not None
+                         else None),
                      "why": f"edit {position} (`remove_overlay`)"})
     # `composed_edit` has no delete-without-place primitive: it only
     # deletes what it re-places.  So the row's kept items ride the
@@ -3296,6 +3305,17 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     from library.tools import reel_component_manifest as _component_manifest
     prior_component_manifest = _component_manifest.latest_manifest(
         project_folder, final)
+    structural_ids = {
+        "retime": "clip.ripple",
+        "add_overlay": "clip.insert",
+        "remove_overlay": "clip.delete",
+        "move": "clip.move",
+    }
+    structural_operations = [
+        {"op": structural_ids[str(edit.get("op") or "")]}
+        for edit in (spec.get("edits") or ())
+        if str(edit.get("op") or "") in structural_ids
+    ]
     composed = _ce.apply_composed_edit(
         timeline=staged, media_pool=pool, changes=changes,
         insertions=insertions,
@@ -3306,7 +3326,9 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         link_rows={},
         picture_row="V1",
         still_placer=still_placer,
-        write_context={"project_folder": project_folder},
+        write_context={"project_folder": project_folder,
+                       "structural_operations": structural_operations,
+                       "structural_deletions": qualification.removals},
         component_manifest=prior_component_manifest,
         candidate_lifecycle=candidate_lifecycle)
     receipt["composed_seconds"] = round(time.time() - edit_started,
