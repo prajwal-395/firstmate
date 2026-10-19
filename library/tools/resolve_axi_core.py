@@ -12,7 +12,7 @@ import contextlib
 import io
 import json
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -81,6 +81,191 @@ class AxiTransaction:
             "preconditions": [dict(value) for value in self.preconditions],
             "postconditions": [dict(value) for value in self.postconditions],
         }
+
+
+@dataclass(frozen=True)
+class EditExecutionContext:
+    """Prepared semantic intent handed to one qualified physical adapter.
+
+    The request remains the source of intent. ``execution`` is the shared
+    backend-neutral contract; the remaining fields are preparation evidence
+    an adapter may use to derive its own staging inputs. Adapters must not
+    replace the router decision or infer qualification from their existence.
+    """
+
+    execution: Any
+    request: Any
+    preparation: Any
+    compiled: Any
+    generation: Any
+    snapshot: Mapping[str, Any]
+    operation: Mapping[str, Any]
+    operation_index: int
+    owner: str
+
+
+EditExecutor = Callable[[EditExecutionContext], Mapping[str, Any]]
+_EDIT_EXECUTORS: dict[tuple[str, str], EditExecutor] = {}
+_SEMANTIC_EXECUTION_RESULTS: dict[str, dict[str, Any]] = {}
+_EDIT_EXECUTOR_LOCK = threading.RLock()
+_ROUTER_QUALIFIED_BACKENDS = frozenset({
+    "incremental", "resolve_native_invocation",
+})
+_SEMANTIC_RESULT_LIMIT = 256
+
+
+def register_edit_executor(operation_id: str, backend_id: str,
+                           executor: EditExecutor, *, replace: bool = False
+                           ) -> None:
+    """Register one physical adapter against the existing operation matrix.
+
+    A registration only declares that code can handle the pair. The
+    execution router remains authoritative: submissions still require that
+    the selected backend's matrix row is production enabled. This registry
+    deliberately keys the existing ``edit_algebra.OP_STATUS`` identity and
+    introduces no second operation vocabulary.
+    """
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise ValueError("executor registration needs an operation id")
+    if not isinstance(backend_id, str) or not backend_id.strip():
+        raise ValueError("executor registration needs a backend id")
+    if not callable(executor):
+        raise TypeError("executor registration must be callable")
+    from library.tools import edit_algebra
+
+    status = edit_algebra.status(operation_id)
+    if status is None:
+        raise ValueError(f"executor registration names unknown operation {operation_id!r}")
+    row = status.for_backend(backend_id) if status is not None else None
+    if ((row is None or not row.compilable)
+            and backend_id not in _ROUTER_QUALIFIED_BACKENDS):
+        raise ValueError(
+            f"{operation_id} is not registered as compilable on {backend_id}")
+    key = (operation_id, backend_id)
+    with _EDIT_EXECUTOR_LOCK:
+        if key in _EDIT_EXECUTORS and not replace:
+            raise ValueError(
+                f"an executor is already registered for {operation_id} on "
+                f"{backend_id}")
+        _EDIT_EXECUTORS[key] = executor
+
+
+def registered_edit_executors() -> tuple[tuple[str, str], ...]:
+    """Return registered operation/backend pairs in stable order."""
+    with _EDIT_EXECUTOR_LOCK:
+        return tuple(sorted(_EDIT_EXECUTORS))
+
+
+def _execute_registered_backend(*, backend: str, plan: Mapping,
+                                request: Any, preparation: Any,
+                                compiled: Any, generation: Any,
+                                snapshot: Mapping, owner: str) -> dict:
+    """Run the router-selected adapters and preserve sequential semantics."""
+    from library.tools import edit_algebra
+    from library.tools.transaction_orchestration import (
+        ExecutionInput,
+        ExecutionRefusal,
+        standardize_receipt,
+    )
+
+    backend_id = backend.removesuffix(".structural")
+    operations = [dict(row) for row in compiled.operations]
+    decision = plan.get("routing") or {}
+    executors: list[tuple[int, EditExecutor]] = []
+    for index, operation in enumerate(operations):
+        operation_id = str(operation["op"])
+        status = edit_algebra.status(operation_id)
+        row = status.for_backend(backend_id) if status is not None else None
+        if ((row is None or not row.production_enabled)
+                and backend_id not in _ROUTER_QUALIFIED_BACKENDS):
+            raise ValueError(
+                f"router selected {backend!r}, but {operation_id} is not "
+                f"production enabled on {backend_id}")
+        if backend_id in _ROUTER_QUALIFIED_BACKENDS:
+            routed_backend = str(decision.get("backend") or backend)
+            if routed_backend != backend:
+                raise ValueError(
+                    f"{backend_id} adapter refused a mismatched routing decision "
+                    f"({routed_backend!r})")
+        with _EDIT_EXECUTOR_LOCK:
+            executor = _EDIT_EXECUTORS.get((operation_id, backend_id))
+        if executor is None:
+            raise ValueError(
+                f"router selected {backend!r}, but no callable adapter is "
+                f"registered for {operation_id} on {backend_id}")
+        executors.append((index, executor))
+
+    if not executors:
+        raise ValueError("routed semantic request contains no executable operations")
+
+    execution = ExecutionInput(
+        intent=request.to_dict(), decision=decision,
+        project=request.project, timeline=request.timeline,
+        base_generation=generation.generation,
+        idempotency_key=request.idempotency_key,
+        expected_state=preparation.as_dict(),
+        preservation_constraints=tuple(
+            str(value) for value in request.preconditions),
+    )
+    receipts: list[dict] = []
+
+    def refused(category: str, reason: str,
+                *, evidence: Mapping | None = None) -> dict:
+        refusal = ExecutionRefusal(
+            category, reason, retryable=False,
+            recovery={"status": "required" if receipts else "not_required",
+                      "completed_operations": len(receipts)},
+        ).as_dict()
+        return {
+            "status": "partial_failure" if receipts else "failed",
+            "request_id": request.id, "backend": backend,
+            "atomic": False,
+            "mutated": bool(receipts or (evidence or {}).get("mutated")),
+            "completed_operations": receipts,
+            "refusal": refusal, "failed_operation_index": len(receipts),
+            "failed_operation": (operations[len(receipts)]
+                                 if len(receipts) < len(operations) else None),
+            "failure_evidence": dict(evidence or {}),
+            "execution_routing": decision,
+        }
+
+    for index, executor in executors:
+        context = EditExecutionContext(
+            execution=execution, request=request, preparation=preparation,
+            compiled=compiled, generation=generation, snapshot=snapshot,
+            operation=operations[index], operation_index=index, owner=owner,
+        )
+        try:
+            result = executor(context)
+        except Exception as exc:  # noqa: BLE001 - preserve partial result
+            return refused("backend_failure",
+                           f"{type(exc).__name__}: {exc}")
+        if not isinstance(result, Mapping):
+            return refused(
+                "verification_failed",
+                f"adapter for {operations[index]['op']} on {backend_id} "
+                "did not return a receipt mapping")
+        receipt = (dict(result) if result.get("execution_contract")
+                   else standardize_receipt(result))
+        verification = (receipt.get("execution_contract") or {}).get(
+            "verification", {})
+        if verification.get("status") != "verified":
+            return refused(
+                "verification_failed",
+                f"adapter for {operations[index]['op']} on {backend_id} "
+                "returned without verified read-back evidence",
+                evidence={"adapter_receipt": receipt,
+                          "mutated": receipt.get("mutated", True)},
+            )
+        receipts.append(receipt)
+
+    return {
+        "status": "committed", "request_id": request.id,
+        "project": request.project, "timeline": request.timeline,
+        "backend": backend, "atomic": False, "mutated": True,
+        "operations": receipts,
+        "execution_routing": decision,
+    }
 
 
 def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
@@ -305,9 +490,20 @@ def submit_edit_request_async(request, *, authorized: bool = False,
                 "receipt": receipt}
     backend = str(plan["backend"])
     if backend not in {"edit_patch", "edit_patch.property"}:
-        raise ValueError(
-            f"router selected {backend!r}, but no qualified broker adapter "
-            "is registered for that backend")
+        receipt = _execute_registered_backend(
+            backend=backend, plan=plan, request=request,
+            preparation=_prepared, compiled=compiled,
+            generation=generation, snapshot=snapshot, owner=owner)
+        handle = f"edit:{request.id}"
+        with _EDIT_EXECUTOR_LOCK:
+            _SEMANTIC_EXECUTION_RESULTS[handle] = receipt
+            while len(_SEMANTIC_EXECUTION_RESULTS) > _SEMANTIC_RESULT_LIMIT:
+                _SEMANTIC_EXECUTION_RESULTS.pop(
+                    next(iter(_SEMANTIC_EXECUTION_RESULTS)))
+        return {"id": handle, "request_id": request.id,
+                "backend": backend,
+                "status": receipt["status"], "plan": plan,
+                "result": receipt, "receipt": receipt}
     patch = compiled.to_patch(
         _patch_capability(compiled), base_generation=generation.generation,
         project=request.project, timeline=request.timeline,
@@ -327,6 +523,12 @@ def retrieve_edit_request(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
         raise ValueError("job id must be a non-empty string")
     if wait < 0:
         raise ValueError("wait must be non-negative")
+    with _EDIT_EXECUTOR_LOCK:
+        semantic_result = _SEMANTIC_EXECUTION_RESULTS.get(job_id)
+    if semantic_result is not None:
+        return {"id": job_id, "status": semantic_result.get("status"),
+                "result": semantic_result,
+                "error": semantic_result.get("refusal")}
     from library.tools.resolved import client
     job = client.result(job_id, wait=wait)
     if job is None:
@@ -347,6 +549,8 @@ def submit_edit_request(request, *, authorized: bool = False,
         request, authorized=authorized, owner=owner)
     if submitted.get("status") == "already_satisfied":
         return submitted["receipt"]
+    if submitted.get("receipt") is not None:
+        return submitted["receipt"]
     job_id = submitted.get("id")
     if not isinstance(job_id, str) or not job_id:
         raise RuntimeError("broker did not return an edit job id")
@@ -357,6 +561,10 @@ def cancel_edit_request(job_id: str) -> dict[str, Any]:
     """Request cancellation only through the broker's declared safe path."""
     if not isinstance(job_id, str) or not job_id.strip():
         raise ValueError("job id must be a non-empty string")
+    with _EDIT_EXECUTOR_LOCK:
+        if job_id in _SEMANTIC_EXECUTION_RESULTS:
+            return {"id": job_id, "status": "not_cancellable",
+                    "reason": "the synchronous adapter has completed"}
     from library.tools.resolved import client
     return client.call({"op": "cancel", "id": job_id})
 
