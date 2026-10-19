@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 #: VC-06: staging stays the production default. No router path promotes a
 #: direct-write default; gates may only observe candidates beside it.
@@ -70,6 +70,13 @@ _PROPERTY_OPS = frozenset({"clip.set_property", "clip.set_enabled"})
 class RoutingRefused(RuntimeError):
     """No executor can apply the requested semantics safely."""
 
+    category = "unsupported"
+
+    def as_dict(self) -> dict:
+        from library.tools.transaction_orchestration import ExecutionRefusal
+
+        return ExecutionRefusal(self.category, str(self)).as_dict()
+
 
 class IncrementalRoutingRefused(RoutingRefused):
     """Incremental refusal that must not be collapsed into a rebuild."""
@@ -95,9 +102,50 @@ class ExecutionDecision:
     algebra_status: tuple[tuple[str, str], ...]
     mode: str = "direct"
     qualification_gaps: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = ()
+    selection: Mapping = field(default_factory=dict)
 
     def as_dict(self) -> dict:
-        return asdict(self)
+        value = asdict(self)
+        # Preserve the legacy decision fields while making the dimensions
+        # behind the choice explicit and machine-readable. Missing evidence
+        # stays "unknown"; a router must not infer live state from silence.
+        value["selection"] = {
+            "semantics": list(self.selection.get("semantics", ())),
+            "qualification": self.selection.get("qualification", "unknown"),
+            "media_type": self.selection.get("media_type", "unknown"),
+            "timeline_state": self.selection.get("timeline_state", "unknown"),
+            "preservation_constraints": list(
+                self.selection.get("preservation_constraints", ())),
+            "safety_class": self.selection.get("safety_class", "unknown"),
+            "cost": self.selection.get("cost", "unmeasured"),
+            "minimum_mutation": self.selection.get("minimum_mutation", self.backend),
+            "limitations": list(self.selection.get("limitations", ())),
+        }
+        return value
+
+
+def _selection_basis(operations: Sequence[Mapping], context: Mapping,
+                     backend: str, *, limitations: Sequence[str] = ()) -> dict:
+    """Capture the evidence dimensions used by a backend choice.
+
+    Context fields are observations supplied by preparation/callers. The
+    router records absence as unknown instead of manufacturing certainty.
+    """
+    from library.tools import edit_algebra
+
+    ids = tuple(str(op.get("op", "")) for op in operations)
+    safety = tuple(dict.fromkeys(edit_algebra.safety_class(op_id) for op_id in ids))
+    return {
+        "semantics": ids,
+        "qualification": tuple(_statuses(edit_algebra, ids)),
+        "media_type": context.get("media_type", "unknown"),
+        "timeline_state": context.get("timeline_state", "unknown"),
+        "preservation_constraints": context.get("preservation_constraints", ()),
+        "safety_class": safety[0] if len(safety) == 1 else safety or "unknown",
+        "cost": context.get("estimated_cost", "unmeasured"),
+        "minimum_mutation": context.get("minimum_mutation", backend),
+        "limitations": tuple(limitations) + tuple(context.get("limitations", ())),
+    }
 
 
 @dataclass(frozen=True)
@@ -308,6 +356,8 @@ def route_full_rebuild(*, reason: str, ineligibility: str | None = None,
                       "verify no collateral changes"),
         algebra_status=statuses,
         mode="staged_full_rebuild",
+        selection=_selection_basis(ops, context, "full_rebuild",
+                                   limitations=(rejected_reason,)),
     )
 
 
@@ -329,6 +379,7 @@ def route_incremental(*, reason: str = "incremental eligibility checks passed",
                       "verify unchanged rows and items"),
         algebra_status=_statuses(edit_algebra, ids) if ids else (),
         mode="staged",
+        selection=_selection_basis(ops, context, "incremental"),
     )
 
 
@@ -343,6 +394,7 @@ def route_no_op(*, reason: str, context: Mapping | None = None) -> ExecutionDeci
         verification=("no Resolve write issued", "recorded state already satisfies the request"),
         algebra_status=(),
         mode="no_op",
+        selection=_selection_basis((), context, "no_op"),
     )
 
 
@@ -467,6 +519,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
             verification=decision.verification,
             algebra_status=_statuses(edit_algebra, ids), mode=decision.mode,
             qualification_gaps=_qualification_gaps(edit_algebra, operations),
+            selection=_selection_basis(operations, context, decision.backend),
         )
 
     # An ineligible incremental result is a named refusal, never a
@@ -535,6 +588,10 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
             algebra_status=statuses,
             mode=_mode_for("edit_patch.property", blockers=blockers, context=context),
             qualification_gaps=gaps,
+            selection=_selection_basis(
+                operations, context, "edit_patch.property",
+                limitations=tuple(reason for op_id, _qualified, _production in gaps
+                                  for reason in (f"{op_id} is not production-qualified",))),
         )
 
     # EditPatch schedules exactly the ops its matrix row lists as
@@ -558,6 +615,10 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
             algebra_status=statuses,
             mode=_mode_for("edit_patch", blockers=blockers, context=context),
             qualification_gaps=gaps,
+            selection=_selection_basis(
+                operations, context, "edit_patch",
+                limitations=tuple(f"{op_id} is not production-qualified"
+                                  for op_id, _qualified, _production in gaps)),
         )
     raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
 
@@ -704,6 +765,9 @@ def route_structural_candidate(*, operations: Sequence[dict],
         algebra_status=_statuses(edit_algebra, ids),
         mode="staged",
         qualification_gaps=(),
+        selection=_selection_basis(
+            ops, context, "composed_edit.structural",
+            limitations=("observation-only candidate",)),
     )
 
 

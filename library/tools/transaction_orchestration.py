@@ -56,7 +56,93 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, field
+from typing import Any, ClassVar
+
+
+@dataclass(frozen=True)
+class ExecutionInput:
+    """Backend-neutral input envelope consumed by specialized executors.
+
+    This is a contract wrapper, not another edit IR or transaction runner:
+    ``intent`` remains the owning operation representation and ``decision``
+    is the router's already-made choice.
+    """
+
+    intent: Mapping
+    decision: Mapping
+    project: str | None = None
+    timeline: str | None = None
+    base_generation: int | str | None = None
+    idempotency_key: str | None = None
+    expected_state: Mapping = field(default_factory=dict)
+    preservation_constraints: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ExecutionRefusal:
+    """Normalized refusal vocabulary shared across physical backends."""
+
+    category: str
+    reason: str
+    retryable: bool = False
+    recovery: Mapping = field(default_factory=dict)
+
+    CATEGORIES: ClassVar[frozenset[str]] = frozenset({
+        "unsupported", "stale", "conflict", "backend_failure",
+        "verification_failed", "recovery_required"})
+
+    def __post_init__(self) -> None:
+        if self.category not in self.CATEGORIES:
+            raise ValueError(f"unknown execution refusal category: {self.category}")
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class VerificationResult:
+    """Evidence-bearing verification outcome; missing evidence is explicit."""
+
+    status: str
+    checks: tuple[Mapping, ...] = ()
+    missing: tuple[str, ...] = ()
+    evidence: Mapping = field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class RecoveryResult:
+    """Normalized recovery outcome, without prescribing physical recovery."""
+
+    status: str
+    action: str
+    reason: str = ""
+    evidence: Mapping = field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    """Common result envelope around backend-specific receipt details."""
+
+    status: str
+    backend: str
+    verification: VerificationResult
+    recovery: RecoveryResult
+    limitations: tuple[str, ...] = ()
+    receipt: Mapping = field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        return asdict(self)
 
 
 # ── Preparation: identity ─────────────────────────────────────────────
@@ -159,8 +245,7 @@ def verify_readback(patch_operations: Sequence[Mapping],
     receipt body ``edit_patch.verify_execution`` returns (same keys),
     so existing readers see no change.
     """
-    from library.tools import edit_algebra
-    from library.tools import operation_acceptance
+    from library.tools import edit_algebra, operation_acceptance
 
     verify_rows = []
     judged_ops = []
@@ -238,10 +323,39 @@ def _judge_conditions(conditions: Sequence[Mapping], snap: Mapping,
 # ── Receipts: one lifecycle vocabulary ────────────────────────────────
 
 def standardize_receipt(receipt: Mapping) -> dict:
-    """Publish a receipt through the merged receipt lifecycle (PR 2709)."""
+    """Publish a receipt through the common lifecycle and result contract."""
     from library.tools import transaction_receipt
 
-    return transaction_receipt.standardize(dict(receipt))
+    out = transaction_receipt.standardize(dict(receipt))
+    contracts = out.get("acceptance_contracts") or []
+    checks = tuple({"passed": row.get("passed"),
+                    "operation": row.get("operation"),
+                    "failures": row.get("failures", [])}
+                   for row in contracts)
+    verified = (bool(checks)
+                and out.get("resolve_write_status", out.get("status")) == "committed"
+                and all(row.get("passed") is True for row in contracts))
+    recovery = out.get("recovery_result") or {}
+    out["execution_contract"] = ExecutionResult(
+        status=str(out.get("status") or "unknown"),
+        backend=str(out.get("backend") or "unknown"),
+        verification=VerificationResult(
+            status=("verified" if verified else
+                    "missing_evidence" if not checks else "failed"),
+            checks=checks,
+            missing=() if checks else ("operation acceptance evidence",),
+            evidence={"acceptance_check_count": len(checks),
+                      "readback_present": out.get("readback") is not None}),
+        recovery=RecoveryResult(
+            status=str(recovery.get("status") or "not_attempted"),
+            action=str((out.get("recovery") or {}).get("action") or "none"),
+            reason=str(recovery.get("reason") or ""),
+            evidence={"recovery_record_present": bool(recovery)}),
+        limitations=tuple(str(value) for value in out.get("limitations", ())),
+        receipt={"transaction_id": out.get("patch_id"),
+                 "idempotency_key": out.get("idempotency_key")},
+    ).as_dict()
+    return out
 
 
 def attach_routing(receipt: Mapping, decision: Any,
@@ -352,6 +466,6 @@ def shared_inventory(timeline: Any) -> SharedRowInventory:
             wrapped.names = dict(timeline.names)
             wrapped.counts = dict(timeline.counts)
             return wrapped
-    except Exception:  # noqa: BLE001 - a non-conforming timeline takes the generic path
-        pass
+    except (ImportError, AttributeError):
+        return SharedRowInventory(timeline)
     return SharedRowInventory(timeline)
