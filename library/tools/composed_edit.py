@@ -433,6 +433,7 @@ def conform_comp_windows(source_rows: Mapping[str, Sequence[Any]],
                       key[2])}) is not False}
     receipt["compared"] = len(source)
 
+    rebuilt: set = set()
     for key, want in sorted(source.items()):
         row, item_index, comp_index = key
         if want is None:
@@ -469,17 +470,51 @@ def conform_comp_windows(source_rows: Mapping[str, Sequence[Any]],
                 f"not always pulled back.")
 
         os.makedirs(comp_dir, exist_ok=True)
-        exported = os.path.join(
-            comp_dir, f"conform_{row}_{item_index}_c{comp_index}.comp")
+        # The re-import rebuilds the item's whole compared comp stack in
+        # source index order, never one comp alone: deleting every comp
+        # and importing a single one destroys the target's siblings and
+        # lands the import at index 1 however the source numbered it, so
+        # a multi-comp item (a freeze tail's treatment stack) could never
+        # conform. A stack whose source indices are not contiguous from
+        # 1 still refuses below - the fresh-read verdict is unchanged -
+        # but its siblings survive the attempt.
+        siblings = sorted(comp for (srow, sitem, comp) in source
+                          if srow == row and sitem == item_index)
         source_item = (source_rows.get(row) or [])[item_index]
-        source_item.ExportFusionComp(exported, comp_index)
-        for name in (item.GetFusionCompNameList() or []):
-            item.DeleteFusionCompByName(name)
-        item.ImportFusionComp(exported)
+        if len(siblings) == 1:
+            # One compared comp: the legacy single re-import, unchanged.
+            exported = os.path.join(
+                comp_dir, f"conform_{row}_{item_index}_c{comp_index}.comp")
+            source_item.ExportFusionComp(exported, comp_index)
+            for name in (item.GetFusionCompNameList() or []):
+                item.DeleteFusionCompByName(name)
+            item.ImportFusionComp(exported)
+            entry["how"] = "re-import"
+            entry["from"] = exported
+        elif (row, item_index) in rebuilt:
+            # This stack was already rebuilt this run and still mismatches
+            # (its source indices are not contiguous, so no import order
+            # can align it): no second delete-all, which would destroy the
+            # rebuilt stack. The fresh-read verdict below refuses it.
+            entry["how"] = "re-import-stack (unchanged)"
+        else:
+            exports = []
+            for sibling in siblings:
+                path = os.path.join(
+                    comp_dir,
+                    f"conform_{row}_{item_index}_c{sibling}.comp")
+                source_item.ExportFusionComp(path, sibling)
+                exports.append(path)
+            for name in (item.GetFusionCompNameList() or []):
+                item.DeleteFusionCompByName(name)
+            for path in exports:
+                item.ImportFusionComp(path)
+            rebuilt.add((row, item_index))
+            entry["how"] = "re-import-stack"
+            entry["stack"] = list(siblings)
+            entry["from"] = list(exports)
         _after, wrote = apply_window(item, comp_index, want)
-        entry["how"] = "re-import"
         entry["wrote_after_import"] = wrote
-        entry["from"] = exported
         receipt["repaired"].append(entry)
 
     staged_after = read_windows(staged_rows)

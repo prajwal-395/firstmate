@@ -3060,12 +3060,30 @@ def _promote(project_folder: str, project: Any, pool: Any,
             project_folder, final, live_full, live_full)
         edits, superseded = _editor_carry.edits_in_force(
             project_folder, final, detection["pending"])
+        # Items this spec removes are replaced wholesale by declaration -
+        # their baseline-vs-live deltas are the touch's own replacement,
+        # never unattributed losses (`reel_replace_guard`).
+        replaced_spans = []
+        for removal in (getattr(qualification, "removals", None) or ()):
+            row = str((removal or {}).get("row") or "").upper()
+            try:
+                record_frame = int((removal or {}).get("record_frame"))
+                duration = int((removal or {}).get("duration"))
+                if row.startswith("V"):
+                    replaced_spans.append(
+                        ("video", int(row[1:]), record_frame, duration))
+                elif row.startswith("A"):
+                    replaced_spans.append(
+                        ("audio", int(row[1:]), record_frame, duration))
+            except (TypeError, ValueError):
+                continue
         receipt["editor_changes"] = _guard.protect_editor_changes(
             project_folder, final, live_full, live_full, staged_full,
             accept=_guard.accepts_editor_changes(
                 final, accept_editor_changes), detection=detection,
             carried_edits={"edits": edits, "superseded": superseded,
-                           "written": [], "already_held": []})
+                           "written": [], "already_held": []},
+            replaced_spans=replaced_spans)
     except _guard.EditorChangeRefused as refused:
         raise TouchupError(str(refused)) from refused
 
@@ -3258,6 +3276,12 @@ def _promote(project_folder: str, project: Any, pool: Any,
         _provenance.resolve_editor_change(
             os.path.join(project_folder, "pipeline_output", "review"),
             final, record_id, status="carried")
+    for record_id in (receipt.get("editor_changes") or {}).get(
+            "touch_replaced", ()):
+        _provenance.resolve_editor_change(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            final, record_id, status="superseded",
+            superseded_by=f"touchup {journal['id']} (spec-replaced item)")
     for record_id in (receipt.get("editor_changes") or {}).get(
             "superseded", ()):
         _provenance.resolve_editor_change(

@@ -753,6 +753,44 @@ def _replaced_stills(change: dict, staged: dict) -> list[dict]:
             and (other.get("record_in"), other.get("record_out")) == span]
 
 
+def _change_within_replaced_span(change: dict, replaced) -> bool:
+    """Whether this pending delta sits on an item the touch spec removes.
+
+    A `swap_pixels` / `remove_overlay` states its item's replacement
+    wholesale - new pixels at a stated span, verified by re-read - so a
+    baseline-vs-live delta on exactly that item is attributed to the
+    touch, never carried as the editor's and never an unattributed loss:
+    the old item is deleted by declaration and its replacement is the
+    spec, not a silent drop. Anything added, any marker, any setting,
+    and any item outside the stated removal spans still refuses below.
+    `replaced` is `(track_type, track_index, record_in, duration)` spans
+    from the qualified spec; unreadable values fail closed (no match).
+    """
+    if not replaced:
+        return False
+    if change.get("kind") not in ("item_changed", "item_removed"):
+        return False
+    before = change.get("before") or {}
+    try:
+        rec_in = int(before.get("record_in"))
+        rec_out = int(before.get("record_out"))
+        track_index = int(before.get("track_index"))
+    except (TypeError, ValueError):
+        return False
+    for span in replaced:
+        try:
+            span_type, span_index, start, duration = span
+            if (str(before.get("track_type")).lower()
+                    == str(span_type).lower()
+                    and track_index == int(span_index)
+                    and rec_in >= int(start)
+                    and rec_out <= int(start) + int(duration)):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def _change_is_carried(change: dict, staged: dict) -> bool:
     kind = change["kind"]
     if kind.startswith("item_"):
@@ -1061,13 +1099,18 @@ def _moved_by_ripple(change: dict, rippled: set) -> bool:
 def protect_editor_changes(project_folder: str, final: str, live: dict,
                            staged_initial: dict, staged_after: dict,
                            *, accept=False, detection=None,
-                           carried_edits=None) -> dict:
+                           carried_edits=None, replaced_spans=None) -> dict:
     """Record deltas and refuse edits the staged timeline does not carry.
 
     `detection` is an earlier `detect_editor_changes` over the same
     reads, taken before the carried edits were applied to staging
     (`library/tools/editor_edit_carry.py`); `carried_edits` is that
     carry's report, kept on this one so the promotion records both.
+    `replaced_spans` is the qualified touch spec's own removal spans -
+    `(track_type, track_index, record_in, duration)` - whose items the
+    spec replaces wholesale; a pending delta confined to one is
+    attributed to the touch (`touch_replaced`), not refused as an
+    unattributed loss and not misfiled as carried.
     """
     if detection is None:
         detection = detect_editor_changes(
@@ -1075,14 +1118,25 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
     first_contact = detection["first_contact"]
     detected = detection["detected"]
     pending = detection["pending"]
-    carried, uncarried = [], []
+    carried, uncarried, touch_replaced = [], [], []
+    replaced = list(replaced_spans or ())
     rippled = _moved_by_carried_ripples(carried_edits)
     for record in pending:
-        remaining = [change for change in record.get("changes", ())
-                     if not _change_is_carried(change, staged_after)
-                     and not _moved_by_ripple(change, rippled)]
-        if remaining:
-            uncarried.extend((record, change) for change in remaining)
+        unattributed = []
+        record_replaced = []
+        for change in record.get("changes", ()):
+            if _change_is_carried(change, staged_after):
+                continue
+            if _moved_by_ripple(change, rippled):
+                continue
+            if _change_within_replaced_span(change, replaced):
+                record_replaced.append(change)
+                continue
+            unattributed.append(change)
+        if unattributed:
+            uncarried.extend((record, change) for change in unattributed)
+        elif record_replaced:
+            touch_replaced.append(record["id"])
         else:
             carried.append(record)
     if uncarried and not accept:
@@ -1117,6 +1171,7 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
     return {"first_contact": first_contact, "detected": detected,
             "carried_edits": carried_edits,
             "carried": [record["id"] for record in carried],
+            "touch_replaced": touch_replaced,
             "superseded": (sorted({record["id"] for record, _ in uncarried})
                            if accept else []),
             "uncarried": [change for _record, change in uncarried],
