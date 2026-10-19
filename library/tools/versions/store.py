@@ -423,6 +423,10 @@ def _export_reel_recovery_archives(
             continue
         archive = export_timeline_recovery_archive(
             resolve, timeline, name, project_folder)
+        try:
+            resolve_version = str(resolve.GetVersion() or "")
+        except Exception:  # noqa: BLE001 - API differs by Resolve
+            resolve_version = ""
         if archive["archived"]:
             try:
                 import hashlib
@@ -482,6 +486,23 @@ def _export_reel_recovery_archives(
                     "inventory_items": len(archive_items),
                     "assets": assets,
                 }
+                # The machine paths above remain provenance for existing
+                # recovery readers.  VC-39 adds content identities and a
+                # portable environment contract beside them.
+                try:
+                    from library.tools.versions.reproducibility import (
+                        recovery_evidence,
+                    )
+
+                    receipt["reproducibility"] = recovery_evidence(
+                        project_folder, name, receipt,
+                        resolve_version=resolve_version)
+                except Exception as exc:  # noqa: BLE001 - archive receipt survives
+                    receipt["reproducibility"] = {
+                        "format": "ren_revision_recovery/1",
+                        "status": "incomplete",
+                        "reason": f"portability evidence unavailable: {exc!r}",
+                    }
                 history = reel_versions.versions_of(project_folder, name)
                 if (not history
                         or history[-1].get("rows_digest")
@@ -500,6 +521,50 @@ def _export_reel_recovery_archives(
         else:
             result["reason"] = archive["reason"]
             report["errors"].append(f"{name}: {archive['reason']}")
+            # A failed native export is still a revision with explicit
+            # recovery requirements. Record what can be read from the
+            # approved timeline so semantic reconstruction can be assessed.
+            try:
+                from library.tools import reel_read, reel_replace_guard
+                from library.tools.versions import reel_versions, rounds
+                from library.tools.versions.reproducibility import (
+                    recovery_evidence,
+                )
+
+                snapshot = reel_replace_guard.full_timeline_snapshot(
+                    timeline, project, project_folder)
+                rows = reel_read.rows_of(
+                    {"tracks": reel_read.read_tracks(timeline)})
+                assets = []
+                for item in snapshot.get("items", []):
+                    source_path = item.get("source_file")
+                    if not source_path:
+                        continue
+                    asset_path = Path(source_path)
+                    if asset_path.is_file():
+                        assets.append({
+                            "path": str(asset_path),
+                            "bytes": asset_path.stat().st_size,
+                            "sha256": _sha256(asset_path),
+                        })
+                evidence = recovery_evidence(
+                    project_folder, name,
+                    {"assets": assets},
+                    resolve_version=resolve_version,
+                )
+                history = reel_versions.versions_of(project_folder, name)
+                rows_digest = rounds.digest_rows(rows)
+                matching = next((entry for entry in reversed(history)
+                                 if entry.get("rows_digest") == rows_digest), None)
+                if matching is not None:
+                    reel_versions.attach_recovery_archive(
+                        project_folder, name, int(matching["version"]),
+                        {"reproducibility": evidence,
+                         "archive_status": "unavailable",
+                         "archive_reason": archive["reason"]})
+            except Exception as exc:  # noqa: BLE001 - preserve archive failure
+                result["reproducibility_reason"] = (
+                    f"recovery evidence unavailable: {exc!r}")
     report["files"].sort()
     return report
 
