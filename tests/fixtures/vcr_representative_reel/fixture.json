@@ -1,0 +1,27 @@
+{
+  "schema": "vcr_representative_reel/1",
+  "project": "Ren Qualification",
+  "timeline": "VC-R13 disposable",
+  "profile": {
+    "fps": 24,
+    "width": 1920,
+    "height": 1080,
+    "duration_frames": 216
+  },
+  "assets": [
+    {"id": "camera-a", "kind": "video_with_linked_audio", "source": "qual_a.mp4", "track": "V1+A1", "frames": [0, 96]},
+    {"id": "camera-b", "kind": "video_with_linked_audio", "source": "qual_b.mp4", "track": "V1+A1", "frames": [96, 168]},
+    {"id": "camera-c", "kind": "video_with_linked_audio", "source": "qual_c.mp4", "track": "V1+A1", "frames": [168, 216]},
+    {"id": "brand-mark", "kind": "graphic_overlay", "source": "overlay.svg", "track": "V2", "frames": [96, 168]},
+    {"id": "caption-1", "kind": "caption", "source": "caption.svg", "track": "V3", "frames": [96, 144]},
+    {"id": "camera-a-fusion", "kind": "fusion_comp", "clip": "camera-a", "name": "VCR Fixture Fusion"},
+    {"id": "camera-b-grade", "kind": "grade", "clip": "camera-b", "cdl": {"slope": [1.02, 1.0, 0.98], "offset": [0.0, 0.0, 0.0], "power": [1.0, 1.0, 1.0], "saturation": 1.04}}
+  ],
+  "controls": [
+    {"id": "unchanged", "operation": "no_op"},
+    {"id": "single_graphic", "operation": "replace_asset", "asset": "brand-mark"},
+    {"id": "caption", "operation": "replace_caption_text_and_timing", "asset": "caption-1"},
+    {"id": "engine_source", "operation": "change_engine_source_revision"},
+    {"id": "structural_timing", "operation": "ripple_clip", "asset": "camera-b", "delta_frames": 12}
+  ]
+}

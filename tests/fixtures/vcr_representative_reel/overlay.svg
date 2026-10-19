@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="64" viewBox="0 0 180 64">
+  <rect width="180" height="64" rx="8" fill="#172554"/>
+  <circle cx="32" cy="32" r="15" fill="#67e8f9"/>
+  <text x="58" y="40" fill="#ffffff" font-family="Arial, sans-serif" font-size="22">VCR</text>
+</svg>
