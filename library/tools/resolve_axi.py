@@ -7342,6 +7342,146 @@ def cmd_sense_reframe(args) -> int:
         return 0
 
 
+def cmd_edit_transform(args) -> int:
+    """Translate an item by output pixels in one verified EditPatch."""
+    if args.move_x == 0 and args.move_y == 0:
+        return fail("transform needs a non-zero --move-x or --move-y.",
+                    f"{TOOL} edit transform --help")
+    if args.apply and not args.verify:
+        return fail("--apply requires --verify for a transform edit.",
+                    f"{TOOL} edit transform --item <id> --move-x <px> "
+                    "--verify --apply")
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        matches = []
+        for track_type in ("video",):
+            try:
+                track_count = int(timeline.GetTrackCount(track_type) or 0)
+                for track_index in range(1, track_count + 1):
+                    for item in timeline.GetItemListInTrack(
+                            track_type, track_index) or ():
+                        if str(item.GetUniqueId() or "") == args.item:
+                            matches.append(item)
+            except Exception as exc:
+                return fail(f"cannot resolve item identity on the timeline "
+                            f"({exc}).", f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\" --transforms")
+        if len(matches) != 1:
+            return fail(f"item id {args.item!r} resolves to {len(matches)} "
+                        "timeline items; exactly one is required.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\" --transforms")
+        item = matches[0]
+        pool_item = item.GetMediaPoolItem()
+        if pool_item is None:
+            return fail("the item has no media-pool source dimensions.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\" --transforms")
+        try:
+            raw_resolution = str(
+                pool_item.GetClipProperty("Resolution") or "")
+            if "x" not in raw_resolution.lower():
+                raise ValueError(
+                    f"media source has no measured Resolution: "
+                    f"{raw_resolution!r}")
+            clip_w, clip_h = (int(part.strip()) for part in
+                              raw_resolution.lower().split("x", 1))
+            frame_w = int(timeline.GetSetting("timelineResolutionWidth"))
+            frame_h = int(timeline.GetSetting("timelineResolutionHeight"))
+            before = item.GetProperty() or {}
+            pan, tilt = float(before.get("Pan", 0.0)), float(
+                before.get("Tilt", 0.0))
+            scaling = before.get("Scaling", 0)
+            from library.tools import resolve_transform
+            if scaling in (1, "1", True):
+                base_scale = resolve_transform.NATIVE_BASE_SCALE
+            else:
+                behavior = project.GetSetting(
+                    "timelineInputResMismatchBehavior") or ""
+                if behavior != "scaleToFit":
+                    raise ValueError(
+                        f"unqualified project mismatch behavior {behavior!r}")
+                base_scale = resolve_transform.fit_base_scale(
+                    clip_w, clip_h, frame_w, frame_h)
+            rejection = resolve_transform.native_conversion_refusal(
+                before, "scaleToFit")
+            if rejection:
+                raise ValueError(rejection)
+            draw_gain = resolve_transform.FALLBACK_DRAW_GAIN
+            new_pan = pan + (args.move_x * frame_w /
+                             (clip_w * base_scale * draw_gain))
+            new_tilt = tilt - (args.move_y * frame_h /
+                               (clip_h * base_scale * draw_gain))
+        except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+            return fail(f"cannot compile a qualified output-pixel move "
+                        f"({exc}).", f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\" --transforms")
+        span = _item_span(item)
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            from library.tools import edit_patch
+            try:
+                receipt = edit_patch.apply_live_patch(
+                    project=project, timeline=timeline,
+                    capability="reel.touchup",
+                    operations=[
+                        {"op": "clip.set_property", "unique_id": args.item,
+                         "key": "Pan", "value": new_pan},
+                        {"op": "clip.set_property", "unique_id": args.item,
+                         "key": "Tilt", "value": new_tilt},
+                    ],
+                    conflict_domains=("picture_transform",),
+                    idempotency_key=f"resolve-axi.transform:{uuid.uuid4().hex}",
+                    preconditions=[{
+                        "kind": "clip_transform_equals", "unique_id": args.item,
+                        "properties": {key: before[key]
+                                       for key in ("Pan", "Tilt")
+                                       if key in before},
+                    }])
+            except Exception as exc:
+                return fail(f"transform EditPatch failed ({exc}).",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\" --transforms")
+            if receipt["status"] != "committed":
+                return fail(f"transform did not verify from read-back: "
+                            f"{receipt}.", f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\" --transforms")
+            emit([kv_block("transform", {
+                        "timeline": timeline.GetName(), "item": span["name"],
+                        "item_id": args.item, "move_x_px": args.move_x,
+                        "move_y_px": args.move_y, "pan": new_pan,
+                        "tilt": new_tilt, "receipt": receipt["patch_id"],
+                        "verified": "yes (native properties read back)"}),
+                  note])
+            return 0
+        emit([kv_block("transform_plan", {
+                    "timeline": timeline.GetName() +
+                    (" (current)" if is_current else ""),
+                    "item": span["name"], "item_id": args.item,
+                    "move_x_px": args.move_x, "move_y_px": args.move_y,
+                    "pan_before": pan, "pan_after": new_pan,
+                    "tilt_before": tilt, "tilt_after": new_tilt,
+                    "verification": "native Pan/Tilt read-back",
+                }), note,
+              "dry run - pass --verify --apply to commit this EditPatch",
+              help_block([f"{TOOL} edit transform --item {args.item} "
+                          f"--move-x {args.move_x:g} --move-y "
+                          f"{args.move_y:g} --verify --apply"])])
+        return 0
+
+
 def cmd_sense_mask(args) -> int:
     """Start a Magic Mask on one timeline item, judged by its nodes.
 
@@ -7857,6 +7997,24 @@ def build_parser() -> Parser:
     q.add_argument("--track-to", default="",
                    help="destination track (default stays)")
     q.set_defaults(func=cmd_edit_move)
+
+    q = esubs.add_parser("transform", help="move one item's output-frame "
+                                             "position in pixels")
+    q.add_argument("--item", required=True,
+                   help="the item's exact Resolve unique id")
+    q.add_argument("--timeline", default="",
+                   help="exact timeline (defaults to the current timeline)")
+    q.add_argument("--project", default="",
+                   help="expect this exact Resolve project to be open")
+    q.add_argument("--move-x", type=float, default=0.0,
+                   help="horizontal output-frame displacement in pixels")
+    q.add_argument("--move-y", type=float, default=0.0,
+                   help="vertical output-frame displacement in pixels")
+    q.add_argument("--verify", action="store_true",
+                   help="require native transform read-back verification")
+    q.add_argument("--apply", action="store_true",
+                   help="apply through one EditPatch; dry-run is the default")
+    q.set_defaults(func=cmd_edit_transform)
 
     q = esubs.add_parser("delete", help="delete one item, verified by "
                                          "absence; --apply writes")
@@ -8736,7 +8894,7 @@ def _submit_through_broker(client, argv: list) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def _main_impl(argv=None) -> int:
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
     # A `ren` verb already set it through the environment, and an
@@ -8784,6 +8942,15 @@ def main(argv=None) -> int:
         return fail(str(exc),
                     "wait for the named Resolve holder to finish, "
                     "then re-run this command")
+
+
+def main(argv=None) -> int:
+    """CLI entry point over the shared AXI execution core."""
+    from library.tools.resolve_axi_core import invoke_cli
+    result = invoke_cli(argv)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    return result.exit_code
 
 
 if __name__ == "__main__":

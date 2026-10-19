@@ -58,16 +58,74 @@ def _list_tools():
 # ── the catalog is the single source ────────────────────────────────
 
 def test_tools_cover_every_catalog_verb_exactly_once():
-    tools = _list_tools()
-    assert [tool["_meta"]["verb"] for tool in tools] == [
+    tools = [tool for tool in _list_tools()
+             if tool["_meta"].get("verb") is not None]
+    assert [tool["_meta"].get("verb") for tool in tools
+            if tool["_meta"].get("verb") is not None] == [
         verb.name for verb in VERBS]
+    assert any(tool["name"] == "resolve_axi" for tool in _list_tools())
     assert [tool["name"] for tool in tools] == [
         tool_name(verb.name) for verb in VERBS]
     assert len({tool["name"] for tool in tools}) == len(tools)
 
 
+def test_shared_axi_tool_is_discoverable_and_calls_the_core_in_process():
+    tools = _list_tools()
+    axi = next(tool for tool in tools if tool["name"] == "resolve_axi")
+    assert axi["_meta"]["control_boundary"] == "resolve-axi"
+    assert axi["inputSchema"]["required"] == ["command", "arguments"]
+    response = handle_message({
+        "jsonrpc": "2.0", "id": 8, "method": "tools/call",
+        "params": {"name": "resolve_axi",
+                   "arguments": {"command": "--version", "arguments": []}},
+    })
+    payload = json.loads(response["result"]["content"][0]["text"])
+    assert payload["ok"] is True
+    assert payload["stdout"].strip() == "0.7.0"
+
+
+def test_shared_axi_transaction_tool_requires_explicit_apply():
+    tools = _list_tools()
+    transaction = next(tool for tool in tools
+                       if tool["name"] == "resolve_axi_transaction")
+    assert transaction["_meta"]["execution_mode"] == "guarded_transaction"
+    response = handle_message({
+        "jsonrpc": "2.0", "id": 9, "method": "tools/call",
+        "params": {"name": "resolve_axi_transaction",
+                   "arguments": {"transaction": {}, "apply": False}},
+    })
+    assert response["result"]["isError"] is True
+    refusal = json.loads(response["result"]["content"][0]["text"])
+    assert refusal["exit"] == 4
+
+
+def test_async_axi_transaction_tools_are_discoverable_and_guarded(monkeypatch):
+    tools = {tool["name"]: tool for tool in _list_tools()}
+    submit = tools["resolve_axi_transaction_submit"]
+    retrieve = tools["resolve_axi_transaction_retrieve"]
+    assert submit["_meta"]["execution_mode"] == "guarded_transaction_submit"
+    assert retrieve["_meta"]["execution_mode"] == "transaction_retrieve"
+    refused = handle_message({
+        "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+        "params": {"name": "resolve_axi_transaction_submit",
+                   "arguments": {"transaction": {}, "apply": False}},
+    })
+    assert refused["result"]["isError"] is True
+    from library.tools import resolve_axi_sdk
+    monkeypatch.setattr(resolve_axi_sdk, "get_transaction_job", lambda job_id,
+                        wait=0: {"id": job_id, "status": "running"})
+    response = handle_message({
+        "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+        "params": {"name": "resolve_axi_transaction_retrieve",
+                   "arguments": {"job_id": "job-1", "wait": 2}},
+    })
+    assert json.loads(response["result"]["content"][0]["text"]) == {
+        "id": "job-1", "status": "running"}
+
+
 def test_each_tool_carries_its_verbs_effects_and_required_arguments():
-    by_verb = {tool["_meta"]["verb"]: tool for tool in _list_tools()}
+    by_verb = {tool["_meta"]["verb"]: tool for tool in _list_tools()
+               if tool["_meta"].get("verb") is not None}
     assert set(by_verb) == set(BY_NAME)
     for name, verb in BY_NAME.items():
         tool = by_verb[name]
@@ -79,7 +137,8 @@ def test_each_tool_carries_its_verbs_effects_and_required_arguments():
 
 
 def test_annotations_read_off_the_catalog_effects():
-    by_verb = {tool["_meta"]["verb"]: tool for tool in _list_tools()}
+    by_verb = {tool["_meta"]["verb"]: tool for tool in _list_tools()
+               if tool["_meta"].get("verb") is not None}
     status = by_verb["status"]
     assert status["annotations"]["readOnlyHint"] is True
     assert status["annotations"]["destructiveHint"] is False
@@ -106,7 +165,8 @@ def test_the_comparison_can_fail():
             is True)
     assert (tool_for_verb(altered)["_meta"]["effects"]
             != tool_for_verb(BY_NAME["status"])["_meta"]["effects"])
-    assert len(_list_tools()) == len(VERBS)
+    assert len([tool for tool in _list_tools()
+                if tool["_meta"].get("verb") is not None]) == len(VERBS)
     assert {tool["name"] for tool in _list_tools()} != (
         {tool["name"] for tool in _list_tools()} | {"ren_missing_verb"})
 
@@ -358,9 +418,13 @@ def test_stdio_lists_calls_and_refuses(tmp_path):
     assert by_id[1]["result"]["protocolVersion"] == "2025-06-18"
 
     tools = by_id[2]["result"]["tools"]
-    assert [tool["_meta"]["verb"] for tool in tools] == [
+    assert [tool["_meta"].get("verb") for tool in tools
+            if tool["_meta"].get("verb") is not None] == [
         verb.name for verb in VERBS]
+    assert any(tool["name"] == "resolve_axi" for tool in tools)
     for tool in tools:
+        if tool["_meta"].get("verb") is None:
+            continue
         verb = BY_NAME[tool["_meta"]["verb"]]
         assert tool["_meta"]["effects"] == list(verb.effects)
         assert tool["inputSchema"]["required"] == [

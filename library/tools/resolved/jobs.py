@@ -166,7 +166,7 @@ _BROKER_ALLOWLIST = frozenset({
     "cmd_markers_audit_replies", "cmd_audio",
     # recorded reads; `--refresh-live` reads Resolve and coalesces
     "cmd_timeline_list", "cmd_timeline_get", "cmd_markers", "cmd_items",
-    "cmd_fusion", "cmd_captions", "cmd_frames",
+    "cmd_fusion", "cmd_captions", "cmd_frames", "cmd_edit_transform",
     # pool read; `--apply` is refused by the command itself
     "cmd_multicam_sync",
     # scratch-project lifecycle; EXCLUSIVE with its own prefix/dirty/read-back guard
