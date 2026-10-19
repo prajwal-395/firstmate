@@ -28,6 +28,7 @@ unreadable half assert the raise, not just the report.
 """
 from __future__ import annotations
 import json
+import zipfile
 from unittest.mock import patch
 import pytest
 
@@ -41,6 +42,7 @@ def _leases_off_machine(tmp_path, monkeypatch):
 from library.tools import reel_replace_guard as guard
 from library.tools.reel_build import (
     ReelBuildError,
+    PromotionFailure,
     promote_staged_reels,
 )
 from tests.promotion_test_helpers import no_a_roll_track_plans
@@ -48,6 +50,8 @@ from tests.resolve_double import (
     FakeProject,
     FakeTimeline,
 )
+
+
 from tests.resolve_double import (
     TimelineItemSpec as FakeItem,
 )
@@ -88,6 +92,24 @@ from library.tools.reel_placed_assets import (
     promote_frame_overlays,
     promote_to_durable,
 )
+
+
+@pytest.mark.parametrize("failure_class", [
+    PromotionFailure.EXECUTION,
+    PromotionFailure.CONFLICT,
+    PromotionFailure.DELIVERY,
+])
+def test_partial_promotion_preserves_failure_class_per_reel(failure_class):
+    from library.tools.reel_build import _raise_partial_promotion
+
+    with pytest.raises(PromotionFailure) as raised:
+        _raise_partial_promotion(
+            ["Reel 26"], [], {"Reel 26": "classified refusal"},
+            failure_class=failure_class)
+
+    assert raised.value.failure_class == failure_class
+    assert raised.value.per_reel_failure_classes == {
+        "Reel 26": failure_class}
 
 
 FINAL = "Reel 09 - your-website-is-only-20-percent (final)"
@@ -661,6 +683,65 @@ def test_promotion_refuses_a_target_created_during_the_build(project_dir):
 
     assert sorted(resolve.names()) == sorted([MASTER, FINAL, staging.GetName()])
     assert resolve.deleted == []
+
+
+@pytest.mark.usefixtures("mock_dvr")
+def test_promotion_refuses_reused_timeline_id_before_mutation(project_dir):
+    retired, staging = _semantic_timelines()
+    retired.GetUniqueId = lambda: "reused-id"
+    staging.GetUniqueId = lambda: "reused-id"
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with pytest.raises(ReelBuildError, match="missing or reused"):
+        _promote(resolve, project_dir, {FINAL: staging.GetName()})
+
+    assert FINAL in resolve.names()
+    assert staging.GetName() in resolve.names()
+    assert resolve.deleted == []
+
+
+def test_retiring_archive_receipt_binds_timeline_id_inventory_and_asset_hash(
+        tmp_path, monkeypatch):
+    import hashlib
+    from library.tools import reel_build, reel_replace_guard
+    from library.tools.versions import store
+
+    asset = tmp_path / "source.mov"
+    asset.write_bytes(b"media bytes")
+    archive_path = tmp_path / "retired.drt"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr(
+            "project.xml",
+            '<!--DbAppVer="21.1" DbPrjVer="17"-->'
+            '<Project><Name>Demo</Name></Project>')
+        archive.writestr(
+            "SeqContainer/timeline-1.xml",
+            '<Sequence><Track><TrackType>Video</TrackType>'
+            '<VideoClip><Name>source</Name><Start>0</Start>'
+            '<Duration>10</Duration><In>0</In><MediaRef>1</MediaRef>'
+            f'<MediaFilePath>{asset}</MediaFilePath>'
+            '</VideoClip></Track></Sequence>')
+    timeline = FakeTimeline("retiring")
+    timeline.GetUniqueId = lambda: "resolve-id-1"
+    monkeypatch.setattr(
+        reel_replace_guard, "full_timeline_snapshot",
+        lambda *_args: {"items": [{"source_file": str(asset)}]})
+    monkeypatch.setattr(
+        reel_replace_guard, "snapshot_timeline", lambda *_args, **_kwargs: {})
+
+    def export(_resolve, _timeline, _name, _folder, **_kwargs):
+        return {"archived": True, "path": str(archive_path)}
+
+    monkeypatch.setattr(store, "export_timeline_recovery_archive", export)
+    receipt = reel_build._archive_retiring_generation(
+        object(), FakeProject([timeline]), timeline, str(tmp_path))
+
+    assert receipt["timeline_id"] == "resolve-id-1"
+    assert receipt["inventory_items"] == 1
+    assert receipt["assets"] == [{
+        "path": str(asset), "sha256": hashlib.sha256(b"media bytes").hexdigest(),
+        "bytes": len(b"media bytes")
+    }]
 
 
 @pytest.mark.usefixtures("mock_dvr")

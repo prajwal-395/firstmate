@@ -806,12 +806,16 @@ class _Timeline_2:
 
     def __init__(self, name, rows, markers=None):
         self._name = name
+        self._unique_id = f"timeline:{name}"
         self._rows = list(rows)
         self._markers = dict(markers or {})
         self.added = []
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
 
     def SetName(self, name):
         self._name = name

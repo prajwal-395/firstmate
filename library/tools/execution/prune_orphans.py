@@ -471,7 +471,7 @@ def files_from_journal(journal_path: str) -> list[str]:
 
 
 def current_referenced_paths(project, project_folder: str) -> set[str]:
-    """What some timeline plays RIGHT NOW, by both instruments.
+    """Files live timelines or retained recovery records can restore.
 
     Recomputed at deletion time rather than carried over from the plan:
     the plan was a claim about an earlier moment and this is the call
@@ -483,7 +483,67 @@ def current_referenced_paths(project, project_folder: str) -> set[str]:
     live = {a.file_path for a in artefacts if a.placed_by and a.file_path}
     db_path = project_database_path(project, project_folder)
     probe = min(live) if live else None
-    return live | placed_paths_from_database(db_path, must_find=probe)
+    live |= placed_paths_from_database(db_path, must_find=probe)
+    return live | retained_recovery_paths(project_folder)
+
+
+def retained_recovery_paths(project_folder: str) -> set[str]:
+    """Return media paths named by retained versions, journals and snapshots.
+
+    Recovery records are liveness roots even when their timeline is no
+    longer current. Walk only the project review ledger and known recovery
+    areas; arbitrary project JSON is not an ownership declaration.
+    """
+    review = Path(project_folder) / "pipeline_output" / "review"
+    roots = [review / "reel_versions.json",
+             review / "reel_versions_pending_rollback.json",
+             review / "reel_versions_pending_redo.json",
+             review / "resolve_checkpoints.json"]
+    roots.extend(sorted(review.glob("*.timeline.json")))
+    archives = []
+    for directory in (review / "undo", review / "recovery_archives",
+                      review / "timeline_snapshots", review / "snapshots"):
+        if directory.exists():
+            roots.extend(sorted(directory.rglob("*.json")))
+            if directory.name == "recovery_archives":
+                archives.extend(sorted(directory.rglob("*.drt")))
+
+    paths: set[str] = set()
+    path_keys = {"file_path", "media_path", "source_path", "asset_path"}
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in path_keys and isinstance(item, str):
+                    paths.add(os.path.abspath(os.path.expanduser(item)))
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+    for record_path in roots:
+        if not record_path.is_file():
+            continue
+        try:
+            collect(json.loads(record_path.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            raise RemovalRefused(
+                f"retained recovery record {record_path} is unreadable; "
+                "pruning cannot prove its media is unreferenced")
+    for archive_path in archives:
+        try:
+            from library.tools.resolve_archive import read_archive
+            archive = read_archive(archive_path)
+        except Exception as unreadable:  # noqa: BLE001 - fail closed
+            raise RemovalRefused(
+                f"retained recovery archive {archive_path} is unreadable "
+                f"({unreadable}); pruning cannot prove its media is "
+                "unreferenced") from unreadable
+        for timeline in archive["timelines"]:
+            for track in timeline["tracks"]:
+                for item in track["items"]:
+                    path = item.get("media_path")
+                    if path:
+                        paths.add(os.path.abspath(os.path.expanduser(path)))
+    return paths
 
 
 def delete_files(paths: list[str], referenced: set[str],

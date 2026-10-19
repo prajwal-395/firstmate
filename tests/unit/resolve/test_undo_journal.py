@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,7 @@ from library.tools import reel_read  # noqa: E402
 from library.tools import reel_touchup as tu  # noqa: E402
 from library.tools import undo_journal as uj  # noqa: E402
 from library.tools.versions import reel_versions  # noqa: E402
+from library.tools.versions import rounds  # noqa: E402
 from tests.composed_edit_harness import (  # noqa: E402
     FakeComp,
     FakeTool,
@@ -44,6 +46,116 @@ from tests.composed_edit_harness import item as make_item  # noqa: E402
 from tests.resolve_double import FakeResolve  # noqa: E402
 
 FINAL = "Reel 01 - lab"
+
+
+def test_same_plan_rollback_restores_verified_archive_when_replay_is_not_exact(
+        tmp_path):
+    folder = tmp_path / "project"
+    folder.mkdir()
+    first = {"video:Semantic": [{"name": "first", "start": 0,
+                                 "end": 10}]}
+    touched = {"video:Semantic": [{"name": "captain edit", "start": 0,
+                                   "end": 12}]}
+    rebuilt = {"video:Semantic": [{"name": "rebuilt", "start": 0,
+                                   "end": 10}]}
+    moment = {"number": 1, "start": 0, "end": 10}
+    reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
+                         rows=first, plan_moment=moment)
+    touched_entry = reel_versions.record(
+        folder, FINAL, kind=reel_versions.KIND_TOUCH, rows=touched,
+        journal="touch.json")
+    receipt = {"timeline_id": "retired-resolve-id",
+               "rows_digest": rounds.digest_rows(touched)}
+    reel_versions.attach_recovery_archive(
+        folder, FINAL, touched_entry["version"], receipt)
+    act = reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
+                               rows=rebuilt, plan_moment=moment)
+    live = {"rows": rebuilt}
+    restored = []
+
+    def restore_archive(project_folder, final, target, archive):
+        assert Path(project_folder) == folder
+        assert final == FINAL
+        assert target["version"] == touched_entry["version"]
+        assert archive == receipt
+        live["rows"] = touched
+        restored.append(archive["timeline_id"])
+        return {"restored": True}
+
+    result = uj.rollback_rebuild(
+        str(folder), FINAL, act,
+        read_live_rows=lambda _final: live["rows"],
+        restore_archive=restore_archive)
+
+    assert restored == ["retired-resolve-id"]
+    assert result["restored_from_archive"] is True
+    assert live["rows"] == touched
+    history = reel_versions.versions_of(folder, FINAL)
+    assert history[2]["undone_by"] == history[3]["version"]
+    assert history[3]["recovery_archive"] == receipt
+
+
+@pytest.mark.parametrize("reuse_id", [False, True])
+def test_archive_restore_imports_and_swaps_by_unique_resolve_id(
+        tmp_path, monkeypatch, reuse_id):
+    from library.tools import resolve_archive, resolve_lock
+    from library.tools.versions import rounds, store
+
+    timeline, pool, _media = build_reel(tmp_path)
+    final = "Reel 01 - current"
+    timeline.SetName(final)
+    project = timeline._project
+    project.SetCurrentTimeline(None)
+    archived_rows = reel_read.rows_of(
+        {"tracks": reel_read.read_tracks(timeline)})
+    archive_path = tmp_path / "saved-version.drt"
+    archive_path.write_bytes(b"verified DRT")
+    receipt = {
+        "timeline_id": "original-archived-id",
+        "archive_path": str(archive_path),
+        "archive_sha256": store._sha256(archive_path),
+        "rows_digest": rounds.digest_rows(archived_rows),
+        "inventory_items": 0,
+        "assets": [],
+    }
+    monkeypatch.setattr(resolve_archive, "read_archive", lambda _path: {
+        "timelines": [{"tracks": []}]})
+    monkeypatch.setattr(resolve_lock, "resolve_lease",
+                        lambda *_args, **_kwargs: nullcontext())
+    monkeypatch.setattr(uj, "_resolve_name", lambda _folder: "qualification")
+    monkeypatch.setattr(uj, "_connect", lambda _name: project)
+
+    def import_archive(_path, _options):
+        donor = duplicate(timeline, name=archive_path.stem)
+        if reuse_id:
+            donor._unique_id = timeline.GetUniqueId()
+        return donor
+
+    monkeypatch.setattr(pool, "ImportTimelineFromFile", import_archive)
+    if reuse_id:
+        with pytest.raises(uj.UndoNotVerified, match="reused or omitted"):
+            uj._restore_archive_by_resolve_id(
+                str(tmp_path), final,
+                {"version": 1, "rows": archived_rows,
+                 "rows_digest": rounds.digest_rows(archived_rows)},
+                receipt, expected_current_id=timeline.GetUniqueId())
+        assert timeline.GetName() == final
+        assert project.GetTimelineCount() == 1
+        return
+
+    result = uj._restore_archive_by_resolve_id(
+        str(tmp_path), final,
+        {"version": 1, "rows": archived_rows,
+         "rows_digest": rounds.digest_rows(archived_rows)},
+        receipt, expected_current_id=timeline.GetUniqueId())
+
+    assert result["timeline_id"] == "original-archived-id"
+    assert timeline.GetName() != final
+    restored = [project.GetTimelineByIndex(index)
+                for index in range(1, project.GetTimelineCount() + 1)
+                if project.GetTimelineByIndex(index).GetName() == final]
+    assert len(restored) == 1
+    assert restored[0] is not timeline
 
 
 def _mock_touchup_patch(monkeypatch):

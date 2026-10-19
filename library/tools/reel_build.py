@@ -1486,6 +1486,22 @@ class ReelBuildError(RuntimeError):
     """A reel could not be built safely."""
 
 
+class PromotionFailure(ReelBuildError):
+    """A promotion failure classified by where recovery must start."""
+
+    EXECUTION = "execution_failure"
+    CONFLICT = "conflict"
+    DELIVERY = "delivery_failure"
+
+    def __init__(self, message: str, *, failure_class: str):
+        if failure_class not in {self.EXECUTION, self.CONFLICT,
+                                 self.DELIVERY}:
+            raise ValueError(
+                f"unknown promotion failure class {failure_class!r}")
+        super().__init__(message)
+        self.failure_class = failure_class
+
+
 class ReelVerificationRefused(RuntimeError):
     """The conformance gate graded the staging and refused named reels.
 
@@ -11536,6 +11552,101 @@ def backup_name(final_name: str) -> str:
     return f"{final_name}{BACKUP_SUFFIX}"
 
 
+def _archive_retiring_generation(resolve, project, timeline,
+                                 project_folder: str) -> dict:
+    """Export and inventory-check the exact retiring Resolve object."""
+    import hashlib
+    import json
+    from pathlib import Path
+
+    from library.tools import reel_replace_guard
+    from library.tools.resolve_archive import read_archive
+    from library.tools.versions import rounds
+    from library.tools.versions import reel_versions, store
+
+    if resolve is None:
+        resolve = _connect_resolve()
+
+    timeline_id = str(timeline.GetUniqueId() or "")
+    if not timeline_id:
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: retiring timeline "
+            "has no Resolve unique id.",
+            failure_class=PromotionFailure.CONFLICT)
+    before = reel_replace_guard.full_timeline_snapshot(
+        timeline, project, project_folder)
+    rows = reel_replace_guard.snapshot_timeline(
+        timeline, timeline.GetName(), side="retiring")
+    inventory_bytes = json.dumps(
+        before, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=False, default=str).encode("utf-8")
+    exported = store.export_timeline_recovery_archive(
+        resolve, timeline, timeline.GetName(), project_folder,
+        label=f"retiring timeline {timeline_id}",
+        archive_suffix=f"retired-{timeline_id}")
+    if not exported.get("archived"):
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: verified recovery "
+            f"archive failed ({exported.get('reason', 'unknown error')}).",
+            failure_class=PromotionFailure.DELIVERY)
+    archive_path = Path(exported["path"])
+    archive = read_archive(archive_path)
+    archive_items = [item for seq in archive["timelines"]
+                     for track in seq["tracks"] for item in track["items"]]
+    expected_items = before["items"]
+    if len(archive["timelines"]) != 1 or len(archive_items) != len(expected_items):
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: exported archive "
+            "inventory does not match the retiring timeline item count.",
+            failure_class=PromotionFailure.DELIVERY)
+    expected_paths = {str(item["source_file"])
+                      for item in expected_items if item.get("source_file")}
+    missing_assets = sorted(path for path in expected_paths
+                            if not os.path.isfile(path))
+    if missing_assets:
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: retiring assets "
+            f"are missing and cannot be hashed: {missing_assets}",
+            failure_class=PromotionFailure.DELIVERY)
+    expected_assets = {os.path.normcase(os.path.realpath(path))
+                       for path in expected_paths}
+    archive_assets = {
+        os.path.normcase(os.path.realpath(str(item["media_path"])))
+        for item in archive_items if item.get("media_path")}
+    if expected_assets != archive_assets:
+        raise PromotionFailure(
+            f"REFUSING to replace {timeline.GetName()!r}: exported archive "
+            "asset inventory differs from the retiring timeline.",
+            failure_class=PromotionFailure.DELIVERY)
+    assets = []
+    for path in sorted(expected_assets):
+        digest = store._sha256(Path(path))
+        assets.append({"path": path, "sha256": digest,
+                       "bytes": Path(path).stat().st_size})
+    receipt = {
+        "timeline_name": timeline.GetName(),
+        "timeline_id": timeline_id,
+        "archive_path": str(archive_path),
+        "archive_sha256": store._sha256(archive_path),
+        "inventory_sha256": hashlib.sha256(inventory_bytes).hexdigest(),
+        "rows_digest": rounds.digest_rows(rows),
+        "inventory_items": len(archive_items),
+        "assets": assets,
+    }
+    history = reel_versions.versions_of(project_folder, timeline.GetName())
+    if history:
+        if history[-1].get("rows_digest") != receipt["rows_digest"]:
+            raise PromotionFailure(
+                f"REFUSING to replace {timeline.GetName()!r}: the retiring "
+                "timeline does not match the latest recorded version; its "
+                "archive cannot be attached to that version.",
+                failure_class=PromotionFailure.CONFLICT)
+        reel_versions.attach_recovery_archive(
+            project_folder, timeline.GetName(), int(history[-1]["version"]),
+            receipt)
+    return receipt
+
+
 def _read_judgement(project_folder: str):
     """Step 3.05's reading of these reels, or None.
 
@@ -11705,6 +11816,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          accept_editor_changes=None,
                          timeline_inventory_before=None,
                          staged_timeline_ids=None,
+                         archive_retiring: bool = False,
                          resolve=None,
                          allow_cursor_excursion: bool = True) -> dict:
     """Move passing stagings onto their final timeline names.
@@ -11857,8 +11969,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         project = resolve_project_exactly(
             resolve.GetProjectManager(), resolve_project_name)
     pool = project.GetMediaPool()
-    from library.tools import reel_replace_guard as _guard
     from library.tools import plan_provenance as _provenance
+    from library.tools import reel_replace_guard as _guard
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     inventory_before = _guard.timeline_inventory(project)
     inventory_operation = _provenance.begin_timeline_inventory(
@@ -11879,6 +11991,28 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"would orphan that content.")
     staged_found = {t.GetName(): t for t in
                     timelines_to_replace(project, set(staged_to_final.values()))}
+    # Names are assertions for the operator; Resolve IDs are the identity
+    # used by the transaction. Reject duplicate names and reused IDs before
+    # any rename, archive, or deletion can happen.
+    inventory_by_name: dict[str, list[dict]] = {}
+    inventory_by_id: dict[str, list[dict]] = {}
+    for entry in inventory_before:
+        inventory_by_name.setdefault(entry["name"], []).append(entry)
+        if entry.get("unique_id"):
+            inventory_by_id.setdefault(str(entry["unique_id"]), []).append(entry)
+    for staging in staged_to_final.values():
+        matches = inventory_by_name.get(staging, [])
+        if len(matches) != 1 or not matches[0].get("unique_id"):
+            raise PromotionFailure(
+                f"REFUSING to promote {staging!r}: expected exactly one "
+                "identified staging timeline before mutation.",
+                failure_class=PromotionFailure.CONFLICT)
+        uid = str(matches[0]["unique_id"])
+        if len(inventory_by_id.get(uid, [])) != 1:
+            raise PromotionFailure(
+                f"REFUSING to promote {staging!r}: Resolve timeline id "
+                f"{uid!r} is missing or reused.",
+                failure_class=PromotionFailure.CONFLICT)
     missing_staging = [s for s in staged_to_final.values()
                        if s not in staged_found]
     if missing_staging:
@@ -11917,6 +12051,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     requested_finals = list(staged_to_final)
     originals = {t.GetName(): t for t in
                  timelines_to_replace(project, set(finals))}
+    for final, retiring in originals.items():
+        start = inventory_by_name.get(final, [])
+        uid = str(retiring.GetUniqueId() or "")
+        if (len(start) != 1 or not uid or str(start[0].get("unique_id") or "") != uid
+                or len(inventory_by_id.get(uid, [])) != 1):
+            raise PromotionFailure(
+                f"REFUSING to promote {final!r}: retiring timeline identity "
+                "is missing, ambiguous, or reused; nothing was renamed.",
+                failure_class=PromotionFailure.CONFLICT)
     assert_deletion_scope(list(originals.values()), set(finals))
     if timeline_inventory_before is not None:
         try:
@@ -11938,7 +12081,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             _provenance.finish_timeline_inventory(
                 review_dir, inventory_operation,
                 _refusal_inventory)
-            raise ReelBuildError(str(changed)) from changed
+            raise PromotionFailure(
+                str(changed), failure_class=PromotionFailure.CONFLICT) \
+                from changed
 
     from library.tools import editor_edit_carry as _editor_carry
     from library.tools import reel_disabled_clip_carry as _disabled
@@ -11961,6 +12106,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
     refused = {}
+    refused_classes = {}
     guard_refused_finals = set()
     guard_refused_rows = {}
     # Finals the row-diff guard itself refused (`ReplaceGuardRefused`):
@@ -12321,6 +12467,29 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"deleted - nothing for this reel was renamed; its "
                 f"approved timeline is still in the project.")
     ok_finals = [final for final in finals if final not in refused]
+    retiring_archives = {}
+    if archive_retiring:
+        for final in list(ok_finals):
+            if final not in originals:
+                continue
+            try:
+                retiring_archives[final] = _archive_retiring_generation(
+                    resolve, project, originals[final], project_folder)
+            except Exception as archive_failed:  # noqa: BLE001 - fail closed
+                refused[final] = (
+                    f"REFUSING to promote {final!r}: retiring generation "
+                    f"could not be archived and inventory-checked "
+                    f"({archive_failed}); its timeline remains untouched.")
+                refused_classes[final] = (
+                    archive_failed.failure_class
+                    if isinstance(archive_failed, PromotionFailure)
+                    else PromotionFailure.DELIVERY)
+        ok_finals = [final for final in ok_finals if final not in refused]
+        if not ok_finals:
+            _raise_partial_promotion(
+                requested_finals, [], refused,
+                failure_classes=refused_classes,
+                failure_class=PromotionFailure.DELIVERY)
     # The fleet backstop's baseline, before any rename: every other
     # reel must read back exactly what it holds now
     # (`library/tools/marker_gate.py`).
@@ -12330,21 +12499,23 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         staging = staged_to_final[final]
         if final in originals:
             if not originals[final].SetName(backups[final]):
-                raise ReelBuildError(
+                raise PromotionFailure(
                     f"REFUSING to promote: Resolve would not rename "
                     f"{final!r} aside to {backups[final]!r}. Nothing "
                     f"was deleted and the staging {staging!r} is "
-                    f"untouched - re-run once Resolve allows renames.")
+                    f"untouched - re-run once Resolve allows renames.",
+                    failure_class=PromotionFailure.EXECUTION)
             print(f"Retired {final} to {backups[final]}", flush=True)
     for final in ok_finals:
         staging = staged_to_final[final]
         if not staged_found[staging].SetName(final):
-            raise ReelBuildError(
+            raise PromotionFailure(
                 f"REFUSING to promote: Resolve would not rename staging "
                 f"{staging!r} to {final!r}. The approved content is "
                 f"safe under "
                 f"{[backups[f] for f in ok_finals if f in originals]} - "
-                f"rename it back in Resolve and re-run.")
+                f"rename it back in Resolve and re-run.",
+                failure_class=PromotionFailure.EXECUTION)
         print(f"Promoted {staging} to {final}", flush=True)
         notes = carried_markers.get(final)
         if notes and notes.get("uncarried") and final in originals:
@@ -12851,11 +13022,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"`manage_project.py round-diff <project>` shows what "
               f"changed since the round before.", flush=True)
     except Exception as stamp_failed:  # noqa: BLE001
-        raise ReelBuildError(
+        raise PromotionFailure(
             f"REFUSING to report this promotion: the reels above are "
             f"promoted, but the round was not stamped "
             f"({stamp_failed}). This promotion is missing from the "
-            f"version record - re-run once it is writable.") \
+            f"version record - re-run once it is writable.",
+            failure_class=PromotionFailure.DELIVERY) \
             from stamp_failed
 
     # ── APPEND EACH PROMOTED REEL'S VERSION ─────────────────────
@@ -12872,11 +13044,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
              if incoming_by_final.get(final)},
             round_number=(stamped_round or {}).get("round"))
     except Exception as record_failed:  # noqa: BLE001
-        raise ReelBuildError(
+        raise PromotionFailure(
             f"REFUSING to report this promotion: the reels above are "
             f"promoted, but their versions were not recorded "
             f"({record_failed}), so `ren undo` could not roll this "
-            f"rebuild back - re-run once it is writable.") \
+            f"rebuild back - re-run once it is writable.",
+            failure_class=PromotionFailure.DELIVERY) \
             from record_failed
 
     # ── CLOSE EACH PROMOTED REEL'S BUILD SIGNATURE ──────────────
@@ -13043,7 +13216,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"({inventory_failed}).") from inventory_failed
     if refused:
         _raise_partial_promotion(requested_finals, ok_finals, refused,
-                                 markers=carried_markers)
+                                 markers=carried_markers,
+                                 failure_classes=refused_classes)
     if _thesis_refused:
         # The passing reels fully promoted above (renames, sidecars,
         # holds, filing); the refused stagings stay with theirs. A
@@ -13064,7 +13238,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
 
 
 def _raise_partial_promotion(finals, ok_finals, refused,
-                           markers=None) -> None:
+                           markers=None, failure_classes=None,
+                           failure_class=PromotionFailure.CONFLICT) -> None:
     """The refusal half of a partially promoted batch, naming only itself.
 
     The passing reels already fully promoted above (renames, sidecars,
@@ -13088,8 +13263,13 @@ def _raise_partial_promotion(finals, ok_finals, refused,
     for final in finals:
         if final in refused:
             lines.append(refused[final])
-    error = ReelBuildError("\n".join(lines))
+    classes = {name: (failure_classes or {}).get(name, failure_class)
+               for name in refused}
+    overall = (next(iter(set(classes.values()))) if len(set(classes.values()))
+               == 1 else failure_class)
+    error = PromotionFailure("\n".join(lines), failure_class=overall)
     error.markers = dict(markers or {})
+    error.per_reel_failure_classes = classes
     raise error
 
 
@@ -16205,7 +16385,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 track_plans=track_plans,
                 accept_editor_changes=declared_accept_editor_changes,
                 timeline_inventory_before=build_inventory_before,
-                staged_timeline_ids=staged_timeline_ids)
+                staged_timeline_ids=staged_timeline_ids,
+                archive_retiring=True)
         finally:
             _perf.record(
                 "reel_build_promote", time.time() - _promote_started_at,
@@ -16285,6 +16466,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             from library.tools.versions import store as _store
             _vc = _store.record_reel_promotion(
                 project_folder, resolve_name, list(final_names))
+            _archive_errors = (_vc.get("recovery_archives", {}).get("errors")
+                               or [])
+            if _archive_errors:
+                raise PromotionFailure(
+                    "Reels were promoted, but their accepted versions do "
+                    "not all have verified recovery archives: "
+                    + "; ".join(_archive_errors),
+                    failure_class=PromotionFailure.DELIVERY)
             if _vc.get("committed"):
                 print(f"── Version control: committed {_vc['commit']} "
                       f"({len(_vc.get('files', []))} file(s)) ──",
@@ -16292,6 +16481,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             else:
                 print(f"  version-control record not committed: "
                       f"{_vc.get('reason', 'unknown')}", flush=True)
+        except PromotionFailure:
+            raise
         except Exception as exc:  # noqa: BLE001
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected", flush=True)

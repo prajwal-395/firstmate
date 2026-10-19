@@ -144,6 +144,21 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
     return entry
 
 
+def attach_recovery_archive(project_folder, final: str, version: int,
+                            receipt: Mapping) -> None:
+    """Attach a verified immutable archive receipt to its exact version."""
+    document = read(project_folder)
+    history = list(document["reels"].get(final) or ())
+    for entry in history:
+        if int(entry.get("version", 0)) == int(version):
+            entry["recovery_archive"] = dict(receipt)
+            document["reels"][final] = history
+            _write(project_folder, document)
+            return
+    raise ReelVersionsUnreadable(
+        f"{final!r} has no version {version} to attach its recovery archive.")
+
+
 def _emit_version_event(project_folder, version: int, kind: str,
                         final: str) -> None:
     """Emit one version event into the project's event log, or skip.
@@ -319,6 +334,7 @@ __all__ = [
     "KIND_UNDO",
     "ReelVersionsUnreadable",
     "build_before",
+    "attach_recovery_archive",
     "latest_act",
     "live_acts",
     "mark_redone",

@@ -829,6 +829,7 @@ def mock_dvr_3(stub_resolve_script, monkeypatch):
     # Stubbed through the shared fixture: `patch.dict` on
     # `sys.modules` restores the WHOLE dict and so evicts every
     # module first imported inside it (tests/conftest.py).
+    install_fake_timeline_snapshots(monkeypatch)
     install_measured_draw_gain_probe(monkeypatch)
     yield
 

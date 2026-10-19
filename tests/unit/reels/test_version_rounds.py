@@ -881,9 +881,13 @@ def test_record_without_repo_declines(tmp_path):
 class _FakeTimeline:
     def __init__(self, name):
         self._name = name
+        self._unique_id = f"timeline:{name}"
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return self._unique_id
 
 
 class _FakeProject:
@@ -960,11 +964,20 @@ def _install_reel_archive_readers(monkeypatch, project, events, comp_errors=()):
     monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
                         _FakeDvr(_FakeResolve(project)))
 
-    from library.tools import plan_provenance, reel_fusion_comps, timeline_serializer
+    from library.tools import (plan_provenance, reel_fusion_comps,
+                               reel_read, reel_replace_guard,
+                               timeline_serializer)
+    from library.tools import resolve_archive
 
     monkeypatch.setattr(
         timeline_serializer, "serialize_timeline_state",
         lambda **_kwargs: {"schema_version": "1.0", "tracks": []})
+    monkeypatch.setattr(reel_replace_guard, "full_timeline_snapshot",
+                        lambda *_args: {"items": []})
+    monkeypatch.setattr(reel_read, "read_tracks", lambda _timeline: [])
+    monkeypatch.setattr(reel_read, "rows_of", lambda _state: {})
+    monkeypatch.setattr(resolve_archive, "read_archive", lambda _path: {
+        "timelines": [{"tracks": []}]})
 
     def export_comps(_project, names, project_folder):
         events.append("comp_text")
@@ -1003,6 +1016,9 @@ def test_promoted_reel_drt_is_committed_after_its_comp_text(tmp_path,
     project = _FakeProject("Podcast (field test)", [master, reel])
     _install_reel_archive_readers(monkeypatch, project, events)
     bvc.init_project_repo(str(tmp_path))
+    from library.tools.versions import reel_versions
+    reel_versions.record(tmp_path, name, kind=reel_versions.KIND_BUILD,
+                         rows={})
 
     report = bvc.record_reel_promotion(
         str(tmp_path), "Podcast (field test)", [name])

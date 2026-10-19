@@ -284,6 +284,7 @@ def _promote_and_record(job: dict, params: dict, resolve, project) -> dict:
         track_plans={staging: params["track_plan"]},
         timeline_inventory_before=inventory,
         staged_timeline_ids={staging: staging_id},
+        archive_retiring=True,
         resolve=resolve,
         allow_cursor_excursion=False)
     promoted = list(promotion.get("promoted") or [])
@@ -321,6 +322,14 @@ def _promote_and_record(job: dict, params: dict, resolve, project) -> dict:
     version_record = store.record_reel_promotion(
         str(project_folder), QUALIFICATION_PROJECT, promoted,
         resolve=resolve)
+    archive_errors = (version_record.get("recovery_archives", {}).get(
+        "errors") or [])
+    if archive_errors:
+        raise JobRefused(
+            "promotion landed, but an accepted version lacks a verified "
+            "recovery archive: " + "; ".join(archive_errors),
+            result={"promotion": promotion,
+                    "version_record": version_record})
     evidence = _verified_record_evidence(
         project_folder, review_dir, final, baseline, version_record)
     return {

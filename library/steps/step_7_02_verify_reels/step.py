@@ -461,6 +461,7 @@ def verify_reels(data: dict) -> dict:
         # promoted timeline beside the declaration it was built from
         # and commit. Never fails the gate.
         import sys as _sys_vc
+        _vc = None
         try:
             from library.tools.versions import store as _store
             _vc = _store.record_reel_promotion(
@@ -477,6 +478,13 @@ def verify_reels(data: dict) -> dict:
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected",
                   file=_sys_vc.stderr)
+        if _vc is not None:
+            _archive_errors = (_vc.get("recovery_archives", {}).get("errors")
+                               or [])
+            if _archive_errors:
+                raise RuntimeError(
+                    "promoted versions lack verified recovery archives: "
+                    + "; ".join(_archive_errors))
         # The detection half of the conformance sweep, over the
         # PROMOTED project - every reel timeline, not just the ones
         # this node graded. The refusing gate above stays scoped (a

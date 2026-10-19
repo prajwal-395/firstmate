@@ -406,11 +406,92 @@ def _export_reel_recovery_archives(
             report["errors"].append(f"{name}: {reason}")
             continue
 
+        timeline = timelines[name]
+        timeline_id = str(timeline.GetUniqueId() or "")
+        ids = [str(project.GetTimelineByIndex(index).GetUniqueId() or "")
+               for index in range(1, project.GetTimelineCount() + 1)
+               if project.GetTimelineByIndex(index)]
+        if not timeline_id or ids.count(timeline_id) != 1:
+            reason = "promoted timeline has a missing or reused Resolve ID"
+            result["reason"] = reason
+            report["errors"].append(f"{name}: {reason}")
+            continue
         archive = export_timeline_recovery_archive(
-            resolve, timelines[name], name, project_folder)
+            resolve, timeline, name, project_folder)
         if archive["archived"]:
-            result.update({"archived": True, "path": archive["path"]})
-            report["files"].append(archive["path"])
+            try:
+                import hashlib
+                import os
+                from library.tools import reel_read, reel_replace_guard
+                from library.tools.resolve_archive import read_archive
+                from library.tools.versions import reel_versions, rounds
+
+                snapshot = reel_replace_guard.full_timeline_snapshot(
+                    timeline, project, project_folder)
+                rows = reel_read.rows_of(
+                    {"tracks": reel_read.read_tracks(timeline)})
+                expected_rows_digest = rounds.digest_rows(rows)
+                archive_path = Path(archive["path"])
+                facts = read_archive(archive_path)
+                archive_items = [
+                    item for archived_timeline in facts["timelines"]
+                    for track in archived_timeline["tracks"]
+                    for item in track["items"]]
+                media_paths = {str(item["source_file"])
+                               for item in snapshot.get("items", [])
+                               if item.get("source_file")}
+                missing_assets = sorted(path for path in media_paths
+                                        if not Path(path).is_file())
+                if missing_assets:
+                    raise RuntimeError(
+                        f"promoted media is missing: {missing_assets}")
+                media = {os.path.normcase(os.path.realpath(path))
+                         for path in media_paths}
+                archived_media = {os.path.normcase(os.path.realpath(
+                    str(item["media_path"]))) for item in archive_items
+                    if item.get("media_path")}
+                if (len(facts["timelines"]) != 1
+                        or len(archive_items) != len(snapshot.get("items", []))
+                        or media != archived_media):
+                    raise RuntimeError(
+                        "DRT inventory differs from the promoted timeline")
+                assets = []
+                for path in sorted(media):
+                    asset_path = Path(path)
+                    if not asset_path.is_file():
+                        raise RuntimeError(
+                            f"promoted media is missing: {asset_path}")
+                    assets.append({
+                        "path": str(asset_path),
+                        "bytes": asset_path.stat().st_size,
+                        "sha256": _sha256(asset_path)})
+                receipt = {
+                    "timeline_id": timeline_id,
+                    "archive_path": str(archive_path),
+                    "archive_sha256": _sha256(archive_path),
+                    "inventory_sha256": hashlib.sha256(json.dumps(
+                        snapshot, sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, default=str).encode(
+                            "utf-8")).hexdigest(),
+                    "rows_digest": expected_rows_digest,
+                    "inventory_items": len(archive_items),
+                    "assets": assets,
+                }
+                history = reel_versions.versions_of(project_folder, name)
+                if (not history
+                        or history[-1].get("rows_digest")
+                        != expected_rows_digest):
+                    raise RuntimeError(
+                        "no accepted version matches the archived timeline")
+                reel_versions.attach_recovery_archive(
+                    project_folder, name, int(history[-1]["version"]),
+                    receipt)
+                result.update({"archived": True, "path": archive["path"],
+                               "receipt": receipt})
+                report["files"].append(archive["path"])
+            except Exception as exc:  # noqa: BLE001 - delivery failure is reported
+                result["reason"] = f"archive verification failed: {exc!r}"
+                report["errors"].append(f"{name}: {result['reason']}")
         else:
             result["reason"] = archive["reason"]
             report["errors"].append(f"{name}: {archive['reason']}")

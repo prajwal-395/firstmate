@@ -45,6 +45,40 @@ def install_fake_timeline_snapshots(monkeypatch):
 
     monkeypatch.setattr(reel_replace_guard, "full_timeline_snapshot", snapshot)
 
+    # Whole-build tests use timeline doubles whose Export method writes
+    # OTIO, not Resolve's DRT ZIP format. Retiring-generation promotion now
+    # reads and inventory-checks that archive, so give these empty-snapshot
+    # doubles a valid, empty DRT instead of weakening the production check.
+    import zipfile
+    from pathlib import Path
+
+    from library.tools.versions import store
+
+    def export_empty_drt(_resolve, timeline, timeline_name, project_folder,
+                         label="", archive_suffix=""):
+        del label
+        safe = "".join(char if char.isalnum() or char in "-_." else "_"
+                       for char in timeline_name)
+        suffix = "".join(char if char.isalnum() or char in "-_" else "_"
+                         for char in archive_suffix)
+        root = (Path(project_folder) / "pipeline_output" / "review"
+                / "recovery_archives")
+        root.mkdir(parents=True, exist_ok=True)
+        path = root / f"{safe}--{suffix or timeline.GetUniqueId()}.drt"
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(
+                "project.xml",
+                '<!--DbAppVer="21.1" DbPrjVer="17"-->'
+                '<Project><Name>Fake Resolve Project</Name></Project>')
+            archive.writestr(
+                "SeqContainer/timeline-1.xml",
+                "<Sequence><Track><TrackType>Video</TrackType>"
+                "</Track></Sequence>")
+        return {"archived": True, "path": str(path)}
+
+    monkeypatch.setattr(store, "export_timeline_recovery_archive",
+                        export_empty_drt)
+
 
 def install_measured_draw_gain_probe(monkeypatch, gain=None):
     """Stub the draw-gain probe as MEASURED for offline whole builds.

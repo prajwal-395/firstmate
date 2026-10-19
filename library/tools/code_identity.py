@@ -106,6 +106,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/analysis/object_segmentation.py",
         # The catalog dependency closure includes the shared retrieval encoder.
         "library/tools/analysis/mlx_minilm.py",
+        # Version-store closure verifies retained timeline DRT contents.
+        "library/tools/resolve_archive.py",
         # The segmenter imports the resident SAM lifecycle shared with runs.
         "library/tools/model_lifecycle.py",
         # Imported by step.py: the content identity a stored matte is
@@ -579,6 +581,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # session-local AST parse cache this audit split reads through,
         # so a fix here changes what the declared surveys parse.
         'library/tools/ast_cache.py',
+        # Version-store closure verifies retained timeline DRT contents.
+        'library/tools/resolve_archive.py',
         # Imported by the declared temporal-index step: the FI-14
         # camera/subject evidence reader, so a fix here changes what
         # the cached rows resolve through it.
@@ -1091,6 +1095,8 @@ STEP_IMPLEMENTATION_DEPS = {
         # camera/subject evidence reader, so a fix here changes what
         # the cached rows resolve through it.
         'library/tools/motion_evidence.py',
+        # Version-store closure verifies retained timeline DRT contents.
+        'library/tools/resolve_archive.py',
     ),
     "step_1_02_catalog_footage": (
         # EditPatch receipts are part of the shared code identity closure;
@@ -1123,6 +1129,9 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/file_measurements.py",
         # Catalog publishes its first usable result through this writer.
         "library/tools/assignment_artifacts.py",
+        # Promoted timeline recovery verifies the exported DRT's media
+        # inventory before recording a version that can be restored.
+        "library/tools/resolve_archive.py",
         # Read by step.py for the source block's declared program stream
         # and measure flag: which audio stream counts as the program mix
         # decides what the catalog records, so a fix here changes the
@@ -1632,6 +1641,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/capabilities/semantics/analyse.py",
         # Its dependency closure includes the shared retrieval encoder.
         "library/tools/analysis/mlx_minilm.py",
+        # Version-store closure verifies retained timeline DRT contents.
+        "library/tools/resolve_archive.py",
         # VI-09's temporal intervals are joined into the M4 scene read.
         "library/tools/scene_cinematography.py",
         # The temporal-index step is part of the cached dependency closure.
@@ -2166,6 +2177,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/capabilities/temporal/media_decode.py",
         # FI-14 camera/subject and novelty evidence derived from M2.
         "library/tools/motion_evidence.py",
+        # Version-store closure verifies retained timeline DRT contents.
+        "library/tools/resolve_archive.py",
         # Deterministic shot hierarchy and evidence-linked profiles.
         "library/tools/scene_cinematography.py",
         # The project's declared transcription language: a fix here

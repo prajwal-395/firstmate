@@ -54,6 +54,7 @@ from library.tools.orphan_removal import (
 )
 import ast
 import subprocess
+import zipfile
 from library.tools.versions import store as bvc
 
 
@@ -63,6 +64,42 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools import build_sweep
 from library.tools import caption_asset_gc as gc
+
+
+def test_prune_retains_files_named_by_reel_versions_and_undo_journals(tmp_path):
+    review = tmp_path / "pipeline_output" / "review"
+    undo = review / "undo" / "touch-1"
+    undo.mkdir(parents=True)
+    asset = tmp_path / "mg_geo-podcast_70306651.mov"
+    asset.write_bytes(b"still retained")
+    (review / "reel_versions.json").write_text(json.dumps({
+        "reels": {"Reel 26": [{"version": 22,
+                                  "asset_manifest": [{"file_path": str(asset)}]}]}
+    }), encoding="utf-8")
+    (undo / "entry.json").write_text(json.dumps({
+        "before": {"tracks": [{"items": [{"file_path": str(asset)}]}]}
+    }), encoding="utf-8")
+
+    assert str(asset) in prune_orphans.retained_recovery_paths(str(tmp_path))
+
+
+def test_prune_treats_recovery_archive_media_as_a_liveness_root(tmp_path):
+    archive_dir = (tmp_path / "pipeline_output" / "review"
+                   / "recovery_archives")
+    archive_dir.mkdir(parents=True)
+    asset = tmp_path / "mg_geo-podcast_194b81d6.mov"
+    asset.write_bytes(b"archived media")
+    archive_path = archive_dir / "retained.drt"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("project.xml", """<!--DbAppVer=\"21.1\" DbPrjVer=\"17\"-->
+            <Project><Name>Test</Name></Project>""")
+        archive.writestr("SeqContainer/timeline-1.xml", f"""
+            <Sequence><Track><TrackType>Video</TrackType>
+            <VideoClip><Name>clip</Name><Start>0</Start><Duration>10</Duration>
+            <In>0</In><MediaRef>1</MediaRef><MediaFilePath>{asset}</MediaFilePath>
+            </VideoClip></Track></Sequence>""")
+
+    assert str(asset) in prune_orphans.retained_recovery_paths(str(tmp_path))
 
 
 @pytest.fixture(autouse=True)
