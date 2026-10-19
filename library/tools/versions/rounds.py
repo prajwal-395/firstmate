@@ -80,7 +80,7 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[3]) not in sys.path:      # repo root, direct execution
     sys.path.insert(0, str(_HERE.parents[3]))
 
-from library.tools.versions import store  # noqa: E402
+from library.tools.versions import store
 
 ROUNDS_FILENAME = "rounds.json"
 ROUNDS_FORMAT = "rounds/1"
@@ -292,10 +292,10 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     must catch on the normal path; the caller wraps it, because a
     version record that fails a build is worse than no version record.
     """
-    from datetime import datetime, timezone
     import uuid
+    from datetime import UTC, datetime
 
-    moment = promoted_at or datetime.now(timezone.utc).isoformat()
+    moment = promoted_at or datetime.now(UTC).isoformat()
     document = read_rounds(project_folder)
     boundaries = discover(project_folder, [moment])
     current = boundaries[-1]
@@ -322,8 +322,12 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
 
         creative_revision.create(
             project_folder, revision_id=revision_id,
-            intent="variant choice" if choice else "promoted reel build",
-            operations=[{"kind": "choice" if choice else "promotion"}],
+            # This is the same canonical revision that the per-reel
+            # version ledger links below. Keep identity-defining facts
+            # identical there: a round and a reel version are two indexes
+            # of one promotion, not competing descriptions of it.
+            intent="variant choice" if choice else "build",
+            operations=[{"kind": "choice" if choice else "build"}],
             affected_entities=[str(final)],
             refs={"round": {"round": current["round"]}},
             status="recorded")

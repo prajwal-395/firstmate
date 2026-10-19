@@ -206,12 +206,10 @@ def _native_state_losses(live: dict, staged: dict) -> list[str]:
     observed = ("color", "fusion", "composite")
     staged_by_passage = defaultdict(list)
     for item in staged.get("items", ()):
-        key = (item.get("source_identity"), item.get("source_in_frame"),
-               item.get("source_out_frame"))
+        key = (item.get("source_identity"), item.get("track_type"),
+               item.get("track_index"))
         staged_by_passage[key].append(item)
     for item in live.get("items", ()):
-        key = (item.get("source_identity"), item.get("source_in_frame"),
-               item.get("source_out_frame"))
         values = {
             field: item.get(field)
             for field in observed
@@ -221,7 +219,22 @@ def _native_state_losses(live: dict, staged: dict) -> list[str]:
         }
         if not values:
             continue
-        candidates = staged_by_passage.get(key, ())
+        # A carried trim can shorten the source span while preserving the
+        # same native grade/comp on the kept material. Resolve's readback
+        # still gives that edit the same source identity, so accept one
+        # staged passage wholly inside the observed passage. Requiring an
+        # exact span here made a qualified, verified trim look like a lost
+        # Fusion comp and blocked its promotion.
+        passage_key = (item.get("source_identity"), item.get("track_type"),
+                       item.get("track_index"))
+        candidates = [candidate for candidate in staged_by_passage.get(
+            passage_key, ())
+            if candidate.get("source_in_frame") is not None
+            and candidate.get("source_out_frame") is not None
+            and item.get("source_in_frame") is not None
+            and item.get("source_out_frame") is not None
+            and candidate["source_in_frame"] >= item["source_in_frame"]
+            and candidate["source_out_frame"] <= item["source_out_frame"]]
         if len(candidates) != 1 or any(
                 not _same_preservation_value(field, value,
                                              candidates[0].get(field))
@@ -525,17 +538,23 @@ def _normalized_color(value):
 
 
 def _normalized_fusion(value):
-    """Treat a fusion read with no matte comps the same, before and after #1786.
+    """Normalize the derived Fusion window and absent matte readback.
 
     PR 1786 (2026-10-05) added `mattes` to every fusion read, `None` on an
     item with no matte comp. Every snapshot recorded before it lacks the
     key, so a rebuild compared every untouched item's `{...}` against
     `{..., 'mattes': None}` and refused six reels on "the Fusion comp
-    changed". An absent key and `None` both mean no matte comp; a real
-    matte still compares in full.
+    changed". `media_windows` is a measurement of where MediaIn reads,
+    which necessarily changes when an approved trim is replayed and the
+    comp pass is rerun on the kept range. Comp identity and matte state
+    remain fully compared; comp coverage is checked by the comp-window
+    verifier after the pass.
     """
-    if isinstance(value, dict) and value.get("mattes") is None:
-        value = {key: item for key, item in value.items() if key != "mattes"}
+    if isinstance(value, dict):
+        value = {key: item for key, item in value.items()
+                 if key != "media_windows"}
+        if value.get("mattes") is None:
+            value.pop("mattes", None)
     return value
 
 
@@ -1200,14 +1219,6 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
         detection = detect_editor_changes(
             project_folder, final, live, staged_initial)
     native_losses = _native_state_losses(live, staged_after)
-    if native_losses:
-        raise ReplaceGuardRefused(
-            f"REFUSING to replace {final!r}: observed native Resolve state "
-            "is absent or different on the matching staged passage. "
-            "This state has no qualified carry operation, so nothing was "
-            "renamed. Resolve the grade, Fusion, or composite difference "
-            "and verify it before replacing the timeline.\n  " +
-            "\n  ".join(native_losses))
     first_contact = detection["first_contact"]
     detected = detection["detected"]
     pending = detection["pending"]
@@ -1261,6 +1272,18 @@ def protect_editor_changes(project_folder: str, final: str, live: dict,
             "\n".join(details) +
             f"\nTo accept this loss deliberately, pass "
             f"--accept-editor-changes {final!r}.")
+    # A recorded edit has a more useful refusal above. Keep the native
+    # state guard for differences that were not captured by that ledger,
+    # and for accepted edits: the explicit edit override cannot authorize
+    # dropping an observed grade, Fusion comp, or composite setting.
+    if native_losses:
+        raise ReplaceGuardRefused(
+            f"REFUSING to replace {final!r}: observed native Resolve state "
+            "is absent or different on the matching staged passage. "
+            "This state has no qualified carry operation, so nothing was "
+            "renamed. Resolve the grade, Fusion, or composite difference "
+            "and verify it before replacing the timeline.\n  " +
+            "\n  ".join(native_losses))
     return {"first_contact": first_contact, "detected": detected,
             "preservation": {
                 "contract": dict(PRESERVATION_CONTRACT),
