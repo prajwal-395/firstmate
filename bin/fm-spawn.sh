@@ -5499,13 +5499,17 @@ const busyGen = () => {
 // land after the idle that followed it and leave a finished turn reading busy.
 let writes = Promise.resolve();
 const enqueue = (write) => (writes = writes.then(write, write));
-const busyEvent = (state, event) =>
+const busyEvent = (state, sessionID, eventName) =>
   enqueue(() => new Promise((resolve) => {
+    if ("$OPENCODE_SHARED_SERVER" === "1") {
+      execFile("$FM_ROOT/bin/fm-opencode-server.sh", ["event", "$STATE_REAL", "$OPENCODE_SERVER_PROFILE", sessionID, state, eventName], () => resolve());
+      return;
+    }
     const gen = busyGen();
     if (!gen) { resolve(); return; }
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
       "apply", "$STATE_REAL", "$ID", state,
-      "--gen", gen, "--source", "opencode-plugin", "--event", event,
+      "--gen", gen, "--source", "opencode-plugin", "--event", eventName,
     ], () => resolve());
   }));
 const HERDR_PANE = "${HERDR_PANE_ID:-}";
@@ -5551,7 +5555,7 @@ export const FmBusyState = async () => {
         if (statusType === "busy" || statusType === "retry") {
           if (activeSession === null) activeSession = sessionID;
           if (sessionID === activeSession) {
-            busyEvent("busy", "session-" + statusType);
+            busyEvent("busy", sessionID, "session-" + statusType);
             if (statusType === "retry") recordRetry(status, sessionID);
           }
           await writes;
@@ -5559,7 +5563,7 @@ export const FmBusyState = async () => {
         }
         if (statusType === "idle" && sessionID === activeSession) {
           activeSession = null;
-          busyEvent("idle", "session-status-idle");
+          busyEvent("idle", sessionID, "session-status-idle");
           clearRetry();
         }
         await writes;
@@ -5568,11 +5572,15 @@ export const FmBusyState = async () => {
       if (event.type === "session.idle") {
         if (event.properties.sessionID === activeSession) {
           activeSession = null;
-          busyEvent("idle", "session-idle");
+          busyEvent("idle", event.properties.sessionID, "session-idle");
           clearRetry();
         }
         await enqueue(() => new Promise((resolve) => {
-          execFile("touch", ["$TURNEND"], () => resolve());
+          if ("$OPENCODE_SHARED_SERVER" === "1") {
+            execFile("$FM_ROOT/bin/fm-opencode-server.sh", ["event", "$STATE_REAL", "$OPENCODE_SERVER_PROFILE", event.properties.sessionID, "turn-end"], () => resolve());
+          } else {
+            execFile("touch", ["$TURNEND"], () => resolve());
+          }
         }));
       }
     },
@@ -6066,7 +6074,7 @@ if [ "$OPENCODE_SHARED_SERVER" -eq 1 ]; then
     "$SCRIPT_DIR/fm-opencode-server.sh" dispose "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$WT" >/dev/null 2>&1 || true
   fi
   if ! OPENCODE_SERVER_SESSION=$("$SCRIPT_DIR/fm-opencode-server.sh" session "$STATE_REAL" \
-    "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID"); then
+    "$OPENCODE_SERVER_PROFILE" "$WT" "Firstmate task $ID" "$ID" "$BUSY_GEN"); then
     echo "notice: the shared OpenCode server could not open a session; launching $ID standalone" >&2
     OPENCODE_SERVER_SESSION=
     "$SCRIPT_DIR/fm-opencode-server.sh" release "$STATE_REAL" "$OPENCODE_SERVER_PROFILE" "$ID" >/dev/null || true

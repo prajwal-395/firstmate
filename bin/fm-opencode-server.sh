@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # fm-opencode-server.sh - the shared OpenCode server an attached worker uses.
 # Usage: fm-opencode-server.sh ensure <state-dir> <profile> <task-id> [<org> <config-dir>]
-#        fm-opencode-server.sh session <state-dir> <profile> <directory> <title>
+#        fm-opencode-server.sh session <state-dir> <profile> <directory> <title> <task-id> <busy-generation>
+#        fm-opencode-server.sh event <state-dir> <profile> <session-id> busy|idle|turn-end
 #        fm-opencode-server.sh prompt <state-dir> <profile> <session-id> <directory> <model> <variant> <text>
 #        fm-opencode-server.sh dispose <state-dir> <profile> <directory>
 #        fm-opencode-server.sh end-session <state-dir> <profile> <session-id> <directory>
@@ -56,6 +57,7 @@
 #   opencode-server-<profile>.password  the server's basic-auth password
 #   opencode-server-<profile>.log       server output
 #   opencode-server-<profile>.leases/<task-id>  one empty file per user
+#   opencode-server-<profile>.sessions/<session-id>  task id and busy generation
 #   .opencode-server-<profile>.lock     the profile lock
 set -u
 
@@ -191,7 +193,13 @@ start_server() {  # <state> <profile> <db-or-empty>
 stop_server() {
   local pid args n
   pid=$(record_field pid) || pid=
-  case "$pid" in ''|*[!0-9]*) rm -f "$RECORD"; return 0 ;; esac
+  case "$pid" in
+    ''|*[!0-9]*)
+      rm -f "$RECORD"
+      rm -rf "$RECORD.sessions"
+      return 0
+      ;;
+  esac
   if kill -0 "$pid" 2>/dev/null; then
     args=$(ps -p "$pid" -o command= 2>/dev/null) || args=
     case "$args" in
@@ -207,6 +215,7 @@ stop_server() {
     esac
   fi
   rm -f "$RECORD"
+  rm -rf "$RECORD.sessions"
 }
 
 locked_ensure() {  # <state> <profile> <task-id> [<org> <config-dir>]
@@ -260,6 +269,7 @@ end_session() {  # <profile> <session-id> <directory>
 locked_release() {  # <state> <profile> <task-id> [<session-id> <directory>]
   local state=$1 profile=$2 task=$3 session=${4:-} directory=${5:-} rc=0 remaining
   profile_paths "$state" "$profile"
+  [ -z "$session" ] || rm -f "$RECORD.sessions/$session"
   [ -z "$session" ] || end_session "$profile" "$session" "${directory:-$state}" || true
   rm -f "$LEASES/$task"
   remaining=$(find "$LEASES" -type f 2>/dev/null | head -n 1)
@@ -305,8 +315,9 @@ case "$op" in
     with_profile_lock release "$@"
     ;;
   session)
-    [ "$#" -eq 4 ] || die "usage: fm-opencode-server.sh session <state-dir> <profile> <directory> <title>"
+    [ "$#" -eq 6 ] || die "usage: fm-opencode-server.sh session <state-dir> <profile> <directory> <title> <task-id> <busy-generation>"
     valid_profile "$2" || die "unknown OpenCode server profile '$2'"
+    valid_id "$5" || die "invalid task id"
     [ -d "$3" ] || die "OpenCode session directory does not exist: $3"
     need_tools
     profile_paths "$1" "$2"
@@ -314,7 +325,34 @@ case "$op" in
     out=$(session_call 120 POST /session "$3" "$body") || die "the $2 OpenCode server could not create a session"
     id=$(printf '%s' "$out" | jq -er '.id') || die "the $2 OpenCode server returned no session id"
     valid_id "$id" || die "the $2 OpenCode server returned an unusable session id"
+    profile_paths "$1" "$2"
+    if ! (umask 077 && mkdir -p "$RECORD.sessions") || ! chmod 700 "$RECORD.sessions"; then
+      end_session "$2" "$id" "$3" || true
+      die "could not create the session owner directory for $id"
+    fi
+    tmp="$RECORD.sessions/$id.tmp.$$"
+    if ! (umask 077 && printf '%s\t%s\n' "$5" "${6:--}" > "$tmp") || ! mv -f "$tmp" "$RECORD.sessions/$id"; then
+      rm -f "$tmp"
+      end_session "$2" "$id" "$3" || true
+      die "could not bind session $id to task $5"
+    fi
     printf '%s\n' "$id"
+    ;;
+  event)
+    [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || die "usage: fm-opencode-server.sh event <state-dir> <profile> <session-id> busy|idle|turn-end [event-name]"
+    valid_profile "$2" || die "invalid profile"
+    valid_id "$3" || die "invalid session id"
+    profile_paths "$1" "$2"
+    owner=$(awk -F '\t' 'NR == 1 { if (NF == 2) print $1 "\t" $2 }' "$RECORD.sessions/$3" 2>/dev/null) || owner=
+    [ -n "$owner" ] || exit 0
+    IFS=$'\t' read -r owner_task owner_gen <<< "$owner"
+    case "$4" in
+      busy|idle)
+        [ "$owner_gen" = - ] || "$SCRIPT_DIR/fm-busy-event.sh" apply "$1" "$owner_task" "$4" --gen "$owner_gen" --source opencode-plugin --event "${5:-session-$4}" >/dev/null 2>&1 || true
+        ;;
+      turn-end) touch "$1/$owner_task.turn-ended" ;;
+      *) die "unknown event '$4'" ;;
+    esac
     ;;
   prompt)
     [ "$#" -eq 7 ] || die "usage: fm-opencode-server.sh prompt <state-dir> <profile> <session-id> <directory> <model> <variant> <text>"
@@ -339,6 +377,7 @@ case "$op" in
     need_tools
     profile_paths "$1" "$2"
     end_session "$2" "$3" "$4"
+    rm -f "$RECORD.sessions/$3"
     ;;
   dispose)
     [ "$#" -eq 3 ] || die "usage: fm-opencode-server.sh dispose <state-dir> <profile> <directory>"

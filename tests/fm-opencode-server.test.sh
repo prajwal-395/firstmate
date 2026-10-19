@@ -97,7 +97,7 @@ test_prompt_carries_model_and_variant() {
   local url session
   url=$("$SERVER" ensure "$STATE" default task-g | cut -f1) || fail "the default server did not start"
   [ -n "$url" ] || fail "ensure printed no address"
-  session=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task task-g") || fail "session creation failed"
+  session=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task task-g" task-g generation-g) || fail "session creation failed"
   "$SERVER" prompt "$STATE" default "$session" "$TEST_ROOT/wt" anthropic/claude-sonnet-4-5 high 'Read the brief.' \
     || fail "prompt submission failed"
   [ "$(jq -r '.model.providerID + "|" + .model.modelID + "|" + .variant + "|" + .parts[0].text' "$FAKE/prompt.json")" \
@@ -109,8 +109,31 @@ test_prompt_carries_model_and_variant() {
   pass "the first prompt carries the task's model and effort variant, and omits them when unset"
 }
 
+test_reused_worktree_session_events_belong_only_to_current_task() {
+  local first second old_gen current_gen
+  "$SERVER" ensure "$STATE" default old-tenant >/dev/null || fail "the shared server did not start for the old tenant"
+  "$SERVER" ensure "$STATE" default current-tenant >/dev/null || fail "the shared server was not reused for the current tenant"
+  old_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$STATE" old-tenant) || fail "the old tenant busy state was not armed"
+  current_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$STATE" current-tenant) || fail "the current tenant busy state was not armed"
+  first=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task old-tenant" old-tenant "$old_gen") \
+    || fail "the old tenant session was not created"
+  "$SERVER" release "$STATE" default old-tenant "$first" "$TEST_ROOT/wt" || fail "the old tenant session was not retired"
+  "$SERVER" event "$STATE" default "$first" turn-end || fail "a late old-tenant event was not safely ignored"
+  [ ! -e "$STATE/old-tenant.turn-ended" ] || fail "the reused worktree's stale session touched the earlier tenant"
+  second=$("$SERVER" session "$STATE" default "$TEST_ROOT/wt" "Firstmate task current-tenant" current-tenant "$current_gen") \
+    || fail "the current tenant session was not created"
+  "$SERVER" event "$STATE" default "$second" turn-end || fail "the current tenant turn-end event failed"
+  [ -e "$STATE/current-tenant.turn-ended" ] || fail "the current tenant did not receive its own turn-end"
+  [ ! -e "$STATE/old-tenant.turn-ended" ] || fail "the current tenant event touched the earlier tenant"
+  "$SERVER" event "$STATE" default "$second" busy || fail "the current tenant busy event failed"
+  grep -q 'state=busy' "$STATE/current-tenant.busy-state" || fail "the current session's busy event did not reach its task"
+  "$SERVER" release "$STATE" default current-tenant "$second" "$TEST_ROOT/wt" || fail "the current tenant session was not retired"
+  pass "two sequential tasks sharing a worktree slot route turn-end only to the current session owner"
+}
+
 test_healthy_server_is_reused_and_dead_one_restarted
 test_release_keeps_server_until_last_lease_leaves
 test_profiles_get_separate_servers_on_their_own_databases
 test_start_failure_reports_unavailable
 test_prompt_carries_model_and_variant
+test_reused_worktree_session_events_belong_only_to_current_task
