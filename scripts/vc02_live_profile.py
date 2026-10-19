@@ -288,7 +288,8 @@ class Session:
             self.cap.end()
             raise
         try:
-            self.resolve = connect_resolve()
+            with perf_ledger.span("resolve_connection_setup", calls=1):
+                self.resolve = connect_resolve()
             borrower = qp.borrowed(self.resolve)
             self.borrowed_from = borrower.__enter__()
             self._borrower = borrower

@@ -863,10 +863,14 @@ def apply_patch(patch, *, resolve, project, timeline,
     patch = prepare_patch(patch, base)
 
     started = time.monotonic()
+    from library.tools import perf_ledger
     with resolve_lock.cursor_fence(project, timeline,
                                    f"apply EditPatch {patch.id}"), \
             edit_algebra.insertion_sources():
-        live = shadow.read_live(project, timeline)
+        with perf_ledger.span(
+                "resolve_snapshot_read", snapshot_role="pre_write",
+                snapshot_count=1, batch=True):
+            live = shadow.read_live(project, timeline)
         if shadow.snapshot_hash(live) != head.hash:
             manual_edit_recorded = False
             if project_folder:
@@ -944,10 +948,14 @@ def apply_patch(patch, *, resolve, project, timeline,
             expected_state={"operations": list(patch.operations),
                             "postconditions": list(patch.postconditions)},
             required=bool(project_folder))
-        ran, stopped, id_map, after = execute_physical_patch(
-            patch, live=live, timeline=timeline, project=project,
-            project_name=project_name, timeline_id=timeline_id,
-            timeline_name=timeline_name, project_folder=project_folder)
+        with perf_ledger.span(
+                "resolve_mutation_batch", batch=True,
+                operation_count=len(patch.operations),
+                timeline_snapshot_count=1):
+            ran, stopped, id_map, after = execute_physical_patch(
+                patch, live=live, timeline=timeline, project=project,
+                project_name=project_name, timeline_id=timeline_id,
+                timeline_name=timeline_name, project_folder=project_folder)
         if stopped and stopped.get("failure_type") == \
                 "post_write_readback_failed":
             observed = store.record(
@@ -1152,10 +1160,17 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
             handles = _live_handles(timeline)
             handles_dirty = False
     try:
-        after = shadow.read_live(project, timeline)
+        from library.tools import perf_ledger
+        with perf_ledger.span(
+                "resolve_snapshot_read", snapshot_role="post_write",
+                snapshot_count=1, batch=True):
+            after = shadow.read_live(project, timeline)
     except Exception as first_readback_error:  # noqa: BLE001
         try:
-            after = shadow.read_live(project, timeline)
+            with perf_ledger.span(
+                    "resolve_snapshot_read", snapshot_role="post_write_retry",
+                    snapshot_count=1, batch=True):
+                after = shadow.read_live(project, timeline)
         except Exception as retry_error:
             raise PatchRefused(
                 what=(f"patch {patch.id!r} may have written to "

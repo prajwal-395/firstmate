@@ -192,8 +192,10 @@ def _prepare_request_plan(request):
     # returns None for anything unverified (no base, refusals,
     # changes outstanding), which keeps the normal backend choice.
     from library.tools import execution_router as _router
-
-    no_op = _router.decision_for_prepared_request(result)
+    from library.tools import perf_ledger as _perf
+    with _perf.span("resolve_noop_check", resolve_contacted=False,
+                    state_source="recorded_snapshot"):
+        no_op = _router.decision_for_prepared_request(result)
     if no_op is not None:
         routing = no_op.as_dict()
         backend: str | None = "no_op"

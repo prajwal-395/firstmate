@@ -37,10 +37,9 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from library.tools.resolved import cancellation, scheduler
 from library.tools.resolved import jobs as job_kinds
-from library.tools.resolved import scheduler
 from library.tools.resolved.cancellation import CancelRequested, clear
-from library.tools.resolved import cancellation
 from library.tools.resolved.store import (
     TERMINAL,
     IdempotencyConflict,
@@ -79,10 +78,11 @@ def _log_broker(message: str) -> None:
     cause" answerable - every start and every stop lands here with
     when and which tree. Logging never breaks the broker."""
     try:
-        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        stamp = datetime.datetime.now(datetime.UTC).isoformat(
+            timespec="seconds")
         print(f"{stamp} {message}", file=sys.stderr, flush=True)
     except Exception:  # noqa: BLE001 - the log must not break serving
-        pass
+        return
 
 
 def socket_path() -> Path:
@@ -379,8 +379,7 @@ class Broker:
                     # Re-evaluated on every submit and finish, and at
                     # least every second for aging.
                     if self._running:
-                        from library.tools.resolve_lock import (
-                            _start_activity_overlay)
+                        from library.tools.resolve_lock import _start_activity_overlay
                         _start_activity_overlay()
                     self._cond.wait(1.0)
                     continue
@@ -489,7 +488,9 @@ class Broker:
                                else None)
                     if job["executed"] and resolve is not None:
                         from library.tools.resolve_deadline import (
-                            DeadlineProxy, deadline_proxy)
+                            DeadlineProxy,
+                            deadline_proxy,
+                        )
                         if not isinstance(resolve, DeadlineProxy):
                             resolve = deadline_proxy(
                                 resolve, label=f"{job['kind']} {job['id']}")
@@ -520,11 +521,20 @@ class Broker:
         # Never handshake mid-switch: a fresh scripting client while
         # Resolve is loading a project is the crash site. Wait out the
         # settle first, then connect (or reuse the kept handle).
-        resolve_switch_guard.wait_for_settle()
+        with _broker_phase("resolve_switch_settle_wait"):
+            resolve_switch_guard.wait_for_settle()
         with self._resolve_lock:
             if self._resolve is None:
-                self._resolve = self._connect()
+                with _broker_phase("resolve_connection_setup") as row:
+                    self._resolve = self._connect()
+                    row["calls"] = 1
             return self._resolve
+
+
+def _broker_phase(layer: str):
+    """Return a no-op-safe performance span for broker-owned setup."""
+    from library.tools import perf_ledger
+    return perf_ledger.span(layer)
 
 
 def _default_connect():

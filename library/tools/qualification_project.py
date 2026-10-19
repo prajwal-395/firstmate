@@ -56,6 +56,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 from library.tools.resolve_lock import under_lease
@@ -90,6 +91,20 @@ class QualificationError(RuntimeError):
 
 class RestoreFailed(QualificationError):
     """The captain's project or timeline did not read back as found."""
+
+
+_BORROWED_ISOLATION: ContextVar[bool] = ContextVar(
+    "qualification_project_borrowed_isolation", default=False)
+
+
+@contextmanager
+def _phase(layer: str, *, qualification_isolation: bool | None = None):
+    """Attribute broker setup work without requiring a ledger in production."""
+    from library.tools import perf_ledger
+    isolated = (_BORROWED_ISOLATION.get() if qualification_isolation is None
+                else qualification_isolation)
+    with perf_ledger.span(layer, qualification_isolation=isolated):
+        yield
 
 
 # ── FREE: the media ─────────────────────────────────────────────────
@@ -318,22 +333,34 @@ def borrowed(resolve, *, qualification_only: bool = False):
             f"Resolve is already on {QUALIFICATION_PROJECT!r}, so the "
             f"captain's project is unknown - reopen it by hand first")
     timeline = project.GetCurrentTimeline()
-    project_folder = _current_project_folder_path(manager)
+    with _phase("project_folder_capture", qualification_isolation=True):
+        project_folder = _current_project_folder_path(manager)
     found = {"project": name,
              "project_folder": project_folder,
              "timeline_id": timeline.GetUniqueId() if timeline else None,
              "timeline": timeline.GetName() if timeline else None,
              "page": resolve.GetCurrentPage()}
-    if not manager.SaveProject():
-        raise QualificationError(f"could not save {name!r}; not borrowing")
-    begin_qualification_session(name)
+    with _phase("project_save_before_borrow",
+                 qualification_isolation=True):
+        if not manager.SaveProject():
+            raise QualificationError(f"could not save {name!r}; not borrowing")
+    token = _BORROWED_ISOLATION.set(True)
+    try:
+        begin_qualification_session(name)
+    except BaseException:
+        _BORROWED_ISOLATION.reset(token)
+        raise
     try:
         yield found
     finally:
         try:
-            restore(resolve, found)
+            with _phase("project_restore"):
+                restore(resolve, found)
         finally:
-            end_qualification_session()
+            try:
+                end_qualification_session()
+            finally:
+                _BORROWED_ISOLATION.reset(token)
 
 
 #: The borrowed-session marker: a qualification session is open while
@@ -554,15 +581,18 @@ def switch_project(manager, name: str, *, settle: float | None = None):
     """
     from library.tools import resolve_switch_guard
     _require_live_manager(manager, f"opening {name!r}")
-    project = manager.LoadProject(name)
+    with _phase("project_switch_load"):
+        project = manager.LoadProject(name)
     resolve_switch_guard.note_project_switch()
-    time.sleep(resolve_switch_guard.SETTLE_SECONDS
-               if settle is None else settle)
+    with _phase("project_switch_settle"):
+        time.sleep(resolve_switch_guard.SETTLE_SECONDS
+                   if settle is None else settle)
     live = None
-    try:
-        live = manager.GetCurrentProject()
-    except Exception:  # noqa: BLE001 - a handle Resolve invalidated
-        live = None
+    with _phase("project_switch_readback"):
+        try:
+            live = manager.GetCurrentProject()
+        except Exception:  # noqa: BLE001 - a handle Resolve invalidated
+            live = None
     if live is None:
         raise QualificationError(
             f"refusing after opening {name!r}: the project manager reads "
@@ -587,8 +617,12 @@ def restore(resolve, found: dict) -> None:
             f"{found['timeline']!r} by hand after it settles")
     current = manager.GetCurrentProject()
     if current and current.GetName() == QUALIFICATION_PROJECT:
-        manager.SaveProject()
-    _open_project_folder_path(manager, found["project_folder"])
+        with _phase("project_save_before_restore"):
+            if not manager.SaveProject():
+                raise RestoreFailed(
+                    f"could not save {QUALIFICATION_PROJECT!r} before restore")
+    with _phase("project_folder_restore"):
+        _open_project_folder_path(manager, found["project_folder"])
     if not current or current.GetName() != found["project"]:
         current = switch_project(manager, found["project"])
     reopen = (f"reopen {found['project']!r} on timeline "
@@ -598,7 +632,8 @@ def restore(resolve, found: dict) -> None:
     _restore_page(resolve, found)
     if found["timeline_id"] is None:
         return
-    timeline = _timeline_by_id(current, found["timeline_id"])
+    with _phase("project_timeline_restore"):
+        timeline = _timeline_by_id(current, found["timeline_id"])
     if timeline is None:
         raise RestoreFailed(f"timeline id {found['timeline_id']} is gone "
                             f"from {found['project']!r}; {reopen}")
@@ -913,6 +948,7 @@ def _measure_project_switch(function):
                 "project_switch", time.time() - started_at,
                 started_at=started_at, from_project=before_name,
                 to_project=name, switches=1,
+                qualification_isolation=_BORROWED_ISOLATION.get(),
                 edit_ids=list(perf_ledger.current_edit_ids()))
     return measured
 
