@@ -324,6 +324,17 @@ def apply_placement_transform(timeline, track_index: int,
                     != tuple(map(float, canvas))):
                 return (f"{name}: geometry descriptor does not match the "
                         "planned frame, box, and item canvas")
+            unresolved = []
+            if abs(float(descriptor.rotation)) > 1e-9:
+                unresolved.append("rotation")
+            if any(abs(float(value)) > 1e-9 for value in descriptor.crop):
+                unresolved.append("source crop")
+            if unresolved:
+                return (f"{name}: {', '.join(unresolved)} is represented in "
+                        "output geometry, but its Resolve property mapping is "
+                        "not qualified; refusing to write a misleading Pan/Tilt/Zoom projection")
+            asset_mode = ("full_frame" if tuple(map(float, canvas))
+                          == tuple(map(float, actual_frame)) else "tight")
             if provenance == "declared":
                 # A captain's declared placement remains the requested
                 # geometry. Describe the pixels that its native projection
@@ -344,21 +355,32 @@ def apply_placement_transform(timeline, track_index: int,
                         LayoutItem(float(canvas[0]), float(canvas[1]),
                                    projected)),
                     canvas=descriptor.canvas, anchor=descriptor.anchor,
-                    parent=descriptor.parent)
+                    parent=descriptor.parent, source_size=descriptor.source_size,
+                    crop=descriptor.crop, rotation=descriptor.rotation,
+                    asset_mode=asset_mode)
             else:
                 lowered = model.place_absolute_box(
                     canvas,
                     tuple(float(v) for v in absolute_box),
                     anchor=anchor,
-                    draw_gain=draw_gain)
+                    draw_gain=draw_gain,
+                    rotation=descriptor.rotation,
+                    crop=descriptor.crop)
                 placement = {"scaling": lowered.scaling,
                              "pan": lowered.pan, "tilt": lowered.tilt,
                              "zoom_x": lowered.zoom_x,
-                             "zoom_y": lowered.zoom_y}
+                             "zoom_y": lowered.zoom_y,
+                             "rotation": lowered.rotation,
+                             "anchor_x": lowered.anchor_x,
+                             "anchor_y": lowered.anchor_y,
+                             "crop_fraction": lowered.crop}
             descriptor = GeometryDescriptor(
                 frame=descriptor.frame, box=descriptor.box,
                 canvas=descriptor.canvas, anchor=descriptor.anchor,
                 parent=descriptor.parent,
+                source_size=descriptor.source_size or tuple(map(float, canvas)),
+                crop=descriptor.crop, rotation=descriptor.rotation,
+                asset_mode=asset_mode,
                 native_projection={
                     **placement,
                     "pan_units": units,

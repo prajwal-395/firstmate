@@ -93,7 +93,9 @@ class TestComputeTransform:
             frame=(1080, 1920), box=(740, 90, 980, 260),
             canvas=(480, 340), anchor=(1.0, 0.0), parent="brand-root",
             native_projection={"Pan": 1500, "Tilt": 500,
-                               "pan_units": "quarter"})
+                               "pan_units": "quarter"},
+            source_size=(960, 540), crop=(.05, .1, .05, .1),
+            rotation=12, asset_mode="full_frame")
         assert GeometryDescriptor.from_dict(
             descriptor.to_dict()) == descriptor
 
@@ -126,6 +128,29 @@ class TestComputeTransform:
         assert transform.zoom_y == pytest.approx(2.0)
         placed = model.placed_box(LayoutItem(800, 400, transform))
         assert placed == pytest.approx(box)
+
+    def test_source_crop_rotation_and_off_center_anchor_round_trip(self):
+        model = LayoutModel(1920, 1080, "quarter", "quarter")
+        source_size = (400, 200)
+        crop = (.1, .1, .1, .1)
+        box = (100, 200, 496.553829, 502.851252)
+        transform = model.place_absolute_box(
+            source_size, box, anchor=(.2, .8), rotation=30, crop=crop)
+        item = LayoutItem(*source_size, transform)
+
+        assert transform.zoom_x == pytest.approx(1.2)
+        assert transform.zoom_y == pytest.approx(.8)
+        assert model.placed_box(item) == pytest.approx(box)
+        canvas_point = model.local_to_canvas(item, 43, 67)
+        assert model.canvas_to_local(item, *canvas_point) == pytest.approx(
+            (43, 67))
+
+    def test_portrait_source_rotation_uses_output_frame_geometry(self):
+        model = LayoutModel(3840, 2160, "half", "half")
+        transform = model.place_absolute_box(
+            (200, 400), (1500, 800, 1900, 1000), rotation=90)
+        assert model.placed_box(LayoutItem(200, 400, transform)) == \
+            pytest.approx((1500, 800, 1900, 1000))
 
     def test_three_level_parent_chain_round_trips(self):
         model = LayoutModel(1920, 1080)

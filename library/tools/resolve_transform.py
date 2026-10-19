@@ -180,6 +180,29 @@ def native_position_to_resolve(position: tuple, clip_size: tuple,
                                base_scale, draw_gain)
 
 
+def proxy_position_unit_scale(units: str) -> float:
+    """Return output pixels represented by one stored Pan/Tilt unit."""
+    scales = {"original": 1.0, "full": 1.0, "half": 2.0,
+              "quarter": 4.0, "eighth": 8.0}
+    try:
+        return scales[str(units).strip().lower()]
+    except KeyError as exc:
+        raise ResolveTransformError(
+            f"unsupported proxy position units {units!r}") from exc
+
+
+def output_anchor_to_resolve(anchor_position: tuple, clip_size: tuple,
+                             frame_size: tuple, *, base_scale: float = 1.0,
+                             draw_gain: float = FALLBACK_DRAW_GAIN,
+                             pan_units: str = "original",
+                             tilt_units: str = "original") -> tuple[float, float]:
+    """Lower an output-pixel anchor through the calibrated position law."""
+    pan, tilt = native_position_to_resolve(
+        anchor_position, clip_size, frame_size, base_scale, draw_gain)
+    return (pan / proxy_position_unit_scale(pan_units),
+            tilt / proxy_position_unit_scale(tilt_units))
+
+
 def native_conversion_refusal(
         transform: dict, mismatch_behavior: str = "scaleToFit") -> str | None:
     """Explain transform features whose native geometry is not qualified."""

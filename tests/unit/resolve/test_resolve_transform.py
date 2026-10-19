@@ -15,6 +15,7 @@ from library.tools.resolve_transform import (
     mismatch_base_scales,
     native_conversion_refusal,
     native_position_to_resolve,
+    output_anchor_to_resolve,
     pan_tilt_for_centre,
     resolve_to_native_position,
     shift_px,
@@ -211,6 +212,15 @@ def test_native_position_conversion_is_the_shared_resolve_law():
     assert native_position_to_resolve(
         position, (846, 480), (1080, 1920), draw_gain=1.0
     ) == pytest.approx((-26.8085, 1836.0), abs=0.001)
+
+
+def test_output_position_adapter_owns_proxy_units_and_calibrated_gain():
+    units = output_anchor_to_resolve(
+        (842.5, 317.25), (728, 480), (1080, 1920),
+        draw_gain=1.0, pan_units="quarter", tilt_units="quarter")
+    expected = native_position_to_resolve(
+        (842.5, 317.25), (728, 480), (1080, 1920), draw_gain=1.0)
+    assert units == pytest.approx((expected[0] / 4, expected[1] / 4))
 
 
 @pytest.mark.parametrize("mode,scales,expected", [

@@ -635,12 +635,47 @@ def verify_rendered_boxes(resolve, project, timeline, records: Sequence[dict],
                             "reason": "rendered asset alpha frame unavailable"})
             continue
         source_w, source_h = map(float, canvas_wh)
-        expected = (
-            round(x + alpha_box[0] / source_w * width),
-            round(y + alpha_box[1] / source_h * height),
-            round(x + alpha_box[2] / source_w * width),
-            round(y + alpha_box[3] / source_h * height),
+        crop = descriptor.crop
+        source_geometry = descriptor.source_size or tuple(canvas_wh)
+        if tuple(map(float, source_geometry)) != (source_w, source_h):
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "source geometry differs from rendered asset canvas"})
+            continue
+        crop_left, crop_top, crop_right, crop_bottom = crop
+        alpha_bounds = (
+            max(alpha_box[0], round(source_w * crop_left)),
+            max(alpha_box[1], round(source_h * crop_top)),
+            min(alpha_box[2], round(source_w * (1 - crop_right))),
+            min(alpha_box[3], round(source_h * (1 - crop_bottom))),
         )
+        if alpha_bounds[2] <= alpha_bounds[0] or alpha_bounds[3] <= alpha_bounds[1]:
+            findings.append({"label": record.get("label", "?"),
+                             "reason": "crop removes all rendered asset alpha"})
+            continue
+        try:
+            from library.tools.layout_model import LayoutItem, LayoutModel
+            geometry_model = LayoutModel(*descriptor.frame)
+            output_transform = geometry_model.place_absolute_box(
+                (source_w, source_h), descriptor.box,
+                anchor=descriptor.anchor, rotation=descriptor.rotation,
+                crop=crop)
+            output_item = LayoutItem(source_w, source_h, output_transform)
+            output_points = [geometry_model.local_to_canvas(output_item, px, py)
+                             for px, py in (
+                                 (alpha_bounds[0], alpha_bounds[1]),
+                                 (alpha_bounds[2], alpha_bounds[1]),
+                                 (alpha_bounds[0], alpha_bounds[3]),
+                                 (alpha_bounds[2], alpha_bounds[3]))]
+            expected = (
+                round(min(point[0] for point in output_points)),
+                round(min(point[1] for point in output_points)),
+                round(max(point[0] for point in output_points)),
+                round(max(point[1] for point in output_points)),
+            )
+        except (TypeError, ValueError) as exc:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": f"cannot project source geometry: {exc}"})
+            continue
         # `track_index` is the Resolve API's one-based video lane index
         # as recorded by the reel builder (V1 is 1).
         item, track = find_overlay_item(record, sample)

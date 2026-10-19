@@ -41,27 +41,16 @@ its nearest positioned ancestor.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import isfinite
+from math import cos, isfinite, radians, sin
 from typing import Optional
 
 from library.tools.resolve_transform import (
     FALLBACK_DRAW_GAIN,
     NATIVE_BASE_SCALE,
     drawn_centre,
-    pan_tilt_for_centre,
+    output_anchor_to_resolve,
+    proxy_position_unit_scale,
 )
-
-
-_PROXY_POSITION_UNIT_SCALE = {
-    # Pan/Tilt values follow the proxy pixel grid. A quarter-resolution
-    # proxy pixel spans four original pixels, so the stored value needed
-    # for the same screen displacement is one quarter as large.
-    "original": 1.0,
-    "full": 1.0,
-    "half": 2.0,
-    "quarter": 4.0,
-    "eighth": 8.0,
-}
 
 
 def current_proxy_units(project) -> str:
@@ -92,9 +81,11 @@ class UnitMismatchError(LayoutModelError):
 class GeometryDescriptor:
     """Output-canvas geometry plus the native projection used to place it.
 
-    The box is the intended visible item rectangle in output pixels.  The
-    native projection is evidence about the Resolve properties compiled from
-    that intent; verification must still measure the rendered output.
+    The box is the intended visible item rectangle in output pixels. Source
+    dimensions, normalized crop insets, rotation and asset mode preserve the
+    source-image geometry through lowering. The native projection is evidence
+    about Resolve properties compiled from that intent; verification must
+    still measure the rendered output.
     """
 
     frame: tuple[int, int]
@@ -104,6 +95,10 @@ class GeometryDescriptor:
     parent: Optional[str] = None
     native_projection: Optional[dict] = None
     space: str = "output_px"
+    source_size: Optional[tuple[float, float]] = None
+    crop: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    rotation: float = 0.0
+    asset_mode: str = "tight"
 
     def __post_init__(self):
         if self.space != "output_px":
@@ -123,6 +118,16 @@ class GeometryDescriptor:
         if len(self.anchor) != 2 or any(
                 not 0 <= float(value) <= 1 for value in self.anchor):
             raise LayoutModelError(f"invalid geometry anchor {self.anchor!r}")
+        if self.source_size is not None and (
+                len(self.source_size) != 2
+                or min(map(float, self.source_size)) <= 0
+                or not all(isfinite(float(v)) for v in self.source_size)):
+            raise LayoutModelError(f"invalid source geometry {self.source_size!r}")
+        _validate_crop(self.crop)
+        if not isfinite(float(self.rotation)):
+            raise LayoutModelError(f"invalid geometry rotation {self.rotation!r}")
+        if self.asset_mode not in {"tight", "full_frame"}:
+            raise LayoutModelError(f"invalid overlay asset mode {self.asset_mode!r}")
 
     def to_dict(self) -> dict:
         return {
@@ -137,6 +142,10 @@ class GeometryDescriptor:
             "anchor": list(self.anchor),
             "parent": self.parent,
             "native_projection": dict(self.native_projection or {}),
+            "source_size": list(self.source_size) if self.source_size else None,
+            "crop": list(self.crop),
+            "rotation": float(self.rotation),
+            "asset_mode": self.asset_mode,
         }
 
     @classmethod
@@ -146,6 +155,11 @@ class GeometryDescriptor:
             box=tuple(data["box"]), canvas=tuple(data["canvas"]),
             anchor=tuple(data["anchor"]), parent=data["parent"],
             native_projection=dict(data.get("native_projection") or {}),
+            source_size=(tuple(data["source_size"])
+                         if data.get("source_size") else None),
+            crop=tuple(data.get("crop", (0, 0, 0, 0))),
+            rotation=float(data.get("rotation", 0.0)),
+            asset_mode=data.get("asset_mode", "tight"),
         )
         expected = descriptor.to_dict()
         for key in ("position", "size"):
@@ -174,6 +188,10 @@ class Transform:
     pan_units: str = "original"
     tilt_units: str = "original"
     draw_gain: float = FALLBACK_DRAW_GAIN
+    rotation: float = 0.0
+    anchor_x: float = 0.5
+    anchor_y: float = 0.5
+    crop: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
 
     def to_dict(self) -> dict:
         return {
@@ -185,6 +203,10 @@ class Transform:
             "pan_units": self.pan_units,
             "tilt_units": self.tilt_units,
             "draw_gain": self.draw_gain,
+            "RotationAngle": self.rotation,
+            "AnchorPointX": self.anchor_x,
+            "AnchorPointY": self.anchor_y,
+            "crop_fraction": list(self.crop),
         }
 
     @classmethod
@@ -198,6 +220,10 @@ class Transform:
             pan_units=str(data.get("pan_units", "original")),
             tilt_units=str(data.get("tilt_units", "original")),
             draw_gain=float(data.get("draw_gain", FALLBACK_DRAW_GAIN)),
+            rotation=float(data.get("RotationAngle", data.get("rotation", 0))),
+            anchor_x=float(data.get("AnchorPointX", data.get("anchor_x", .5))),
+            anchor_y=float(data.get("AnchorPointY", data.get("anchor_y", .5))),
+            crop=tuple(data.get("crop_fraction", (0, 0, 0, 0))),
         )
 
 
@@ -217,6 +243,20 @@ class LayoutItem:
     transform: Transform = field(default_factory=Transform)
     parent: Optional["LayoutItem"] = None
     label: str = ""
+
+    def __post_init__(self):
+        _positive(self.source_width, "source_width")
+        _positive(self.source_height, "source_height")
+        if (not isfinite(float(self.transform.zoom_x))
+                or not isfinite(float(self.transform.zoom_y))
+                or self.transform.zoom_x <= 0 or self.transform.zoom_y <= 0):
+            raise LayoutModelError("item zoom must be finite and positive")
+        if not all(0 <= float(value) <= 1 for value in
+                   (self.transform.anchor_x, self.transform.anchor_y)):
+            raise LayoutModelError("item anchor must be normalized to [0, 1]")
+        _validate_crop(self.transform.crop)
+        if not isfinite(float(self.transform.rotation)):
+            raise LayoutModelError("item rotation must be finite")
 
 
 class LayoutModel:
@@ -268,13 +308,16 @@ class LayoutModel:
                                            parent_local[1])
 
     def compute_transform(self, item: LayoutItem, canvas_box: tuple,
-                          anchor: tuple = (0.5, 0.5)) -> Transform:
-        """Compute the transform that puts an item at `canvas_box`.
+                          anchor: tuple = (0.5, 0.5), *,
+                          rotation: float | None = None,
+                          crop: tuple | None = None) -> Transform:
+        """Compute the transform that puts the visible item in `canvas_box`.
 
         `canvas_box` is `(x0, y0, x1, y1)` in absolute canvas pixels.
-        `anchor` is the item's anchor point as a fraction of its
-        source size (0.5, 0.5 is the centre). The computed transform
-        carries the current proxy units.
+        `anchor` is the source point mapped through the transform, as
+        fractions of source width and height. `crop` contains normalized
+        left/top/right/bottom insets. The computed transform carries the
+        current proxy units and uses the calibrated Pan/Tilt adapter.
 
         This is the placement API: callers pass an absolute canvas
         box and get back the transform to write.
@@ -291,23 +334,58 @@ class LayoutModel:
             raise LayoutModelError(
                 f"item source size must be positive, got ({src_w}, {src_h})")
 
-        zoom_x = box_w / src_w
-        zoom_y = box_h / src_h
+        if len(anchor) != 2 or any(not 0 <= float(v) <= 1 for v in anchor):
+            raise LayoutModelError(f"invalid normalized anchor {anchor!r}")
+        crop = tuple(item.transform.crop if crop is None else crop)
+        _validate_crop(crop)
+        angle = item.transform.rotation if rotation is None else float(rotation)
+        if not isfinite(angle):
+            raise LayoutModelError(f"rotation must be finite, got {angle!r}")
+        left, top, right, bottom = crop
+        crop_w, crop_h = src_w * (1 - left - right), src_h * (1 - top - bottom)
+        angle_radians = radians(angle)
+        cosine, sine_abs = abs(cos(angle_radians)), abs(sin(angle_radians))
+        a, b = cosine * crop_w, sine_abs * crop_h
+        c, d = sine_abs * crop_w, cosine * crop_h
+        determinant = a * d - b * c
+        if abs(determinant) < 1e-9:
+            zoom_x = zoom_y = box_w / max(a + b, 1e-12)
+            if abs((c + d) * zoom_y - box_h) > 1e-6:
+                raise LayoutModelError(
+                    "requested box is incompatible with crop aspect at this rotation")
+        else:
+            zoom_x = (box_w * d - b * box_h) / determinant
+            zoom_y = (a * box_h - box_w * c) / determinant
+        if zoom_x <= 0 or zoom_y <= 0:
+            raise LayoutModelError(
+                "requested output box is incompatible with crop and rotation")
 
-        item_cx = float(x0) + box_w * 0.5
-        item_cy = float(y0) + box_h * 0.5
+        crop_corners = ((src_w * left, src_h * top),
+                        (src_w * (1 - right), src_h * top),
+                        (src_w * left, src_h * (1 - bottom)),
+                        (src_w * (1 - right), src_h * (1 - bottom)))
+        anchor_px = (src_w * float(anchor[0]), src_h * float(anchor[1]))
+        offsets = [_rotate_scaled(point[0] - anchor_px[0],
+                                  point[1] - anchor_px[1], zoom_x, zoom_y,
+                                  angle) for point in crop_corners]
+        min_x, min_y = min(x for x, _ in offsets), min(y for _, y in offsets)
+        anchor_position = (float(x0) - min_x, float(y0) - min_y)
+        center_offset = _rotate_scaled(
+            src_w * (0.5 - float(anchor[0])),
+            src_h * (0.5 - float(anchor[1])), zoom_x, zoom_y, angle)
+        center_position = (anchor_position[0] + center_offset[0],
+                           anchor_position[1] + center_offset[1])
 
         base_scale = NATIVE_BASE_SCALE
         if item.parent is not None:
             base_scale = self._parent_base_scale(item)
 
-        pan, tilt = pan_tilt_for_centre(
-            src_w, src_h,
-            self.canvas_width, self.canvas_height,
-            item_cx, item_cy,
-            base_scale, item.transform.draw_gain)
-        pan /= _proxy_position_unit_scale(self.current_pan_units)
-        tilt /= _proxy_position_unit_scale(self.current_tilt_units)
+        pan, tilt = output_anchor_to_resolve(
+            center_position, (src_w, src_h),
+            (self.canvas_width, self.canvas_height), base_scale=base_scale,
+            draw_gain=item.transform.draw_gain,
+            pan_units=self.current_pan_units,
+            tilt_units=self.current_tilt_units)
 
         return Transform(
             pan=pan, tilt=tilt,
@@ -316,12 +394,17 @@ class LayoutModel:
             pan_units=self.current_pan_units,
             tilt_units=self.current_tilt_units,
             draw_gain=item.transform.draw_gain,
+            rotation=angle, anchor_x=float(anchor[0]),
+            anchor_y=float(anchor[1]), crop=crop,
         )
 
     def place_absolute_box(self, source_size: tuple[float, float],
                            box: tuple[float, float, float, float], *,
                            anchor: tuple[float, float] = (0.5, 0.5),
-                           draw_gain: float = FALLBACK_DRAW_GAIN) -> Transform:
+                           draw_gain: float = FALLBACK_DRAW_GAIN,
+                           rotation: float = 0.0,
+                           crop: tuple[float, float, float, float] =
+                           (0.0, 0.0, 0.0, 0.0)) -> Transform:
         """Lower one absolute canvas box to a Resolve transform.
 
         ``box`` is the visible rectangle in delivery-canvas pixels;
@@ -338,9 +421,10 @@ class LayoutModel:
             raise LayoutModelError(f"source size must be positive, got {source_size!r}")
         if x1 <= x0 or y1 <= y0:
             raise LayoutModelError(f"canvas box must have positive size, got {box!r}")
-        item = LayoutItem(source_w, source_h,
-                          Transform(draw_gain=draw_gain))
-        transform = self.compute_transform(item, (x0, y0, x1, y1), anchor)
+        item = LayoutItem(source_w, source_h, Transform(
+            draw_gain=draw_gain, rotation=rotation, crop=crop))
+        transform = self.compute_transform(
+            item, (x0, y0, x1, y1), anchor, rotation=rotation, crop=crop)
         return transform
 
     def refuse_unit_mismatch(self, transform: Transform) -> Optional[str]:
@@ -367,29 +451,11 @@ class LayoutModel:
         Returns `(x0, y0, x1, y1)` in canvas pixels. Accounts for the
         item's source size, zoom, and Pan/Tilt.
         """
-        src_w = float(item.source_width)
-        src_h = float(item.source_height)
-        zoom_x = item.transform.zoom_x
-        zoom_y = item.transform.zoom_y
-        drawn_w = src_w * zoom_x
-        drawn_h = src_h * zoom_y
-
-        pan = item.transform.pan
-        tilt = item.transform.tilt
-
-        base_scale = NATIVE_BASE_SCALE
-        if item.parent is not None:
-            base_scale = self._parent_base_scale(item)
-
-        cx, cy = drawn_centre(
-            src_w, src_h,
-            self.canvas_width, self.canvas_height,
-            pan * _proxy_position_unit_scale(self.current_pan_units),
-            tilt * _proxy_position_unit_scale(self.current_tilt_units),
-            base_scale, item.transform.draw_gain)
-        x0 = cx - drawn_w / 2.0
-        y0 = cy - drawn_h / 2.0
-        return (x0, y0, x0 + drawn_w, y0 + drawn_h)
+        left, top, right, bottom = _crop_bounds(item)
+        points = [self._item_local_to_canvas(item, x, y) for x, y in (
+            (left, top), (right, top), (left, bottom), (right, bottom))]
+        return (min(x for x, _ in points), min(y for _, y in points),
+                max(x for x, _ in points), max(y for _, y in points))
 
     def _item_local_to_canvas(self, item: LayoutItem, local_x: float,
                               local_y: float) -> tuple[float, float]:
@@ -405,22 +471,34 @@ class LayoutModel:
         zoom_x = item.transform.zoom_x
         zoom_y = item.transform.zoom_y
 
-        canvas_cx, canvas_cy = drawn_centre(
+        anchor_x, anchor_y = self._item_anchor_canvas(item)
+        offset_x, offset_y = _rotate_scaled(
+            local_x - src_w * item.transform.anchor_x,
+            local_y - src_h * item.transform.anchor_y,
+            zoom_x, zoom_y, item.transform.rotation)
+
+        return (anchor_x + offset_x, anchor_y + offset_y)
+
+    def _item_anchor_canvas(self, item: LayoutItem) -> tuple[float, float]:
+        src_w = float(item.source_width)
+        src_h = float(item.source_height)
+        base_scale = (NATIVE_BASE_SCALE if item.parent is None
+                      else self._parent_base_scale(item))
+        center = drawn_centre(
             src_w, src_h,
             self.canvas_width, self.canvas_height,
             item.transform.pan * _proxy_position_unit_scale(
                 self.current_pan_units),
             item.transform.tilt * _proxy_position_unit_scale(
                 self.current_tilt_units),
-            NATIVE_BASE_SCALE, item.transform.draw_gain)
-
-        drawn_w = src_w * zoom_x
-        drawn_h = src_h * zoom_y
-
-        offset_x = local_x * zoom_x - drawn_w / 2.0
-        offset_y = local_y * zoom_y - drawn_h / 2.0
-
-        return (canvas_cx + offset_x, canvas_cy + offset_y)
+            base_scale, item.transform.draw_gain)
+        center_offset = _rotate_scaled(
+            src_w * (0.5 - item.transform.anchor_x),
+            src_h * (0.5 - item.transform.anchor_y),
+            item.transform.zoom_x, item.transform.zoom_y,
+            item.transform.rotation)
+        return (center[0] - center_offset[0],
+                center[1] - center_offset[1])
 
     def _canvas_to_item_local(self, item: LayoutItem, canvas_x: float,
                                canvas_y: float) -> tuple[float, float]:
@@ -433,22 +511,12 @@ class LayoutModel:
         zoom_x = item.transform.zoom_x
         zoom_y = item.transform.zoom_y
 
-        canvas_cx, canvas_cy = drawn_centre(
-            src_w, src_h,
-            self.canvas_width, self.canvas_height,
-            item.transform.pan * _proxy_position_unit_scale(
-                self.current_pan_units),
-            item.transform.tilt * _proxy_position_unit_scale(
-                self.current_tilt_units),
-            NATIVE_BASE_SCALE, item.transform.draw_gain)
-
-        drawn_w = src_w * zoom_x
-        drawn_h = src_h * zoom_y
-
-        offset_x = canvas_x - canvas_cx + drawn_w / 2.0
-        offset_y = canvas_y - canvas_cy + drawn_h / 2.0
-
-        return (offset_x / zoom_x, offset_y / zoom_y)
+        anchor_x, anchor_y = self._item_anchor_canvas(item)
+        offset_x, offset_y = _rotate_scaled(
+            canvas_x - anchor_x, canvas_y - anchor_y,
+            1.0, 1.0, -item.transform.rotation)
+        return (offset_x / zoom_x + src_w * item.transform.anchor_x,
+                offset_y / zoom_y + src_h * item.transform.anchor_y)
 
     def _item_to_parent_local(self, item: LayoutItem, local_x: float,
                               local_y: float) -> tuple[float, float]:
@@ -458,36 +526,10 @@ class LayoutModel:
         coordinates are in its source pixel space. The parent's local
         coordinates are in the parent's source pixel space.
         """
-        src_w = float(item.source_width)
-        src_h = float(item.source_height)
-        zoom_x = item.transform.zoom_x
-        zoom_y = item.transform.zoom_y
-
-        canvas_cx, canvas_cy = self._item_canvas_centre(item)
-
-        drawn_w = src_w * zoom_x
-        drawn_h = src_h * zoom_y
-
-        canvas_x = canvas_cx + (local_x * zoom_x - drawn_w / 2.0)
-        canvas_y = canvas_cy + (local_y * zoom_y - drawn_h / 2.0)
-
         parent = item.parent
         assert parent is not None
-
-        parent_src_w = float(parent.source_width)
-        parent_src_h = float(parent.source_height)
-        parent_zoom_x = parent.transform.zoom_x
-        parent_zoom_y = parent.transform.zoom_y
-
-        parent_cx, parent_cy = self._item_canvas_centre(parent)
-
-        parent_drawn_w = parent_src_w * parent_zoom_x
-        parent_drawn_h = parent_src_h * parent_zoom_y
-
-        parent_local_x = (canvas_x - parent_cx + parent_drawn_w / 2.0) / parent_zoom_x
-        parent_local_y = (canvas_y - parent_cy + parent_drawn_h / 2.0) / parent_zoom_y
-
-        return (parent_local_x, parent_local_y)
+        return self.canvas_to_local(
+            parent, *self._item_local_to_canvas(item, local_x, local_y))
 
     def _parent_local_to_item(self, item: LayoutItem, parent_local_x: float,
                               parent_local_y: float) -> tuple[float, float]:
@@ -497,50 +539,8 @@ class LayoutModel:
         """
         parent = item.parent
         assert parent is not None
-
-        parent_src_w = float(parent.source_width)
-        parent_src_h = float(parent.source_height)
-        parent_zoom_x = parent.transform.zoom_x
-        parent_zoom_y = parent.transform.zoom_y
-
-        parent_cx, parent_cy = self._item_canvas_centre(parent)
-
-        parent_drawn_w = parent_src_w * parent_zoom_x
-        parent_drawn_h = parent_src_h * parent_zoom_y
-
-        canvas_x = parent_cx + (parent_local_x * parent_zoom_x - parent_drawn_w / 2.0)
-        canvas_y = parent_cy + (parent_local_y * parent_zoom_y - parent_drawn_h / 2.0)
-
-        src_w = float(item.source_width)
-        src_h = float(item.source_height)
-        zoom_x = item.transform.zoom_x
-        zoom_y = item.transform.zoom_y
-
-        canvas_cx, canvas_cy = self._item_canvas_centre(item)
-
-        drawn_w = src_w * zoom_x
-        drawn_h = src_h * zoom_y
-
-        item_local_x = (canvas_x - canvas_cx + drawn_w / 2.0) / zoom_x
-        item_local_y = (canvas_y - canvas_cy + drawn_h / 2.0) / zoom_y
-
-        return (item_local_x, item_local_y)
-
-    def _item_canvas_centre(self, item: LayoutItem) -> tuple[float, float]:
-        """Where an item's centre lands on the canvas."""
-        src_w = float(item.source_width)
-        src_h = float(item.source_height)
-        pan = item.transform.pan
-        tilt = item.transform.tilt
-        base_scale = NATIVE_BASE_SCALE
-        if item.parent is not None:
-            base_scale = self._parent_base_scale(item)
-        return drawn_centre(
-            src_w, src_h,
-            self.canvas_width, self.canvas_height,
-            pan * _proxy_position_unit_scale(self.current_pan_units),
-            tilt * _proxy_position_unit_scale(self.current_tilt_units),
-            base_scale, item.transform.draw_gain)
+        return self._canvas_to_item_local(
+            item, *self.local_to_canvas(parent, parent_local_x, parent_local_y))
 
     def _parent_base_scale(self, item: LayoutItem) -> float:
         """The base scale for an item with a parent.
@@ -556,25 +556,54 @@ class LayoutModel:
         parent_src_h = float(parent.source_height)
         parent_zoom_x = parent.transform.zoom_x
         parent_zoom_y = parent.transform.zoom_y
-        parent_drawn_w = parent_src_w * parent_zoom_x
-        parent_drawn_h = parent_src_h * parent_zoom_y
+        angle = radians(parent.transform.rotation)
+        parent_drawn_w = (abs(cos(angle)) * parent_src_w * parent_zoom_x
+                          + abs(sin(angle)) * parent_src_h * parent_zoom_y)
+        parent_drawn_h = (abs(sin(angle)) * parent_src_w * parent_zoom_x
+                          + abs(cos(angle)) * parent_src_h * parent_zoom_y)
         src_w = float(item.source_width)
         src_h = float(item.source_height)
         return min(parent_drawn_w / src_w, parent_drawn_h / src_h)
 
 
 def _positive(value: float, name: str) -> None:
-    if value <= 0:
+    if not isfinite(float(value)) or value <= 0:
         raise LayoutModelError(f"{name} must be positive, got {value}")
+
+
+def _validate_crop(crop: tuple) -> None:
+    """Validate normalized source-edge insets: left, top, right, bottom."""
+    if len(crop) != 4 or not all(isfinite(float(value)) for value in crop):
+        raise LayoutModelError(f"crop must contain four finite fractions, got {crop!r}")
+    left, top, right, bottom = map(float, crop)
+    if (min(left, top, right, bottom) < 0 or left + right >= 1
+            or top + bottom >= 1):
+        raise LayoutModelError(f"crop removes the whole source or is negative: {crop!r}")
+
+
+def _crop_bounds(item: LayoutItem) -> tuple[float, float, float, float]:
+    left, top, right, bottom = item.transform.crop
+    return (item.source_width * left, item.source_height * top,
+            item.source_width * (1 - right),
+            item.source_height * (1 - bottom))
+
+
+def _rotate_scaled(x: float, y: float, zoom_x: float, zoom_y: float,
+                   angle: float) -> tuple[float, float]:
+    """Scale source axes, then rotate in output coordinates (Y points down)."""
+    angle_radians = radians(float(angle))
+    x *= float(zoom_x)
+    y *= float(zoom_y)
+    return (cos(angle_radians) * x - sin(angle_radians) * y,
+            sin(angle_radians) * x + cos(angle_radians) * y)
 
 
 def _proxy_position_unit_scale(units: str) -> float:
     try:
-        return _PROXY_POSITION_UNIT_SCALE[str(units).lower()]
-    except KeyError as exc:
+        return proxy_position_unit_scale(units)
+    except ValueError as exc:
         raise LayoutModelError(
-            f"unsupported proxy position units {units!r}; expected one of "
-            f"{sorted(_PROXY_POSITION_UNIT_SCALE)}") from exc
+            f"unsupported proxy position units {units!r}") from exc
 
 
 def reproduce_300px_offset() -> tuple[float, float]:
