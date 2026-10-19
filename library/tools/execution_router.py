@@ -113,6 +113,8 @@ class ExecutionDecision:
         value["selection"] = {
             "semantics": list(self.selection.get("semantics", ())),
             "qualification": self.selection.get("qualification", "unknown"),
+            "qualification_policy": self.selection.get(
+                "qualification_policy", "production"),
             "media_type": self.selection.get("media_type", "unknown"),
             "timeline_state": self.selection.get("timeline_state", "unknown"),
             "preservation_constraints": list(
@@ -139,6 +141,8 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
     return {
         "semantics": ids,
         "qualification": tuple(_statuses(edit_algebra, ids)),
+        "qualification_policy": context.get(
+            "qualification_policy", "production"),
         "media_type": context.get("media_type", "unknown"),
         "timeline_state": context.get("timeline_state", "unknown"),
         "preservation_constraints": context.get("preservation_constraints", ()),
@@ -589,6 +593,41 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     _enforce_qualification_policy(gaps, context)
     statuses = _statuses(edit_algebra, ids)
     gap_reasons = _gap_reasons(gaps)
+
+    # These audio adapters already execute on protected staged candidates and
+    # independently verify their requested native/OTIO state. Keep them
+    # available to semantic requests through that route while their live
+    # qualification remains incomplete. Ordinary router calls still refuse
+    # them under the default production policy above.
+    if (len(ids) == 1
+            and ids[0] in {"audio.gain", "audio.fade", "transition"}
+            and context.get("qualification_policy") == "protected_experimental"):
+        status = edit_algebra.status(ids[0])
+        row = status.for_backend("reel_touchup") if status else None
+        if (row is not None and row.compilable
+                and not row.production_enabled):
+            backend_gaps = ((ids[0],
+                             ("reel_touchup",) if row.qualified else (),
+                             ()),)
+            return ExecutionDecision(
+                backend="reel_touchup",
+                reasons=("the operation has a registered staged touch-up adapter",
+                         "protected experimental execution keeps production qualification closed",
+                         *checked, *gap_reasons),
+                rejected_alternatives=(
+                    RejectedBackend("edit_patch", "no qualified EditPatch writer is available for this operation"),
+                    RejectedBackend("full_rebuild", "full reconstruction is not the minimum safe mutation"),
+                ),
+                verification=("verify the adapter receipt and operation-specific fresh state read-back",
+                              "verify unrelated timeline state remains unchanged",
+                              "retain the source timeline until candidate promotion verifies"),
+                algebra_status=statuses,
+                mode="staged",
+                qualification_gaps=backend_gaps,
+                selection=_selection_basis(
+                    operations, context, "reel_touchup",
+                    limitations=("protected experimental route; live operation qualification deferred",)),
+            )
 
     if all(op_id in _PROPERTY_OPS for op_id in ids):
         if any(not op.get("unique_id") for op in operations):

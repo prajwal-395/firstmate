@@ -111,6 +111,7 @@ _EDIT_EXECUTOR_LOCK = threading.RLock()
 _ROUTER_QUALIFIED_BACKENDS = frozenset({
     "incremental", "resolve_native_invocation",
 })
+_ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup"})
 _SEMANTIC_RESULT_LIMIT = 256
 
 
@@ -181,10 +182,23 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         status = edit_algebra.status(operation_id)
         row = status.for_backend(backend_id) if status is not None else None
         if ((row is None or not row.production_enabled)
-                and backend_id not in _ROUTER_QUALIFIED_BACKENDS):
+                and backend_id not in _ROUTER_QUALIFIED_BACKENDS
+                and backend_id not in _ROUTER_PROTECTED_BACKENDS):
             raise ValueError(
                 f"router selected {backend!r}, but {operation_id} is not "
                 f"production enabled on {backend_id}")
+        if (backend_id == "reel_touchup"
+                and (row is None or not row.production_enabled)):
+            selection = decision.get("selection") or {}
+            if selection.get("qualification_policy") != "protected_experimental":
+                raise ValueError(
+                    f"router selected unqualified {operation_id} on "
+                    "reel_touchup without protected experimental policy")
+            if not any(gap[0] == operation_id
+                       for gap in decision.get("qualification_gaps", ())):
+                raise ValueError(
+                    f"router omitted the qualification gap for "
+                    f"{operation_id} on reel_touchup")
         if backend_id in _ROUTER_QUALIFIED_BACKENDS:
             routed_backend = str(decision.get("backend") or backend)
             if routed_backend != backend:
@@ -334,7 +348,11 @@ def _prepare_request_plan(request):
     from library.tools.edit_execution_adapters import (
         register_builtin_edit_executors,
     )
-    from library.tools.edit_request import EditRequest, compile_request
+    from library.tools.edit_request import (
+        EditRequest,
+        compile_request,
+        route_request,
+    )
 
     register_builtin_edit_executors()
 
@@ -397,7 +415,22 @@ def _prepare_request_plan(request):
             "already satisfied: recorded state already holds every "
             "requested value")
     else:
-        routing = compiled.route_request().copy()
+        route_context = {}
+        originator_name = str(
+            (request.originator or {}).get("name", "")).strip().casefold()
+        operation_ids = tuple(
+            str(operation.get("op", "")) for operation in compiled.operations)
+        if (originator_name in {"ren revise", "ren touch"}
+                and len(operation_ids) == 1
+                and operation_ids[0] in {
+                    "audio.gain", "audio.fade", "transition"}):
+            route_context = {
+                "qualification_policy": "protected_experimental",
+                "protected_staging": True,
+                "preserve_approved_state": True,
+                "verify_after_write": True,
+            }
+        routing = route_request(compiled, context=route_context)
         backend = routing["backend"]
         backend_reason = "; ".join(routing.get("reasons", ()))
     plan = {

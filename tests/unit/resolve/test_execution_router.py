@@ -139,6 +139,79 @@ def test_protected_experimental_route_requires_all_guarantees():
                for reason in decision.reasons)
 
 
+@pytest.mark.parametrize("operation", [
+    {"op": "audio.gain", "unique_id": "audio-1", "db": -3.0},
+    {"op": "audio.fade", "unique_id": "audio-1",
+     "fade_in": 0.2, "fade_out": 0.3},
+])
+def test_audio_touchup_route_is_protected_and_staged(operation):
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit([operation])
+
+    decision = route_compiled_edit([operation], context={
+        "qualification_policy": "protected_experimental",
+        "protected_staging": True,
+        "preserve_approved_state": True,
+        "verify_after_write": True,
+    })
+
+    assert decision.backend == "reel_touchup"
+    assert decision.mode == "staged"
+    assert decision.qualification_gaps == ((operation["op"], (), ()),)
+    assert decision.as_dict()["selection"]["qualification_policy"] == (
+        "protected_experimental")
+
+
+def test_audio_compiled_request_keeps_router_policy_explicit():
+    from library.tools.edit_request import CompiledEdit
+
+    compiled = CompiledEdit(
+        request_id="audio-request", order=(0,),
+        operations=({"op": "audio.fade", "unique_id": "audio-1",
+                    "fade_in": 0.2, "fade_out": 0.3},),
+        affected_spans=((10, 20),), conflict_domains=("audio_mix",),
+        kinds=("audio.fade",),
+    )
+    operations, context = compiled.to_router_input()
+
+    assert context == {}
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit(operations, context=context)
+    unrelated = CompiledEdit(
+        request_id="property-request", order=(0,),
+        operations=({"op": "clip.delete", "unique_id": "clip-1"},),
+        affected_spans=((10, 20),), conflict_domains=("structure",),
+        kinds=("clip.delete",),
+    )
+    _, unrelated_context = unrelated.to_router_input()
+    assert unrelated_context == {}
+
+
+def test_transition_adapter_uses_protected_route_when_registered():
+    status = edit_algebra.status("transition")
+    row = status.for_backend("reel_touchup") if status else None
+    if (row is None or not row.compilable
+            or edit_algebra.safety_class("transition")
+            == edit_algebra.SAFETY_READ_ONLY):
+        pytest.skip("exact-cut touch-up adapter is not on this base yet")
+
+    decision = route_compiled_edit([{
+        "op": "transition", "carrier": {"outgoing_unique_id": "a",
+                                           "incoming_unique_id": "b",
+                                           "cut_frame": 120},
+        "transition": {"type": "Cross Dissolve", "duration_frames": 12},
+    }], context={
+        "qualification_policy": "protected_experimental",
+        "protected_staging": True,
+        "preserve_approved_state": True,
+        "verify_after_write": True,
+    })
+
+    assert decision.backend == "reel_touchup"
+    assert decision.mode == "staged"
+    assert decision.qualification_gaps == (("transition", (), ()),)
+
+
 def test_strict_policy_refuses_unqualified_route():
     entry = edit_algebra.status("clip.delete")
     if entry is None or entry.production_enabled:

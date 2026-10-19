@@ -2,6 +2,8 @@
 
 Reviewed 2026-10-19 from `docs/resolve_capability_candidates.json` (79 distinct detected candidates) and `docs/resolve_capability_sources.json` (one source repository, pinned at `cabcb950413c63b95ff590cbdfe1949024e1a34a`). The source is `samuelgursky/davinci-resolve-mcp`; its GitHub metadata reports MIT, unarchived, with its head pushed on 2026-10-19. License and maintenance describe the repository only; they do not qualify its operations.
 
+Read-only source recheck on 2026-10-19 found one third-party source fingerprint change (`010c09b2a659399aacdc705fd8a80e8f461b61ea6900036c37108192e7956956` to `dc6327854387e8f058c925dcc8b79233b7c3eca45765993dff47f389292cf386`), zero new candidates, and zero unmatched registry candidates. The capability set remains covered by the 79 evaluations below; no new adapter or runtime dependency is warranted. The source fingerprint baseline was refreshed with `python3 -m library.tools.resolve_capability_sync record`; this records discovery only and does not alter operation qualification or production routing.
+
 | # | Candidate | Evaluation | Decision |
 |---:|---|---|---|
 | 1 | 20.0:MediaPoolItem.LinkFullResolutionMedia(fullResMediaPath) | Resolve 21.1 documented method/release-note delta; no independent third-party implementation needed. | Native API duplicate; covered by installed 21.1 method inventory, not a third-party adapter. |
