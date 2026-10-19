@@ -94,6 +94,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #
 STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
+        "library/tools/transaction_receipt.py",
         # The legacy step adapter resolves to the capability implementation.
         "library/capabilities/objects/segment.py",
         # The temporal-index step is part of the cached dependency closure.
@@ -584,6 +585,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
+        "library/tools/transaction_receipt.py",
         # The step adapter delegates the measured scan to its capability-owned implementation.
         "library/capabilities/footage/scan.py",
         # The scan's dependency closure now includes the shared retrieval encoder.
@@ -1091,6 +1093,10 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_02_catalog_footage": (
+        # EditPatch receipts are part of the shared code identity closure;
+        # changing their schema must invalidate any cached consumer that
+        # imports the transaction coordinator.
+        "library/tools/transaction_receipt.py",
         # The legacy step adapter delegates the catalog measurement here.
         "library/capabilities/footage/catalog.py",
         # The catalog's retrieval text encoder is shared with footage search;
@@ -1621,6 +1627,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_03_semantic_analysis": (
+        "library/tools/transaction_receipt.py",
         # The legacy step delegates analysis here; code changes alter cached profiles.
         "library/capabilities/semantics/analyse.py",
         # Its dependency closure includes the shared retrieval encoder.
@@ -2149,6 +2156,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_04_temporal_index": (
+        "library/tools/transaction_receipt.py",
         # The legacy step delegates indexing here; code changes alter
         # cached indexes. The shared FFmpeg graph that supplies the
         # per-clip visual measurements moved with it.

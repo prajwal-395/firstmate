@@ -505,7 +505,12 @@ def test_case1_an_in_clip_trim_composes_and_every_step_is_receipted(tmp_path):
         write_context=_write_context(tmp_path, timeline))
 
     assert receipt.deleted["asked"] == len(changes)
-    assert receipt.verified == {"landed": len(changes), "asked": len(changes)}
+    assert receipt.verified == {"landed": len(changes), "asked": len(changes),
+                               "status": "verified"}
+    assert receipt.planned["status"] == "planned"
+    assert receipt.applied["status"] == "applied"
+    assert receipt.committed["status"] == "awaiting_promotion"
+    assert receipt.delivered["status"] == "not_delivered"
     # V1[0], V3[0] and A1[0] play a different number of frames.
     assert receipt.rederivation_required["trimmed"] == 3
     # Only V1[0] carries a builder-written comp: the audio item and the

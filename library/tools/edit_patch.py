@@ -82,6 +82,7 @@ import time
 from dataclasses import asdict, dataclass
 
 from library.tools import edit_algebra, edit_backend, protocol_conformance, resolve_lock
+from library.tools import transaction_receipt
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
     FLOAT_TOLERANCE,
@@ -139,6 +140,8 @@ class StalePatch(PatchRefused):
         self.head = head
         self.observed = observed
         self.rebase_possible = rebase_possible
+        self.recovery = transaction_receipt.recovery(
+            "stale_generation", reason=reason)
         super().__init__(
             what=(f"patch {patch.id!r} was planned on generation "
                   f"{patch.base_generation} of {patch.timeline!r}, and the "
@@ -423,6 +426,17 @@ def validate(patch: EditPatch, base: dict) -> None:
                     "operations touch")
         return
     _validate_python(patch, base, declared)
+
+
+def prepare_patch(patch, base: dict) -> EditPatch:
+    """Compile and validate a patch against its immutable base snapshot.
+
+    This is the offline preparation boundary. It performs no Resolve calls
+    and is safe to inspect or retry before physical execution.
+    """
+    patch = EditPatch.from_dict(patch)
+    validate(patch, base)
+    return patch
 
 
 def _validate_python(patch: EditPatch, base: dict, declared) -> None:
@@ -779,7 +793,7 @@ def apply_patch(patch, *, resolve, project, timeline,
                          reason=reason or "it composes with every "
                                            "generation since")
     base = store.snapshot(head)
-    validate(patch, base)
+    patch = prepare_patch(patch, base)
 
     started = time.monotonic()
     with resolve_lock.cursor_fence(project, timeline,
@@ -801,91 +815,10 @@ def apply_patch(patch, *, resolve, project, timeline,
             _refuse(patch, "preconditions do not hold: " + "; ".join(failures),
                     "a patch states what it assumes of its base",
                     "re-plan against the live timeline")
-        handles = (_live_handles(timeline)
-                   if any(OPERATIONS[op["op"]].item
-                          for op in patch.operations) else {})
-        # Whether any op AFTER position i needs item handles. A
-        # `timeline_structure` write re-reads the rows below, and for a
-        # pure-placement patch (dozens of `clip.insert`, no addressing
-        # op) every one of those re-reads is waste: each walks the whole
-        # timeline and the patch pays O(n^2) Resolve calls. Measured on
-        # a one-reel build (2026-10-17): per-insert patches re-read per
-        # insert, and even one batched patch re-walked per insert.
-        later_needs_handles = [False] * (len(patch.operations) + 1)
-        for _rev in range(len(patch.operations) - 1, -1, -1):
-            later_needs_handles[_rev] = (
-                later_needs_handles[_rev + 1]
-                or OPERATIONS[patch.operations[_rev]["op"]].item)
-        id_map: dict = {}
-        handles_dirty = False
-        newest_insert = None
-        ran = []
-        stopped = None
-        for index, op in enumerate(patch.operations):
-            spec = OPERATIONS[op["op"]]
-            try:
-                if spec.item:
-                    resolved = id_map.get(op["unique_id"], op["unique_id"])
-                    if handles_dirty and resolved != newest_insert:
-                        # An append may invalidate earlier item handles.
-                        # Refresh only when a later op actually needs one.
-                        handles = _live_handles(timeline)
-                        handles_dirty = False
-                    item = handles.get(resolved)
-                else:
-                    item = None
-                if spec.item and item is None:
-                    raise RuntimeError(
-                        f"clip {op['unique_id']!r} is not uniquely present")
-                if op["op"] in ("clip.set_property", "picture.keyframe"):
-                    current = _clip(live, resolved)
-                    prop = op["key"] if op["op"] == "clip.set_property" \
-                        else op["param"]
-                    old_value = ((current.get("transform") or {}).get(
-                        prop) if current is not None else None)
-                    from library.tools.transform_write_log import write_scope
-
-                    with write_scope(
-                            project=project_name,
-                            timeline_name=timeline_name,
-                            timeline_id=timeline_id,
-                            project_folder=project_folder,
-                            old_value=old_value):
-                        returned = spec.apply(op, timeline, item, project)
-                elif op["op"] == "clip.smart_reframe":
-                    from library.tools.transform_write_log import (
-                        validate_transform_write_context,
-                        write_scope,
-                    )
-
-                    context = validate_transform_write_context(
-                        item_identity={"resolve_unique_id":
-                                       str(resolved)},
-                        project=project_name, timeline_name=timeline_name,
-                        timeline_id=timeline_id,
-                        project_folder=project_folder)
-                    with write_scope(**context):
-                        returned = spec.apply(op, timeline, item, project)
-                else:
-                    returned = spec.apply(op, timeline, item, project)
-            except Exception as raised:  # noqa: BLE001 - recorded, then stop
-                stopped = {"index": index, "op": op["op"],
-                           "raised": f"{type(raised).__name__}: {raised}"}
-                break
-            ran.append({"index": index, "op": op["op"],
-                        "returned": bool(returned)})
-            if op["op"] == "clip.insert":
-                id_map[op["client_unique_id"]] = op["unique_id"]
-                # Append returns the newly assigned handle. Re-listing
-                # every row after every insert made a batch quadratic.
-                handles[op["unique_id"]] = returned
-                newest_insert = op["unique_id"]
-                handles_dirty = True
-            elif (spec.domain == "timeline_structure"
-                  and later_needs_handles[index + 1]):
-                handles = _live_handles(timeline)
-                handles_dirty = False
-        after = shadow.read_live(project, timeline)
+        ran, stopped, id_map, after = execute_physical_patch(
+            patch, live=live, timeline=timeline, project=project,
+            project_name=project_name, timeline_id=timeline_id,
+            timeline_name=timeline_name, project_folder=project_folder)
     from library.tools import transform_write_log
 
     # SmartReframe is Resolve's equivalent transform setter. Its result
@@ -914,43 +847,163 @@ def apply_patch(patch, *, resolve, project, timeline,
                 write_kind="SmartReframe")
     hold_seconds = time.monotonic() - started
 
+    receipt = verify_execution(
+        patch, base=base, head_generation=head.generation, ran=ran,
+        id_map=id_map, after=after, stopped=stopped,
+        hold_seconds=hold_seconds)
+    return commit_execution(
+        patch, receipt=receipt, snapshot=after, store=store,
+        project_name=project_name, timeline_id=timeline_id,
+        timeline_name=timeline_name, recorded_operations=recorded_operations,
+        project_folder=project_folder, model_revision=model_revision)
+
+
+def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
+                           project, project_name: str, timeline_id: str,
+                           timeline_name: str,
+                           project_folder: str | None) -> tuple:
+    """Apply the prepared operations once and return their read-back.
+
+    The caller holds the Resolve cursor fence and has already checked the
+    generation and preconditions. The operation list is one physical batch.
+    """
+    handles = (_live_handles(timeline)
+               if any(OPERATIONS[op["op"]].item
+                      for op in patch.operations) else {})
+    # Whether any op AFTER position i needs item handles. A
+    # `timeline_structure` write re-reads the rows below, and for a
+    # pure-placement patch (dozens of `clip.insert`, no addressing
+    # op) every one of those re-reads is waste: each walks the whole
+    # timeline and the patch pays O(n^2) Resolve calls. Measured on
+    # a one-reel build (2026-10-17): per-insert patches re-read per
+    # insert, and even one batched patch re-walked per insert.
+    later_needs_handles = [False] * (len(patch.operations) + 1)
+    for _rev in range(len(patch.operations) - 1, -1, -1):
+        later_needs_handles[_rev] = (
+            later_needs_handles[_rev + 1]
+            or OPERATIONS[patch.operations[_rev]["op"]].item)
+    id_map: dict = {}
+    handles_dirty = False
+    newest_insert = None
+    ran = []
+    stopped = None
+    for index, op in enumerate(patch.operations):
+        spec = OPERATIONS[op["op"]]
+        try:
+            if spec.item:
+                resolved = id_map.get(op["unique_id"], op["unique_id"])
+                if handles_dirty and resolved != newest_insert:
+                    # An append may invalidate earlier item handles.
+                    # Refresh only when a later op actually needs one.
+                    handles = _live_handles(timeline)
+                    handles_dirty = False
+                item = handles.get(resolved)
+            else:
+                item = None
+            if spec.item and item is None:
+                raise RuntimeError(
+                    f"clip {op['unique_id']!r} is not uniquely present")
+            if op["op"] in ("clip.set_property", "picture.keyframe"):
+                current = _clip(live, resolved)
+                prop = op["key"] if op["op"] == "clip.set_property" \
+                    else op["param"]
+                old_value = ((current.get("transform") or {}).get(
+                    prop) if current is not None else None)
+                from library.tools.transform_write_log import write_scope
+
+                with write_scope(
+                        project=project_name,
+                        timeline_name=timeline_name,
+                        timeline_id=timeline_id,
+                        project_folder=project_folder,
+                        old_value=old_value):
+                    returned = spec.apply(op, timeline, item, project)
+            elif op["op"] == "clip.smart_reframe":
+                from library.tools.transform_write_log import (
+                    validate_transform_write_context,
+                    write_scope,
+                )
+
+                context = validate_transform_write_context(
+                    item_identity={"resolve_unique_id":
+                                   str(resolved)},
+                    project=project_name, timeline_name=timeline_name,
+                    timeline_id=timeline_id,
+                    project_folder=project_folder)
+                with write_scope(**context):
+                    returned = spec.apply(op, timeline, item, project)
+            else:
+                returned = spec.apply(op, timeline, item, project)
+        except Exception as raised:  # noqa: BLE001 - recorded, then stop
+            stopped = {"index": index, "op": op["op"],
+                       "raised": f"{type(raised).__name__}: {raised}"}
+            break
+        ran.append({"index": index, "op": op["op"],
+                    "returned": bool(returned)})
+        if op["op"] == "clip.insert":
+            id_map[op["client_unique_id"]] = op["unique_id"]
+            # Append returns the newly assigned handle. Re-listing
+            # every row after every insert made a batch quadratic.
+            handles[op["unique_id"]] = returned
+            newest_insert = op["unique_id"]
+            handles_dirty = True
+        elif (spec.domain == "timeline_structure"
+              and later_needs_handles[index + 1]):
+            handles = _live_handles(timeline)
+            handles_dirty = False
+    after = shadow.read_live(project, timeline)
+    return ran, stopped, id_map, after
+
+
+def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
+                     ran: list, id_map: dict, after: dict,
+                     stopped: dict | None, hold_seconds: float) -> dict:
+    """Judge physical execution only from the observed read-back."""
     verify_ops = []
     verify_rows = []
-    for r in ran:
-        op = patch.operations[r["index"]]
+    for row in ran:
+        op = patch.operations[row["index"]]
         verify_op = op
-        if r["op"] != "clip.insert" and op.get("unique_id") in id_map:
+        if row["op"] != "clip.insert" and op.get("unique_id") in id_map:
             verify_op = {**op, "unique_id": id_map[op["unique_id"]]}
-        verify_rows.append((r, verify_op))
+        verify_rows.append((row, verify_op))
         verify_ops.append(verify_op)
     failures = edit_algebra.verifies(verify_ops, after)
-    judged = [{"index": r["index"], "op": r["op"],
-               "returned": r["returned"], "failure": failure}
-              for (r, _), failure in zip(verify_rows, failures)]
+    judged = [{"index": row["index"], "op": row["op"],
+               "returned": row["returned"], "failure": failure}
+              for (row, _), failure in zip(verify_rows, failures)]
     post_failures = _judge(patch.postconditions, after, base)
     ok = (stopped is None and not post_failures
-          and not any(j["failure"] for j in judged))
-    receipt = {
+          and not any(row["failure"] for row in judged))
+    return {
         "patch_id": patch.id,
         "status": "committed" if ok else "verification_failed",
-        "base_generation": head.generation,
+        "base_generation": head_generation,
         "operations": judged,
         "stopped": stopped,
         "postcondition_failures": post_failures,
         "exclusive_hold_seconds": round(hold_seconds, 4),
     }
+
+
+def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
+                     store: shadow.ShadowStore, project_name: str,
+                     timeline_id: str, timeline_name: str,
+                     recorded_operations: tuple,
+                     project_folder: str | None,
+                     model_revision: int | None) -> dict:
+    """Persist the verified observation and publish its transaction receipt."""
     generation = store.record(
         project=project_name, timeline_id=timeline_id,
-        timeline_name=timeline_name, snapshot=after, source=shadow.PATCH,
-        expected_head=head.generation,
+        timeline_name=timeline_name, snapshot=snapshot, source=shadow.PATCH,
+        expected_head=receipt["base_generation"],
         patch={**patch.to_dict(), "operations": recorded_operations},
         receipt=receipt)
     if model_revision is not None:
         from library.tools import project_model_editorial
         project_model_editorial.commit_edit_readback(
             project_folder, patch=patch,
-            readback=store.snapshot(generation),
-            execution=receipt,
+            readback=store.snapshot(generation), execution=receipt,
             generation=generation.generation,
             expected_revision=model_revision)
     _emit_patch_event(project_folder, receipt, generation.generation)
@@ -983,6 +1036,7 @@ def _emit_patch_event(project_folder: str | None, receipt: dict,
 
 
 def _receipt_of(generation: shadow.Generation) -> dict:
-    return {**generation.receipt, "generation": generation.generation,
-            "fingerprint": generation.hash,
-            "readback": generation.summary()}
+    return transaction_receipt.standardize({
+        **generation.receipt, "generation": generation.generation,
+        "fingerprint": generation.hash,
+        "readback": generation.summary()})

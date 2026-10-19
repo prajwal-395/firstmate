@@ -157,6 +157,11 @@ def test_a_patch_commits_and_becomes_the_next_generation(world):
         postconditions=[{"kind": "duration_unchanged"}])
     receipt = _apply(patch, project, timeline, store)
     assert receipt["status"] == "committed", receipt
+    assert receipt["planned"]["status"] == "planned"
+    assert receipt["applied"]["status"] == "applied"
+    assert receipt["verified"]["status"] == "verified"
+    assert receipt["committed"]["status"] == "committed"
+    assert receipt["delivered"]["status"] == "not_requested"
     assert receipt["generation"] == base.generation + 1
     head = store.head("Podcast", base.timeline_id)
     assert head.source == shadow.PATCH and head.patch["id"] == "p1"
@@ -182,6 +187,19 @@ def test_reusing_a_patch_id_with_different_contents_refuses(world):
                        match="already committed with different contents"):
         _apply(changed, project, timeline, store)
     assert 12 in timeline.markers and 13 not in timeline.markers
+
+
+def test_duplicate_transaction_returns_prior_receipt_without_second_write(world):
+    project, timeline, _item, store, base = world
+    patch = _patch("duplicate-transaction", base.generation, [
+        {"op": "marker.add", "frame": 12, "color": "Blue", "name": "beat"}],
+        ["markers"], [[12, 13]])
+    first = _apply(patch, project, timeline, store)
+    second = _apply(patch, project, timeline, store)
+    assert second == first
+    assert len(timeline.markers) == 1
+    assert store.head("Podcast", base.timeline_id).generation == \
+        first["generation"]
 
 
 def test_live_patch_retry_is_idempotent_and_changed_reuse_refuses(world):
@@ -595,6 +613,11 @@ def test_a_hand_edit_since_the_base_refuses_and_is_recorded(world):
             {"op": "marker.add", "frame": 5, "color": "Blue", "name": "x"}],
             ["markers"], [[0, 10]]), project, timeline, store)
     assert stale.value.observed and not stale.value.rebase_possible
+    assert stale.value.recovery == {
+        "type": "stale_generation",
+        "action": "rebase_if_provably_safe_else_replan",
+        "reason": stale.value.why,
+    }
     head = store.head("Podcast", base.timeline_id)
     assert head.source == shadow.OBSERVED
     assert 5 not in timeline.markers
@@ -905,6 +928,9 @@ def test_track_reorder_refuses_a_row_that_carries_clips(world):
         ["timeline_structure"], [[0, 48]]), project, timeline, store)
     assert receipt["status"] == "verification_failed"
     assert receipt["stopped"]["op"] == "track.reorder"
+    assert receipt["recovery"]["type"] == "api_uncertain"
+    assert receipt["recovery"]["action"] == \
+        "inspect_observed_state_before_retry"
     assert timeline.GetTrackCount("video") == 1
     assert timeline.GetItemListInTrack("video", 1) == [item]
 

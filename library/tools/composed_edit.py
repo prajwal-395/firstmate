@@ -1436,6 +1436,11 @@ class ReelLookRederiver(CompRederiver):
 class ComposedEditReceipt:
     """What each step did. Written so a composed edit can be read back."""
 
+    planned: dict = field(default_factory=lambda: {"status": "not_planned"})
+    applied: dict = field(default_factory=lambda: {"status": "not_applied"})
+    verified: dict = field(default_factory=lambda: {"status": "not_verified"})
+    committed: dict = field(default_factory=lambda: {"status": "not_committed"})
+    delivered: dict = field(default_factory=lambda: {"status": "not_delivered"})
     staged: dict = field(default_factory=dict)
     plan: list = field(default_factory=list)
     rederivation_required: dict = field(default_factory=dict)
@@ -1485,6 +1490,8 @@ def apply_composed_edit(*, timeline, media_pool,
          "record_frame": c.record_frame, "duration": c.duration,
          "played_length_changes": c.played_length_changes,
          "comp_count": c.comp_count} for c in changes]
+    receipt.planned = {"status": "planned", "changes": len(changes),
+                       "insertions": len(insertions)}
 
     # BEFORE anything is captured, and long before anything is deleted.
     tracks_before = reel_read.read_tracks(timeline)
@@ -1520,10 +1527,13 @@ def apply_composed_edit(*, timeline, media_pool,
     ordered = placement_order(captures, insertions)
     receipt.placed = place_all(media_pool, ordered,
                                still_placer=still_placer)
+    receipt.applied = {"status": "applied", "deleted": len(victims),
+                       "placed": len(ordered)}
 
     rows_after = _rows_of(timeline)
     landed = verify_placement(rows_after, ordered)
     receipt.verified = {"landed": len(landed), "asked": len(ordered)}
+    receipt.verified = {**receipt.verified, "status": "verified"}
 
     for capture in captures:
         change = capture.change
@@ -1550,6 +1560,11 @@ def apply_composed_edit(*, timeline, media_pool,
         receipt.rederived["verified"] = assert_rederived(
             _rows_of(timeline), changes, pass_receipt, insertions,
             rederiver)
+
+    # This strategy edits a staged timeline. Promotion and delivery are
+    # owned by the caller, so its receipt must not claim either outcome.
+    receipt.committed = {"status": "awaiting_promotion"}
+    receipt.delivered = {"status": "not_delivered"}
 
     receipt.seconds = round(time.time() - started, 3)
     return receipt
