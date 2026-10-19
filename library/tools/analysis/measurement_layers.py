@@ -72,6 +72,7 @@ import hashlib
 import json
 import os
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Iterable
 from pathlib import Path
@@ -413,13 +414,14 @@ class LayerCache:
     """
 
     def __init__(self, source_digest: str, methods: dict, params: dict,
-                 force: bool = False, root=None):
+                 force: bool = False, root=None, source_file=None):
         self.source_digest = source_digest
         self.methods = dict(methods)
         self.keys = {layer: layer_key(layer, source_digest, self.methods[layer],
                                       params.get(layer, {}))
                      for layer in self.methods}
         self.force = force
+        self.source_file = Path(source_file) if source_file else None
         self.dir = (Path(root) if root is not None else store_root()
                     ) / source_digest / MEASUREMENTS_DIRNAME
         # {layer: "reused" | "measured"} - what this compose did.
@@ -428,6 +430,7 @@ class LayerCache:
         # "windows" entry. Keep their outcomes so a partially warm clip
         # reports that it measured only the windows whose keys missed.
         self.window_outcomes: dict[str, str] = {}
+        self._pending_since: dict[str, float] = {}
 
     @classmethod
     def for_source(cls, source_file, methods: dict, params: dict,
@@ -442,7 +445,46 @@ class LayerCache:
             digest = footage_identity.fingerprint(str(source_file))
         except OSError:
             return None
-        return cls(digest["content_digest"], methods, params, force, root)
+        return cls(digest["content_digest"], methods, params, force, root,
+                   source_file=source_file)
+
+    @staticmethod
+    def _cache_kind(layer: str) -> str:
+        return {"windows": "semantic_measurement",
+                "objects": "semantic_measurement",
+                "picture": "video_feature_tensor",
+                "window": "semantic_measurement"}[layer]
+
+    def _record_cache_use(self, path: Path, layer: str, outcome: str,
+                          *, elapsed: float = 0.0,
+                          compatible: bool = True) -> None:
+        from library.tools.cache_lifecycle import (
+            cache_artifact_id_from_environment,
+            record_cache_metric,
+            register_cache_artifact_from_environment,
+        )
+
+        source_available = False
+        if self.source_file and self.source_file.is_file():
+            try:
+                source_available = (footage_identity.fingerprint(
+                    str(self.source_file))["content_digest"] == self.source_digest)
+            except OSError:
+                source_available = False
+        kind = self._cache_kind(layer)
+        artifact_id = ""
+        if path.is_file():
+            register_cache_artifact_from_environment(
+                path, kind=kind,
+                producer_key=f"{self.source_digest}:{layer}:{path.name}",
+                regeneration_method=f"semantic-measurement layer: {layer}",
+                source_available=source_available, compatible=compatible)
+            artifact_id = cache_artifact_id_from_environment(path, kind)
+        record_cache_metric(
+            task=f"measurement-layer:{layer}", kind=kind, outcome=outcome,
+            elapsed_seconds=elapsed, bytes_used=(path.stat().st_size
+                                                   if path.is_file() else 0),
+            compatible=compatible, artifact_id=artifact_id)
 
     def _path(self, layer: str) -> Path:
         return self.dir / layer / f"{self.keys[layer]}.json"
@@ -465,22 +507,39 @@ class LayerCache:
 
     def get_window(self, start: float, end: float, params: dict):
         """Read one window result, or return None on a miss or force run."""
-        if self.force or "windows" not in self.methods:
+        if "windows" not in self.methods:
             return None
         key = self.window_key(start, end, params)
+        if self.force:
+            self._pending_since[f"window:{key}"] = time.perf_counter()
+            return None
+        path = self._window_path(key)
+        from library.tools.cache_lifecycle import cache_file_lease
+        from library.tools.resource_leases import ResourceLeaseBusy
         try:
-            with open(self._window_path(key), encoding="utf-8") as handle:
+            with cache_file_lease(path), open(path, encoding="utf-8") as handle:
                 entry = json.load(handle)
-        except (OSError, ValueError):
+        except (OSError, ValueError, ResourceLeaseBusy):
+            self._pending_since[f"window:{key}"] = time.perf_counter()
+            if path.is_file():
+                self._record_cache_use(path, "window", "miss",
+                                       compatible=False)
+            else:
+                self._record_cache_use(path, "window", "miss")
             return None
         if entry.get("key") != key or "value" not in entry:
+            self._pending_since[f"window:{key}"] = time.perf_counter()
+            self._record_cache_use(path, "window", "miss", compatible=False)
             return None
         value = entry["value"]
         # An unparsed response is an absent measurement, not reusable
         # evidence. This also rejects entries written by older versions.
         if isinstance(value, dict) and value.get("parse_error"):
+            self._pending_since[f"window:{key}"] = time.perf_counter()
+            self._record_cache_use(path, "window", "miss", compatible=False)
             return None
         self.window_outcomes[key] = "reused"
+        self._record_cache_use(path, "window", "hit")
         return value
 
     def put_window(self, start: float, end: float, params: dict,
@@ -494,12 +553,21 @@ class LayerCache:
         path = self._window_path(key)
         tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
         try:
+            from library.tools.cache_lifecycle import cache_file_lease
+            from library.tools.resource_leases import ResourceLeaseBusy
             path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump({"key": key, "value": value}, handle)
-            os.replace(tmp, path)
+            with cache_file_lease(path, exclusive=True):
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"key": key, "value": value}, handle)
+                os.replace(tmp, path)
             self.window_outcomes[key] = "measured"
-        except (OSError, TypeError, ValueError):
+            pending_key = f"window:{key}"
+            elapsed = max(0.0, time.perf_counter()
+                          - self._pending_since.pop(pending_key,
+                                                    time.perf_counter()))
+            self._record_cache_use(path, "window", "regenerated",
+                                   elapsed=elapsed)
+        except (OSError, TypeError, ValueError, ResourceLeaseBusy):
             try:
                 os.remove(tmp)
             except OSError:
@@ -507,16 +575,28 @@ class LayerCache:
 
     def get(self, layer: str):
         """The stored measurement, or None (miss, forced, or unreadable)."""
-        if self.force or layer not in self.keys:
+        if layer not in self.keys:
             return None
+        path = self._path(layer)
+        if self.force:
+            self._pending_since[layer] = time.perf_counter()
+            return None
+        from library.tools.cache_lifecycle import cache_file_lease
+        from library.tools.resource_leases import ResourceLeaseBusy
         try:
-            with open(self._path(layer), encoding="utf-8") as handle:
+            with cache_file_lease(path), open(path, encoding="utf-8") as handle:
                 entry = json.load(handle)
-        except (OSError, ValueError):
+        except (OSError, ValueError, ResourceLeaseBusy):
+            self._pending_since[layer] = time.perf_counter()
+            self._record_cache_use(path, layer, "miss",
+                                   compatible=not path.is_file())
             return None
         if entry.get("key") != self.keys[layer]:
+            self._pending_since[layer] = time.perf_counter()
+            self._record_cache_use(path, layer, "miss", compatible=False)
             return None
         self.outcomes[layer] = "reused"
+        self._record_cache_use(path, layer, "hit")
         return entry["value"]
 
     def put(self, layer: str, value) -> None:
@@ -529,11 +609,17 @@ class LayerCache:
         path = self._path(layer)
         tmp = path.parent / f".{path.name}.{os.getpid()}.tmp"
         try:
+            from library.tools.cache_lifecycle import cache_file_lease
+            from library.tools.resource_leases import ResourceLeaseBusy
             path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as handle:
-                json.dump({"key": self.keys[layer], "value": value}, handle)
-            os.replace(tmp, path)
-        except (OSError, TypeError, ValueError):
+            with cache_file_lease(path, exclusive=True):
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    json.dump({"key": self.keys[layer], "value": value}, handle)
+                os.replace(tmp, path)
+            elapsed = max(0.0, time.perf_counter()
+                          - self._pending_since.pop(layer, time.perf_counter()))
+            self._record_cache_use(path, layer, "regenerated", elapsed=elapsed)
+        except (OSError, TypeError, ValueError, ResourceLeaseBusy):
             try:
                 os.remove(tmp)
             except OSError:

@@ -277,15 +277,94 @@ def _load_json(path: Path):
         with cache_file_lease(path), open(path, encoding="utf-8") as handle:
             document = json.load(handle)
         if is_source_slot:
+            artifact_id = _register_source_memory_cache(path, document)
+            from library.tools.cache_lifecycle import cache_artifact_id_from_environment
+            artifact_id = cache_artifact_id_from_environment(
+                path, _source_memory_cache_kind(path)) or artifact_id
             record_cache_metric(task="source-memory",
-                                kind="semantic_measurement", outcome="hit",
-                                bytes_used=path.stat().st_size)
+                                kind=_source_memory_cache_kind(path), outcome="hit",
+                                bytes_used=path.stat().st_size,
+                                artifact_id=artifact_id)
         return document
     except (OSError, ValueError):
         if is_source_slot:
+            from library.tools.cache_lifecycle import cache_artifact_id_from_environment
+            artifact_id = cache_artifact_id_from_environment(
+                path, _source_memory_cache_kind(path))
             record_cache_metric(task="source-memory",
-                                kind="semantic_measurement", outcome="miss")
+                                kind=_source_memory_cache_kind(path), outcome="miss",
+                                compatible=False, artifact_id=artifact_id)
         return None
+
+
+def _source_memory_cache_kind(path: Path) -> str:
+    return ("transcription_alignment" if path.name == SLOT_TRANSCRIPT
+            else "semantic_measurement")
+
+
+def _register_source_memory_cache(path: Path, document: dict) -> str:
+    """Register a measured source slot when its pipeline run is identifiable."""
+    if not isinstance(document, dict):
+        return ""
+    digest = path.parent.name
+    envelope = document.get("evidence_envelope")
+    if not isinstance(envelope, dict):
+        return ""
+    try:
+        validate_evidence_envelope(envelope)
+    except ValueError:
+        return ""
+    documented_digest = (document.get("content_digest")
+                         or (envelope.get("content_digest")
+                             if isinstance(envelope, dict) else None))
+    if documented_digest != digest:
+        return ""
+    from library.tools import event_log
+    from library.tools.cache_lifecycle import (
+        cache_artifact_id_from_environment,
+        register_cache_artifact_from_environment,
+    )
+
+    log_path = os.environ.get(event_log.EVENT_LOG_ENV)
+    if not log_path:
+        return ""
+    project_folder = str(Path(log_path).resolve().parents[2])
+    source_candidates = [document.get("source_file")]
+    state = _load_json(Path(project_folder) / "pipeline_data.json") or {}
+    fingerprints = state.get("source_fingerprints") or {}
+    source_candidates.extend(
+        source.get("path") for source in fingerprints.values()
+        if source.get("content_digest") == digest)
+    source_available = False
+    for source_path in source_candidates:
+        if not source_path:
+            continue
+        try:
+            source_available = (
+                footage_identity.fingerprint(source_path)["content_digest"] == digest)
+        except OSError:
+            continue
+        if source_available:
+            break
+    kind = _source_memory_cache_kind(path)
+    register_cache_artifact_from_environment(
+        path, kind=kind, producer_key=path.resolve().as_posix(),
+        regeneration_method=f"source-memory producer: {path.name}",
+        source_available=source_available, compatible=True)
+    return cache_artifact_id_from_environment(path, kind)
+
+
+def _record_source_memory_regeneration(path: Path, elapsed_seconds: float) -> None:
+    from library.tools.cache_lifecycle import (
+        cache_artifact_id_from_environment,
+        record_cache_metric,
+    )
+
+    kind = _source_memory_cache_kind(path)
+    record_cache_metric(
+        task="source-memory", kind=kind, outcome="regenerated",
+        elapsed_seconds=elapsed_seconds, bytes_used=path.stat().st_size,
+        artifact_id=cache_artifact_id_from_environment(path, kind))
 
 
 def load_catalog(project_folder: str) -> list:
@@ -812,6 +891,29 @@ def write_json(path: Path, payload: dict) -> None:
             except OSError:
                 pass
             raise
+    digest = path.parent.name
+    if (len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)):
+        source_file = payload.get("source_file")
+        source_available = False
+        if source_file:
+            try:
+                source_available = (
+                    footage_identity.fingerprint(source_file)["content_digest"]
+                    == digest)
+            except OSError:
+                source_available = False
+        kind = _source_memory_cache_kind(path)
+        from library.tools.cache_lifecycle import register_cache_artifact_from_environment
+        root = memory_root()
+        try:
+            producer_key = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            producer_key = path.resolve().as_posix()
+        register_cache_artifact_from_environment(
+            path, kind=kind, producer_key=producer_key,
+            regeneration_method=f"source-memory producer: {path.name}",
+            source_available=source_available,
+            compatible=payload.get("content_digest", digest) == digest)
 
 
 def _coalesce_coverage_intervals(intervals: list) -> list:
@@ -1592,8 +1694,11 @@ def build_source(source_file: str, declaration: Optional[int] = None,
     selection = primitives["m0"]["program_track"]
 
     def untranscribed(status: str, detail: str) -> dict:
-        write_json(target / SLOT_TRANSCRIPT, build_untranscribed_document(
+        transcript_path = target / SLOT_TRANSCRIPT
+        write_json(transcript_path, build_untranscribed_document(
             digest, source_file, selection, status, detail))
+        _record_source_memory_regeneration(
+            transcript_path, time.perf_counter() - started)
         timings["total"] = round(time.perf_counter() - started, 1)
         return {"source_file": os.path.abspath(source_file),
                 "content_digest": digest, "reused": False,
@@ -1638,7 +1743,10 @@ def build_source(source_file: str, declaration: Optional[int] = None,
     utterances = utterances_from_aligned(aligned, method)
     m1 = build_transcript_document(utterances, record, digest,
                                    source_file, selection)
-    write_json(target / SLOT_TRANSCRIPT, m1)
+    transcript_path = target / SLOT_TRANSCRIPT
+    write_json(transcript_path, m1)
+    _record_source_memory_regeneration(
+        transcript_path, time.perf_counter() - started)
 
     timings["total"] = round(time.perf_counter() - started, 1)
     return {"source_file": os.path.abspath(source_file),
@@ -1933,7 +2041,9 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
                        "hwaccel": "videotoolbox" if hwaccel_used else None},
         "gop_frames": gop_frames,
     }
-    write_json(target / SLOT_FRAMES_INDEX, doc)
+    index_path = target / SLOT_FRAMES_INDEX
+    write_json(index_path, doc)
+    _record_source_memory_regeneration(index_path, time.perf_counter() - started)
 
     # The sampler measures GOP directly from keyframe spacing; M0's own
     # field stays null until a sample has actually been taken (the

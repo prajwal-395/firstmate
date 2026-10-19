@@ -40,6 +40,7 @@ entry serialize on the heavy-work lock with a recheck first (the
 from __future__ import annotations
 
 import importlib.util
+import atexit
 import os
 import sys
 from collections.abc import Callable
@@ -64,6 +65,17 @@ EXTENSION_GLOB = "ren_native*.so"
 was built for (`ren_native.cpython-312-darwin.so`). Only the one
 `loadable_names()` names is ever loaded; the rest are other
 interpreters' files sharing the entry, never candidates."""
+
+_ACTIVE_FINGERPRINT_LEASES = {}
+
+
+def _release_active_fingerprint_leases() -> None:
+    for lease in tuple(_ACTIVE_FINGERPRINT_LEASES.values()):
+        lease.__exit__(None, None, None)
+    _ACTIVE_FINGERPRINT_LEASES.clear()
+
+
+atexit.register(_release_active_fingerprint_leases)
 
 
 def loadable_names() -> set[str]:
@@ -208,25 +220,49 @@ def select(root: str | Path, *, cache: str | Path | None = None,
     if fingerprint is None:
         return None
     entry = entry_dir(fingerprint, cache)
+    from library.tools.cache_lifecycle import cache_file_lease
+    entry_key = str(entry.resolve())
+    held = _ACTIVE_FINGERPRINT_LEASES.get(entry_key)
+    lease = held or cache_file_lease(entry)
+    if held is None:
+        try:
+            lease.__enter__()
+        except Exception:  # noqa: BLE001 - a busy cache is a cache miss
+            return None
     path = extension_file(entry)
     if path is None:
+        if held is None:
+            lease.__exit__(None, None, None)
         from library.tools.cache_lifecycle import record_cache_metric
         record_cache_metric(task="native-cache", kind="native_extension",
                             outcome="miss")
         return None
     if read_recorded(entry) != fingerprint:
+        if held is None:
+            lease.__exit__(None, None, None)
         return None
     loader = load or load_extension
     try:
         module = loader(path)
     except Exception:  # noqa: BLE001 - an unloadable build is no build
+        if held is None:
+            lease.__exit__(None, None, None)
         return None
     baked = getattr(module, "source_fingerprint", lambda: None)()
     if baked != fingerprint:
+        if held is None:
+            lease.__exit__(None, None, None)
         if sys.modules.get("ren_native") is module:
             del sys.modules["ren_native"]
         return None
-    from library.tools.cache_lifecycle import record_cache_metric
+    if held is None:
+        _ACTIVE_FINGERPRINT_LEASES[entry_key] = lease
+    from library.tools.cache_lifecycle import (
+        cache_artifact_id_from_environment,
+        record_cache_metric,
+    )
     record_cache_metric(task="native-cache", kind="native_extension",
-                        outcome="hit", bytes_used=path.stat().st_size)
+                        outcome="hit", bytes_used=path.stat().st_size,
+                        artifact_id=cache_artifact_id_from_environment(
+                            path, "native_extension"))
     return module

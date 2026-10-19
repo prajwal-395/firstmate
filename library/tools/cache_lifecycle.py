@@ -38,6 +38,8 @@ LEASE_RESOURCE_PREFIX = "cache-file:"
 DEFAULT_BUDGET_BYTES = 20 * 1024**3
 DEFAULT_LOW_WATERMARK = 0.80
 DEFAULT_HIGH_WATERMARK = 0.90
+_CACHE_ARTIFACT_IDS: dict[
+    tuple[str, str, str], tuple[str, artifact_lifecycle.FileIdentity]] = {}
 
 
 class CachePolicyRefused(ValueError):
@@ -181,8 +183,89 @@ def register_cache_artifact(project_folder: str, *, project_id: str,
     record_cache_value(
         project_folder, artifact_id=artifact_id,
         source_available=source_available, compatible=compatible,
-        consumer_count=int(cache_file_is_in_use(path)))
+        consumer_count=0)
     return record
+
+
+def register_cache_artifact_from_environment(
+        path: str | os.PathLike, *, kind: str, producer_key: str,
+        regeneration_method: str, source_available: bool,
+        compatible: bool = True) -> artifact_lifecycle.ArtifactRecord | None:
+    """Register a cache entry when a pipeline run supplied its project log.
+
+    A cache access outside a known project/run remains unowned and therefore
+    ineligible for eviction. Existing exact identities are reused across
+    runs, so a cache hit does not invent a new artifact identity.
+    """
+    log_path = os.environ.get(event_log.EVENT_LOG_ENV)
+    if not log_path:
+        return None
+    from library.tools import run_id
+
+    current_run = run_id.current()
+    if not current_run:
+        return None
+    project_folder = str(Path(log_path).resolve().parents[2])
+    target = Path(path).resolve()
+    identity = artifact_lifecycle.FileIdentity.capture(target)
+    identity_key = (f"{identity.device}:{identity.inode}:"
+                    f"{identity.mtime_ns}:{identity.size_bytes}")
+    producer_key = f"{producer_key}:{identity_key}"
+    cache_key = (project_folder, str(target), kind)
+    cached = _CACHE_ARTIFACT_IDS.get(cache_key)
+    if cached and cached[1].matches(target):
+        record_cache_value(
+            project_folder, artifact_id=cached[0],
+            source_available=source_available, compatible=compatible,
+            consumer_count=0)
+        return None
+    _CACHE_ARTIFACT_IDS.pop(cache_key, None)
+    current = artifact_lifecycle.inventory(project_folder)
+    existing = next((row for row in current["artifacts"]
+                     if row.get("path") == str(target)
+                     and row.get("kind") == kind
+                     and row.get("identity_matches")), None)
+    if existing:
+        record_cache_value(
+            project_folder, artifact_id=existing["artifact_id"],
+            source_available=source_available, compatible=compatible,
+            consumer_count=0)
+        _CACHE_ARTIFACT_IDS[cache_key] = (
+            existing["artifact_id"],
+            artifact_lifecycle.FileIdentity(**existing["identity"]))
+        return None
+    record = register_cache_artifact(
+        project_folder, project_id=project_folder, run_id=current_run,
+        job_id=f"cache-producer:{kind}", path=str(target), kind=kind,
+        producer_key=producer_key, regeneration_method=regeneration_method,
+        source_available=source_available, compatible=compatible)
+    _CACHE_ARTIFACT_IDS[cache_key] = (record.artifact_id, record.identity)
+    return record
+
+
+def cache_artifact_id_from_environment(path: str | os.PathLike,
+                                       kind: str) -> str:
+    """Resolve an already registered cache identity without guessing."""
+    log_path = os.environ.get(event_log.EVENT_LOG_ENV)
+    if not log_path:
+        return ""
+    project_folder = str(Path(log_path).resolve().parents[2])
+    target = str(Path(path).resolve())
+    key = (project_folder, target, kind)
+    cached = _CACHE_ARTIFACT_IDS.get(key)
+    if cached and cached[1].matches(target):
+        return cached[0]
+    _CACHE_ARTIFACT_IDS.pop(key, None)
+    if key not in _CACHE_ARTIFACT_IDS:
+        rows = artifact_lifecycle.inventory(project_folder)["artifacts"]
+        row = next((item for item in rows if item.get("path") == target
+                    and item.get("kind") == kind
+                    and item.get("identity_matches")), None)
+        if row:
+            _CACHE_ARTIFACT_IDS[key] = (
+                row["artifact_id"],
+                artifact_lifecycle.FileIdentity(**row["identity"]))
+    return _CACHE_ARTIFACT_IDS.get(key, ("", None))[0]
 
 
 def cache_metrics(project_folder: str) -> dict[str, dict[str, float | int]]:
@@ -275,12 +358,17 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
             float(item.get("elapsed_seconds", 0.0)) for item in usage
             if item.get("outcome") == "regenerated")
         last_access = max((float(item.get("at_epoch", 0.0))
-                           for item in usage if item.get("outcome") == "hit"),
+                           for item in usage),
                           default=None)
+        metric_compatibility = [item["compatible"] for item in usage
+                                if "compatible" in item]
         enriched = {**row, **cache_value, "now_epoch": now,
                     "reuse_count": hits,
                     "recompute_seconds": regeneration_seconds,
                     "last_access_epoch": last_access,
+                    "compatible": (metric_compatibility[-1]
+                                   if metric_compatibility
+                                   else cache_value.get("compatible", True)),
                     "consumer_count": max(
                         int(cache_value.get("consumer_count", 0)),
                         int(cache_file_is_in_use(row["path"]))) }
@@ -293,6 +381,9 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
         if int(row["identity"].get("link_count", 0)) != 1:
             continue
         if cache_file_is_in_use(row["path"]):
+            continue
+        if kind == "native_extension" and cache_file_is_in_use(
+                Path(row["path"]).parent):
             continue
         enriched["retention_value"] = value
         candidates.append(enriched)
@@ -406,7 +497,9 @@ def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
                 or record.identity.__dict__ != current.get("identity")):
             raise CachePolicyRefused(
                 f"cache identity changed since plan: {artifact_id}")
-        with cache_file_lease(record.path, exclusive=True):
+        lease_path = (Path(record.path).parent
+                      if record.kind == "native_extension" else record.path)
+        with cache_file_lease(lease_path, exclusive=True):
             artifact_lifecycle.transition_artifact(
                 project_folder, artifact_id, artifact_lifecycle.DISPOSABLE,
                 reason="selected by value-aware cache budget plan")

@@ -1180,6 +1180,10 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
     pending = sum(
         not _usable_frame(frame_dir / f"frame_{i:04d}.jpg")
         for i in range(n_frames))
+    missing_paths = [frame_dir / f"frame_{i:04d}.jpg"
+                     for i in range(n_frames)
+                     if not _usable_frame(frame_dir / f"frame_{i:04d}.jpg")]
+    started = time.perf_counter()
     if pending:
         with perf_ledger.media_decode(
                 clip_path, purpose="semantic.coarse_frames",
@@ -1190,14 +1194,51 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
                                      cache_subdir=cache_subdir)
             measurement["bytes_written"] = sum(
                 Path(row["path"]).stat().st_size for row in frames)
+        _record_decoded_frame_cache(
+            frames, missing_paths, time.perf_counter() - started,
+            clip_path)
         return frames
     with perf_ledger.media_decode(
             clip_path, purpose="semantic.coarse_frames",
             media_kind="video", access_pattern="random_seek",
             calls=0, cache_hits=n_frames):
-        return _extract_frames(clip_path, duration, cache_dir, interval_s,
-                               sample_times=ordered_times,
-                               cache_subdir=cache_subdir)
+        frames = _extract_frames(clip_path, duration, cache_dir, interval_s,
+                                 sample_times=ordered_times,
+                                 cache_subdir=cache_subdir)
+    _record_decoded_frame_cache(frames, [], 0.0, clip_path)
+    return frames
+
+
+def _record_decoded_frame_cache(frames, regenerated_paths, elapsed,
+                                clip_path) -> None:
+    """Measure and register the exact shared frame files returned to vision."""
+    try:
+        from library.tools import footage_identity
+        from library.tools.cache_lifecycle import (
+            cache_artifact_id_from_environment,
+            record_cache_metric,
+            register_cache_artifact_from_environment,
+        )
+        source_digest = footage_identity.fingerprint(str(clip_path))["content_digest"]
+        source_available = bool(source_digest)
+    except (ImportError, OSError, KeyError):
+        return
+    regenerated = {str(path.resolve()) for path in regenerated_paths}
+    count = max(1, len(regenerated & {str(Path(row["path"]).resolve())
+                                      for row in frames}))
+    for row in frames:
+        path = Path(row["path"])
+        outcome = "regenerated" if str(path.resolve()) in regenerated else "hit"
+        register_cache_artifact_from_environment(
+            path, kind="decoded_frame",
+            producer_key=f"semantic-frame:{source_digest}:{path.name}",
+            regeneration_method="vision_pipeline_v3: ffmpeg frame extraction",
+            source_available=source_available, compatible=True)
+        record_cache_metric(
+            task="semantic-frames", kind="decoded_frame", outcome=outcome,
+            elapsed_seconds=(elapsed / count if outcome == "regenerated" else 0.0),
+            bytes_used=path.stat().st_size,
+            artifact_id=cache_artifact_id_from_environment(path, "decoded_frame"))
 
 
 def _extract_frames(clip_path, duration, cache_dir, interval_s, *,

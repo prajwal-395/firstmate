@@ -105,7 +105,7 @@ def _load_entry(path: Path, key: str,
             record_cache_metric(
                 telemetry_project, task="video-features-cache",
                 kind="video_feature_tensor", outcome="miss",
-                artifact_id=artifact_id)
+                compatible=False, artifact_id=artifact_id)
         raise CacheMiss(key)
     try:
         with np.load(path, allow_pickle=False) as stored:
@@ -118,7 +118,7 @@ def _load_entry(path: Path, key: str,
             record_cache_metric(
                 telemetry_project, task="video-features-cache",
                 kind="video_feature_tensor", outcome="miss",
-                artifact_id=artifact_id)
+                compatible=False, artifact_id=artifact_id)
         raise CacheMiss(f"{key}: {exc}") from exc
     if not arrays:
         if telemetry_project or os.environ.get("REN_EVENT_LOG"):

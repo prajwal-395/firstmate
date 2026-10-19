@@ -132,6 +132,24 @@ def test_select_returns_the_entry_matching_this_tree(cache, tmp_path):
     assert seen["path"] == ren_native_cache.extension_file(entry)
 
 
+def test_loaded_native_fingerprint_stays_leased_for_the_process(
+        cache, tmp_path):
+    """An active interpreter keeps its exact content fingerprint unevictable."""
+    root = _write_native_tree(tmp_path / "tree")
+    fingerprint = source_fingerprint(root)
+    entry = _recorded_entry(cache, fingerprint)
+    from library.tools.cache_lifecycle import cache_file_is_in_use
+
+    try:
+        assert ren_native_cache.select(
+            root, load=lambda _path: SimpleNamespace(
+                source_fingerprint=lambda: fingerprint)) is not None
+        assert cache_file_is_in_use(entry)
+    finally:
+        ren_native_cache._release_active_fingerprint_leases()
+    assert not cache_file_is_in_use(entry)
+
+
 def test_select_refuses_a_build_for_another_interpreter(cache, tmp_path):
     """A build for another interpreter is never loaded: the loader is
     not reached, so a foreign ABI cannot abort this process."""

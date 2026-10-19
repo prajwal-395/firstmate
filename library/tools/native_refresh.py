@@ -51,9 +51,28 @@ import argparse
 import hashlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def _register_native_cache(root: str | Path, fingerprint: str) -> Path | None:
+    """Record the exact built extension in the active project's lifecycle."""
+    _lib()
+    from library.tools import ren_native_cache
+    from library.tools.cache_lifecycle import register_cache_artifact_from_environment
+
+    entry = ren_native_cache.entry_dir(fingerprint)
+    extension = ren_native_cache.extension_file(entry)
+    if extension is None or ren_native_cache.read_recorded(entry) != fingerprint:
+        return None
+    register_cache_artifact_from_environment(
+        extension, kind="native_extension",
+        producer_key=f"{fingerprint}:{extension.name}",
+        regeneration_method="native_refresh:ren_native build",
+        source_available=Path(root).is_dir(), compatible=True)
+    return extension
 
 
 def _lib():
@@ -344,6 +363,10 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
             report[name] = f"uncheckable ({exc}); left alone"
             continue
         if state == "fresh":
+            if name == "ren_native":
+                current = current_fingerprint(root, name, specs)
+                if current:
+                    _register_native_cache(root, current)
             report[name] = "fresh"
             continue
         try:
@@ -361,6 +384,7 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                     continue
                 print(f"native: {name} is {state} ({detail}) - rebuilding",
                       file=sys.stderr, flush=True)
+                build_started = time.perf_counter()
                 try:
                     from library.tools.native_part_lock import native_part_lock
                     with native_part_lock(root, name, shared=False):
@@ -394,6 +418,22 @@ def ensure_current(root: str | Path, *, parts: dict | None = None,
                     # every safe point thereafter (measured 2026-10-08:
                     # 551 stale rebuilds, zero completions).
                     record(root, name, specs)
+                    if name == "ren_native":
+                        current = current_fingerprint(root, name, specs)
+                        extension = (_register_native_cache(root, current)
+                                     if current else None)
+                        if extension is not None:
+                            from library.tools.cache_lifecycle import (
+                                cache_artifact_id_from_environment,
+                                record_cache_metric,
+                            )
+                            record_cache_metric(
+                                task="native-refresh", kind="native_extension",
+                                outcome="regenerated",
+                                elapsed_seconds=time.perf_counter() - build_started,
+                                bytes_used=extension.stat().st_size,
+                                artifact_id=cache_artifact_id_from_environment(
+                                    extension, "native_extension"))
                     report[name] = "rebuilt"
                     print(f"native: {name} rebuilt from this tree",
                           file=sys.stderr, flush=True)
