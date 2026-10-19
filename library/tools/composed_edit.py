@@ -174,6 +174,55 @@ def row_label(track_type: str, track_index: int) -> str:
         int(track_index))
 
 
+def prepare_candidate(source, staging_name: str):
+    """Create and identify the protected candidate used by staged edits.
+
+    Both the overlay incremental path and manual touch-up path start from
+    the approved timeline. Keep the exact-name read-back at this shared
+    boundary; callers retain ownership of their journals and promotion.
+    """
+    try:
+        candidate = source.DuplicateTimeline(staging_name)
+    except Exception as exc:
+        raise ComposedEditError(
+            f"the approved timeline could not be duplicated ({exc})") from exc
+    if candidate is None or candidate.GetName() != staging_name:
+        raise ComposedEditError(
+            f"the candidate did not land under its requested name "
+            f"{staging_name!r}")
+    return candidate
+
+
+def operation_description(operation: Mapping[str, Any]) -> dict:
+    """Describe a transaction op using the canonical edit algebra."""
+    from library.tools import edit_algebra
+
+    op_id = str(operation["op"])
+    algebra_op = edit_algebra.ALGEBRA.get(op_id)
+    if algebra_op is None:
+        raise ComposedEditError(
+            f"operation {op_id!r} has no edit-algebra definition")
+    status = edit_algebra.status(op_id)
+    if status is None:
+        raise ComposedEditError(
+            f"operation {op_id!r} has no status record")
+    return {
+        "op": op_id,
+        "domain": algebra_op.domain,
+        "temporal": algebra_op.temporal,
+        "merge": algebra_op.merge,
+        "inverse": {"op": algebra_op.inverse.op,
+                    "self_inverse": algebra_op.inverse.self_inverse,
+                    "reason": algebra_op.inverse.reason},
+        "qualification": {
+            "defined": status.defined,
+            "compilable": status.compilable,
+            "qualified": status.qualified,
+            "production_enabled": status.production_enabled,
+        },
+    }
+
+
 @dataclass(frozen=True)
 class ItemChange:
     """One item the edit moves, and where it must end up.

@@ -2515,11 +2515,13 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
 
         _request = _edit_request.from_touchup_spec(
             spec, project=resolve_name, timeline=final)
+        from library.tools.composed_edit import operation_description
         receipt["edit_request"] = {
             "id": _request.id,
             "operations": [
                 {"op": op.op, "kind": op.kind,
-                 "expected_effect": op.expected_effect}
+                 "expected_effect": op.expected_effect,
+                 "description": operation_description({"op": op.op})}
                 for op in _request.operations],
         }
     except Exception:  # noqa: BLE001 - annotation must not fail the edit
@@ -2679,15 +2681,18 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     receipt["timeline_inventory_before"] = inventory_before
 
     stage_started = time.time()
-    staged = source.DuplicateTimeline(staging)
-    if staged is None or staged.GetName() != staging:
+    from library.tools.composed_edit import prepare_candidate
+    try:
+        staged = prepare_candidate(source, staging)
+    except Exception as candidate_error:
         _journal.fail_entry(project_folder, journal,
                             "the staging copy did not land")
         _provenance.finish_timeline_inventory(
             review_dir, inventory_operation, _guard.timeline_inventory(project))
         raise TouchupError(
-            f"the staging copy did not land as {staging!r} - "
-            f"nothing was edited and the approved timeline stands.")
+            f"the staging copy did not land as {staging!r} "
+            f"({candidate_error}) - nothing was edited and the approved "
+            f"timeline stands.") from candidate_error
     # The staging double is a BRANCH off the final timeline's latest
     # commit. Best-effort, like the commit - a branch that cannot be
     # recorded never fails the touch (the journal is the way back), but
@@ -2744,6 +2749,24 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             review_dir, inventory_operation, _guard.timeline_inventory(project))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
+    # A touch and a planned incremental build expose the same transaction
+    # vocabulary. The journal remains the authoritative recovery record;
+    # this additive view links its verified candidate to the revision it
+    # produced without claiming success before promotion returns.
+    receipt["transaction"] = {
+        "transaction_id": journal["id"],
+        "backend": "reel_touchup",
+        "status": ("committed" if receipt.get("promoted")
+                   and receipt.get("version") else "verification_failed"),
+        "operations": (receipt.get("edit_request") or {}).get(
+            "operations", []),
+        "base_revision": receipt.get("branch_base"),
+        "revision": receipt.get("commit", {}).get("id")
+            if isinstance(receipt.get("commit"), Mapping) else None,
+        "verification": {"status": "verified"
+                         if receipt.get("promoted") else "not_verified"},
+        "promotion": receipt.get("promoted"),
+    }
     receipt["receipt_path"] = _write_receipt(
         project_folder, final, receipt, journal["id"])
     return receipt

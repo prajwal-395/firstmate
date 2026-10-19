@@ -820,16 +820,13 @@ def build_staged_incremental(
     execution_routing = route_incremental(
         reason="incremental eligibility checks passed for this staged diff")
 
+    from library.tools.composed_edit import prepare_candidate
     try:
-        staging = final_timeline.DuplicateTimeline(staging_name)
+        staging = prepare_candidate(final_timeline, staging_name)
     except Exception as exc:
         raise IncrementalBroken(
-            f"the final could not be duplicated ({exc}) - falling back "
-            f"to the full rebuild") from exc
-    if staging is None or staging.GetName() != staging_name:
-        raise IncrementalBroken(
-            "the staging copy did not land under its staging name - "
-            "falling back to the full rebuild")
+            f"the final could not be duplicated as a verified candidate "
+            f"({exc}) - falling back to the full rebuild") from exc
     _assert_placing(project, staging)
 
 
@@ -1114,6 +1111,32 @@ def build_staged_incremental(
             raise IncrementalBroken(
                 "incremental placement inventory still differs from the plan")
         build_record["placement_check"] = {"passed": True, "repair_attempted": False}
+        # Incremental and manual edits publish compatible transaction
+        # records. This is candidate verification only; the build owner
+        # promotes the candidate through its existing guarded path.
+        from library.tools.composed_edit import operation_description
+        requested_ops = []
+        for diff in plan.diffs:
+            if diff.removed or diff.replace:
+                requested_ops.append(operation_description(
+                    {"op": "overlay.remove"}))
+            if diff.added or diff.replace:
+                requested_ops.append(operation_description(
+                    {"op": "overlay.add"}))
+        build_record["transaction"] = {
+            "transaction_id": str(staging.GetUniqueId()),
+            "backend": "reel_incremental",
+            "status": "verified",
+            "operations": requested_ops,
+            "candidate": staging_name,
+            "base_timeline": final_name,
+            "verification": {
+                "status": "verified",
+                "preserved_items": "placement and overlay inventories",
+                "placement_check": build_record["placement_check"],
+            },
+            "promotion": {"status": "awaiting_promotion"},
+        }
         # VC-12: the routing decision is attached through the shared
         # orchestration (same dict the router returns, same key).
         from library.tools import transaction_orchestration as _orch
