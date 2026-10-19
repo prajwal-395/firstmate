@@ -77,7 +77,9 @@ def _live_source(item) -> str:
 
 def _live_span(item):
     try:
-        return (int(item.GetStart()), int(item.GetEnd()))
+        from library.tools.resolve_temporal import record_span
+        span = record_span(item.GetStart(), item.GetEnd())
+        return (span.start, span.end)
     except Exception:
         return None
 
@@ -132,8 +134,9 @@ def footage_expected_rows(placements_list, video_row_by_angle,
         if "rate" in place:
             duration = int(place["record_frames"])
         else:
-            duration = int(round(
-                (place["source_out"] - place["source_in"]) * fps))
+            from library.tools.resolve_temporal import record_duration_for_seconds
+            duration = record_duration_for_seconds(
+                place["source_in"], place["source_out"], fps)
         start = int(place["snapped_record"])
         out.setdefault((track_type, int(row)), []).append(
             (start, start + duration, _norm_source(

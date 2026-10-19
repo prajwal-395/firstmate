@@ -11,6 +11,12 @@ from __future__ import annotations
 import os
 from collections import Counter
 
+from library.tools.resolve_temporal import (
+    append_duration_fields, append_fields, played_source_span,
+    read_playback_rate, record_duration_for_source, record_span,
+    source_span as normalized_source_span,
+)
+
 
 def supports(prepared, transitions):
     return (not transitions
@@ -55,8 +61,9 @@ def append_recorded(project, recorder, name, track_plan, fps, width, height,
         item = sources[spec.path]
         still = item.GetClipProperty("Type") == "Still"
         source_fps = float(item.GetClipProperty("FPS") or fps)
-        frames = (spec.source_out - spec.source_in if still else
-                  round((spec.source_out - spec.source_in) * fps / source_fps))
+        frames = record_duration_for_source(
+            record_span(spec.source_in, spec.source_out),
+            source_fps=source_fps, timeline_fps=fps, still=still)
         op = {
             "op": "clip.insert", "unique_id": f"planned:{number}",
             "track_type": "video" if spec.media_type == 1 else "audio",
@@ -79,12 +86,11 @@ def append_recorded(project, recorder, name, track_plan, fps, width, height,
             }))
 
     def append(operations):
-        infos = [{
-            "mediaPoolItem": by_id[op["media_pool_item"]],
-            "startFrame": op["source_in"], "endFrame": op["source_out"],
-            "mediaType": 1 if op["track_type"] == "video" else 2,
-            "trackIndex": op["track_index"], "recordFrame": op["record_in"],
-        } for op in operations]
+        infos = [{"mediaPoolItem": by_id[op["media_pool_item"]],
+                  **append_fields(op["source_in"], op["source_out"],
+                                  op["record_in"], op["track_index"],
+                                  1 if op["track_type"] == "video" else 2)}
+                 for op in operations]
         # No whole-timeline read here. A truthy return is provisional;
         # the final inventory below is the verdict, including false-success.
         pool.AppendToTimeline(infos)
@@ -142,19 +148,24 @@ def read_inventory(timeline, selected_rows=None, *, handles=None, check_media=Fa
                 # derive its played end from the measured timeline clock.
                 left = item.GetLeftOffset()
                 source_in = int(left) if left is not None else raw_in
-                duration = item.GetEnd() - item.GetStart()
+                record = record_span(item.GetStart(), item.GetEnd())
                 held = kind == "video" and is_native_hold(item)
                 if held:
                     source_in = raw_in
-                source_frames = (1 if held else round(
-                    duration * source_rates[path] / timeline_fps))
+                playback_rate = read_playback_rate(
+                    item, zero_speed_hold=held)
+                played = played_source_span(
+                    source_in, record, source_fps=source_rates[path],
+                    timeline_fps=timeline_fps,
+                    still=bool(source and source.GetClipProperty("Type") == "Still"),
+                    zero_speed_hold=held, playback_rate=playback_rate)
                 rows.append({
                     "track_type": kind, "track_index": index,
                     "source_file": path,
                     "source_in": source_in,
-                    "source_out": source_in + source_frames,
+                    "source_out": played.end,
                     "raw_source_in": raw_in, "raw_source_out": raw_out,
-                    "record_in": item.GetStart(), "record_out": item.GetEnd(),
+                    "record_in": record.start, "record_out": record.end,
                     "unique_id": uid,
                     "media_errors": source_errors.get(path, []),
                     "transform": item.GetProperty(),
@@ -291,16 +302,20 @@ def verify_or_repair(project, timeline, expected, *, deleted_tracks=(),
                 continue
             if row.get("still"):
                 still = place_still_exact(resolve_app, project, pool, timeline, item,
-                                          row["record_out"] - row["record_in"],
+                                          record_span(row["record_in"],
+                                                      row["record_out"]).duration,
                                           row["record_in"], index, fps,
                                           timeline_name=timeline.GetName())
                 placed = [still["item"]]
             else:
                 placed = pool.AppendToTimeline([{
-                    "mediaPoolItem": item, "startFrame": row["source_in"],
-                    "endFrame": row["source_out"],
-                    "mediaType": 1 if row["track_type"] == "video" else 2,
-                    "trackIndex": index, "recordFrame": row["record_in"],
+                    "mediaPoolItem": item,
+                    **append_duration_fields(
+                        row["source_in"],
+                        normalized_source_span(row["source_in"],
+                                               row["source_out"]).duration,
+                        row["record_in"], index,
+                        1 if row["track_type"] == "video" else 2),
                 }])
             from library.tools.transform_write_log import set_property
             for placed_item in placed or ():

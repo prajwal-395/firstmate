@@ -50,6 +50,7 @@ from __future__ import annotations
 from typing import Optional
 
 from library.tools.resolve_lock import assert_current_timeline
+from library.tools.resolve_temporal import record_span
 from library.tools.still_placement import place_still_exact
 
 
@@ -190,11 +191,12 @@ def _readback_item(timeline, track_index: int, record_frame: int,
     items = timeline.GetItemListInTrack("video", track_index) or []
     for item in items:
         try:
+            live_span = record_span(item.GetStart(), item.GetEnd())
             if (str(item.GetUniqueId()) == unique_id
-                    and item.GetStart() == record_frame):
+                    and live_span.start == record_frame):
                 return {
-                    "start_frame": int(round(item.GetStart())),
-                    "duration_frames": int(round(item.GetDuration())),
+                    "start_frame": live_span.start,
+                    "duration_frames": live_span.duration,
                 }
         except Exception:
             continue

@@ -311,6 +311,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
         'library/tools/reel_append_placement.py',
+        'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
         'library/tools/reel_edit_history.py',
         'library/tools/reel_incremental.py',
@@ -819,6 +820,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
         'library/tools/reel_append_placement.py',
+        'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
         'library/tools/reel_edit_history.py',
         'library/tools/reel_incremental.py',
@@ -1097,6 +1099,9 @@ STEP_IMPLEMENTATION_DEPS = {
         # The build's native append placement is imported by the catalog
         # shared-code closure and must invalidate the preflight identity.
         "library/tools/reel_append_placement.py",
+        # Resolve frame fields used by the append placer are centralized
+        # here; changes to this adapter affect the catalog's placement rows.
+        "library/tools/resolve_temporal.py",
         # The shared analysis import closure includes the source-separation
         # helper, whose changes must invalidate cached catalog consumers.
         "library/tools/analysis/source_separation.py",
@@ -1346,6 +1351,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
         'library/tools/reel_append_placement.py',
+        'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
         'library/tools/reel_edit_history.py',
         'library/tools/reel_incremental.py',
@@ -1877,6 +1883,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
         'library/tools/reel_append_placement.py',
+        'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
         'library/tools/reel_edit_history.py',
         'library/tools/reel_incremental.py',
@@ -2447,6 +2454,7 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/qualification_workflow.py',
         'library/tools/reel_build.py',
         'library/tools/reel_append_placement.py',
+        'library/tools/resolve_temporal.py',
         'library/tools/reel_conformance_verifier.py',
         'library/tools/reel_edit_history.py',
         'library/tools/reel_incremental.py',

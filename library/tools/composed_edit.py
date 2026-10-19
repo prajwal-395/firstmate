@@ -881,12 +881,10 @@ def clip_info(media_pool_item: Any, left_offset: int, duration: int,
     `left + duration - 1` places an item one frame short, which is the
     prior spike's "two black frames" and is a caller bug, not the API.
     """
+    from library.tools.resolve_temporal import append_duration_fields
     return {"mediaPoolItem": media_pool_item,
-            "startFrame": int(left_offset),
-            "endFrame": int(left_offset) + int(duration),
-            "trackIndex": int(track_index),
-            "recordFrame": int(record_frame),
-            "mediaType": int(media_type)}
+            **append_duration_fields(left_offset, duration, record_frame,
+                                     track_index, media_type)}
 
 
 def placement_order(captures: Sequence[ItemCapture],
@@ -973,7 +971,9 @@ def verify_placement(live_rows: Mapping[str, Sequence[Any]],
     landed, missing = {}, []
     for record_frame, track_index, media_type, _info, owner in ordered:
         row = row_label("video" if media_type == 1 else "audio", track_index)
-        wanted = int(_info["endFrame"]) - int(_info["startFrame"])
+        from library.tools.resolve_temporal import source_span
+        wanted = source_span(_info["startFrame"],
+                             _info["endFrame"]).duration
         hits = [item for item in (live_rows.get(row) or [])
                 if _read(item, "GetStart", None) == record_frame]
         if len(hits) != 1 or _read(hits[0], "GetDuration", None) != wanted:

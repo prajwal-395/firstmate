@@ -671,13 +671,11 @@ def _append_item(pool, timeline, *, media_pool_item, row: int,
     pool_uid = str(media_pool_item.GetUniqueId() or "")
     append_error = None
     try:
+        from library.tools.resolve_temporal import append_duration_fields
         returned = pool.AppendToTimeline([{
             "mediaPoolItem": media_pool_item,
-            "startFrame": source_start,
-            "endFrame": source_start + duration,
-            "mediaType": 1,
-            "trackIndex": row,
-            "recordFrame": record_frame,
+            **append_duration_fields(source_start, duration,
+                                     record_frame, row, 1),
         }])
     except Exception as exc:  # Resolve can mutate before surfacing failure.
         returned = None
@@ -1061,18 +1059,19 @@ def _source_frame_seconds(picture, timeline_fps: float) -> tuple[str, float, int
             "native hold requires a verified 100% source clip")
     source_start_frame = _read_int(
         picture.GetSourceStartFrame(), "target picture source start")
-    record_frames = (_read_int(picture.GetEnd(), "target picture record end")
-                     - _read_int(picture.GetStart(),
-                                 "target picture record start"))
-    played_source_frames = int(round(
-        record_frames * source_fps / timeline_fps))
-    if source_start_frame < 0 or played_source_frames <= 0:
+    from library.tools.resolve_temporal import FrameSpan, final_source_frame
+    record = FrameSpan(_read_int(picture.GetStart(),
+                                 "target picture record start"),
+                       _read_int(picture.GetEnd(), "target picture record end"))
+    if source_start_frame < 0:
         raise JobRefused(f"{KIND} target picture has an invalid played span")
     # GetSourceEndFrame has been measured one frame off on real clips.
     # The last frame rendered by a 100% item is its source start plus the
     # played source-frame count, minus one - the same quantisation used by
     # the builder's AppendToTimeline path.
-    held_source_frame = source_start_frame + played_source_frames - 1
+    held_source_frame = final_source_frame(
+        source_start_frame, record, source_fps=source_fps,
+        timeline_fps=timeline_fps)
     held_seconds = held_source_frame / source_fps
     if not math.isfinite(held_seconds) or held_source_frame < 0:
         raise JobRefused(f"{KIND} target final source frame is unreadable")
@@ -1383,18 +1382,14 @@ def _run(job: dict, resolve, project) -> dict:
                     # SetSpeed(0) freezes the final source frame in the
                     # appended source window. Back the window up so that
                     # its final frame is the measured hold frame.
-                    append_source_start = held_source_frame - source_duration + 1
-                    if append_source_start < 0:
-                        raise JobRefused(
-                            f"{KIND} native hold window would start before "
-                            "source frame zero")
+                    from library.tools.resolve_temporal import hold_append_window
+                    api_source_start, _api_source_end, _hold_span = (
+                        hold_append_window(held_source_frame, source_duration))
                     landed_row, new_freeze = _append_item(
                         pool, target, media_pool_item=source_pool_item,
                         row=target_picture_row, record_frame=record_frame,
-                        # Resolve's AppendToTimeline startFrame is one-based
-                        # for source media; GetSourceStartFrame reads the
-                        # corresponding zero-based frame.
-                        source_start=append_source_start + 1,
+                        # The adapter owns PR 2692's one-based append origin.
+                        source_start=api_source_start,
                         duration=source_duration,
                         label="native hold",
                         orphaned_items=orphaned_items)
@@ -1407,11 +1402,11 @@ def _run(job: dict, resolve, project) -> dict:
                         duration=source_duration, label="native hold")
                     appended_source_start = int(
                         new_freeze.GetSourceStartFrame())
-                    if abs(appended_source_start - append_source_start) > 1:
+                    if abs(appended_source_start - _hold_span.start) > 1:
                         raise JobRefused(
                             f"{KIND} native hold starts at source frame "
                             f"{appended_source_start}, outside expected "
-                            f"{append_source_start} ± 1")
+                            f"{_hold_span.start} ± 1")
                     if legacy_freeze is not None:
                         old_markers = legacy_freeze["capture"]["markers"]
                         _copy_clip_markers(old_markers, new_freeze)

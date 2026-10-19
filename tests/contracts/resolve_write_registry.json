@@ -1,2516 +1,2516 @@
 [
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    219,
     "main",
-    "CreateEmptyTimeline"
+    "AddFusionComp",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    241,
     "main",
-    "AddTrack"
+    "AddFusionComp",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    251,
     "main",
-    "AddTrack"
+    "AddFusionComp",
+    3
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    260,
     "main",
-    "SetTrackName"
+    "AddMarker",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    261,
     "main",
-    "SetTrackName"
+    "AddMarker",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    262,
     "main",
-    "SetTrackName"
+    "AddTool",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    305,
     "main",
-    "AppendToTimeline"
+    "AddTool",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    319,
     "main",
-    "AppendToTimeline"
+    "AddTool",
+    3
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    414,
     "main",
-    "AddMarker"
+    "AddTool",
+    4
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    418,
     "main",
-    "DeleteMarkerAtFrame"
+    "AddTrack",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    439,
     "main",
-    "AddFusionComp"
+    "AddTrack",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    457,
     "main",
-    "AddTool"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    459,
     "main",
-    "SetInput"
+    "AppendToTimeline",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    460,
     "main",
-    "SetInput"
+    "ApplyFairlightPresetToCurrentTimeline",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    467,
     "main",
-    "AddTool"
+    "CreateEmptyTimeline",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    469,
     "main",
-    "SetInput"
+    "Delete",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    478,
     "main",
-    "DeleteFusionCompByName"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    574,
     "main",
-    "DeleteFusionCompByName"
+    "DeleteFusionCompByName",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    576,
     "main",
-    "ImportFusionComp"
+    "DeleteFusionCompByName",
+    3
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    641,
     "main",
-    "DeleteFusionCompByName"
+    "DeleteFusionCompByName",
+    4
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    655,
     "main",
-    "AddFusionComp"
+    "DeleteFusionCompByName",
+    5
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    711,
     "main",
-    "AddTool"
+    "DeleteMarkerAtFrame",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    714,
     "main",
-    "Delete"
+    "DeleteMarkerAtFrame",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    730,
     "main",
-    "DeleteFusionCompByName"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    745,
     "main",
-    "AddFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    747,
     "main",
-    "AddTool"
+    "InsertAudioToCurrentTrackAtPlayhead",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    763,
     "main",
-    "DeleteFusionCompByName"
+    "SetClipColor",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    788,
     "main",
-    "AddMarker"
+    "SetCurrentTimeline",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    792,
     "main",
-    "DeleteMarkerAtFrame"
+    "SetInput",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    821,
     "main",
-    "ApplyFairlightPresetToCurrentTimeline"
+    "SetInput",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    831,
     "main",
-    "InsertAudioToCurrentTrackAtPlayhead"
+    "SetInput",
+    3
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    905,
     "main",
-    "SetClipColor"
+    "SetTrackName",
+    1
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    955,
     "main",
-    "SetCurrentTimeline"
+    "SetTrackName",
+    2
   ],
   [
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
-    959,
     "main",
-    "DeleteTimelines"
+    "SetTrackName",
+    3
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    493,
-    "_ensure_transparent_carrier",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    500,
-    "_ensure_transparent_carrier",
-    "AddSubFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    503,
-    "_ensure_transparent_carrier",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    504,
-    "_ensure_transparent_carrier",
-    "ImportMedia"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    505,
-    "_ensure_transparent_carrier",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    794,
-    "project_frame_rate_refusal",
-    "SetSetting"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1758,
-    "_import_to_folder",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1765,
-    "_import_to_folder",
-    "AddSubFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1767,
-    "_import_to_folder",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1768,
-    "_import_to_folder",
-    "ImportMedia"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1769,
-    "_import_to_folder",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    1954,
     "_build_timeline_under_lease",
-    "CreateEmptyTimeline"
+    "AddMarker",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2001,
+    "_build_timeline_under_lease",
+    "AddMarker",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    3
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    4
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    5
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AddTrack",
+    6
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    3
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    4
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    5
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    6
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    7
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "AppendToTimeline",
+    8
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "ApplyFairlightPresetToCurrentTimeline",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "ApplyFairlightPresetToCurrentTimeline",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "ApplyFairlightPresetToCurrentTimeline",
+    3
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "CreateEmptyTimeline",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "DeleteTrack",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetCDL",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipProperty",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipProperty",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipProperty",
+    3
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipProperty",
+    4
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipsLinked",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipsLinked",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetClipsLinked",
+    3
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetProperty",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetSetting",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetTrackName",
+    1
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
+    "_build_timeline_under_lease",
+    "SetTrackName",
+    2
+  ],
+  [
+    "library/steps/step_6_01_render/resolve_build_timeline.py",
     "_confirm",
-    "SetSetting"
+    "SetSetting",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2018,
-    "_build_timeline_under_lease",
-    "SetSetting"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2022,
-    "_build_timeline_under_lease",
-    "SetSetting"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2091,
-    "_build_timeline_under_lease",
-    "AddTrack"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2158,
     "_enforce_program_stream",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2228,
-    "_build_timeline_under_lease",
-    "AddTrack"
+    "_ensure_transparent_carrier",
+    "AddSubFolder",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2293,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
+    "_ensure_transparent_carrier",
+    "ImportMedia",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2316,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
+    "_ensure_transparent_carrier",
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2415,
-    "_build_timeline_under_lease",
-    "AddTrack"
+    "_ensure_transparent_carrier",
+    "SetCurrentFolder",
+    2
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2443,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
+    "_ensure_transparent_carrier",
+    "SetCurrentFolder",
+    3
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2489,
-    "_build_timeline_under_lease",
-    "AddTrack"
+    "_import_to_folder",
+    "AddSubFolder",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2525,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
+    "_import_to_folder",
+    "ImportMedia",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    2986,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
+    "_import_to_folder",
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3000,
-    "_build_timeline_under_lease",
-    "SetProperty"
+    "_import_to_folder",
+    "SetCurrentFolder",
+    2
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3146,
-    "_build_timeline_under_lease",
-    "AddTrack"
+    "_import_to_folder",
+    "SetCurrentFolder",
+    3
   ],
   [
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3160,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3198,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3254,
-    "_build_timeline_under_lease",
-    "AppendToTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3370,
-    "_build_timeline_under_lease",
-    "AddTrack"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3401,
-    "_build_timeline_under_lease",
-    "AddMarker"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3449,
-    "_build_timeline_under_lease",
-    "ApplyFairlightPresetToCurrentTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3471,
-    "_build_timeline_under_lease",
-    "AddMarker"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3702,
-    "_build_timeline_under_lease",
-    "ApplyFairlightPresetToCurrentTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3708,
-    "_build_timeline_under_lease",
-    "ApplyFairlightPresetToCurrentTimeline"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3840,
-    "_build_timeline_under_lease",
-    "SetCDL"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3849,
-    "_build_timeline_under_lease",
-    "SetClipProperty"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3850,
-    "_build_timeline_under_lease",
-    "SetClipProperty"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3851,
-    "_build_timeline_under_lease",
-    "SetClipProperty"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    3852,
-    "_build_timeline_under_lease",
-    "SetClipProperty"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4135,
-    "_build_timeline_under_lease",
-    "SetClipsLinked"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4169,
-    "_build_timeline_under_lease",
-    "SetClipsLinked"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4233,
-    "_build_timeline_under_lease",
-    "SetClipsLinked"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4274,
-    "_build_timeline_under_lease",
-    "SetTrackName"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4283,
-    "_build_timeline_under_lease",
-    "SetTrackName"
-  ],
-  [
-    "library/steps/step_6_01_render/resolve_build_timeline.py",
-    4337,
-    "_build_timeline_under_lease",
-    "DeleteTrack"
+    "project_frame_rate_refusal",
+    "SetSetting",
+    1
   ],
   [
     "library/tools/builtin_effect_loader.py",
-    131,
-    "import_effect_to_clip",
-    "ImportFusionComp"
-  ],
-  [
-    "library/tools/builtin_effect_loader.py",
-    189,
     "import_customized_effect",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
+  ],
+  [
+    "library/tools/builtin_effect_loader.py",
+    "import_effect_to_clip",
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/color_page_grade.py",
-    273,
-    "apply_power_grade",
-    "ApplyGradeFromDRX"
-  ],
-  [
-    "library/tools/color_page_grade.py",
-    367,
     "apply_cdl_to_node",
-    "SetCDL"
+    "SetCDL",
+    1
   ],
   [
     "library/tools/color_page_grade.py",
-    570,
+    "apply_power_grade",
+    "ApplyGradeFromDRX",
+    1
+  ],
+  [
+    "library/tools/color_page_grade.py",
     "render_one_frame_deliver",
-    "SetCurrentRenderFormatAndCodec"
+    "SetCurrentRenderFormatAndCodec",
+    1
   ],
   [
     "library/tools/comp_media_window.py",
-    235,
     "conform_item",
-    "DeleteFusionCompByName"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/comp_media_window.py",
-    236,
     "conform_item",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/comparison_retirement.py",
-    612,
     "_collect_archived",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    328,
     "apply_window",
-    "SetInput"
+    "SetInput",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    336,
     "apply_window",
-    "SetInput"
+    "SetInput",
+    2
   ],
   [
     "library/tools/composed_edit.py",
-    379,
-    "drop_passthrough_comps",
-    "DeleteFusionCompByName"
-  ],
-  [
-    "library/tools/composed_edit.py",
-    477,
     "conform_comp_windows",
-    "DeleteFusionCompByName"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    478,
     "conform_comp_windows",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    867,
     "delete_all",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    949,
+    "drop_passthrough_comps",
+    "DeleteFusionCompByName",
+    1
+  ],
+  [
+    "library/tools/composed_edit.py",
     "place_all",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    1133,
     "restore_item",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/composed_edit.py",
-    1172,
     "restore_item",
-    "SetClipsLinked"
+    "SetClipsLinked",
+    1
   ],
   [
     "library/tools/computer_use/__main__.py",
-    338,
     "_run_recipe",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/computer_use/qualifier_recipe.py",
-    300,
     "_establish_playhead",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/computer_use/replay.py",
-    849,
-    "_scratch_timeline",
-    "CreateEmptyTimeline"
-  ],
-  [
-    "library/tools/computer_use/replay.py",
-    855,
-    "_scratch_timeline",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/computer_use/replay.py",
-    866,
     "_delete_scratch",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/computer_use/replay.py",
-    916,
     "_live_establish_color_page",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
+  ],
+  [
+    "library/tools/computer_use/replay.py",
+    "_scratch_timeline",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/computer_use/replay.py",
+    "_scratch_timeline",
+    "CreateEmptyTimeline",
+    1
   ],
   [
     "library/tools/computer_use/window_delete.py",
-    231,
     "_establish_playhead",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/computer_use/window_modify.py",
-    258,
     "_establish_playhead",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/computer_use/window_recipe.py",
-    171,
     "run_window_create",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/computer_use/window_track.py",
-    289,
     "_establish_playhead",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/dialogue_cleanup.py",
-    1264,
-    "apply_voice_isolation",
-    "SetVoiceIsolationState"
-  ],
-  [
-    "library/tools/dialogue_cleanup.py",
-    1369,
     "apply_clip_voice_isolation",
-    "SetProperties"
+    "SetProperties",
+    1
   ],
   [
     "library/tools/dialogue_cleanup.py",
-    1552,
     "apply_dialogue_leveler",
-    "SetProperties"
+    "SetProperties",
+    1
+  ],
+  [
+    "library/tools/dialogue_cleanup.py",
+    "apply_voice_isolation",
+    "SetVoiceIsolationState",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    255,
     "calibrate",
-    "DeleteTimelines"
+    "AddItemListToMediaPool",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    256,
     "calibrate",
-    "CreateEmptyTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    278,
     "calibrate",
-    "AddItemListToMediaPool"
+    "CreateEmptyTimeline",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    290,
     "calibrate",
-    "AppendToTimeline"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    316,
     "calibrate",
-    "SetCurrentTimecode"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    414,
     "calibrate",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    2
   ],
   [
     "library/tools/draw_gain_probe.py",
-    417,
     "calibrate",
-    "DeleteClips"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/draw_gain_probe.py",
-    431,
     "calibrate",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    546,
-    "_apply_grade_node_set",
-    "SetCDL"
+    "<module>",
+    "AddMarker",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    703,
-    "_park_playhead_mid_clip",
-    "SetCurrentTimecode"
+    "<module>",
+    "AddMarker",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    705,
-    "_park_playhead_mid_clip",
-    "SetCurrentTimecode"
+    "<module>",
+    "AddMarker",
+    3
   ],
   [
     "library/tools/edit_algebra.py",
-    742,
-    "_write_cache_modes",
-    "SetNodeCacheMode"
+    "<module>",
+    "AddTrack",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    935,
-    "_apply_retime_segments",
-    "SetSpeed"
+    "<module>",
+    "DeleteMarkerAtFrame",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1065,
-    "_import_matte",
-    "AddFusionComp"
+    "<module>",
+    "DeleteMarkerAtFrame",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    1073,
-    "_import_matte",
-    "ImportFusionComp"
+    "<module>",
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1077,
-    "_import_matte",
-    "DeleteFusionCompByName"
+    "<module>",
+    "SetClipEnabled",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1086,
-    "_rename_matte",
-    "RenameFusionCompByName"
+    "<module>",
+    "SetClipsLinked",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1128,
-    "_replace_matte",
-    "DeleteFusionCompByName"
+    "<module>",
+    "SetClipsLinked",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    1129,
-    "_replace_matte",
-    "DeleteFusionCompByName"
+    "<module>",
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1263,
-    "_call_create_magic_mask",
-    "CreateMagicMask"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1415,
-    "_apply_mask_delete",
-    "DeleteFusionCompByName"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1416,
-    "_apply_mask_delete",
-    "LoadFusionCompByName"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1417,
-    "_apply_mask_delete",
-    "ImportFusionComp"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1548,
-    "_delete_clip_with_measured_retry",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1553,
-    "_delete_clip_with_measured_retry",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    1625,
     "_apply_clip_insert",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1686,
+    "_apply_grade_node_set",
+    "SetCDL",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_apply_mask_delete",
+    "DeleteFusionCompByName",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_apply_mask_delete",
+    "ImportFusionComp",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_apply_mask_delete",
+    "LoadFusionCompByName",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_apply_retime_segments",
+    "SetSpeed",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
     "_apply_track_reorder",
-    "DeleteTrack"
+    "AddTrack",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1688,
     "_apply_track_reorder",
-    "AddTrack"
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1690,
     "_apply_track_reorder",
-    "SetTrackName"
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1706,
-    "<module>",
-    "AddMarker"
+    "_call_create_magic_mask",
+    "CreateMagicMask",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1717,
-    "<module>",
-    "DeleteMarkerAtFrame"
+    "_delete_clip_with_measured_retry",
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1728,
-    "<module>",
-    "AddMarker"
+    "_delete_clip_with_measured_retry",
+    "DeleteClips",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    1732,
-    "<module>",
-    "AddMarker"
+    "_import_matte",
+    "AddFusionComp",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1743,
-    "<module>",
-    "DeleteMarkerAtFrame"
+    "_import_matte",
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1862,
-    "<module>",
-    "SetClipEnabled"
+    "_import_matte",
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1875,
-    "<module>",
-    "SetClipsLinked"
+    "_park_playhead_mid_clip",
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    1889,
-    "<module>",
-    "SetClipsLinked"
+    "_park_playhead_mid_clip",
+    "SetCurrentTimecode",
+    2
   ],
   [
     "library/tools/edit_algebra.py",
-    2265,
-    "<module>",
-    "AddTrack"
+    "_rename_matte",
+    "RenameFusionCompByName",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    2275,
-    "<module>",
-    "DeleteTrack"
+    "_replace_matte",
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/edit_algebra.py",
-    2285,
-    "<module>",
-    "SetTrackName"
+    "_replace_matte",
+    "DeleteFusionCompByName",
+    2
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_write_cache_modes",
+    "SetNodeCacheMode",
+    1
   ],
   [
     "library/tools/edit_ledger.py",
-    1283,
     "apply_lut_to_item",
-    "SetLUT"
+    "SetLUT",
+    1
   ],
   [
     "library/tools/editor_edit_carry.py",
-    1709,
-    "apply_plan",
-    "SetClipEnabled"
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    1734,
-    "apply_plan",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    1744,
-    "apply_plan",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    1903,
-    "_composed",
-    "SetClipEnabled"
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    1905,
-    "_composed",
-    "SetClipColor"
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    1989,
     "_apply_splits",
-    "Insertion"
+    "Insertion",
+    1
+  ],
+  [
+    "library/tools/editor_edit_carry.py",
+    "_composed",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/editor_edit_carry.py",
+    "_composed",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/editor_edit_carry.py",
+    "apply_plan",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/editor_edit_carry.py",
+    "apply_plan",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/editor_edit_carry.py",
+    "apply_plan",
+    "SetClipEnabled",
+    1
   ],
   [
     "library/tools/eval_harness.py",
-    743,
-    "resolve_bracket_start",
-    "CreateProject"
-  ],
-  [
-    "library/tools/eval_harness.py",
-    827,
     "resolve_bracket_end",
-    "DeleteProject"
+    "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/eval_harness.py",
+    "resolve_bracket_start",
+    "CreateProject",
+    1
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    773,
     "apply_fusion_comps_with_resolve",
-    "DeleteFusionCompByName"
+    "AddTool",
+    1
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    996,
     "apply_fusion_comps_with_resolve",
-    "DeleteFusionCompByName"
+    "Delete",
+    1
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    1001,
     "apply_fusion_comps_with_resolve",
-    "ImportFusionComp"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    1042,
     "apply_fusion_comps_with_resolve",
-    "AddTool"
+    "DeleteFusionCompByName",
+    2
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    1044,
     "apply_fusion_comps_with_resolve",
-    "Delete"
+    "DeleteFusionCompByName",
+    3
   ],
   [
     "library/tools/execution/apply_fusion_comps.py",
-    1129,
     "apply_fusion_comps_with_resolve",
-    "DeleteFusionCompByName"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    148,
     "_refuse_picture_drift",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    152,
     "_refuse_picture_drift",
-    "SetName"
+    "SetName",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    302,
     "deliver_mix",
-    "SetName"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    306,
     "deliver_mix",
-    "ImportTimelineFromFile"
+    "ImportTimelineFromFile",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    310,
     "deliver_mix",
-    "SetName"
+    "SetName",
+    1
   ],
   [
     "library/tools/execution/deliver_audio_mix.py",
-    363,
     "deliver_mix",
-    "DeleteTimelines"
+    "SetName",
+    2
   ],
   [
     "library/tools/execution/deliver_loaders.py",
-    136,
-    "deliver_loaders",
-    "AddTool"
-  ],
-  [
-    "library/tools/execution/deliver_loaders.py",
-    140,
-    "deliver_loaders",
-    "SetMultiClip"
-  ],
-  [
-    "library/tools/execution/deliver_loaders.py",
-    184,
-    "_set_trims",
-    "SetAttrs"
-  ],
-  [
-    "library/tools/execution/deliver_loaders.py",
-    217,
     "_remove_placeholders",
-    "Delete"
+    "Delete",
+    1
+  ],
+  [
+    "library/tools/execution/deliver_loaders.py",
+    "_set_trims",
+    "SetAttrs",
+    1
+  ],
+  [
+    "library/tools/execution/deliver_loaders.py",
+    "deliver_loaders",
+    "AddTool",
+    1
+  ],
+  [
+    "library/tools/execution/deliver_loaders.py",
+    "deliver_loaders",
+    "SetMultiClip",
+    1
   ],
   [
     "library/tools/execution/mark_master.py",
-    139,
     "apply_markers",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/execution/mark_master.py",
-    182,
     "clear_markers",
-    "DeleteMarkerAtFrame"
+    "DeleteMarkerAtFrame",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    240,
+    "apply_plan",
+    "MoveClips",
+    1
+  ],
+  [
+    "library/tools/execution/organise_media_pool.py",
+    "apply_plan",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/execution/organise_media_pool.py",
+    "apply_plan",
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/execution/organise_media_pool.py",
+    "apply_plan",
+    "SetMetadata",
+    1
+  ],
+  [
+    "library/tools/execution/organise_media_pool.py",
     "ensure_folder",
-    "AddSubFolder"
+    "AddSubFolder",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    298,
     "import_into_bin",
-    "SetCurrentFolder"
+    "ImportMedia",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    299,
     "import_into_bin",
-    "ImportMedia"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    303,
     "import_into_bin",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    2
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    384,
-    "apply_plan",
-    "MoveClips"
-  ],
-  [
-    "library/tools/execution/organise_media_pool.py",
-    409,
-    "apply_plan",
-    "SetMetadata"
-  ],
-  [
-    "library/tools/execution/organise_media_pool.py",
-    417,
-    "apply_plan",
-    "SetClipColor"
-  ],
-  [
-    "library/tools/execution/organise_media_pool.py",
-    429,
-    "apply_plan",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/execution/organise_media_pool.py",
-    495,
     "revert",
-    "MoveClips"
+    "MoveClips",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    508,
     "revert",
-    "SetClipColor"
+    "SetClipColor",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    512,
     "revert",
-    "SetMetadata"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/execution/organise_media_pool.py",
-    515,
     "revert",
-    "SetCurrentFolder"
+    "SetMetadata",
+    1
   ],
   [
     "library/tools/execution/prune_orphans.py",
-    429,
     "remove_pool_items",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/execution/prune_orphans.py",
-    444,
     "remove_pool_items",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/execution/remove_proof.py",
-    178,
     "remove_proof",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/execution/remove_proof.py",
-    207,
     "remove_proof",
-    "DeleteFolders"
+    "DeleteFolders",
+    1
   ],
   [
     "library/tools/execution/remove_proof.py",
-    217,
     "remove_proof",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/execution/resolve_render.py",
-    184,
     "_render_timeline_under_lease",
-    "SetCurrentRenderFormatAndCodec"
+    "AddRenderJob",
+    1
   ],
   [
     "library/tools/execution/resolve_render.py",
-    236,
     "_render_timeline_under_lease",
-    "SetRenderSettings"
+    "DeleteRenderJob",
+    1
   ],
   [
     "library/tools/execution/resolve_render.py",
-    240,
     "_render_timeline_under_lease",
-    "AddRenderJob"
+    "SetCurrentRenderFormatAndCodec",
+    1
   ],
   [
     "library/tools/execution/resolve_render.py",
-    323,
     "_render_timeline_under_lease",
-    "SetCurrentRenderFormatAndCodec"
+    "SetCurrentRenderFormatAndCodec",
+    2
   ],
   [
     "library/tools/execution/resolve_render.py",
-    343,
     "_render_timeline_under_lease",
-    "DeleteRenderJob"
+    "SetRenderSettings",
+    1
   ],
   [
     "library/tools/execution/retire_empty_bins.py",
-    250,
     "retire_bins",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/execution/retire_empty_bins.py",
-    273,
     "retire_bins",
-    "DeleteFolders"
+    "DeleteFolders",
+    1
   ],
   [
     "library/tools/execution/retire_empty_bins.py",
-    284,
     "retire_bins",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/execution/retire_empty_bins.py",
-    341,
     "revert",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/fusion_macro_loader.py",
-    33,
     "apply_macro_to_transition",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/gate_stills.py",
-    180,
     "_position",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/gate_stills.py",
-    183,
     "_position",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    2
   ],
   [
     "library/tools/gate_stills.py",
-    324,
-    "_warm_up",
-    "SetCurrentTimecode"
-  ],
-  [
-    "library/tools/gate_stills.py",
-    419,
     "_restore",
-    "SetCurrentTimecode"
+    "SetCurrentTimecode",
+    1
+  ],
+  [
+    "library/tools/gate_stills.py",
+    "_warm_up",
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/marker_capture.py",
-    397,
-    "grab_still",
-    "DeleteStills"
-  ],
-  [
-    "library/tools/marker_capture.py",
-    399,
-    "grab_still",
-    "DeleteStills"
-  ],
-  [
-    "library/tools/marker_capture.py",
-    579,
     "capture",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/marker_capture.py",
-    591,
     "capture",
-    "UpdateMarkerCustomData"
+    "UpdateMarkerCustomData",
+    1
+  ],
+  [
+    "library/tools/marker_capture.py",
+    "grab_still",
+    "DeleteStills",
+    1
+  ],
+  [
+    "library/tools/marker_capture.py",
+    "grab_still",
+    "DeleteStills",
+    2
   ],
   [
     "library/tools/marker_carry.py",
-    597,
     "place",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/marker_carry.py",
-    1069,
     "place_clip_markers",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/marker_carry.py",
-    1075,
     "place_clip_markers",
-    "AddMarker"
+    "AddMarker",
+    2
   ],
   [
     "library/tools/marker_carry.py",
-    1344,
     "place_uncarried",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/marker_carry.py",
-    1389,
     "place_uncarried",
-    "AddMarker"
+    "AddMarker",
+    2
   ],
   [
     "library/tools/marker_feedback.py",
-    1140,
     "assign_note_ids",
-    "UpdateMarkerCustomData"
+    "UpdateMarkerCustomData",
+    1
   ],
   [
     "library/tools/master_touchup.py",
-    575,
     "_promote_master",
-    "SetName"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/master_touchup.py",
-    580,
     "_promote_master",
-    "SetName"
+    "SetName",
+    1
   ],
   [
     "library/tools/master_touchup.py",
-    680,
     "_promote_master",
-    "DeleteTimelines"
+    "SetName",
+    2
   ],
   [
     "library/tools/model_stamps.py",
-    250,
     "stamp_timeline_markers",
-    "UpdateMarkerCustomData"
+    "UpdateMarkerCustomData",
+    1
   ],
   [
     "library/tools/native_ops_apply.py",
-    173,
+    "apply_native_speed_ops",
+    "SetSpeed",
+    1
+  ],
+  [
+    "library/tools/native_ops_apply.py",
+    "apply_native_speed_ops",
+    "SetSpeed",
+    2
+  ],
+  [
+    "library/tools/native_ops_apply.py",
     "retime_linked_audio",
-    "SetSpeed"
-  ],
-  [
-    "library/tools/native_ops_apply.py",
-    345,
-    "apply_native_speed_ops",
-    "SetSpeed"
-  ],
-  [
-    "library/tools/native_ops_apply.py",
-    382,
-    "apply_native_speed_ops",
-    "SetSpeed"
+    "SetSpeed",
+    1
   ],
   [
     "library/tools/neural_engine.py",
-    58,
     "apply_super_scale",
-    "SetClipProperty"
+    "SetClipProperty",
+    1
   ],
   [
     "library/tools/neural_engine.py",
-    60,
     "apply_super_scale",
-    "SetClipProperty"
+    "SetClipProperty",
+    2
   ],
   [
     "library/tools/neural_engine.py",
-    61,
     "apply_super_scale",
-    "SetClipProperty"
+    "SetClipProperty",
+    3
   ],
   [
     "library/tools/overlay_carriage.py",
-    335,
     "apply_clip_attributes",
-    "SetClipProperty"
+    "SetClipProperty",
+    1
   ],
   [
     "library/tools/overlay_placement.py",
-    476,
     "place_overlay_segment",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/project_model_qualification.py",
-    1475,
     "_setup_fusion_live",
-    "AddFusionComp"
+    "AddFusionComp",
+    1
   ],
   [
     "library/tools/project_model_qualification.py",
-    1484,
     "_setup_fusion_live",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/project_model_qualification.py",
-    1500,
     "_setup_fusion_live",
-    "RenameFusionCompByName"
+    "RenameFusionCompByName",
+    1
   ],
   [
     "library/tools/qualification_project.py",
-    557,
+    "rebuild",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "CreateEmptyTimeline",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "CreateProject",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "rebuild",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
     "switch_project",
-    "LoadProject"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    625,
-    "rebuild",
-    "DeleteProject"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    628,
-    "rebuild",
-    "CreateProject"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    634,
-    "rebuild",
-    "SetSetting"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    637,
-    "rebuild",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    643,
-    "rebuild",
-    "CreateEmptyTimeline"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    647,
-    "rebuild",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/qualification_project.py",
-    650,
-    "rebuild",
-    "AddMarker"
+    "LoadProject",
+    1
   ],
   [
     "library/tools/qualification_workflow.py",
-    349,
     "_run_broker_job",
-    "ImportMedia"
+    "AddTrack",
+    1
   ],
   [
     "library/tools/qualification_workflow.py",
-    367,
     "_run_broker_job",
-    "CreateEmptyTimeline"
+    "CreateEmptyTimeline",
+    1
   ],
   [
     "library/tools/qualification_workflow.py",
-    377,
     "_run_broker_job",
-    "AddTrack"
+    "ImportMedia",
+    1
   ],
   [
     "library/tools/qualification_workflow.py",
-    380,
     "_run_broker_job",
-    "SetTrackName"
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/reel_append_placement.py",
-    90,
     "append",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_append_placement.py",
-    251,
     "verify_or_repair",
-    "DeleteTrack"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_append_placement.py",
-    299,
     "verify_or_repair",
-    "AppendToTimeline"
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/reel_append_placement.py",
-    330,
     "verify_or_repair",
-    "SetClipsLinked"
+    "SetClipsLinked",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    726,
-    "sweep_placed_audio",
-    "DeleteClips"
+    "_create_sized_reel_timeline",
+    "AddTrack",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    862,
-    "sweep_placed_audio_many",
-    "DeleteClips"
+    "_create_sized_reel_timeline",
+    "SetSetting",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    1219,
-    "link_reel_groups",
-    "SetClipsLinked"
+    "_create_sized_reel_timeline",
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    1388,
-    "_link_offset_unions",
-    "SetClipsLinked"
-  ],
-  [
-    "library/tools/reel_build.py",
-    7652,
-    "append",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8351,
     "_ensure_bin_path",
-    "AddSubFolder"
+    "AddSubFolder",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    8462,
-    "import_pool_item",
-    "ImportMedia"
+    "_link_offset_unions",
+    "SetClipsLinked",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    8467,
-    "import_pool_item",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8468,
-    "import_pool_item",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8471,
-    "import_pool_item",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8566,
-    "import_pool_sequence",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8581,
-    "import_pool_sequence",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8582,
-    "import_pool_sequence",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8585,
-    "import_pool_sequence",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8629,
-    "create_reel_timeline",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8630,
-    "create_reel_timeline",
-    "CreateEmptyTimeline"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8633,
-    "create_reel_timeline",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/reel_build.py",
-    8875,
-    "place_overlay_segments",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/reel_build.py",
-    9079,
     "_place_transition_element",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    9579,
-    "_create_sized_reel_timeline",
-    "AddTrack"
+    "append",
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    9587,
-    "_create_sized_reel_timeline",
-    "SetTrackName"
-  ],
-  [
-    "library/tools/reel_build.py",
-    9601,
-    "_create_sized_reel_timeline",
-    "SetSetting"
-  ],
-  [
-    "library/tools/reel_build.py",
-    9962,
-    "build_reel_timeline",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/reel_build.py",
-    10080,
-    "build_reel_timeline",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/reel_build.py",
-    10122,
     "append_planned_footage",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    10907,
     "build_reel_timeline",
-    "DeleteTrack"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    12332,
-    "promote_staged_reels",
-    "SetName"
+    "build_reel_timeline",
+    "AppendToTimeline",
+    2
   ],
   [
     "library/tools/reel_build.py",
-    12341,
-    "promote_staged_reels",
-    "SetName"
+    "build_reel_timeline",
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/reel_build.py",
-    13176,
+    "create_reel_timeline",
+    "CreateEmptyTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "create_reel_timeline",
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "create_reel_timeline",
+    "SetCurrentFolder",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
     "discard_staged_reels",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_item",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_item",
+    "ImportMedia",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_item",
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_item",
+    "SetCurrentFolder",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_sequence",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_sequence",
+    "ImportMedia",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_sequence",
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "import_pool_sequence",
+    "SetCurrentFolder",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "link_reel_groups",
+    "SetClipsLinked",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "place_overlay_segments",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "promote_staged_reels",
+    "SetName",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "promote_staged_reels",
+    "SetName",
+    2
+  ],
+  [
+    "library/tools/reel_build.py",
+    "sweep_placed_audio",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/reel_build.py",
+    "sweep_placed_audio_many",
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/reel_disabled_clip_carry.py",
-    385,
     "_set_disabled",
-    "SetClipEnabled"
+    "SetClipEnabled",
+    1
   ],
   [
     "library/tools/reel_incremental.py",
-    582,
     "apply_overlay_diffs",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/reel_incremental.py",
-    1093,
     "build_staged_incremental",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/reel_look.py",
-    375,
     "apply_cdl",
-    "SetCDL"
+    "SetCDL",
+    1
   ],
   [
     "library/tools/reel_look.py",
-    383,
     "apply_cdl",
-    "SetClipProperty"
+    "SetClipProperty",
+    1
   ],
   [
     "library/tools/reel_look.py",
-    384,
     "apply_cdl",
-    "SetClipProperty"
+    "SetClipProperty",
+    2
   ],
   [
     "library/tools/reel_look.py",
-    385,
     "apply_cdl",
-    "SetClipProperty"
+    "SetClipProperty",
+    3
   ],
   [
     "library/tools/reel_look.py",
-    386,
     "apply_cdl",
-    "SetClipProperty"
+    "SetClipProperty",
+    4
   ],
   [
     "library/tools/reel_otio_placement.py",
-    149,
-    "switch_project_default",
-    "SetSetting"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    150,
-    "switch_project_default",
-    "SetSetting"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    181,
-    "restore_project_default",
-    "SetSetting"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    183,
-    "restore_project_default",
-    "SetSetting"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    553,
-    "_move_into",
-    "MoveClips"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    610,
-    "relink_imported_items",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    617,
-    "relink_imported_items",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    690,
-    "restore_pool_markers",
-    "AddMarker"
-  ],
-  [
-    "library/tools/reel_otio_placement.py",
-    721,
     "_discard_mismatch_import",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/reel_otio_placement.py",
-    773,
-    "import_recorded",
-    "SetCurrentFolder"
+    "_move_into",
+    "MoveClips",
+    1
   ],
   [
     "library/tools/reel_otio_placement.py",
-    830,
     "import_recorded",
-    "ImportTimelineFromFile"
+    "ImportTimelineFromFile",
+    1
   ],
   [
     "library/tools/reel_otio_placement.py",
-    841,
     "import_recorded",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "import_recorded",
+    "SetCurrentFolder",
+    2
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "relink_imported_items",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "relink_imported_items",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "restore_pool_markers",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "restore_project_default",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "restore_project_default",
+    "SetSetting",
+    2
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "switch_project_default",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/tools/reel_otio_placement.py",
+    "switch_project_default",
+    "SetSetting",
+    2
   ],
   [
     "library/tools/reel_retirement.py",
-    307,
-    "retire_timelines",
-    "SetName"
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    318,
-    "retire_timelines",
-    "MoveClips"
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    365,
-    "delete_backups",
-    "DeleteTimelines"
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    427,
     "collect_superseded",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_backups",
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "retire_timelines",
+    "MoveClips",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "retire_timelines",
+    "SetName",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    1754,
-    "pool_item_for_path",
-    "ImportMedia"
+    "_add_rows",
+    "AddTrack",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    1915,
-    "_resolve_insertions",
-    "Insertion"
+    "_add_rows",
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    2196,
     "_cleanup_refused_staging",
-    "DeleteTimelines"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    2521,
-    "_add_rows",
-    "AddTrack"
-  ],
-  [
-    "library/tools/reel_touchup.py",
-    2529,
-    "_add_rows",
-    "SetTrackName"
-  ],
-  [
-    "library/tools/reel_touchup.py",
-    2694,
     "_import_entry_comp",
-    "ImportFusionComp"
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    2997,
     "_promote",
-    "SetName"
+    "SetName",
+    1
   ],
   [
     "library/tools/reel_touchup.py",
-    3002,
     "_promote",
-    "SetName"
+    "SetName",
+    2
+  ],
+  [
+    "library/tools/reel_touchup.py",
+    "_resolve_insertions",
+    "Insertion",
+    1
+  ],
+  [
+    "library/tools/reel_touchup.py",
+    "pool_item_for_path",
+    "ImportMedia",
+    1
   ],
   [
     "library/tools/resolve_axi.py",
-    4049,
-    "cmd_edit_place",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    4120,
     "_replace_item",
-    "AppendToTimeline"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/resolve_axi.py",
-    4259,
     "_restore_trim_snapshot",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/resolve_axi.py",
-    4406,
-    "cmd_edit_delete",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    4413,
-    "cmd_edit_delete",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    4737,
-    "cmd_edit_title",
-    "SetProperty"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    4897,
-    "cmd_edit_speed",
-    "SetSpeed"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    4966,
-    "cmd_edit_speed",
-    "SetSpeed"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    5270,
-    "cmd_ingest",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    5635,
-    "cmd_render_queue",
-    "LoadRenderPreset"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    5645,
-    "cmd_render_queue",
-    "AddRenderJob"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    5840,
-    "cmd_project_set",
-    "SetSettings"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    5844,
-    "cmd_project_set",
-    "SetSetting"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    6158,
-    "cmd_multicam_build",
-    "CreateMulticamClip"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    6455,
-    "cmd_color_lut",
-    "SetLUT"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    6579,
-    "cmd_color_group",
-    "AddColorGroup"
-  ],
-  [
-    "library/tools/resolve_axi.py",
-    6736,
     "cmd_audio_isolate",
-    "SetVoiceIsolationState"
+    "SetVoiceIsolationState",
+    1
   ],
   [
     "library/tools/resolve_axi.py",
-    7421,
+    "cmd_color_group",
+    "AddColorGroup",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_color_lut",
+    "SetLUT",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_delete",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_delete",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_place",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_speed",
+    "SetSpeed",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_speed",
+    "SetSpeed",
+    2
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_edit_title",
+    "SetProperty",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_ingest",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_multicam_build",
+    "CreateMulticamClip",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_project_set",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_project_set",
+    "SetSettings",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_render_queue",
+    "AddRenderJob",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
+    "cmd_render_queue",
+    "LoadRenderPreset",
+    1
+  ],
+  [
+    "library/tools/resolve_axi.py",
     "cmd_sense_mask",
-    "CreateMagicMask"
+    "CreateMagicMask",
+    1
   ],
   [
     "library/tools/resolve_bin_layout.py",
-    550,
     "ensure_bins",
-    "AddSubFolder"
+    "AddSubFolder",
+    1
   ],
   [
     "library/tools/resolve_bin_layout.py",
-    555,
     "ensure_bins",
-    "SetCurrentFolder"
+    "SetCurrentFolder",
+    1
   ],
   [
     "library/tools/resolve_lock.py",
-    1609,
     "assert_current_timeline",
-    "SetCurrentTimeline"
+    "SetCurrentTimeline",
+    1
   ],
   [
     "library/tools/resolve_scratch_projects.py",
-    196,
     "_write_project_setting",
-    "SetSettings"
+    "SetSetting",
+    1
   ],
   [
     "library/tools/resolve_scratch_projects.py",
-    198,
     "_write_project_setting",
-    "SetSetting"
+    "SetSettings",
+    1
   ],
   [
     "library/tools/resolve_scratch_projects.py",
-    276,
     "create",
-    "CreateProject"
+    "CreateEmptyTimeline",
+    1
   ],
   [
     "library/tools/resolve_scratch_projects.py",
-    284,
     "create",
-    "CreateEmptyTimeline"
+    "CreateProject",
+    1
   ],
   [
     "library/tools/resolve_scratch_projects.py",
-    313,
-    "import_project",
-    "ImportProject"
-  ],
-  [
-    "library/tools/resolve_scratch_projects.py",
-    370,
     "delete",
-    "DeleteProject"
+    "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "import_project",
+    "ImportProject",
+    1
   ],
   [
     "library/tools/resolve_swapback.py",
-    616,
-    "set_fusion_key",
-    "SetInput"
-  ],
-  [
-    "library/tools/resolve_swapback.py",
-    664,
     "delete_fusion_key",
-    "DeleteKeyFrames"
+    "DeleteKeyFrames",
+    1
+  ],
+  [
+    "library/tools/resolve_swapback.py",
+    "set_fusion_key",
+    "SetInput",
+    1
   ],
   [
     "library/tools/resolved/marker_loss_probe.py",
-    84,
     "_probe",
-    "DeleteMarkerAtFrame"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/resolved/marker_loss_probe.py",
-    108,
     "_probe",
-    "AddMarker"
+    "DeleteMarkerAtFrame",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    575,
-    "_restore_legacy_freeze",
-    "SetSpeed"
+    "_append_item",
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    588,
-    "_restore_legacy_freeze",
-    "SetClipEnabled"
+    "_append_item",
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    596,
-    "_restore_legacy_freeze",
-    "SetClipColor"
+    "_copy_captured_logo_state",
+    "SetClipColor",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    648,
+    "_copy_captured_logo_state",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_ending_copy.py",
     "_copy_clip_markers",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    674,
-    "_append_item",
-    "AppendToTimeline"
+    "_copy_reference_comp",
+    "AddFusionComp",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    691,
-    "_append_item",
-    "DeleteClips"
+    "_copy_reference_comp",
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    738,
-    "_copy_captured_logo_state",
-    "SetClipEnabled"
+    "_copy_reference_comp",
+    "DeleteFusionCompByName",
+    2
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    745,
-    "_copy_captured_logo_state",
-    "SetClipColor"
+    "_copy_reference_comp",
+    "ImportFusionComp",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    771,
+    "_restore_legacy_freeze",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_ending_copy.py",
+    "_restore_legacy_freeze",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_ending_copy.py",
+    "_restore_legacy_freeze",
+    "SetSpeed",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_ending_copy.py",
     "_restore_logo",
-    "DeleteClips"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    786,
     "_restore_logo",
-    "SetClipEnabled"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    790,
     "_restore_logo",
-    "SetClipColor"
+    "SetClipColor",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    795,
     "_restore_logo",
-    "AddMarker"
+    "SetClipEnabled",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    907,
     "_restore_target",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    928,
     "_restore_target",
-    "DeleteFusionCompByName"
+    "DeleteClips",
+    2
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    1003,
     "_restore_target",
-    "DeleteClips"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    1088,
-    "_copy_reference_comp",
-    "AddFusionComp"
-  ],
-  [
-    "library/tools/resolved/reel_ending_copy.py",
-    1101,
-    "_copy_reference_comp",
-    "DeleteFusionCompByName"
-  ],
-  [
-    "library/tools/resolved/reel_ending_copy.py",
-    1120,
-    "_copy_reference_comp",
-    "ImportFusionComp"
-  ],
-  [
-    "library/tools/resolved/reel_ending_copy.py",
-    1144,
-    "_copy_reference_comp",
-    "DeleteFusionCompByName"
-  ],
-  [
-    "library/tools/resolved/reel_ending_copy.py",
-    1357,
     "_run",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/resolved/reel_ending_copy.py",
-    1521,
     "_run",
-    "DeleteClips"
+    "DeleteClips",
+    2
   ],
   [
     "library/tools/resolved/reel_promotion_fixture.py",
-    53,
-    "_create_timeline",
-    "CreateEmptyTimeline"
-  ],
-  [
-    "library/tools/resolved/reel_promotion_fixture.py",
-    63,
-    "_create_timeline",
-    "AppendToTimeline"
-  ],
-  [
-    "library/tools/resolved/reel_promotion_fixture.py",
-    72,
-    "_create_timeline",
-    "SetTrackName"
-  ],
-  [
-    "library/tools/resolved/reel_promotion_fixture.py",
-    106,
     "_add_clip_marker",
-    "AddMarker"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/resolved/reel_promotion_fixture.py",
-    130,
     "_add_exportable_fusion_comp",
-    "AddFusionComp"
+    "AddFusionComp",
+    1
   ],
   [
     "library/tools/resolved/reel_promotion_fixture.py",
-    147,
     "_add_exportable_fusion_comp",
-    "AddTool"
+    "AddTool",
+    1
   ],
   [
     "library/tools/resolved/reel_promotion_fixture.py",
-    160,
     "_add_exportable_fusion_comp",
-    "SetInput"
+    "SetInput",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_promotion_fixture.py",
+    "_create_timeline",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_promotion_fixture.py",
+    "_create_timeline",
+    "CreateEmptyTimeline",
+    1
+  ],
+  [
+    "library/tools/resolved/reel_promotion_fixture.py",
+    "_create_timeline",
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/resolved/ui_transaction.py",
-    419,
-    "restore_context",
-    "SetCurrentTimeline"
-  ],
-  [
-    "library/tools/resolved/ui_transaction.py",
-    426,
-    "restore_context",
-    "SetCurrentTimecode"
-  ],
-  [
-    "library/tools/resolved/ui_transaction.py",
-    452,
     "_establish",
-    "SetCurrentTimeline"
+    "SetCurrentTimecode",
+    1
   ],
   [
     "library/tools/resolved/ui_transaction.py",
-    468,
     "_establish",
-    "SetCurrentTimecode"
+    "SetCurrentTimeline",
+    1
+  ],
+  [
+    "library/tools/resolved/ui_transaction.py",
+    "restore_context",
+    "SetCurrentTimecode",
+    1
+  ],
+  [
+    "library/tools/resolved/ui_transaction.py",
+    "restore_context",
+    "SetCurrentTimeline",
+    1
   ],
   [
     "library/tools/resource_leases.py",
-    400,
-    "take_track_lock",
-    "SetTrackLock"
-  ],
-  [
-    "library/tools/resource_leases.py",
-    412,
     "release_track_lock",
-    "SetTrackLock"
+    "SetTrackLock",
+    1
+  ],
+  [
+    "library/tools/resource_leases.py",
+    "take_track_lock",
+    "SetTrackLock",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    99,
     "_remove_guides",
-    "DeleteTrack"
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    124,
     "place_on_timeline",
-    "AddTrack"
+    "AddTrack",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    127,
     "place_on_timeline",
-    "SetTrackName"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    133,
     "place_on_timeline",
-    "ImportMedia"
+    "DeleteTrack",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    136,
     "place_on_timeline",
-    "AppendToTimeline"
+    "ImportMedia",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    154,
     "place_on_timeline",
-    "SetClipEnabled"
+    "SetClipEnabled",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    156,
     "place_on_timeline",
-    "DeleteTrack"
+    "SetTrackEnable",
+    1
   ],
   [
     "library/tools/safe_zone_guide.py",
-    161,
     "place_on_timeline",
-    "SetTrackEnable"
+    "SetTrackName",
+    1
   ],
   [
     "library/tools/segment_renderer.py",
-    275,
     "render_batch",
-    "SetCurrentRenderFormatAndCodec"
+    "SetCurrentRenderFormatAndCodec",
+    1
   ],
   [
     "library/tools/still_dedupe.py",
-    471,
     "_apply_repoint",
-    "DeleteClips"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/still_dedupe.py",
-    517,
     "_apply_repoint",
-    "AddMarker"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/still_dedupe.py",
-    563,
     "_restore_repoints",
-    "DeleteClips"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    783,
+    "_apply_swap",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/still_overlays.py",
+    "_apply_swap",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/still_overlays.py",
+    "_apply_swap",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/still_overlays.py",
+    "_apply_swap",
+    "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/still_overlays.py",
+    "_apply_swap",
+    "SetCurrentFolder",
+    2
+  ],
+  [
+    "library/tools/still_overlays.py",
     "_resize_existing_still",
-    "DeleteClips"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    829,
     "_resize_existing_still",
-    "AddMarker"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    884,
-    "_apply_swap",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/still_overlays.py",
-    885,
-    "_apply_swap",
-    "ImportMedia"
-  ],
-  [
-    "library/tools/still_overlays.py",
-    888,
-    "_apply_swap",
-    "SetCurrentFolder"
-  ],
-  [
-    "library/tools/still_overlays.py",
-    928,
-    "_apply_swap",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/still_overlays.py",
-    973,
-    "_apply_swap",
-    "AddMarker"
-  ],
-  [
-    "library/tools/still_overlays.py",
-    1021,
     "_restore_swaps",
-    "DeleteClips"
+    "AddMarker",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    1055,
     "_restore_swaps",
-    "DeleteClips"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    1080,
     "_restore_swaps",
-    "AppendToTimeline"
+    "DeleteClips",
+    1
   ],
   [
     "library/tools/still_overlays.py",
-    1121,
     "_restore_swaps",
-    "AddMarker"
+    "DeleteClips",
+    2
   ],
   [
     "library/tools/still_overlays.py",
-    1133,
     "_restore_swaps",
-    "DeleteClips"
+    "DeleteClips",
+    3
   ],
   [
     "library/tools/still_placement.py",
-    121,
     "place_still_exact",
-    "ImportUserPreferencesPreset"
+    "AppendToTimeline",
+    1
   ],
   [
     "library/tools/still_placement.py",
-    126,
     "place_still_exact",
-    "LoadUserPreferencesPreset"
+    "DeleteUserPreferencesPreset",
+    1
   ],
   [
     "library/tools/still_placement.py",
-    132,
     "place_still_exact",
-    "AppendToTimeline"
+    "ImportUserPreferencesPreset",
+    1
   ],
   [
     "library/tools/still_placement.py",
-    181,
     "place_still_exact",
-    "LoadUserPreferencesPreset"
+    "LoadUserPreferencesPreset",
+    1
   ],
   [
     "library/tools/still_placement.py",
-    204,
     "place_still_exact",
-    "DeleteUserPreferencesPreset"
+    "LoadUserPreferencesPreset",
+    2
   ],
   [
     "library/tools/still_track_item.py",
-    149,
-    "remove_still_track_item",
-    "Delete"
-  ],
-  [
-    "library/tools/still_track_item.py",
-    176,
     "_add_video_track",
-    "AddTrack"
+    "AddTrack",
+    1
+  ],
+  [
+    "library/tools/still_track_item.py",
+    "remove_still_track_item",
+    "Delete",
+    1
   ],
   [
     "library/tools/timeline_decisions.py",
-    757,
     "stamp_timeline",
-    "UpdateMarkerCustomData"
+    "UpdateMarkerCustomData",
+    1
   ],
   [
     "library/tools/transform_write_log.py",
-    290,
-    "set_property",
-    "SetProperty"
-  ],
-  [
-    "library/tools/transform_write_log.py",
-    313,
     "set_keyframe",
-    "SetKeyframe"
+    "SetKeyframe",
+    1
+  ],
+  [
+    "library/tools/transform_write_log.py",
+    "set_property",
+    "SetProperty",
+    1
   ],
   [
     "library/tools/undo_journal.py",
-    1941,
-    "undo_in_place",
-    "Insertion"
-  ],
-  [
-    "library/tools/undo_journal.py",
-    2006,
-    "undo_in_place",
-    "DeleteTrack"
-  ],
-  [
-    "library/tools/undo_journal.py",
-    2051,
-    "_write_inverse",
-    "DeleteClips"
-  ],
-  [
-    "library/tools/undo_journal.py",
-    2108,
-    "_write_inverse",
-    "SetClipColor"
-  ],
-  [
-    "library/tools/undo_journal.py",
-    2138,
     "_revert_in_place",
-    "SetClipEnabled"
+    "DeleteFusionCompByName",
+    1
   ],
   [
     "library/tools/undo_journal.py",
-    2151,
     "_revert_in_place",
-    "DeleteFusionCompByName"
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/undo_journal.py",
+    "_write_inverse",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/undo_journal.py",
+    "_write_inverse",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/undo_journal.py",
+    "undo_in_place",
+    "DeleteTrack",
+    1
+  ],
+  [
+    "library/tools/undo_journal.py",
+    "undo_in_place",
+    "Insertion",
+    1
   ],
   [
     "library/tools/versions/checkpoints.py",
-    192,
     "restore_project",
-    "ImportProject"
+    "ImportProject",
+    1
   ],
   [
     "library/tools/versions/variants.py",
-    1647,
     "choose",
-    "SetName"
+    "DeleteTimelines",
+    1
   ],
   [
     "library/tools/versions/variants.py",
-    1737,
     "choose",
-    "DeleteTimelines"
+    "SetName",
+    1
   ]
 ]

@@ -69,6 +69,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from library.tools import otio_compile
+from library.tools.resolve_temporal import append_fields
 
 
 class OtioPlacementRefused(RuntimeError):
@@ -616,11 +617,8 @@ def relink_imported_items(pool, timeline, recorder: PlacementRecorder,
             before = _speech_row_uids(timeline, track_plan)
             placed = pool.AppendToTimeline([{
                 "mediaPoolItem": pooled,
-                "startFrame": spec.source_in,
-                "endFrame": spec.source_out,
-                "mediaType": spec.media_type,
-                "trackIndex": spec.track,
-                "recordFrame": spec.record,
+                **append_fields(spec.source_in, spec.source_out,
+                                spec.record, spec.track, spec.media_type),
             }])
             if not placed:
                 raise OtioPlacementRefused(

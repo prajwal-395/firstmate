@@ -1,8 +1,8 @@
 """Every statically dispatched Resolve mutation is present in the P0.1 registry.
 
-The registry is keyed by source file, containing function, and method.  Line
-numbers are deliberately excluded so routine edits do not churn the inventory.
-Dynamic dispatch is listed separately in the inventory and reviewed manually.
+The registry is keyed by file, enclosing function, method, and occurrence within
+that function. Line numbers are excluded from identity so routine edits do not
+churn the inventory. Dynamic dispatch is listed separately in the inventory.
 """
 import ast
 import json
@@ -23,18 +23,17 @@ MUTATION_PREFIXES = (
 IGNORED_GENERIC = {"append", "add", "update", "write", "remove"}
 
 
-def _key(path, node, parents):
+def _function_name(parents):
     function = "<module>"
     for parent in reversed(parents):
         if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
             function = parent.name
             break
-    return (path.relative_to(ROOT).as_posix(), node.lineno, function,
-            node.func.attr)
+    return function
 
 
 def _sites():
-    found = set()
+    calls = []
     for path in LIBRARY.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
@@ -43,10 +42,19 @@ def _sites():
             if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr.startswith(MUTATION_PREFIXES)
                     and node.func.attr not in IGNORED_GENERIC):
-                found.add(_key(source_path, node, parents))
+                calls.append((source_path.relative_to(ROOT).as_posix(),
+                              node.lineno, node.col_offset,
+                              _function_name(parents), node.func.attr))
             for child in ast.iter_child_nodes(node):
                 visit(child, [*parents, node], source_path)
         visit(tree, [], path)
+    occurrences = {}
+    found = set()
+    for path, _line, _column, function, method in sorted(calls):
+        base = (path, function, method)
+        occurrence = occurrences.get(base, 0) + 1
+        occurrences[base] = occurrence
+        found.add((*base, occurrence))
     return found
 
 
