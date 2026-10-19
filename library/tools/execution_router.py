@@ -345,6 +345,51 @@ def route_no_op(*, reason: str, context: Mapping | None = None) -> ExecutionDeci
     )
 
 
+#: The report words for a request the recorded state already satisfies.
+#: Callers print this verbatim so a no-op reads as satisfied, never as
+#: a skipped or failed edit.
+ALREADY_SATISFIED = "already satisfied"
+
+
+def decision_for_prepared_request(prepared, *, operations: Sequence[dict] | None = None,
+                                  context: Mapping | None = None) -> ExecutionDecision | None:
+    """The no-op decision for a prepared request, or None when work remains.
+
+    VC-16: the preparation stage detects identical values before any
+    asset is generated (`edit_preparation._check_no_write`), and the
+    router turns that finding into the cheapest successful edit here:
+    no staging timeline, no Resolve write, no render. The decision is
+    taken ONLY on verified recorded state - `ready` with no refusals
+    and `no_write_needed`. Anything else (no base snapshot, refused
+    identities, changes outstanding, an unreadable finding) returns
+    None so the caller proceeds down its normal path: an UNVERIFIED
+    live state is never reported as an unchanged recorded one.
+    """
+    ready = getattr(prepared, "ready", None)
+    no_write_needed = getattr(prepared, "no_write_needed", None)
+    finding_reason = ""
+    if ready is None or no_write_needed is None:
+        if isinstance(prepared, Mapping):
+            ready = prepared.get("ready", ready)
+            no_write_needed = prepared.get("no_write_needed", no_write_needed)
+            finding = prepared.get("no_write") or {}
+            finding_reason = str(finding.get("reason") or "") if isinstance(
+                finding, Mapping) else ""
+        else:
+            return None
+    else:
+        finding = getattr(prepared, "no_write", None)
+        finding_reason = str(getattr(finding, "reason", "") or "")
+    if ready is True and no_write_needed is True:
+        detail = f" - {finding_reason}" if finding_reason else ""
+        return route_no_op(
+            reason=f"{ALREADY_SATISFIED}: recorded state already holds "
+                   f"every requested value{detail}",
+            context=context,
+        )
+    return None
+
+
 def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> ExecutionDecision:
     """Choose a backend for an already compiled edit and explain every choice.
 

@@ -170,17 +170,37 @@ def _plan_request(request) -> dict[str, Any]:
         raise ValueError(
             "request does not prepare: " + "; ".join(result.refusals))
     compiled = compile_request(request, snapshot)
-    return {
+    # VC-16: a request the recorded state already satisfies takes the
+    # router's no-op route at plan time - before any asset is
+    # generated, no staging, no Resolve write. `decision_for_...`
+    # returns None for anything unverified (no base, refusals,
+    # changes outstanding), which keeps the normal backend choice.
+    from library.tools import execution_router as _router
+
+    no_op = _router.decision_for_prepared_request(result)
+    if no_op is not None:
+        routing = no_op.as_dict()
+        backend: str | None = "no_op"
+        backend_reason = str(no_op.reasons[0]) if no_op.reasons else (
+            "already satisfied: recorded state already holds every "
+            "requested value")
+        needs_capability = False
+    else:
+        routing = None
+        backend = None
+        backend_reason = ("a request names meaning, not a backend - "
+                          "the router assigns one from qualification")
+        needs_capability = True
+    plan = {
         "status": "planned",
         "request_id": request.id,
         "transaction_id": request.id,
         "project": request.project,
         "timeline": request.timeline,
         "base_generation": generation.generation,
-        "backend": None,
-        "backend_reason": ("a request names meaning, not a backend - "
-                           "the router assigns one from qualification"),
-        "needs_capability": True,
+        "backend": backend,
+        "backend_reason": backend_reason,
+        "needs_capability": needs_capability,
         "operations": [dict(operation)
                        for operation in compiled.operations],
         "affected_spans": [list(span)
@@ -192,6 +212,9 @@ def _plan_request(request) -> dict[str, Any]:
         "resolve_contacted": False,
         "mutated": False,
     }
+    if routing is not None:
+        plan["routing"] = routing
+    return plan
 
 
 def plan_transaction(transaction) -> dict[str, Any]:

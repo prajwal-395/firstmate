@@ -760,9 +760,9 @@ def decide(reel: str, fresh_derivation: Optional[str],
                         "preserve the drift",
                         fresh_derivation, live_carried, recorded)
     return Decision(reel, LEAVE_ALONE,
-                    "derivation and carried timeline both match the "
-                    "recorded build - placing it again would produce "
-                    "the same frames",
+                    "already satisfied: derivation and carried timeline "
+                    "both match the recorded build - placing it again "
+                    "would produce the same frames",
                     fresh_derivation, live_carried, recorded)
 
 

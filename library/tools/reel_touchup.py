@@ -2297,6 +2297,96 @@ def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
     return report
 
 
+def _values_equal(got, want) -> bool:
+    """One requested value against what the timeline reads, tolerantly.
+
+    Mirrors `edit_preparation._op_already_satisfied`: exact equality,
+    with a 1e-6 tolerance for float pairs so a repr difference never
+    reads as a content change.
+    """
+    if got == want:
+        return True
+    return (isinstance(got, float) and isinstance(want, float)
+            and abs(got - want) <= 1e-6)
+
+
+def _live_in_place_no_op(qualification: Qualification,
+                         tracks: Sequence[Mapping]) -> str | None:
+    """Why this touch-up needs no write, judged against the live read.
+
+    VC-16: the no-op path as the cheapest successful edit. Only a pure
+    in-place spec qualifies - `set_properties`/`set_enabled` writes with
+    no delete, no place, no row, no move - and only when EVERY
+    requested value already reads identical on the live timeline the
+    gate just qualified. The answer is a reason string, or None.
+
+    None means "not proven satisfied", never "satisfied": a value that
+    differs falls through to the normal staged path (a write IS
+    needed), and a value that cannot be judged - a missing item, an
+    unreadable enabled state (`None` stays unknown, never `False`),
+    an unspoken transform (`{}` is "Resolve did not say", never
+    identity) - also falls through. An UNVERIFIED live state proceeds
+    to staging and read-back verification; it is never reported as an
+    unchanged one.
+    """
+    if (qualification.changes or qualification.insertions
+            or qualification.removals or qualification.moves
+            or qualification.new_rows):
+        return None
+    if not qualification.in_place:
+        return None
+    by_row: dict = {}
+    for track in tracks or ():
+        try:
+            row = _row_of(track["type"], int(track["index"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        by_row.setdefault(row, list(track.get("clips") or ()))
+    matched: list[str] = []
+    for entry in qualification.in_place:
+        if not isinstance(entry, Mapping):
+            return None
+        kind = str(entry.get("kind") or "")
+        row = str(entry.get("row") or "").upper()
+        try:
+            position = int(entry.get("item_index"))
+        except (TypeError, ValueError):
+            return None
+        clips = by_row.get(row) or ()
+        if not 0 <= position < len(clips):
+            return None
+        clip = clips[position]
+        if not isinstance(clip, Mapping):
+            return None
+        if kind == "set_enabled":
+            live = clip.get("enabled")
+            if live is None:
+                return None
+            if bool(live) is not bool(entry.get("enabled")):
+                return None
+            matched.append(
+                f"{row}[{position}] enabled already reads {bool(live)}")
+        elif kind == "set_properties":
+            wanted = entry.get("properties") or {}
+            if not isinstance(wanted, Mapping) or not wanted:
+                return None
+            transform = clip.get("transform")
+            scope = transform if isinstance(transform, Mapping) else {}
+            for key, want in wanted.items():
+                got = scope.get(key, clip.get(key))
+                if got is None or not _values_equal(got, want):
+                    return None
+                matched.append(
+                    f"{row}[{position}] {key} already reads {got!r}")
+        else:
+            # `entry_motion` and anything new: stage and verify.
+            return None
+    if not matched:
+        return None
+    return ("already satisfied: " + "; ".join(matched)
+            + " - no Resolve write is needed")
+
+
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -2487,6 +2577,34 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     receipt["dirty"] = _dirty_regions.dirty_from_spec(
         spec, tracks, first_frame=_live_prop(source, "GetStartFrame"),
         end_frame=_live_prop(source, "GetEndFrame"), fps=fps)
+
+    # VC-16: the no-op path as the cheapest successful edit. A pure
+    # in-place spec whose requested values the live timeline already
+    # reads returns here with "already satisfied": no undo-journal
+    # entry (the way back for a change), no timeline inventory, no
+    # staging duplicate, and further down no Git branch/commit,
+    # Project Model change, promotion, retirement or recovery
+    # archive - there is no change to record or recover. An
+    # unjudgeable spec falls through to staging and read-back
+    # verification; an unverified live state is never reported as
+    # an unchanged one.
+    no_op_reason = _live_in_place_no_op(qualification, tracks)
+    if no_op_reason is not None:
+        from library.tools import execution_router as _router
+
+        no_op_routing = _router.route_no_op(
+            reason=no_op_reason, context={"reel": final})
+        receipt["status"] = "already_satisfied"
+        receipt["reason"] = no_op_reason
+        receipt["routing"] = no_op_routing.as_dict()
+        receipt["mutated"] = False
+        receipt["staging_created"] = False
+        receipt["receipt_path"] = ""
+        receipt["seconds"] = round(time.time() - started, 3)
+        print(f"touch-reel {final}: already satisfied - "
+              f"no write issued", flush=True)
+        print(f"  {no_op_reason}", flush=True)
+        return receipt
 
     # The rederiver, chosen by the gate class - never by a flag.
     manifest = None

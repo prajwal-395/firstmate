@@ -3895,8 +3895,13 @@ def cmd_touch_reel(args):
             sys.exit(1)
         for entry in summary.get("reels") or ():
             if entry.get("ok"):
-                print(f"Touched {entry['final']!r} "
-                      f"(reel {entry['reel']})")
+                if ((entry.get("receipt") or {}).get("status")
+                        == "already_satisfied"):
+                    print(f"Already satisfied {entry['final']!r} "
+                          f"(reel {entry['reel']}) - no write issued")
+                else:
+                    print(f"Touched {entry['final']!r} "
+                          f"(reel {entry['reel']})")
             else:
                 print(f"Reel {entry['reel']} "
                       f"({entry.get('final') or 'unnamed'}): REFUSED - "
@@ -3951,6 +3956,15 @@ def cmd_touch_reel(args):
         sys.exit(1)
 
     gate = receipt.get("gate", {})
+    if receipt.get("status") == "already_satisfied":
+        print(f"Already satisfied {receipt['final']!r} "
+              f"({gate.get('class', 'unqualified')}) - no write issued, "
+              f"revision unchanged")
+        print(f"  {receipt.get('reason', '')}")
+        print(f"  staged+composed+verified in "
+              f"{receipt.get('seconds', '?')}s wall clock "
+              f"(nothing staged, nothing promoted)")
+        return
     print(f"Touched {receipt['final']!r} "
           f"({gate.get('class', 'unqualified')})")
     print(f"  cost: {gate.get('cost', '')}")
@@ -3967,7 +3981,7 @@ def cmd_touch_reel(args):
     print(f"  verification read: {json.dumps(receipt.get('verification_read', {}))}")
     from library.tools.dirty_regions import describe as _describe_dirty
     print(f"  dirty: {_describe_dirty(receipt['dirty'])}")
-    print(f"  receipt: {receipt['receipt_path']} (re-check only what "
+    print(f"  receipt: {receipt.get('receipt_path') or '(none - nothing was written)'} (re-check only what "
           f"changed: --dirty-receipt <it> on verify_render, ren watch "
           f"and the conformance verifier)")
     if receipt.get("retirement"):
