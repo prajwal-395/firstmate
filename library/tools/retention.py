@@ -95,6 +95,7 @@ import hashlib
 import os
 import re
 import shutil
+import stat
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -291,6 +292,7 @@ class Candidate:
     identity: tuple = ()
     eligible_after: str = ""
     deletion_class: str = RECOVERABLE
+    allocated_bytes: int = 0
 
 
 def _reclaimable_bytes(candidates: list[Candidate]) -> int:
@@ -309,6 +311,37 @@ def _reclaimable_bytes(candidates: list[Candidate]) -> int:
         if listed >= links:
             total += size
     return total
+
+
+def _physical_reclaimable_bytes(candidates: list[Candidate]) -> int:
+    """Estimate allocated bytes freed, counting only fully removed inodes."""
+    by_inode: dict[tuple[int, int], list[int]] = {}
+    total = 0
+    for candidate in candidates:
+        allocated = candidate.allocated_bytes or candidate.size_bytes
+        if not candidate.inode:
+            total += allocated
+            continue
+        entry = by_inode.setdefault(
+            tuple(candidate.inode[:2]), [allocated, candidate.inode[2], 0])
+        entry[2] += 1
+    for allocated, links, listed in by_inode.values():
+        if listed >= links:
+            total += allocated
+    return total
+
+
+def _free_space_snapshot(project_folder: str, *, required: bool = True) -> int | None:
+    """Read actual free space on the project filesystem for purge receipts."""
+    try:
+        return shutil.disk_usage(project_folder).free
+    except OSError as exc:
+        if not required:
+            return None
+        raise PurgeRefused(
+            f"cannot measure free space for {project_folder}: {exc}",
+            "physical recovery cannot be verified; nothing further was removed",
+            "restore filesystem access and retry the manifest") from exc
 
 
 @dataclass
@@ -364,6 +397,22 @@ def _stat_candidate(path: str, category: str, reason: str,
     is_dir = os.path.isdir(path) and not os.path.islink(path)
     size = gc._tree_size(path) if is_dir else st.st_size
     inode = () if is_dir else (st.st_dev, st.st_ino, st.st_nlink)
+    if is_dir:
+        allocated_inodes = {}
+        for root, _, files in os.walk(path, followlinks=False):
+            for name in files:
+                child = Path(root) / name
+                info = os.lstat(child)
+                if stat.S_ISREG(info.st_mode):
+                    entry = allocated_inodes.setdefault(
+                        (info.st_dev, info.st_ino),
+                        [getattr(info, "st_blocks", 0) * 512,
+                         info.st_nlink, 0])
+                    entry[2] += 1
+        allocated = sum(size for size, links, inside in allocated_inodes.values()
+                        if inside >= links)
+    else:
+        allocated = getattr(st, "st_blocks", 0) * 512
     deletion_class = DISPOSABLE if category == SCRATCH else RECOVERABLE
     if path.endswith(NEVER_PURGE_SUFFIXES):
         deletion_class = RECOVERY_CRITICAL
@@ -373,7 +422,8 @@ def _stat_candidate(path: str, category: str, reason: str,
                      identity=(st.st_dev, st.st_ino, st.st_mode,
                                st.st_size, st.st_mtime_ns),
                      eligible_after=eligible_after,
-                     deletion_class=deletion_class)
+                     deletion_class=deletion_class,
+                     allocated_bytes=allocated)
 
 
 def _quarantine_eligible_after(path: str, quarantine_root: Path):
@@ -847,6 +897,11 @@ def apply_purge(manifest_path: str, db_paths,
                   "manifest": manifest_path, "removed": progress["removed"],
                   "removed_count": len(progress["removed"]),
                   "bytes": progress["bytes"],
+                  "space_recovery": {"verified": True,
+                                     "free_bytes_before": None,
+                                     "free_bytes_after": None,
+                                     "physical_bytes_freed": 0,
+                                     "hardlink_aware_expected_bytes": 0},
                   "quarantined": progress["quarantined"]}
         data = planned.to_dict()
         data["applied"] = record
@@ -968,6 +1023,8 @@ def apply_purge(manifest_path: str, db_paths,
             [by_path[p] for p in progress["removed"]])
         persist_progress()
 
+    free_before_delete = _free_space_snapshot(planned.project_folder)
+    removed_this_apply = []
     for path in actionable:
         if path in recovered or path not in now:
             continue
@@ -1001,16 +1058,35 @@ def apply_purge(manifest_path: str, db_paths,
         progress["deleting"].remove(path)
         deleting.remove(path)
         progress["removed"].append(path)
+        removed_this_apply.append(path)
         progress["bytes"] = _reclaimable_bytes(
             [by_path[p] for p in progress["removed"]])
         completed.add(path)
         persist_progress()
     _drop_empty_dirs(planned.project_folder)
+    free_after_delete = _free_space_snapshot(
+        planned.project_folder, required=False)
+    expected_freed = _physical_reclaimable_bytes(
+        [by_path[path] for path in removed_this_apply if path in by_path])
+    observed_delta = (free_after_delete - free_before_delete
+                      if free_after_delete is not None else None)
     record = {"applied_at": datetime.now(UTC).isoformat(),
               "manifest": manifest_path, "removed": progress["removed"],
               "removed_count": len(progress["removed"]),
               "bytes": progress["bytes"],
+              "space_recovery": {
+                  "verified": (observed_delta is not None
+                               and observed_delta >= expected_freed),
+                  "free_bytes_before": free_before_delete,
+                  "free_bytes_after": free_after_delete,
+                  "free_space_delta_bytes": observed_delta,
+                  "physical_bytes_freed": max(0, observed_delta or 0),
+                  "hardlink_aware_expected_bytes": expected_freed,
+              },
               "quarantined": progress["quarantined"]}
+    if free_after_delete is None:
+        record["space_recovery"]["measurement_error"] = (
+            "free-space read failed after deletion")
     data = planned.to_dict()
     data["applied"] = record
     plan_json.write_text(

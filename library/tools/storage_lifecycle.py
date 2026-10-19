@@ -197,7 +197,109 @@ def legacy_inventory(*, output: str, roots: list[tuple[str, str | Path]] | None 
     return {**document, "manifest": str(path)}
 
 
-def reconcile(projects: list[str], *, now: datetime | None = None) -> dict:
+def _resolve_event_logs(projects: list[str]) -> list[Path]:
+    from library.tools import event_log
+    from library.tools.resolve_lock import instance_lock_dir
+
+    paths = [event_log.log_path(project) for project in projects]
+    paths.append(instance_lock_dir() / event_log.EVENT_LOG_FILE)
+    return list(dict.fromkeys(Path(path) for path in paths))
+
+
+def _resolve_identity_key(identity: dict) -> str:
+    if not isinstance(identity, dict):
+        return ""
+    fields = ("object_type", "project_unique_id", "object_unique_id")
+    return json.dumps({key: identity.get(key) for key in fields}, sort_keys=True)
+
+
+def _resolve_census_status(row: dict, project_id: str,
+                           observed_keys: set[str]) -> str:
+    if row.get("project_id") != project_id:
+        return "outside_census_scope"
+    if _resolve_identity_key(row.get("identity")) in observed_keys:
+        return "present"
+    return "orphaned_recorded_identity"
+
+
+def resolve_legacy_census(projects: list[str]) -> dict:
+    """Compare recorded Resolve identities with a leased live-project census.
+
+    Only the currently open project is inspected: the API exposes that
+    project's exact IDs without switching the captain's project context.
+    Other recorded project IDs remain out of scope and are reported as
+    unverified for explicit review, never inferred absent from their names.
+    """
+    from library.tools import event_log, resolve_lock
+
+    rows_by_id: dict[str, dict] = {}
+    legacy = []
+    for log_path in _resolve_event_logs(projects):
+        if not log_path.exists():
+            continue
+        for row in lifecycle.resolve_artifacts(log_path):
+            rows_by_id[row["artifact_id"]] = row
+        for event in event_log.read_events_path(log_path):
+            if event.get("type") == "qualification_resolve_resource":
+                legacy.append({**event.get("fields", {}),
+                               "verification": "unverified",
+                               "reason": "legacy Resolve record requires manual identity review"})
+
+    with resolve_lock.resolve_lease(
+            "legacy Resolve lifecycle census", exclusive=True,
+            timeout=0, description="Read exact recorded Resolve identities"):
+        from library.tools.marker_feedback import connect_resolve
+
+        resolve = connect_resolve()
+        manager = resolve.GetProjectManager()
+        project = manager.GetCurrentProject()
+        if project is None:
+            raise lifecycle.LifecycleRefused(
+                "Resolve has no current project; census cannot establish its scope")
+        project_id = str(project.GetUniqueId() or "")
+        if not project_id:
+            raise lifecycle.LifecycleRefused(
+                "Resolve current project has no readable unique id")
+        project_name = str(project.GetName() or "")
+        current_project = {"object_type": "project",
+                           "project_unique_id": project_id,
+                           "object_unique_id": project_id}
+        observed = {json.dumps(current_project, sort_keys=True): current_project}
+        count = int(project.GetTimelineCount())
+        for index in range(1, count + 1):
+            timeline = project.GetTimelineByIndex(index)
+            if timeline is None:
+                raise lifecycle.LifecycleRefused(
+                    f"Resolve timeline {index} could not be read")
+            timeline_id = str(timeline.GetUniqueId() or "")
+            if not timeline_id:
+                raise lifecycle.LifecycleRefused(
+                    f"Resolve timeline {index} has no readable unique id")
+            identity = {"object_type": "timeline",
+                        "project_unique_id": project_id,
+                        "object_unique_id": timeline_id}
+            observed[json.dumps(identity, sort_keys=True)] = identity
+
+    observed_keys = {_resolve_identity_key(identity)
+                     for identity in observed.values()}
+    census = []
+    for artifact_id, row in sorted(rows_by_id.items()):
+        identity = row.get("identity")
+        status = _resolve_census_status(row, project_id, observed_keys)
+        census.append({"artifact_id": artifact_id, "identity": identity,
+                       "state": row.get("state"), "census": status,
+                       "automatic_deletion": False})
+    return {"scope": {"project_unique_id": project_id,
+            "project_name": project_name,
+                      "kind": "currently_open_project"},
+            "recorded": census, "legacy_unverified": legacy,
+            "review_required": len(legacy) + sum(
+                row["census"] != "present" for row in census),
+            "automatic_deletion": False}
+
+
+def reconcile(projects: list[str], *, now: datetime | None = None,
+              resolve_maintenance_window: bool = False) -> dict:
     """Lightweight lifecycle reconciliation; deletion remains manifest-gated."""
     from library.tools import artifact_lifecycle as lifecycle
     from library.tools import event_log
@@ -245,9 +347,13 @@ def reconcile(projects: list[str], *, now: datetime | None = None) -> dict:
                                             for job in queued],
                         "worker_required": bool(recovered or retried),
                         "record_filesystem_drift": drift,
-                        "expired_quarantine_review": expired,
-                        "resolve_census": "deferred to maintenance window"})
-    return {"projects": results, "automatic_deletion": False}
+                        "expired_quarantine_review": expired})
+    report = {"projects": results, "automatic_deletion": False}
+    if resolve_maintenance_window:
+        report["resolve_census"] = resolve_legacy_census(projects)
+    else:
+        report["resolve_census"] = "deferred to maintenance window"
+    return report
 
 
 def startup_reconcile() -> dict:

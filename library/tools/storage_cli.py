@@ -83,6 +83,17 @@ def _render(data: dict, as_json: bool) -> None:
     if "review_required" in data:
         print(f"Legacy resources             {len(data.get('resources', []))}")
         print(f"Review required               {data['review_required']}")
+    census = data.get("resolve_census")
+    if isinstance(census, dict):
+        print("Resolve census                "
+              f"{len(census.get('recorded', []))} recorded identity(ies); "
+              f"{census.get('review_required', 0)} require review")
+        for row in census.get("recorded", []):
+            if row.get("census") != "present":
+                print(f"  {row['census']}: {row['artifact_id']}")
+        for row in census.get("legacy_unverified", []):
+            label = row.get("object_name") or row.get("timeline") or "unknown"
+            print(f"  unverified legacy Resolve resource: {label}")
     for project in data.get("projects", []):
         print(f"Reconciled                    {project['project']}")
         for key in ("abandoned_jobs_recovered", "refused_jobs_retried",
@@ -112,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("--json", action="store_true")
     reconcile = sub.add_parser("reconcile")
     reconcile.add_argument("project", nargs="?", help="project path or slug; defaults to all registered projects")
+    reconcile.add_argument(
+        "--resolve-maintenance-window", action="store_true",
+        help="take Resolve's exclusive lease and census the currently open project's exact IDs")
     reconcile.add_argument("--json", action="store_true")
     legacy = sub.add_parser("legacy-inventory")
     legacy.add_argument("--manifest", default="ren-legacy-inventory.json")
@@ -128,7 +142,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.operation == "plan-preview":
             result = storage_lifecycle.plan_document(_projects(args.project))
         elif args.operation == "reconcile":
-            result = storage_lifecycle.reconcile(_projects(args.project))
+            result = storage_lifecycle.reconcile(
+                _projects(args.project),
+                resolve_maintenance_window=args.resolve_maintenance_window)
             result["cleanup_workers_started"] = start_cleanup_workers(result)
         elif args.operation == "legacy-inventory":
             roots = []
