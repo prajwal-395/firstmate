@@ -1,0 +1,191 @@
+"""Semantic request adapters for existing Resolve edit workflows.
+
+These functions only bind operation ids to already-owned physical
+executors. Qualification remains in ``edit_algebra.OP_STATUS`` and routing
+remains in ``execution_router``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+
+def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
+    hits = []
+    for track in snapshot["tracks"]:
+        for index, clip in enumerate(track["clips"]):
+            if clip["unique_id"] == unique_id:
+                from library.tools.reel_touchup import _row_of
+
+                hits.append((_row_of(track["type"], int(track["index"])), index))
+    if len(hits) != 1:
+        raise ValueError(
+            f"target {unique_id!r} resolved to {len(hits)} timeline items")
+    return hits[0]
+
+
+def _verified_command(context, command: list[str], operation_id: str,
+                      recovery_action: str) -> dict:
+    from library.tools.resolve_axi_core import execute
+
+    result = execute(command)
+    if not result.ok:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip()
+                           or f"AXI command for {operation_id} failed")
+    if "verified: yes" not in result.stdout:
+        raise RuntimeError(
+            f"AXI command for {operation_id} returned no verified read-back")
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": operation_id,
+        "request_id": context.request.id,
+        "readback": {"stdout": result.stdout},
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": operation_id, "passed": True},),
+                "evidence": {"axi_output": result.stdout},
+            },
+            "recovery": {"status": "recorded", "action": recovery_action},
+        },
+    }
+
+
+def _trim(context) -> dict:
+    operation = context.operation
+    unique_id = str(operation["unique_id"])
+    row, index = _target_position(context.snapshot, unique_id)
+    clips = context.snapshot["tracks"]
+    clip = next(
+        clip for track in clips for clip in track["clips"]
+        if clip["unique_id"] == unique_id)
+    source_in = int(clip["source_in_frame"]) + (
+        int(operation["in_frame"]) - int(clip["record_in"]))
+    source_out = int(clip["source_out_frame"]) - (
+        int(clip["record_out"]) - int(operation["out_frame"]))
+    if source_out < source_in:
+        raise ValueError("clip.trim would leave no source frames")
+    return _verified_command(context, [
+        "edit", "trim", "--track", row, "--index", str(index),
+        "--source-in", str(source_in), "--source-out", str(source_out),
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ], "clip.trim", "AXI undo journal; failed replacement restores the timeline snapshot")
+
+
+def _caption_fix(context) -> dict:
+    operation = context.operation
+    row, index = _target_position(
+        context.snapshot, str(operation["unique_id"]))
+    return _verified_command(context, [
+        "edit", "title", "--track", row, "--index", str(index),
+        "--text", str(operation["text"]), "--apply", "--project",
+        context.request.project, "--timeline", context.request.timeline,
+    ], "caption_fix", "no compensating action; operation remains unqualified")
+
+
+def _touchup(context) -> dict:
+    from library.tools import project_registry, reel_proposal, reel_touchup
+
+    request = context.request
+    project_path = project_registry.resolve_project_path(request.project)
+    if project_path is None:
+        project = project_registry.get_project(request.project)
+        project_folder = str(project.project_root)
+    else:
+        project_folder = str(project_path.parent)
+    matches = [moment for moment in reel_proposal.read_proposal(
+        str(reel_proposal.proposal_path(project_folder)))
+        if moment.timeline_name == request.timeline]
+    if len(matches) != 1:
+        raise ValueError(
+            f"touch-up timeline {request.timeline!r} matched "
+            f"{len(matches)} project reels")
+
+    operation = context.operation
+    operation_id = str(operation["op"])
+    edit: dict
+    if operation_id == "track.add":
+        index = max((int(track["index"]) for track in context.snapshot["tracks"]
+                     if track["type"] == "video"), default=0) + 1
+        edit = {"op": "add_row", "row": f"V{index}",
+                "name": str(operation["name"])}
+    elif operation_id == "overlay.add":
+        media = operation.get("file", operation.get("media"))
+        if not media or not operation.get("duration"):
+            raise ValueError(
+                "overlay.add touch-up needs a media path and positive duration")
+        edit = {
+            "op": "add_overlay", "row": str(operation["row"]),
+            "media": str(media), "record": int(operation["record_frame"]),
+            "duration": int(operation["duration"]),
+            "properties": dict(operation.get("properties") or {}),
+        }
+        for key in ("left_offset", "right_offset"):
+            if key in operation:
+                edit[key] = operation[key]
+    else:
+        row, index = _target_position(
+            context.snapshot, str(operation["unique_id"]))
+        if operation_id == "clip.move":
+            edit = {"op": "move", "row": row, "item": index,
+                    "to_record": int(operation["to_frame"])}
+        elif operation_id == "overlay.remove":
+            edit = {"op": "remove_overlay", "row": row, "item": index}
+        elif operation_id == "overlay.swap_pixels":
+            edit = {"op": "swap_pixels", "row": row, "item": index,
+                    "media": str(operation["file"])}
+        elif operation_id == "clip.set_property":
+            edit = {"op": "set_properties", "row": row, "item": index,
+                    "properties": {str(operation["key"]): operation["value"]}}
+        elif operation_id == "clip.set_enabled":
+            edit = {"op": "set_enabled", "row": row, "item": index,
+                    "enabled": bool(operation["enabled"])}
+        else:  # pragma: no cover - registry table below is authoritative
+            raise ValueError(f"no touch-up adapter for {operation_id}")
+
+    receipt = reel_touchup.apply_touchup(
+        project_folder, {"reel": int(matches[0].number), "edits": [edit]})
+    transaction = receipt.get("transaction") or {}
+    verification = transaction.get("verification") or {}
+    if verification.get("status") != "verified":
+        raise RuntimeError(
+            f"touch-up {operation_id} returned no verified promotion receipt")
+    return {
+        "status": "committed", "backend": "reel_touchup", "mutated": True,
+        "operation_id": operation_id, "request_id": request.id,
+        "readback": receipt,
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": operation_id, "passed": True},),
+                "evidence": {"touchup_receipt": receipt},
+            },
+            "recovery": {"status": "recorded",
+                         "action": "staged touch-up journal and backup"},
+        },
+    }
+
+
+def register_builtin_edit_executors() -> None:
+    """Bind supported P0 operations to their existing AXI executors."""
+    from library.tools import resolve_axi_core
+
+    desired = {
+        ("clip.trim", "resolve_axi"): _trim,
+        ("caption_fix", "resolve_axi"): _caption_fix,
+        ("clip.move", "reel_touchup"): _touchup,
+        ("overlay.add", "reel_touchup"): _touchup,
+        ("overlay.remove", "reel_touchup"): _touchup,
+        ("overlay.swap_pixels", "reel_touchup"): _touchup,
+        ("clip.set_property", "reel_touchup"): _touchup,
+        ("clip.set_enabled", "reel_touchup"): _touchup,
+        ("track.add", "reel_touchup"): _touchup,
+    }
+    registered = set(resolve_axi_core.registered_edit_executors())
+    for (operation_id, backend_id), executor in desired.items():
+        if (operation_id, backend_id) not in registered:
+            resolve_axi_core.register_edit_executor(
+                operation_id, backend_id, executor)

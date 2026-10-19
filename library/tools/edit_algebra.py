@@ -2977,6 +2977,14 @@ _WORKFLOW_EVIDENCE = {
 }
 
 _IMPLEMENTATION_EVIDENCE = {
+    ("clip.trim", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_trim",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
+    ),
+    ("caption_fix", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_caption_fix",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_title",
+    ),
     ("overlay.add", "reel_touchup"): (
         "library/tools/reel_touchup.py:_is_native_still",
         "library/tools/reel_touchup.py:_place_still_insertions",
@@ -2986,6 +2994,10 @@ _IMPLEMENTATION_EVIDENCE = {
 }
 
 _BACKEND_OPERATION_LIMITATIONS = {
+    ("clip.trim", "resolve_axi"):
+        ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
+    ("caption_fix", "resolve_axi"):
+        ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
     ("clip.move", "reel_touchup"):
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):
@@ -3033,9 +3045,15 @@ def _executor_coverage() -> dict[str, set[str]]:
             "clip_marker.delete", "clip.set_property", "clip.set_enabled"},
         "reel_touchup": touchup,
         "composed_edit": composed,
-        # These ids are direct EditPatch dispatches in resolve_axi. Other
-        # AXI commands are not claimed as algebra backends here.
-        "resolve_axi": {"marker.add", "clip.delete", "clip.smart_reframe"},
+        # AXI command adapters are registered only where an existing command
+        # performs a guarded write with operation-specific read-back.
+        "resolve_axi": {
+            "marker.add", "clip.delete", "clip.smart_reframe",
+            # Existing AXI commands now have semantic EditRequest adapters.
+            # They remain implemented/unqualified until operation-specific
+            # live qualification records are added.
+            "clip.trim", "caption_fix",
+        },
         "reel_append_placement": {"clip.insert"},
         "reel_otio_placement": {"clip.insert"},
         # Generic native invocation is registered only for semantic ops that

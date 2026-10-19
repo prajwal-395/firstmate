@@ -221,6 +221,19 @@ COMPOSED = "composed"
 COMPOSED_WITH_REDERIVATION = "composed_with_rederivation"
 COMPOSED_STILL_RESIZE = "composed_still_resize"
 
+# The router's structural view must retain each touch-up's semantic op id.
+# This is an execution adapter over the existing algebra, not a second
+# operation vocabulary.
+_STRUCTURAL_OPERATION_IDS = {
+    "retime": "clip.ripple",
+    "add_overlay": "overlay.add",
+    "remove_overlay": "overlay.remove",
+    "swap_pixels": "overlay.swap_pixels",
+    "resize_still": "overlay.resize",
+    "add_row": "track.add",
+    "move": "clip.move",
+}
+
 #: Rows whose spans are continuous program.  Vacating one - moving an
 #: item away or removing it - leaves black or silence, so the gate
 #: refuses and the caller states the covering change instead.  V1/V2
@@ -2164,7 +2177,7 @@ def _pre_delete_removed(project: Any, timeline: Any,
     for entry, item in zip(removals, victims):
         try:
             unique_id = str(item.GetUniqueId() or "")
-        except Exception as unreadable:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             unique_id = ""
         if not unique_id:
             raise TouchupError(
@@ -3018,7 +3031,16 @@ def _apply_in_place(project: Any, staged: Any,
         applied.update(_orch.attach_routing(
             {}, route_compiled_edit(
                 {"operations": patch_operations},
-                context={"staged": True}), key="routing"))
+                # This writer only targets the disposable staging copy.
+                # Promotion remains downstream of whole-plan verification;
+                # the original approved timeline is left intact on refusal.
+                context={
+                    "staged": True,
+                    "qualification_policy": "protected_experimental",
+                    "protected_staging": True,
+                    "preserve_approved_state": True,
+                    "verify_after_write": True,
+                }), key="routing"))
         applied["patch_receipt"] = edit_patch.apply_live_patch(
             project=project, timeline=staged, capability="reel.touchup",
             operations=patch_operations,
@@ -3317,16 +3339,13 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     from library.tools import reel_component_manifest as _component_manifest
     prior_component_manifest = _component_manifest.latest_manifest(
         project_folder, final)
-    structural_ids = {
-        "retime": "clip.ripple",
-        "add_overlay": "clip.insert",
-        "remove_overlay": "clip.delete",
-        "move": "clip.move",
-    }
+    # In particular, overlay.add is a protected staged operation, not a
+    # clip insertion; the latter loses the overlay verification and recovery
+    # contract at the router boundary.
     structural_operations = [
-        {"op": structural_ids[str(edit.get("op") or "")]}
+        {"op": _STRUCTURAL_OPERATION_IDS[str(edit.get("op") or "")]}
         for edit in (spec.get("edits") or ())
-        if str(edit.get("op") or "") in structural_ids
+        if str(edit.get("op") or "") in _STRUCTURAL_OPERATION_IDS
     ]
     staged_tracks_before_edit = _read.read_tracks(staged)
     composed = _ce.apply_composed_edit(
@@ -3628,7 +3647,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
         from library.tools import timeline_shadow
         try:
             head = timeline_shadow.observe(project, staged_found[staging])
-        except Exception as unreadable:  # noqa: BLE001
+        except Exception as unreadable:
             raise TouchupError(
                 f"{final!r} is promoted, but the final EditPatch generation "
                 f"could not be recorded ({unreadable}); recover from "
@@ -3665,18 +3684,18 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # history with no-op merges. Best-effort, like the commit.
     commit = receipt.get("commit")
     branch_base = receipt.get("branch_base")
-    if commit and commit.get("parent") and branch_base:
-        if commit["parent"] != branch_base:
-            try:
-                receipt["merge"] = _journal.merge_commits(
-                    project_folder, timeline=final,
-                    left=branch_base, right=commit["id"],
-                    note=f"touch {journal['id']}")
-            except _journal.MergeConflict as unmerged:
-                print(f"creative merge not recorded: {unmerged}",
-                      file=sys.stderr)
-                receipt["merge"] = None
-                receipt["merge_error"] = str(unmerged)
+    if (commit and commit.get("parent") and branch_base
+            and commit["parent"] != branch_base):
+        try:
+            receipt["merge"] = _journal.merge_commits(
+                project_folder, timeline=final,
+                left=branch_base, right=commit["id"],
+                note=f"touch {journal['id']}")
+        except _journal.MergeConflict as unmerged:
+            print(f"creative merge not recorded: {unmerged}",
+                  file=sys.stderr)
+            receipt["merge"] = None
+            receipt["merge_error"] = str(unmerged)
     if journal.get("preservation_after") is not None:
         from library.tools import editor_edit_carry as _editor_carry
         prior = receipt["editor_changes"].get("carried_edits") or {}
@@ -3826,8 +3845,8 @@ def _write_receipt(project_folder: str, final: str,
 
 __all__ = [
     "COMPOSED",
-    "COMPOSED_WITH_REDERIVATION",
     "COMPOSED_STILL_RESIZE",
+    "COMPOSED_WITH_REDERIVATION",
     "Qualification",
     "TouchupError",
     "TouchupRefused",

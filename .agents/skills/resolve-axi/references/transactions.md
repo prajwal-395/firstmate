@@ -8,6 +8,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 
 | operation | implementation status | required parameters | defined | compilable | qualified | production enabled | verification contract |
 |---|---|---|---:|---:|---:|---:|---|
+| `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
 | `clip.link` | implemented_unqualified | `unique_id`, `with_unique_ids` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -16,9 +17,13 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `clip.set_enabled` | implemented_unqualified | `unique_id`, `enabled` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_property` | implemented_unqualified | `unique_id`, `key`, `value` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.unlink` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_marker.add` | implemented_unqualified | `unique_id`, `frame`, `color`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_marker.delete` | implemented_unqualified | `unique_id`, `frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.create` | implemented_unqualified | `unique_id`, `node_index`, `shape`, `geometry` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.modify` | implemented_unqualified | `unique_id`, `node_index`, `geometry` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.track` | implemented_unqualified | `unique_id`, `node_index`, `direction` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_add` | implemented_unqualified | `unique_id`, `node_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_remove` | implemented_unqualified | `unique_id`, `node_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `grade.node_set` | implemented_unqualified | `unique_id`, `node_index`, `params` | yes | yes | no | no | post-write snapshot checked by _verify_grade_node_set |

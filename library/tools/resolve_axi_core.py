@@ -162,12 +162,16 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                 snapshot: Mapping, owner: str) -> dict:
     """Run the router-selected adapters and preserve sequential semantics."""
     from library.tools import edit_algebra
+    from library.tools.edit_execution_adapters import (
+        register_builtin_edit_executors,
+    )
     from library.tools.transaction_orchestration import (
         ExecutionInput,
         ExecutionRefusal,
         standardize_receipt,
     )
 
+    register_builtin_edit_executors()
     backend_id = backend.removesuffix(".structural")
     operations = [dict(row) for row in compiled.operations]
     decision = plan.get("routing") or {}
@@ -327,7 +331,12 @@ def _prepare_request_plan(request):
     requires explicit authorization before submission.
     """
     from library.tools import edit_preparation, timeline_shadow
+    from library.tools.edit_execution_adapters import (
+        register_builtin_edit_executors,
+    )
     from library.tools.edit_request import EditRequest, compile_request
+
+    register_builtin_edit_executors()
 
     if not isinstance(request, EditRequest):
         request = EditRequest.from_dict(request)

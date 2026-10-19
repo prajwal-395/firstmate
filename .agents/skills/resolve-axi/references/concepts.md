@@ -15,7 +15,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `audio.pan` | no_executor | `unique_id`, `pan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio_mix` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `caption_fix` | no_executor | `unique_id`, `text` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
 | `clip.join` | no_executor | `unique_id`, `other_unique_id` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -30,17 +30,17 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `clip.slip` | no_executor | `unique_id`, `delta_frames` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.split` | no_executor | `unique_id`, `at_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.trim` | workflow_only | `unique_id`, `in_frame`, `out_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.unlink` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_lut` | no_executor | `unique_id`, `lut` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_marker.add` | implemented_unqualified | `unique_id`, `frame`, `color`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_marker.delete` | implemented_unqualified | `unique_id`, `frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `color.qualifier.adjust` | no_executor | `unique_id`, `node_index`, `params` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `color.qualifier.sample` | no_executor | `unique_id`, `node_index`, `point` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `color.window.create` | no_executor | `unique_id`, `node_index`, `shape`, `geometry` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.create` | implemented_unqualified | `unique_id`, `node_index`, `shape`, `geometry` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `color.window.delete` | no_executor | `unique_id`, `node_index` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `color.window.modify` | no_executor | `unique_id`, `node_index`, `geometry` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `color.window.track` | no_executor | `unique_id`, `node_index`, `direction` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.modify` | implemented_unqualified | `unique_id`, `node_index`, `geometry` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `color.window.track` | implemented_unqualified | `unique_id`, `node_index`, `direction` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `compound.create` | no_executor | `unique_id`, `child_unique_ids` | yes | no | no | no | post-write snapshot checked by verify |
 | `compound.flatten` | no_executor | `unique_id` | yes | no | no | no | post-write snapshot checked by verify |
 | `drop_fragment` | no_executor | `unique_id` | yes | no | no | no | post-write snapshot checked by verify |
