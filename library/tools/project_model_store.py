@@ -516,6 +516,20 @@ def _load_locked(events_path: Path, snapshot_path: Path
     if isinstance(checkpoint, dict):
         checkpoint_hash = checkpoint.pop("checkpoint_hash", None)
         log_tail = _read_events_tail(events_path)
+        # An in-place rewrite keeps the stored event_hash field while
+        # changing the bytes it was computed over: recompute the tail's
+        # own hash before trusting its revision+head (as the snapshot
+        # fast path above does). Without this the checkpoint path
+        # serves the pre-rewrite model after a same-size tamper.
+        tail_self_ok = False
+        if isinstance(log_tail, dict) and isinstance(log_tail.get("event_hash"), str):
+            tail_copy = dict(log_tail)
+            tail_digest = tail_copy.pop("event_hash", None)
+            try:
+                tail_self_ok = (
+                    tail_digest == hashlib.sha256(_json_bytes(tail_copy)).hexdigest())
+            except (TypeError, ValueError):
+                tail_self_ok = False
         checkpoint_ok = (
             checkpoint_hash == hashlib.sha256(_json_bytes(checkpoint)).hexdigest()
             and type(checkpoint.get("revision")) is int
@@ -523,6 +537,7 @@ def _load_locked(events_path: Path, snapshot_path: Path
             and type(checkpoint.get("event_offset")) is int
             and checkpoint["event_offset"] <= events_path.stat().st_size
             and log_tail is not None
+            and tail_self_ok
             and log_tail.get("revision", 0) >= checkpoint.get("revision", 0)
             and (log_tail.get("revision") != checkpoint.get("revision")
                  or log_tail.get("event_hash") == checkpoint.get("head_hash"))
@@ -924,23 +939,25 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
         if evidence_model["schema_version"] != model["schema_version"]:
             raise ValueError("evidence update uses a different Project Model schema version")
         changes: list[dict[str, Any]] = []
+        query_merge: list[dict[str, Any]] | None = None
         for key in EVIDENCE_COLLECTIONS:
+            if key == "query_results":
+                # Query rows carry no stable id (status/candidate lists),
+                # so union them by value as the pre-record merge did.
+                # An id-keyed record change cannot represent them.
+                current_rows = list(model.get(key, []) or [])
+                merged_rows = list(current_rows)
+                for row in evidence_model.get(key, []) or []:
+                    if row not in merged_rows:
+                        merged_rows.append(row)
+                if merged_rows != current_rows:
+                    query_merge = merged_rows
+                continue
             incoming_by_id = {row["id"]: row
                               for row in evidence_model.get(key, [])}
             incoming = [incoming_by_id[record_id]
                         for record_id in sorted(incoming_by_id)]
             if not incoming:
-                continue
-            if key == "query_results":
-                by_id = {row["id"]: row for row in model.get(key, [])}
-                for row in incoming:
-                    old = by_id.get(row["id"])
-                    if old != row:
-                        changes.append({"collection": key, "operation": "append",
-                                        "id": row["id"], "record": row}
-                                       if old is None else
-                                       {"collection": key, "operation": "update",
-                                        "id": row["id"], "record": row})
                 continue
             by_id = {row["id"]: row for row in model.get(key, [])}
             for row in incoming:
@@ -957,6 +974,46 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
                     changes.append({"collection": key,
                                     "operation": "update" if old is not None else "append",
                                     "id": row["id"], "record": merged})
+        if query_merge is not None:
+            # Id-less rows cannot ride a record_changes event: fold them
+            # and any id-based updates into one merge_patch revision.
+            updated = (_apply_record_changes(model, changes)
+                       if changes else dict(model))
+            updated["query_results"] = query_merge
+            validate_project_model(updated)
+            if revision != expected_revision:
+                current_events = _read_events(events_path)
+                if expected_revision > revision:
+                    raise RuntimeError(
+                        f"stale project model revision {expected_revision}; current revision is {revision}")
+                checked: list[dict[str, Any]] = []
+                touched = {(c["collection"], None) for c in changes} | {("query_results", None)}
+                for prior in current_events[expected_revision:]:
+                    checked.append({"revision": prior["revision"],
+                                    "event_hash": prior["event_hash"]})
+                    if _scopes_overlap(touched, _event_scopes(prior)):
+                        raise RuntimeError(
+                            f"stale project model revision {expected_revision}; "
+                            f"conflicting update at revision {prior['revision']}")
+            else:
+                checked = []
+            patch: dict[str, Any] = {"query_results": query_merge}
+            for collection in {c["collection"] for c in changes}:
+                patch[collection] = updated[collection]
+            event = {"revision": revision + 1,
+                     "previous_hash": events[-1]["event_hash"] if events else "0" * 64,
+                     "kind": "merge_patch", "author": author, "reason": reason,
+                     "schema_version": updated["schema_version"], "payload": patch,
+                     "rebase_checked": checked}
+            event["event_hash"] = hashlib.sha256(_json_bytes(event)).hexdigest()
+            snapshot_path = events_path.with_name(SNAPSHOT_FILE)
+            with events_path.open("ab") as stream:
+                stream.write(_json_bytes(event))
+                stream.flush()
+                os.fsync(stream.fileno())
+            events.append(event)
+            _write_snapshot(snapshot_path, events, updated)
+            return revision + 1
         if not changes:
             if revision != expected_revision:
                 raise RuntimeError(

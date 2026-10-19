@@ -396,8 +396,11 @@ def test_record_change_events_are_small_sorted_and_replay_with_legacy_history(tm
         "collection": "observations", "operation": "append",
         "id": changed["id"], "record": changed,
     }]
+    # Small against the full model a replace event would carry (the
+    # envelope alone exceeds a one-row bare observations list, so that
+    # narrower comparison cannot hold for tiny fixtures).
     assert len(project_model_store._json_bytes(event)) < len(
-        project_model_store._json_bytes({"observations": FIXTURE["observations"]}))
+        project_model_store._json_bytes(FIXTURE))
     revision, model = load_project_model(project)
     assert revision == 2
     assert model["observations"] == sorted(
@@ -407,18 +410,26 @@ def test_record_change_events_are_small_sorted_and_replay_with_legacy_history(tm
 def test_record_change_update_and_delete_are_keyed_by_stable_id(tmp_path):
     project = tmp_path / "project"
     commit_project_model(project, FIXTURE, expected_revision=0)
-    existing = FIXTURE["observations"][0]
-    updated = {**existing, "confidence": 0.7}
+    # obs-1 stays: the fixture's edit-1 references it through
+    # evidence_ids, so deleting it must refuse rather than dangle.
+    # Exercise the stable-id update/delete cycle on an independent row.
+    independent = {**FIXTURE["observations"][0], "id": "obs-stable-id"}
+    commit_project_model_records(project, [{
+        "collection": "observations", "operation": "append",
+        "id": independent["id"], "record": independent,
+    }], expected_revision=1)
+    updated = {**independent, "confidence": 0.7}
     commit_project_model_records(project, [{
         "collection": "observations", "operation": "update",
-        "id": existing["id"], "record": updated,
-    }], expected_revision=1)
+        "id": independent["id"], "record": updated,
+    }], expected_revision=2)
     commit_project_model_records(project, [{
         "collection": "observations", "operation": "delete",
-        "id": existing["id"],
-    }], expected_revision=2)
+        "id": independent["id"],
+    }], expected_revision=3)
     observations = load_project_model(project)[1]["observations"]
-    assert existing["id"] not in {row["id"] for row in observations}
+    assert independent["id"] not in {row["id"] for row in observations}
+    assert FIXTURE["observations"][0]["id"] in {row["id"] for row in observations}
 
 
 def test_record_rebase_accepts_disjoint_and_refuses_overlapping_changes(tmp_path):
@@ -442,11 +453,15 @@ def test_record_rebase_accepts_disjoint_and_refuses_overlapping_changes(tmp_path
             project / "project_model" / "events.jsonl")[1]["event_hash"],
     }]
     overlap = {**FIXTURE["observations"][0], "id": obs["id"]}
+    # Base rev 1 predates the rev-2 append of this same (collection, id),
+    # so the rebase must refuse as an overlapping record conflict. (A
+    # base of rev 2 already contains the row, which refuses instead as
+    # an invalid duplicate append.)
     with pytest.raises(RuntimeError, match="record conflict"):
         commit_project_model_records(project, [{
             "collection": "observations", "operation": "append",
             "id": overlap["id"], "record": overlap,
-        }], expected_revision=2)
+        }], expected_revision=1)
 
 
 def test_editorial_patch_rebases_over_unrelated_evidence_record(tmp_path):

@@ -96,6 +96,14 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
+        # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
+        # and transaction orchestration closure reached through
+        # resolve_axi_core and edit_patch, so a fix here changes what
+        # cached preflight rows resolve through.
+        "library/tools/transaction_orchestration.py",
+        "library/tools/edit_request.py",
+        "library/tools/edit_preparation.py",
+        "library/tools/timeline_addressing.py",
         # The legacy step adapter resolves to the capability implementation.
         "library/capabilities/objects/segment.py",
         # The temporal-index step is part of the cached dependency closure.
@@ -594,6 +602,14 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_01_scan_project": (
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
+        # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
+        # and transaction orchestration closure reached through
+        # resolve_axi_core and edit_patch, so a fix here changes what
+        # cached preflight rows resolve through.
+        "library/tools/transaction_orchestration.py",
+        "library/tools/edit_request.py",
+        "library/tools/edit_preparation.py",
+        "library/tools/timeline_addressing.py",
         # The step adapter delegates the measured scan to its capability-owned implementation.
         "library/capabilities/footage/scan.py",
         # The scan's dependency closure now includes the shared retrieval encoder.
@@ -1113,6 +1129,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # imports the transaction coordinator.
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
+        # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
+        # and transaction orchestration closure reached through
+        # resolve_axi_core and edit_patch, so a fix here changes what
+        # cached preflight rows resolve through.
+        "library/tools/transaction_orchestration.py",
+        "library/tools/edit_request.py",
+        "library/tools/edit_preparation.py",
+        "library/tools/timeline_addressing.py",
         # Transaction receipt verification delegates operation-specific
         # acceptance requirements here; changes affect recorded outcomes.
         # The legacy step adapter delegates the catalog measurement here.
@@ -1649,6 +1673,14 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_03_semantic_analysis": (
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
+        # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
+        # and transaction orchestration closure reached through
+        # resolve_axi_core and edit_patch, so a fix here changes what
+        # cached preflight rows resolve through.
+        "library/tools/transaction_orchestration.py",
+        "library/tools/edit_request.py",
+        "library/tools/edit_preparation.py",
+        "library/tools/timeline_addressing.py",
         # The legacy step delegates analysis here; code changes alter cached profiles.
         "library/capabilities/semantics/analyse.py",
         # Its dependency closure includes the shared retrieval encoder.
@@ -2183,6 +2215,14 @@ STEP_IMPLEMENTATION_DEPS = {
     "step_1_04_temporal_index": (
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
+        # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
+        # and transaction orchestration closure reached through
+        # resolve_axi_core and edit_patch, so a fix here changes what
+        # cached preflight rows resolve through.
+        "library/tools/transaction_orchestration.py",
+        "library/tools/edit_request.py",
+        "library/tools/edit_preparation.py",
+        "library/tools/timeline_addressing.py",
         # The legacy step delegates indexing here; code changes alter
         # cached indexes. The shared FFmpeg graph that supplies the
         # per-clip visual measurements moved with it.
