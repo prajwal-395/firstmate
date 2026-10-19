@@ -530,7 +530,12 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
             planned, out_dir,
             segment_name=segment_name(name, index),
             progress=f"[{index + 1}/{len(segments_plan)}]",
-            project_folder=project_folder)
+            project_folder=project_folder,
+            # Variants share the project render directory. The stable
+            # render key covers drawing inputs and renderer identity, so
+            # a sibling build reuses identical pixels while changed
+            # timing, content or renderer code still renders afresh.
+            reuse=True)
         if rendered is None:
             continue
         from library.tools.reel_disabled_clip_carry import (
@@ -561,6 +566,10 @@ def _record_segment(segment: dict) -> dict:
         "total_frames": segment["total_frames"],
         "elements": list(segment.get("elements") or []),
     }
+    if segment.get("provenance"):
+        record["render_provenance"] = str(segment["provenance"])
+    if segment.get("reuse_key"):
+        record["render_reuse_key"] = str(segment["reuse_key"])
     if segment.get("carry_identity"):
         record["carry_identity"] = segment["carry_identity"]
     return record

@@ -1168,7 +1168,8 @@ def _write_builds(project_folder, document: Mapping) -> str:
 def record_build(project_folder, reel_number: int, base_final: str,
                  suffix: str, rows: Mapping, watch: str = "",
                  declares: Sequence[str] = (), built_at: str = "",
-                 resolve_timeline_id: str = "") -> dict:
+                 resolve_timeline_id: str = "",
+                 render_cache: Mapping | None = None) -> dict:
     """Record one built variant: what it is and what it contains.
 
     Keyed by the variant's TIMELINE NAME, which is the only identity
@@ -1236,6 +1237,7 @@ def record_build(project_folder, reel_number: int, base_final: str,
             (branch_record or {}).get("revision_id") or ""),
         "semantic_changes": semantic_changes,
         "component_manifest": component_manifest,
+        "render_cache": dict(render_cache or {}),
         "materialized": True,
         "resolve_timeline_id": str(resolve_timeline_id or ""),
         "rows_digest": rounds.digest_rows(row_snapshot),
@@ -1427,6 +1429,10 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
     diff["components"] = reel_component_manifest.diff_manifests(
         entries[earlier_suffix].get("component_manifest"),
         entries[later_suffix].get("component_manifest"))
+    diff["render_cache"] = {
+        "earlier": dict(entries[earlier_suffix].get("render_cache") or {}),
+        "later": dict(entries[later_suffix].get("render_cache") or {}),
+    }
     changed_regions = []
     earlier_rows = entries[earlier_suffix].get("rows") or {}
     for row in diff.get("changed", ()):
@@ -1441,6 +1447,9 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
                      if item.get("name") in gone)
         spans = [span for span in spans
                  if span.get("start") is not None and span.get("end") is not None]
+        for span in spans:
+            span["preview_at_frame"] = round(
+                (span["start"] + span["end"]) / 2)
         changed_regions.append({"row": row["key"], "state": row["state"],
                                 "spans": spans})
     diff["changed_regions"] = changed_regions
@@ -1489,6 +1498,18 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
             + (", ".join(unknown_components) or "none")
             + "; confirmed reusable "
             + (", ".join(component_diff.get("unchanged") or ()) or "none"))
+    render_cache = diff.get("render_cache") or {}
+    if render_cache:
+        for side, label in (("earlier", "A"), ("later", "B")):
+            cache = render_cache.get(side) or {}
+            reused = sum(int(item.get("reused", 0))
+                         for item in cache.values())
+            rendered = sum(int(item.get("rendered", 0))
+                           for item in cache.values())
+            unknown = sum(int(item.get("unknown", 0))
+                          for item in cache.values())
+            lines.append(f"  {label} overlay renders: {reused} reused, "
+                         f"{rendered} rendered, {unknown} unmeasured")
     for label, review in (("A", diff.get("earlier_review") or {}),
                           ("B", diff.get("later_review") or {})):
         if review:
@@ -1530,7 +1551,8 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
                           f"in B")
     for region in diff.get("changed_regions") or ():
         windows = [f"{span['side']} {span['name']} "
-                   f"{span['start']}..{span['end']}"
+                   f"{span['start']}..{span['end']} "
+                   f"(preview at frame {span['preview_at_frame']})"
                    for span in region.get("spans") or ()]
         if windows:
             lines.append(f"  Changed range for preview {region['row']}: "

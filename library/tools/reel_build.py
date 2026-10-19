@@ -19146,12 +19146,31 @@ def build_reel_variants(project_slug: str, reel_number: int,
                             "rows": rows,
                             "watch": spec.get("watch", "")}
             from library.tools.versions import variants as _variants
+            rendered_segments = {
+                "captions": subtitle_segments or [],
+                "explainer": explainer_segments or [],
+                "semantic_visuals": semantic_segments or [],
+                "lower_thirds": lower_third_segments or [],
+            }
+            render_cache = {}
+            for component, segments in rendered_segments.items():
+                outcomes = [str(segment.get("provenance") or "unknown")
+                            for segment in segments
+                            if isinstance(segment, dict)]
+                render_cache[component] = {
+                    "reused": sum(value == "reused" for value in outcomes),
+                    "rendered": sum(value == "rendered" for value in outcomes),
+                    "unknown": sum(value not in ("reused", "rendered")
+                                    for value in outcomes),
+                    "segments": len(outcomes),
+                }
             _variants.record_build(
                 project_folder, int(reel_number), moment.timeline_name,
                 str(spec.get("suffix", "")), rows,
                 watch=str(spec.get("watch", "")),
                 declares=list(spec.get("declares") or ()),
-                resolve_timeline_id=str(placed.GetUniqueId() or ""))
+                resolve_timeline_id=str(placed.GetUniqueId() or ""),
+                render_cache=render_cache)
     except Exception:
         # Atomic batch (see docstring): every variant this call placed
         # goes, and names it never reached are tolerated by the
