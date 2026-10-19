@@ -24,8 +24,10 @@ def _assert_plan_binding(item: dict, record: dict) -> None:
     """Refuse a manifest whose exact planned path or identity was edited."""
     planned_identity = item.get("identity") or {}
     current_identity = record.get("identity") or {}
-    if (str(Path(item.get("path", "")).absolute())
-            != str(Path(record["path"]).absolute())
+    planned_path = str(Path(item.get("path", "")).absolute())
+    current_path = str(Path(record["path"]).absolute())
+    original_path = str(Path(record.get("original_path", "")).absolute())
+    if (planned_path not in {current_path, original_path}
             or planned_identity != current_identity):
         raise lifecycle.LifecycleRefused(
             f"storage manifest no longer matches artifact identity: {item['artifact_id']}")
@@ -140,6 +142,85 @@ def require_free_space(required_bytes: int, *, path: str | None = None) -> dict:
     return result
 
 
+def estimate_render_space(reels: list[tuple[float, int, int]], *,
+                          output_bit_rate_bps: int | None = None,
+                          workspace_multiplier: float | None = None) -> int:
+    """Estimate render outputs plus staging from approved durations and frame sizes."""
+    try:
+        bit_rate = int(output_bit_rate_bps or os.environ.get(
+            "REN_RENDER_ESTIMATED_BITRATE_BPS", 25_000_000))
+        multiplier = float(workspace_multiplier or os.environ.get(
+            "REN_RENDER_WORKSPACE_MULTIPLIER", 2.0))
+    except ValueError as exc:
+        raise ValueError("invalid render storage estimate configuration") from exc
+    if bit_rate <= 0 or multiplier < 1:
+        raise ValueError("render estimate needs positive bitrate and multiplier >= 1")
+    baseline_pixels = 1080 * 1920
+    output_bytes = 0
+    for duration, width, height in reels:
+        if duration <= 0 or width <= 0 or height <= 0:
+            raise ValueError("render estimates require positive duration and dimensions")
+        scaled_rate = bit_rate * (width * height / baseline_pixels)
+        output_bytes += int(duration * scaled_rate / 8)
+    return int(output_bytes * multiplier)
+
+
+def plan_cache_evictions(projects: list[str], *, pressure_state: str,
+                         cache_bytes: int | None = None) -> list[dict]:
+    """Plan value-aware cache eviction against one machine-wide budget."""
+    from library.tools import cache_lifecycle
+
+    base = cache_lifecycle.CacheBudget.from_environment()
+    pressure_factor = {"normal": 1.0, "elevated": 0.8,
+                       "critical": 0.5}.get(pressure_state)
+    if pressure_factor is None:
+        raise ValueError(f"unknown disk pressure state: {pressure_state}")
+    cache_kinds = cache_lifecycle.CACHE_KIND_COST
+    project_bytes = {}
+    project_class_bytes = {}
+    for project in projects:
+        rows = lifecycle.inventory(project)["artifacts"]
+        sized = [row for row in rows if row.get("identity_matches")
+                 and row.get("ownership_known")
+                 and row.get("state") == lifecycle.CACHEABLE
+                 and row.get("kind") in cache_kinds]
+        project_bytes[project] = sum(
+            int(row["identity"]["size_bytes"]) for row in sized)
+        classes = {"expensive": 0, "inexpensive": 0}
+        for row in sized:
+            bucket = ("expensive" if cache_kinds[row["kind"]] in
+                      {"medium_high", "high"} else "inexpensive")
+            classes[bucket] += int(row["identity"]["size_bytes"])
+        project_class_bytes[project] = classes
+    total = sum(project_bytes.values())
+    if total == 0:
+        return []
+    # `cache_bytes` may include held/incompatible entries; use the cacheable
+    # total as the allocator denominator, while the policy still excludes
+    # entries it cannot safely measure.
+    target_total = int(base.total_bytes * pressure_factor)
+    plans = []
+    for project, local_bytes in project_bytes.items():
+        if not local_bytes:
+            continue
+        share = local_bytes / total
+        expensive = (int(base.expensive_bytes * share)
+                     if base.expensive_bytes is not None else None)
+        inexpensive = (int(base.inexpensive_bytes * share)
+                       if base.inexpensive_bytes is not None else None)
+        local_budget = cache_lifecycle.CacheBudget(
+            total_bytes=max(1, int(target_total * share)),
+            low_watermark=base.low_watermark,
+            high_watermark=base.high_watermark,
+            expensive_bytes=max(1, expensive) if expensive is not None else None,
+            inexpensive_bytes=(max(1, inexpensive)
+                               if inexpensive is not None else None))
+        planned = cache_lifecycle.plan_eviction(project, budget=local_budget)
+        if planned["selected"]:
+            plans.append({"project": project, "plan": planned})
+    return plans
+
+
 def plan_document(projects: list[str]) -> dict:
     """Build an exact-identity manifest without writing it."""
     report = status(projects)
@@ -155,7 +236,11 @@ def plan_document(projects: list[str]) -> dict:
             candidates.append({key: row[key] for key in
                                ("artifact_id", "project", "path", "identity",
                                 "kind", "run_id", "job_id")})
+    cache_evictions = plan_cache_evictions(
+        projects, pressure_state=report["disk_pressure"],
+        cache_bytes=report["cache_bytes"])
     document = {"format": "ren-storage-plan/1", "candidates": candidates,
+                "cache_evictions": cache_evictions,
                 "logical_bytes": sum(row["identity"]["size_bytes"]
                                      for row in candidates)}
     return document
@@ -197,8 +282,6 @@ def purge(manifest: str) -> dict:
         fields["identity"] = lifecycle.FileIdentity(**fields["identity"])
         fields["dependencies"] = tuple(fields.get("dependencies") or ())
         record = lifecycle.ArtifactRecord(**fields)
-        if str(Path(record.path).resolve()) != str(Path(item["path"]).resolve()):
-            raise lifecycle.LifecycleRefused("artifact path changed since storage plan")
         results.append(lifecycle.purge_file(project, record, str(Path(project).resolve())))
     return {"manifest": str(Path(manifest).resolve()), "purged": results,
             "logical_bytes": sum(item["logical_bytes"] for item in results)}
@@ -216,20 +299,46 @@ def collect(manifest: str) -> dict:
         if current is None or current.get("state") != lifecycle.DISPOSABLE:
             if current and current.get("state") == lifecycle.QUARANTINED:
                 _assert_plan_binding(item, current)
-                moved.append(item["artifact_id"])
+                moved.append({"artifact_id": item["artifact_id"],
+                              "path": current["path"],
+                              "already_quarantined": True})
                 continue
             raise lifecycle.LifecycleRefused(
                 f"artifact is no longer disposable: {item['artifact_id']}")
         _assert_plan_binding(item, current)
-        identity = lifecycle.FileIdentity(**current["identity"])
-        if not identity.matches(current["path"]):
-            raise lifecycle.LifecycleRefused(
-                f"artifact identity changed since storage plan: {current['path']}")
-        lifecycle.transition_artifact(
-            project, item["artifact_id"], lifecycle.QUARANTINED,
-            reason="collected under reviewed storage manifest")
-        moved.append(item["artifact_id"])
-    return {"manifest": str(Path(manifest).resolve()), "quarantined": moved}
+        fields = {key: current[key]
+                  for key in lifecycle.ArtifactRecord.__dataclass_fields__}
+        fields["identity"] = lifecycle.FileIdentity(**fields["identity"])
+        fields["dependencies"] = tuple(fields.get("dependencies") or ())
+        record = lifecycle.ArtifactRecord(**fields)
+        moved.append(lifecycle.quarantine_file(
+            project, record, str(Path(project).resolve())))
+    cache_evicted = []
+    from library.tools import cache_lifecycle
+
+    for entry in document.get("cache_evictions", []):
+        project = entry["project"]
+        current = lifecycle._latest_artifacts(project)
+        records = {}
+        cleanup_roots = {}
+        for selected in entry["plan"].get("selected", []):
+            artifact_id = selected["artifact_id"]
+            fields = current.get(artifact_id)
+            if fields is None:
+                raise lifecycle.LifecycleRefused(
+                    f"cache ownership disappeared: {artifact_id}")
+            values = {key: fields[key]
+                      for key in lifecycle.ArtifactRecord.__dataclass_fields__}
+            values["identity"] = lifecycle.FileIdentity(**values["identity"])
+            values["dependencies"] = tuple(values.get("dependencies") or ())
+            record = lifecycle.ArtifactRecord(**values)
+            records[artifact_id] = record
+            cleanup_roots[artifact_id] = str(Path(record.path).parent)
+        cache_evicted.extend(cache_lifecycle.apply_eviction(
+            project, entry["plan"], cleanup_root=project,
+            records=records, cleanup_roots=cleanup_roots))
+    return {"manifest": str(Path(manifest).resolve()), "quarantined": moved,
+            "cache_evicted": cache_evicted}
 
 
 def restore(manifest: str) -> dict:
@@ -242,18 +351,14 @@ def restore(manifest: str) -> dict:
         latest = lifecycle._latest_artifacts(item["project"]).get(item["artifact_id"])
         if latest is not None and latest.get("state") == lifecycle.DISPOSABLE:
             _assert_plan_binding(item, latest)
-            restored.append(item["artifact_id"])
+            restored.append({"artifact_id": item["artifact_id"],
+                             "path": latest["path"],
+                             "already_restored": True})
             continue
         if latest is None or latest.get("state") != lifecycle.QUARANTINED:
             raise lifecycle.LifecycleRefused(
                 f"artifact is not a known quarantined resource: {item['artifact_id']}")
         _assert_plan_binding(item, latest)
-        identity = lifecycle.FileIdentity(**latest["identity"])
-        if not identity.matches(latest["path"]):
-            raise lifecycle.LifecycleRefused(
-                f"artifact identity changed since collection: {latest['path']}")
-        lifecycle.transition_artifact(item["project"], item["artifact_id"],
-                                       lifecycle.DISPOSABLE,
-                                       reason="restored by storage restore")
-        restored.append(item["artifact_id"])
+        restored.append(lifecycle.restore_file(
+            item["project"], item["artifact_id"]))
     return {"manifest": str(Path(manifest).resolve()), "restored": restored}

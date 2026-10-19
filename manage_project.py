@@ -2675,6 +2675,33 @@ def cmd_build_reels(args):
     from library.processes.reels import run_reels
 
     project_folder = _reel_project_folder(args.project)
+    from library.tools import delivery_format, reel_proposal, storage_lifecycle
+
+    moments = reel_proposal.approved_only(
+        reel_proposal.read_proposal(reel_proposal.proposal_path(project_folder)))
+    selected = (set(args.only_reel) if getattr(args, "only_reel", None)
+                else None)
+    render_estimates = []
+    for moment in moments:
+        if selected is not None and moment.number not in selected:
+            continue
+        width, height = delivery_format.resolve_format_name(
+            delivery_format.delivery_format_name(
+                project_folder, reel=moment.number))
+        render_estimates.append((moment.total_duration, width, height))
+    if render_estimates:
+        required_bytes = storage_lifecycle.estimate_render_space(render_estimates)
+        try:
+            preflight = storage_lifecycle.require_free_space(
+                required_bytes, path=project_folder)
+        except storage_lifecycle.lifecycle.LifecycleRefused as refused:
+            raise RenRefusal(
+                "the reel build does not have enough disk headroom",
+                str(refused),
+                "free disk space or reduce the render size, then retry") from refused
+        print(f"Storage preflight: estimated {required_bytes:,} bytes for "
+              f"{len(render_estimates)} reel(s); {preflight['free_bytes']:,} "
+              "bytes free")
     code = run_reels.run(project_folder, args)
     from library.tools.execution.asset_gc import report_after as _gc_report
     _gc_report(project_folder)

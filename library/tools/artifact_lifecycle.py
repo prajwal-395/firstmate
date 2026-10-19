@@ -178,7 +178,9 @@ def register_resolve_artifact(log_path: str | os.PathLike, *, artifact_id: str,
 
 
 def transition_artifact(project_folder: str, artifact_id: str, target: str,
-                        *, reason: str, event_id: str = "") -> bool:
+                        *, reason: str, event_id: str = "",
+                        path: str = "", identity: FileIdentity | None = None,
+                        original_path: str = "") -> bool:
     """Make a recoverable, idempotent lifecycle transition in the event log."""
     if target not in LIFECYCLE_STATES:
         raise ValueError(f"unknown artifact lifecycle state: {target}")
@@ -191,9 +193,17 @@ def transition_artifact(project_folder: str, artifact_id: str, target: str,
     if target not in TRANSITIONS.get(old, set()):
         raise LifecycleRefused(f"invalid artifact transition {old} -> {target}")
     stable_event_id = event_id or f"artifact:{artifact_id}:{old}:{target}"
+    updates = {}
+    if path:
+        updates["path"] = str(Path(path).absolute())
+    if identity is not None:
+        updates["identity"] = asdict(identity)
+    if original_path:
+        updates["original_path"] = str(Path(original_path).absolute())
     event_log.emit_once(project_folder, ARTIFACT_TRANSITION, stable_event_id,
                         task=current["job_id"], artifact_id=artifact_id,
-                        state=target, previous_state=old, reason=reason)
+                        state=target, previous_state=old, reason=reason,
+                        **updates)
     return True
 
 
@@ -423,6 +433,106 @@ def _assert_cleanup_path(path: Path, cleanup_root: Path) -> None:
         cursor = cursor / part
         if cursor.is_symlink():
             raise LifecycleRefused(f"symlink traversal is protected: {cursor}")
+
+
+def quarantine_file(project_folder: str, record: ArtifactRecord,
+                    cleanup_root: str) -> dict:
+    """Move one disposable file into project quarantine under its same id."""
+    if not (record.project_id and record.run_id and record.job_id):
+        raise LifecycleRefused("unknown artifact ownership is protected")
+    if record.pinned or record.dependencies or not record.regenerable:
+        raise LifecycleRefused("pinned, referenced, or non-regenerable artifact is protected")
+    if run_control.is_running(project_folder):
+        raise LifecycleRefused("project activity is still running")
+    root = Path(cleanup_root).resolve(strict=True)
+    source = Path(record.path)
+    declaration = LeaseDeclaration(exclusive=frozenset({
+        ResourceRef("project", str(root))}))
+    with resource_leases.resource_lease(
+            declaration, purpose=f"artifact-quarantine:{record.artifact_id}",
+            project=project_folder, wait=False):
+        _assert_cleanup_path(source, root)
+        latest = _latest_artifacts(project_folder).get(record.artifact_id)
+        if latest is None or latest.get("state") != DISPOSABLE:
+            raise LifecycleRefused("artifact is no longer disposable")
+        if (latest.get("path") != str(source.absolute())
+                or latest.get("identity") != asdict(record.identity)):
+            raise LifecycleRefused("artifact identity changed since storage plan")
+        if not record.identity.matches(source):
+            raise LifecycleRefused("artifact identity changed since storage plan")
+        if record.identity.link_count != 1:
+            raise LifecycleRefused(f"hardlinked artifact is protected: {source}")
+        from library.tools.project_layout import Area, ProjectLayout
+
+        layout = ProjectLayout(str(root))
+        destination = layout.write_path(
+            Area.QUARANTINE, "lifecycle", record.artifact_id, source.name)
+        if os.path.lexists(destination):
+            raise LifecycleRefused(
+                f"quarantine destination already exists: {destination}")
+        os.replace(source, destination)
+        try:
+            moved_identity = FileIdentity.capture(destination)
+            if moved_identity != record.identity:
+                raise LifecycleRefused(
+                    f"artifact identity changed during quarantine: {destination}")
+            transition_artifact(
+                project_folder, record.artifact_id, QUARANTINED,
+                reason="moved to owned lifecycle quarantine",
+                path=str(destination), identity=moved_identity,
+                original_path=str(source))
+        except Exception:
+            if destination.exists() and not source.exists():
+                os.replace(destination, source)
+            raise
+    return {"artifact_id": record.artifact_id, "from": str(source),
+            "path": str(destination), "identity": asdict(record.identity)}
+
+
+def restore_file(project_folder: str, artifact_id: str) -> dict:
+    """Restore a quarantined file to its recorded path without overwriting."""
+    if run_control.is_running(project_folder):
+        raise LifecycleRefused("project activity is still running")
+    root = Path(project_folder).resolve(strict=True)
+    declaration = LeaseDeclaration(exclusive=frozenset({
+        ResourceRef("project", str(root))}))
+    with resource_leases.resource_lease(
+            declaration, purpose=f"artifact-restore:{artifact_id}",
+            project=project_folder, wait=False):
+        latest = _latest_artifacts(project_folder).get(artifact_id)
+        if latest is None:
+            raise LifecycleRefused(f"artifact ownership is unknown: {artifact_id}")
+        if latest.get("state") == DISPOSABLE:
+            return {"artifact_id": artifact_id, "path": latest["path"],
+                    "already_restored": True}
+        if latest.get("state") != QUARANTINED or not latest.get("original_path"):
+            raise LifecycleRefused(f"artifact is not restorable: {artifact_id}")
+        source = Path(latest["path"])
+        destination = Path(latest["original_path"])
+        _assert_cleanup_path(source, root)
+        _assert_cleanup_path(destination, root)
+        identity = FileIdentity(**latest["identity"])
+        if not identity.matches(source):
+            raise LifecycleRefused(f"quarantined artifact identity changed: {source}")
+        if os.path.lexists(destination):
+            raise LifecycleRefused(f"restore destination already exists: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, destination)
+        try:
+            restored_identity = FileIdentity.capture(destination)
+            if restored_identity != identity:
+                raise LifecycleRefused(
+                    f"artifact identity changed during restore: {destination}")
+            transition_artifact(
+                project_folder, artifact_id, DISPOSABLE,
+                reason="restored from owned lifecycle quarantine",
+                path=str(destination), identity=restored_identity)
+        except Exception:
+            if destination.exists() and not source.exists():
+                os.replace(destination, source)
+            raise
+    return {"artifact_id": artifact_id, "path": str(destination),
+            "from": str(source)}
 
 
 def purge_file(project_folder: str, record: ArtifactRecord,

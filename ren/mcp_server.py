@@ -84,6 +84,8 @@ def execution_mode(verb) -> str:
     `--dry-run` forced), or `refused` (listed but never executed)."""
     if verb.read_only:
         return "direct"
+    if getattr(verb, "typed_lifecycle", False):
+        return "typed_lifecycle"
     if verb.dry_run:
         return "dry_run"
     return "refused"
@@ -101,6 +103,8 @@ def tool_for_verb(verb) -> dict:
     elif mode == "dry_run":
         description += (" Runs with --dry-run forced, changing nothing; "
                         f"run `ren {verb.name}` in a shell to apply.")
+    elif mode == "typed_lifecycle":
+        description += " Runs through the guarded typed storage lifecycle operations."
     return {
         "name": tool_name(verb.name),
         "description": description,
@@ -574,6 +578,41 @@ def call_tool(verb, arguments: dict, execute=run_verb) -> dict:
     """A `tools/call` result (content plus `isError`), routing through
     the CLI dispatch or refusing before it, per `execution_mode`."""
     name = verb.name
+    if execution_mode(verb) == "typed_lifecycle":
+        try:
+            allowed = {param.name for param in verb.params} | {"json"}
+            unknown = set(arguments) - allowed
+            if unknown:
+                raise ValueError(f"unknown storage arguments: {sorted(unknown)}")
+            for param in verb.params:
+                value = arguments.get(param.name)
+                if param.required and value is None:
+                    raise ValueError(f"missing required argument {param.name!r}")
+                if value is not None and (not isinstance(value, str) or not value):
+                    raise ValueError(
+                        f"argument {param.name!r} must be a non-empty string")
+            from library.tools import storage_cli, storage_lifecycle
+
+            if name == "storage-plan":
+                projects = storage_cli._projects(arguments.get("project", ""))
+                result = storage_lifecycle.plan(
+                    projects, output=arguments["output"])
+            else:
+                operation = {"storage-collect": storage_lifecycle.collect,
+                             "storage-purge": storage_lifecycle.purge,
+                             "storage-restore": storage_lifecycle.restore}[name]
+                result = operation(arguments["manifest"])
+            envelope = {"ok": True, "exit": 0, "verb": name,
+                        "result": result}
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            payload = refusal_payload(
+                name, f"storage lifecycle operation refused: {exc}",
+                "the registered ownership, manifest, or filesystem checks did not pass",
+                "refresh the storage plan and resolve the reported condition")
+            envelope = {"ok": False, "exit": 3, "verb": name,
+                        "stderr": payload["what"], "ren_result": payload}
+        return {"content": [{"type": "text", "text": json.dumps(envelope)}],
+                **({"isError": True} if not envelope["ok"] else {})}
     if execution_mode(verb) == "refused":
         payload = refusal_payload(
             name,

@@ -385,14 +385,18 @@ def _install_record(
 
 
 def _check_disk_space(free: int, needed: int, what: str) -> None:
-    """Refuse with the exact shortfall before a download that cannot complete."""
-    if free < needed:
+    """Refuse before a download when its estimate would consume the reserve."""
+    from library.tools import storage_lifecycle
+
+    try:
+        storage_lifecycle.require_free_space(needed, path=str(_home()))
+    except storage_lifecycle.lifecycle.LifecycleRefused as refused:
         raise SetupFailure(
             f"not enough free disk space for {what}: "
-            f"{doctor.gb(free)} free, {doctor.gb(needed)} needed - "
-            f"short {doctor.gb(needed - free)}; free up that space and "
+            f"{doctor.gb(free)} free; {doctor.gb(needed)} estimated "
+            f"plus the configured reserve; {refused}; free up that space and "
             f"re-run `ren setup`"
-        )
+        ) from refused
 
 
 def _run_packs(engine: Path, packs: list[str], python: Path, env: dict) -> None:

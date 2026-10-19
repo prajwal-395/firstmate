@@ -80,6 +80,9 @@ MCP_STORAGE_OPERATION = McpArg(
 MCP_STORAGE_MANIFEST = McpArg(
     "manifest", "string", "Path to a reviewed ren-storage-plan/1 manifest",
     required=True)
+MCP_STORAGE_OUTPUT = McpArg(
+    "output", "string", "Path where the exact-identity storage manifest is written",
+    required=True)
 
 
 @dataclass(frozen=True)
@@ -111,6 +114,8 @@ class Verb:
     uniform `args` array the schema always carries, and the verb's own
     `argparse` parser stays the authority for it - duplicating every
     flag here would be a second hand-maintained catalog."""
+    typed_lifecycle: bool = False
+    """Dispatch through the typed, guarded storage lifecycle API in MCP."""
 
     @property
     def help(self) -> str:
@@ -482,20 +487,21 @@ VERBS = (
          effects=("read",), module_argv=("library.tools.storage_cli", "status"),
          params=(MCP_PROJECT_OPT,), json=True),
     Verb("storage-plan", "Maintenance", "Preview an exact-identity storage cleanup plan",
-         effects=("read",), module_argv=("library.tools.storage_cli", "plan-preview"),
-         params=(MCP_PROJECT_OPT,), json=True),
+         effects=("read", "project_write"), module_argv=("library.tools.storage_cli", "plan"),
+         params=(MCP_PROJECT_OPT, MCP_STORAGE_OUTPUT), json=True,
+         typed_lifecycle=True),
     Verb("storage-collect", "Maintenance", "Quarantine entries in a reviewed storage manifest",
          effects=("read", "project_write"),
          module_argv=("library.tools.storage_cli", "collect"),
-         params=(MCP_STORAGE_MANIFEST,), json=True),
+         params=(MCP_STORAGE_MANIFEST,), json=True, typed_lifecycle=True),
     Verb("storage-purge", "Maintenance", "Permanently purge exact quarantined entries from a storage manifest",
          effects=("read", "project_write"),
          module_argv=("library.tools.storage_cli", "purge"),
-         params=(MCP_STORAGE_MANIFEST,), json=True),
+         params=(MCP_STORAGE_MANIFEST,), json=True, typed_lifecycle=True),
     Verb("storage-restore", "Maintenance", "Restore quarantined entries named by a storage manifest",
          effects=("read", "project_write"),
          module_argv=("library.tools.storage_cli", "restore"),
-         params=(MCP_STORAGE_MANIFEST,), json=True),
+         params=(MCP_STORAGE_MANIFEST,), json=True, typed_lifecycle=True),
     Verb("discharge", "Reels", "Discharge a dropped note a promotion filed",
          effects=("read", "project_write"), subcommand="discharge-uncarried",
          detail="Discharge a dropped captain's note a promotion filed, so its reel can be signed off",

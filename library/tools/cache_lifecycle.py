@@ -464,7 +464,8 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
 
 
 def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
-                   records: dict[str, artifact_lifecycle.ArtifactRecord]) -> list[dict]:
+                   records: dict[str, artifact_lifecycle.ArtifactRecord],
+                   cleanup_roots: dict[str, str] | None = None) -> list[dict]:
     """Apply an explicit plan through the shared guarded deletion contract."""
     outcomes = []
     plan_id = plan.get("plan_id")
@@ -490,6 +491,11 @@ def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
             raise CachePolicyRefused(f"registered cache record missing: {artifact_id}")
         planned = planned_rows[artifact_id]
         current = current_rows.get(artifact_id)
+        if current is not None and current.get("state") == artifact_lifecycle.PURGED:
+            outcomes.append({"artifact_id": artifact_id, "path": record.path,
+                             "logical_bytes": 0, "physical_bytes": 0,
+                             "already_purged": True})
+            continue
         if (current is None or not current.get("identity_matches")
                 or planned.get("path") != record.path
                 or current.get("path") != record.path
@@ -504,5 +510,6 @@ def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
                 project_folder, artifact_id, artifact_lifecycle.DISPOSABLE,
                 reason="selected by value-aware cache budget plan")
             outcomes.append(artifact_lifecycle.purge_file(
-                project_folder, record, cleanup_root))
+                project_folder, record,
+                (cleanup_roots or {}).get(artifact_id, cleanup_root)))
     return outcomes
