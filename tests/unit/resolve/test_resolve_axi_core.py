@@ -111,3 +111,34 @@ def test_transaction_supports_async_submit_and_retrieve(monkeypatch):
     assert job == {"id": "job-1", "status": "queued"}
     assert retrieve_transaction("job-1", wait=3) == {
         "status": "committed", "patch_id": "stable-key"}
+
+
+def test_transaction_plan_validates_recorded_base_without_resolve(monkeypatch):
+    from types import SimpleNamespace
+
+    from library.tools import edit_patch, timeline_shadow
+    from library.tools.resolve_axi_core import plan_transaction
+
+    snapshot = {"clips": []}
+    generation = SimpleNamespace(generation=7, timeline_name="Main")
+
+    class Store:
+        def current_snapshots(self, project):
+            assert project == "Ren Qualification"
+            return [(generation, snapshot)]
+
+    monkeypatch.setattr(timeline_shadow, "ShadowStore", Store)
+    monkeypatch.setattr(edit_patch, "validate", lambda patch, base: None)
+    monkeypatch.setattr(edit_patch, "_judge", lambda conditions, snap, base: [])
+    plan = plan_transaction(AxiTransaction(
+        id="stable-key", project="Ren Qualification", timeline="Main",
+        base_generation=7, capability="reel.touchup",
+        affected_spans=((100, 120),), conflict_domains=("picture_transform",),
+        operations=({"op": "clip.set_property", "unique_id": "item-1",
+                    "key": "Pan", "value": 24.0},),
+    ))
+    assert plan["status"] == "planned"
+    assert plan["backend"] == "edit_patch"
+    assert plan["authorization_required"] is True
+    assert plan["resolve_contacted"] is False
+    assert plan["mutated"] is False

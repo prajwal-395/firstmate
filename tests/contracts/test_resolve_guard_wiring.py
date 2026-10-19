@@ -227,7 +227,7 @@ def test_resolve_script_binding_import_is_centralized():
 
 
 def test_resolve_axi_connecting_commands_enter_the_cli_lease_first():
-    path = LIBRARY / "tools" / "resolve_axi.py"
+    path = LIBRARY / "tools" / "resolve_axi_core_commands.py"
     tree = parse_file(path)
     command_handlers = {
         node.name for node in tree.body

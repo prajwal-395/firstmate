@@ -1884,109 +1884,109 @@
     2
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_place",
     "AppendToTimeline",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "_replace_item",
     "AppendToTimeline",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "_restore_trim_snapshot",
     "DeleteClips",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_delete",
     "DeleteClips",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_delete",
     "DeleteClips",
     2
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_title",
     "SetProperty",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_speed",
     "SetSpeed",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_edit_speed",
     "SetSpeed",
     2
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_ingest",
     "ImportMedia",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_render_queue",
     "LoadRenderPreset",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_render_queue",
     "AddRenderJob",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_project_set",
     "SetSettings",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_project_set",
     "SetSetting",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_multicam_build",
     "CreateMulticamClip",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_color_lut",
     "SetLUT",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_color_group",
     "AddColorGroup",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_audio_isolate",
     "SetVoiceIsolationState",
     1
   ],
   [
-    "library/tools/resolve_axi.py",
+    "library/tools/resolve_axi_core_commands.py",
     "cmd_sense_mask",
     "CreateMagicMask",
     1

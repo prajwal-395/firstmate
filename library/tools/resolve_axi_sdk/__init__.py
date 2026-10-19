@@ -9,6 +9,7 @@ from library.tools.resolve_axi_core import (
     AxiResult,
     AxiTransaction,
     execute,
+    plan_transaction,
     retrieve_transaction,
     submit_transaction,
     submit_transaction_async,
@@ -48,6 +49,11 @@ def apply_transaction(
     return submit_transaction(transaction, owner=owner, timeout=timeout)
 
 
+def plan(transaction: AxiTransaction) -> dict:
+    """Validate a transaction against the recorded generation, without Resolve access."""
+    return plan_transaction(transaction)
+
+
 def submit_transaction_job(
     transaction: AxiTransaction, *, owner: str = "resolve-axi"
 ) -> dict:
@@ -67,6 +73,7 @@ __all__ = [
     "apply_transaction",
     "call",
     "get_transaction_job",
+    "plan",
     "submit_transaction_job",
     "transaction",
 ]

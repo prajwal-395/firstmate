@@ -123,6 +123,28 @@ def test_async_axi_transaction_tools_are_discoverable_and_guarded(monkeypatch):
         "id": "job-1", "status": "running"}
 
 
+def test_axi_transaction_plan_is_read_only_and_uses_shared_sdk(monkeypatch):
+    tools = {tool["name"]: tool for tool in _list_tools()}
+    plan_tool = tools["resolve_axi_transaction_plan"]
+    assert plan_tool["annotations"]["readOnlyHint"] is True
+    assert plan_tool["_meta"]["execution_mode"] == "transaction_plan"
+    from library.tools import resolve_axi_sdk
+    monkeypatch.setattr(resolve_axi_sdk, "plan", lambda transaction: {
+        "status": "planned", "backend": "edit_patch",
+        "resolve_contacted": False, "mutated": False})
+    response = handle_message({
+        "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+        "params": {"name": "resolve_axi_transaction_plan",
+                   "arguments": {"transaction": {
+                       "id": "patch-1", "project": "P", "timeline": "T",
+                       "base_generation": 1, "capability": "reel.touchup",
+                       "affected_spans": [[0, 1]],
+                       "conflict_domains": ["picture_transform"],
+                       "operations": []}}},
+    })
+    assert json.loads(response["result"]["content"][0]["text"])["status"] == "planned"
+
+
 def test_each_tool_carries_its_verbs_effects_and_required_arguments():
     by_verb = {tool["_meta"]["verb"]: tool for tool in _list_tools()
                if tool["_meta"].get("verb") is not None}

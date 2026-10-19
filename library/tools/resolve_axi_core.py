@@ -115,6 +115,52 @@ def render_json(result: AxiResult) -> str:
     return json.dumps(result.as_dict(), ensure_ascii=False, separators=(",", ":"))
 
 
+def plan_transaction(transaction: AxiTransaction) -> dict[str, Any]:
+    """Validate a transaction against its recorded base without contacting Resolve.
+
+    EditPatch is the only qualified executor represented by this typed
+    transaction contract. The plan says so explicitly and requires separate
+    authorization before submission; it never queues or mutates anything.
+    """
+    from library.tools import edit_patch, timeline_shadow
+
+    patch = edit_patch.EditPatch.from_dict(transaction.patch())
+    store = timeline_shadow.ShadowStore()
+    candidates = [
+        (generation, snapshot)
+        for generation, snapshot in store.current_snapshots(patch.project)
+        if generation.timeline_name == patch.timeline
+    ]
+    if len(candidates) != 1:
+        raise ValueError(
+            f"recorded base for {patch.project!r}/{patch.timeline!r} "
+            f"resolved to {len(candidates)} timelines")
+    generation, snapshot = candidates[0]
+    if generation.generation != patch.base_generation:
+        raise ValueError(
+            f"transaction base generation {patch.base_generation} is stale; "
+            f"recorded head is {generation.generation}")
+    edit_patch.validate(patch, snapshot)
+    failures = edit_patch._judge(patch.preconditions, snapshot, snapshot)
+    if failures:
+        raise ValueError("transaction preconditions failed: " + "; ".join(failures))
+    return {
+        "status": "planned",
+        "transaction_id": patch.id,
+        "project": patch.project,
+        "timeline": patch.timeline,
+        "base_generation": patch.base_generation,
+        "backend": "edit_patch",
+        "backend_reason": "typed timeline transactions execute through the EditPatch coordinator",
+        "operations": [dict(operation) for operation in patch.operations],
+        "affected_spans": [list(span) for span in patch.affected_spans],
+        "conflict_domains": list(patch.conflict_domains),
+        "authorization_required": True,
+        "resolve_contacted": False,
+        "mutated": False,
+    }
+
+
 def submit_transaction_async(
     transaction: AxiTransaction, *, owner: str = "resolve-axi"
 ) -> dict[str, Any]:

@@ -200,6 +200,39 @@ def axi_transaction_retrieve_tool() -> dict:
     }
 
 
+def axi_transaction_plan_tool() -> dict:
+    return {
+        "name": "resolve_axi_transaction_plan",
+        "description": "Validate a typed EditPatch against its recorded base and return a no-write backend plan.",
+        "inputSchema": {
+            "type": "object", "additionalProperties": False,
+            "properties": {"transaction": {"type": "object", "minProperties": 1}},
+            "required": ["transaction"],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                         "idempotentHint": True, "openWorldHint": False},
+        "_meta": {"control_boundary": "resolve-axi",
+                  "execution_mode": "transaction_plan"},
+    }
+
+
+def call_axi_transaction_plan(arguments: dict) -> dict:
+    patch = arguments.get("transaction")
+    if not isinstance(patch, dict):
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2,
+            "error": "transaction must be an EditPatch object"})}],
+            "isError": True}
+    from library.tools.resolve_axi_sdk import AxiTransaction, plan
+    try:
+        result = plan(_typed_axi_transaction(AxiTransaction, patch))
+        return {"content": [{"type": "text", "text": json.dumps(
+            result, ensure_ascii=False, default=str)}]}
+    except (KeyError, TypeError, ValueError) as exc:
+        return {"content": [{"type": "text", "text": json.dumps({
+            "ok": False, "exit": 2, "error": str(exc)})}], "isError": True}
+
+
 def call_axi_transaction_submit(arguments: dict) -> dict:
     if arguments.get("apply") is not True:
         return {"content": [{"type": "text", "text": json.dumps({
@@ -514,6 +547,7 @@ def handle_message(message, execute=run_verb):
         return _result(request_id, {
         "tools": [axi_tool(), axi_transaction_tool(),
                   axi_transaction_submit_tool(), axi_transaction_retrieve_tool(),
+                  axi_transaction_plan_tool(),
                       *[tool_for_verb(verb) for verb in VERBS]]})
     if method == "tools/call":
         tool = params.get("name", "")
@@ -535,6 +569,8 @@ def handle_message(message, execute=run_verb):
             return _result(request_id, call_axi_transaction_submit(arguments))
         if tool == "resolve_axi_transaction_retrieve":
             return _result(request_id, call_axi_transaction_retrieve(arguments))
+        if tool == "resolve_axi_transaction_plan":
+            return _result(request_id, call_axi_transaction_plan(arguments))
         by_tool = {tool_name(verb.name): verb for verb in VERBS}
         verb = by_tool.get(tool)
         if verb is None:
