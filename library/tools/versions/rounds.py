@@ -333,7 +333,7 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
             operations=[{"kind": "choice" if choice else "build"}],
             affected_entities=[str(final)],
             refs={"round": {"round": current["round"]}},
-            status="recorded")
+            status="promoted")
         current["reels"][final] = entry
     document["format"] = ROUNDS_FORMAT
     document["rounds"] = boundaries

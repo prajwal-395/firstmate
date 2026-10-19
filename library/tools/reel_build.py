@@ -13941,6 +13941,24 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             failure_class=PromotionFailure.DELIVERY) \
             from record_failed
 
+    # Promotion is not complete until the canonical revision and its
+    # Project Model / Timeline Shadow references agree with the durable
+    # version and round projections. Keep the promotion journal and backup
+    # recoverable if any reference is absent or incompatible.
+    try:
+        from library.tools import creative_revision as _creative_revision
+        consistency = _creative_revision.reconcile(project_folder)
+        if not consistency.get("ok"):
+            raise ValueError(consistency.get("missing_references") or
+                             "revision references are inconsistent")
+    except (OSError, ValueError, TypeError, KeyError) as consistency_failed:
+        raise PromotionFailure(
+            f"REFUSING to complete promotion: the reels above are promoted, "
+            f"but creative revision consistency did not pass "
+            f"({consistency_failed}). The promotion remains recoverable; "
+            "repair the named revision references and re-run.",
+            failure_class=PromotionFailure.DELIVERY) from consistency_failed
+
     # A prior refused run can leave a held candidate for this reel. Once
     # the replacement version is durable, retire only candidates tied to
     # the superseded base and lacking unresolved edits or failure evidence.
