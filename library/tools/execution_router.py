@@ -600,7 +600,9 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # qualification remains incomplete. Ordinary router calls still refuse
     # them under the default production policy above.
     if (len(ids) == 1
-            and ids[0] in {"audio.gain", "audio.fade", "transition"}
+            and ids[0] in {"audio.gain", "audio.fade", "transition",
+                           "overlay.resize", "clip.split", "clip.slide",
+                           "clip.roll"}
             and context.get("qualification_policy") == "protected_experimental"):
         status = edit_algebra.status(ids[0])
         row = status.for_backend("reel_touchup") if status else None

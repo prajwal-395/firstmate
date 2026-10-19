@@ -245,6 +245,12 @@ def _touchup(context) -> dict:
         for key in ("left_offset", "right_offset"):
             if key in operation:
                 edit[key] = operation[key]
+    elif operation_id == "overlay.resize":
+        row, index = _target_position(
+            context.snapshot, str(operation["unique_id"]))
+        edit = {"op": "resize_overlay", "row": row, "item": index,
+                "width": int(operation["width"]),
+                "height": int(operation["height"])}
     else:
         row, index = _target_position(
             context.snapshot, str(operation["unique_id"]))
@@ -283,6 +289,15 @@ def _touchup(context) -> dict:
                     "duration": duration}
         elif operation_id == "clip.slip":
             edit = {"op": "slip", "row": row, "item": index,
+                    "delta_frames": int(operation["delta_frames"])}
+        elif operation_id == "clip.split":
+            edit = {"op": "split", "row": row, "item": index,
+                    "at_frame": int(operation["at_frame"])}
+        elif operation_id == "clip.slide":
+            edit = {"op": "slide", "row": row, "item": index,
+                    "to_record": int(operation["to_frame"])}
+        elif operation_id == "clip.roll":
+            edit = {"op": "roll", "row": row, "item": index,
                     "delta_frames": int(operation["delta_frames"])}
         elif operation_id == "overlay.remove":
             edit = {"op": "remove_overlay", "row": row, "item": index}
@@ -332,9 +347,13 @@ def register_builtin_edit_executors() -> None:
         ("clip.move", "reel_touchup"): _touchup,
         ("clip.ripple", "reel_touchup"): _touchup,
         ("clip.slip", "reel_touchup"): _touchup,
+        ("clip.split", "reel_touchup"): _touchup,
+        ("clip.slide", "reel_touchup"): _touchup,
+        ("clip.roll", "reel_touchup"): _touchup,
         ("audio.fade", "reel_touchup"): _touchup,
         ("audio.gain", "reel_touchup"): _audio_gain,
         ("transition", "reel_touchup"): _touchup,
+        ("overlay.resize", "reel_touchup"): _touchup,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

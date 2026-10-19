@@ -2982,9 +2982,9 @@ _BACKEND_QUALIFICATIONS = {}
 _ROUTE_EVALUATION = {
     "overlay.resize": {
         "inspected": ["Resolve 21.1 TimelineItem.SetProperties/GetProperties and documented Pan/Tilt/ZoomX/ZoomY", "Fusion scripting", "layout_model", "overlay_verify", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
-        "available": ["native transform properties can be written and read back", "layout_model converts coordinate intent and overlay_verify can compare rendered pixels", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
-        "gaps": ["no adapter connects output-pixel width/height to a staged native transform and independent rendered-box verification", "resize_still changes duration only", "OTIO transform round-trip does not prove requested output dimensions", "MCP script tools bypass operation-specific authorization, verification and recovery"],
-        "next": "Build a staged still-only transform adapter that captures and verifies rendered pixels before promotion; live qualification remains deferred.",
+        "available": ["protected reel_touchup lowers output-pixel dimensions through layout_model, writes Pan/Tilt/ZoomX/ZoomY on staging, and verifies an enabled/disabled rendered pixel diff with overlay_verify before promotion", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
+        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling", "live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
+        "next": "Run the deferred geometry qualification on disposable Resolve timelines, including preservation, recovery, clipping and rendered dimensions, before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "audio.gain": {
@@ -3002,23 +3002,23 @@ _ROUTE_EVALUATION = {
     },
     "clip.split": {
         "inspected": ["Resolve 21.1 TimelineItem and Timeline method inventory", "composed_edit", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
-        "available": ["staged delete plus exact source-window placement can compose a split, subject to preserving item state and proving both output spans", "TimelineItem has no documented SplitAtFrame method", "MCP run_script only exposes arbitrary code and no AXI transaction contract"],
-        "gaps": ["composed delete/place path currently has no split operation adapter or proof of effect/link preservation for both outputs", "OTIO is a whole-timeline round-trip without localized preservation proof", "MCP does not improve safety or verification"],
-        "next": "Implement staged exact two-span reconstruction with state carry, collateral comparison and compensation before promotion.",
+        "available": ["reel_touchup stages exact two-span reconstruction, carries native transform properties to the new half, and verifies item spans plus collateral timeline before promotion", "TimelineItem has no documented SplitAtFrame method", "MCP run_script only exposes arbitrary code and no AXI transaction contract"],
+        "gaps": ["limited to one normal-speed clip with no links, Fusion comps, markers, flags, keyframes or color state; live Resolve qualification remains deferred", "MCP does not improve safety or verification"],
+        "next": "Run deferred split qualification on a disposable timeline before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "clip.slide": {
         "inspected": ["Resolve 21.1 TimelineItem and Timeline method inventory", "composed_edit", "reel_touchup", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
-        "available": ["delete/place staging can express neighbor source-window changes but no native Slide operation is documented", "MCP run_script supplies no candidate-local preservation or recovery guarantee"],
-        "gaps": ["existing move does not roll both neighbors' source windows", "OTIO lacks candidate-local collateral proof", "no staged adapter verifies all three exact spans and unchanged surrounding timeline"],
-        "next": "Compose target and both neighbors on staging and verify exact source/record spans plus collateral preservation.",
+        "available": ["reel_touchup composes the target and both neighbors on a staged candidate; placement read-back and full collateral comparison gate promotion", "no native Slide operation is documented", "MCP run_script supplies no candidate-local preservation or recovery guarantee"],
+        "gaps": ["limited to three contiguous normal-speed clips with no links, Fusion comps, markers, flags, keyframes or color state; live qualification remains deferred"],
+        "next": "Run deferred slide qualification on a disposable timeline before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "clip.roll": {
         "inspected": ["Resolve 21.1 TimelineItem and Timeline method inventory", "composed_edit", "reel_touchup", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
-        "available": ["delete/place staging can express shared-cut source-window changes but no native Roll operation is documented", "MCP run_script supplies no candidate-local preservation or recovery guarantee"],
-        "gaps": ["touch-up has no shared-cut two-item composition", "OTIO lacks candidate-local collateral proof", "no staged adapter verifies both exact source spans, fixed record spans, and unchanged surrounding timeline"],
-        "next": "Compose both source windows at the shared cut on staging and verify exact spans and collateral preservation.",
+        "available": ["reel_touchup composes the two source windows at their shared cut on a staged candidate; placement read-back and full collateral comparison gate promotion", "no native Roll operation is documented", "MCP run_script supplies no candidate-local preservation or recovery guarantee"],
+        "gaps": ["limited to two contiguous normal-speed clips with no links, Fusion comps, markers, flags, keyframes or color state; live qualification remains deferred"],
+        "next": "Run deferred roll qualification on a disposable timeline before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "transition": {
@@ -3080,9 +3080,36 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/reel_touchup.py:_assert_still_insertions",
         "PR #2718: native PNG stills use exact-duration placement",
     ),
+    ("overlay.resize", "reel_touchup"):
+        ("library/tools/reel_touchup.py:_op_resize_overlay",
+         "library/tools/reel_touchup.py:_overlay_resize_projection",
+         "library/tools/overlay_verify.py:verify_rendered_boxes"),
+    ("clip.split", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_split",
+        "library/tools/composed_edit.py:apply_composed_edit",
+        "library/tools/composed_edit.py:verify_placement"),
+    ("clip.slide", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_slide",
+        "library/tools/composed_edit.py:apply_composed_edit",
+        "library/tools/composed_edit.py:verify_placement"),
+    ("clip.roll", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_roll",
+        "library/tools/composed_edit.py:apply_composed_edit",
+        "library/tools/composed_edit.py:verify_placement"),
 }
 
 _BACKEND_OPERATION_LIMITATIONS = {
+    ("overlay.resize", "reel_touchup"):
+        ("one transparent PNG still on V3+; no drawing Fusion comp, rotation, crop or non-native Scaling; dimensions are delivery pixels; preserve center; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
+    ("clip.split", "reel_touchup"):
+        ("one normal-speed video item without links, Fusion comps, markers, flags, keyframes or color state; exact interior record-frame boundary and readable source bounds; carries native transform properties to the second half; candidate verifies both source/record spans and collateral timeline",),
+    ("clip.slide", "reel_touchup"):
+        ("three contiguous normal-speed video items without links, Fusion comps, markers, flags, keyframes or color state; preserves total record duration and verifies all three source/record spans and collateral timeline on staging",),
+    ("clip.roll", "reel_touchup"):
+        ("two contiguous normal-speed video items without links, Fusion comps, markers, flags, keyframes or color state; preserves shared record duration and verifies both source/record spans and collateral timeline on staging",),
     ("audio.gain", "reel_touchup"):
         ("one audio-only request; requested dB must be in the OTIO range; exact source path and record start must identify one item; full candidate snapshot must match before and after; no independent rendered-audio evidence is recorded yet",),
     ("transition", "reel_touchup"):
@@ -3132,7 +3159,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "audio.fade", "audio.gain", "transition", "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "audio.gain", "transition", "overlay.resize", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but

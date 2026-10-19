@@ -230,6 +230,10 @@ _STRUCTURAL_OPERATION_IDS = {
     "remove_overlay": "overlay.remove",
     "swap_pixels": "overlay.swap_pixels",
     "resize_still": "overlay.resize",
+    "resize_overlay": "overlay.resize",
+    "split": "clip.split",
+    "slide": "clip.slide",
+    "roll": "clip.roll",
     "add_row": "track.add",
     "move": "clip.move",
 }
@@ -671,14 +675,15 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
             "`ren touch`")
     resize_positions = [index for index, edit in enumerate(edits)
                         if isinstance(edit, Mapping)
-                        and str(edit.get("op") or "") == "resize_still"]
+                        and str(edit.get("op") or "") in {
+                            "resize_still", "resize_overlay"}]
     if resize_positions and (len(edits) != 1 or len(resize_positions) != 1):
         raise TouchupRefused(
-            "`resize_still` must be the only edit in its request",
-            "it re-places one still under one temporary preference state; "
-            "mixing a ripple or a second delete/place would make the "
-            "timeline and preference transaction harder to prove",
-            "resize one still per `ren touch` request")
+            "a resize must be the only edit in its request",
+            "resize verification requires one isolated staged change; "
+            "mixing it with another resize or structural write would make "
+            "the candidate evidence ambiguous",
+            "resize one overlay or still per `ren touch` request")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
     # A copy: `add_row` appends the row it will make, so later edits in
@@ -720,7 +725,9 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
                               moves)
     _check_single_claim(changes, removals, moves, in_place)
 
-    if resize_positions:
+    if (resize_positions
+            and str(edits[resize_positions[0]].get("op") or "")
+            == "resize_still"):
         cost = ("composed_still_resize: one untreated native PNG overlay "
                 "is deleted and re-placed at the same record frame with "
                 "the requested frame duration. Resolve preferences are "
@@ -1426,6 +1433,299 @@ def _op_resize_still(edit, position, tracks, spans, changes, insertions,
     return True
 
 
+def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
+                       removals, moves, exclude, notes, in_place) -> bool:
+    """Declare output-pixel geometry for one untreated PNG overlay.
+
+    Native transform lowering happens against the live staged item in
+    ``_apply_in_place`` so it can use that timeline's resolution and proxy
+    units. Promotion is gated by a rendered enabled/disabled pixel diff.
+    """
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    try:
+        width, height = int(edit["width"]), int(edit["height"])
+    except (KeyError, TypeError, ValueError) as invalid:
+        raise TouchupRefused(
+            f"edit {position} (`resize_overlay`) needs integer width/height",
+            "output geometry must be expressed in positive delivery pixels",
+            "provide positive output-pixel width and height") from invalid
+    if (not row.startswith("V") or not row[1:].isdigit()
+            or int(row[1:]) < 3 or item_index is None
+            or width <= 0 or height <= 0):
+        raise TouchupRefused(
+            f"edit {position} (`resize_overlay`) has an invalid overlay target or size",
+            "only an existing V3+ overlay with positive output dimensions is supported",
+            "address one overlay row item and provide positive width/height")
+    clip = _find_clip(tracks, row, int(item_index))
+    source = str(clip.get("source_file") or "")
+    if (clip.get("media_type") != "Still" or not source.lower().endswith(".png")
+            or _ce.treatment_comps(clip)):
+        raise TouchupRefused(
+            f"edit {position} (`resize_overlay`) targets unsupported media {source!r}",
+            "the first route is limited to a native PNG still without a drawing Fusion comp",
+            "use a native PNG overlay without a Fusion treatment")
+    if clip.get("enabled") is not True:
+        raise TouchupRefused(
+            f"edit {position} (`resize_overlay`) target {row}[{item_index}] "
+            "is disabled or its enabled state is unreadable",
+            "rendered-pixel verification temporarily toggles the candidate item",
+            "use a visible overlay with readable enabled state")
+    in_place.append({"kind": "overlay_resize", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": int(clip["record_in"]),
+                     "width": width, "height": height,
+                     "source_file": source})
+    notes.append(f"edit {position}: resize {row}[{item_index}] to "
+                 f"{width}x{height} output pixels; verify rendered box")
+    return False
+
+
+def _require_simple_picture_clip(clip: Mapping, op: str, position: int,
+                                 row: str, index: int) -> None:
+    if not row.startswith("V"):
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) targets {row}[{index}]",
+            "the first candidate adapter supports picture clips only",
+            "use a video-track target")
+    if clip.get("speed") is None or abs(float(clip["speed"]) - 100.0) > 1e-6:
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] has speed "
+            f"{clip.get('speed')!r}",
+            "variable-speed source/record conversion is not qualified",
+            "use normal-speed clips")
+    fusion = clip.get("fusion") or {}
+    if (int(fusion.get("comp_count") or 0) > 0
+            or _ce.treatment_comps(clip)):
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] carries a "
+            "Fusion composition",
+            "the candidate path cannot prove comp state on reconstructed items",
+            "use a clip without Fusion compositions")
+    if clip.get("left_offset") is None:
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] has no readable source offset",
+            "source-window state is required for exact candidate placement",
+            "re-read the target and retry")
+    if not isinstance(clip.get("transform"), Mapping):
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] has no readable transform",
+            "candidate-local state carry needs a measured native transform",
+            "re-read the target and retry")
+    unsupported_state = []
+    for state_field in ("markers", "flags", "keyframes"):
+        if clip.get(state_field) is None:
+            unsupported_state.append(f"unreadable {state_field}")
+        elif clip[state_field]:
+            unsupported_state.append(state_field)
+    if clip.get("enabled") is not True:
+        unsupported_state.append("disabled or unreadable enabled state")
+    if clip.get("clip_color") not in ("", None):
+        unsupported_state.append("clip color")
+    color = clip.get("color")
+    if not isinstance(color, Mapping):
+        unsupported_state.append("unreadable color state")
+    elif (color.get("cdl") or color.get("color_group")
+          or color.get("luts")):
+        unsupported_state.append("color grade")
+    if unsupported_state:
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] carries "
+            f"unsupported state: {', '.join(unsupported_state)}",
+            "the candidate reconstruction cannot preserve and prove this item state",
+            "use a plain clip with readable default editorial state")
+
+
+def _adjacent_clips(tracks: Sequence[Mapping], row: str, index: int,
+                    position: int, op: str) -> tuple[Mapping, Mapping,
+                                                      Mapping, Mapping]:
+    track = next((track for track in tracks
+                  if _row_of(track["type"], int(track["index"])) == row), None)
+    clips = list((track or {}).get("clips") or ())
+    if not 0 < index < len(clips) - 1:
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target {row}[{index}] has no two neighbours",
+            "slide must keep both neighbouring source windows intact",
+            "target an item with a preceding and following clip")
+    previous, target, following = clips[index - 1:index + 2]
+    if (int(previous["record_out"]) != int(target["record_in"])
+            or int(target["record_out"]) != int(following["record_in"])):
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) target is not between two contiguous clips",
+            "this slide route cannot manufacture or cover an existing gap",
+            "address a target with contiguous neighbours")
+    return track, previous, target, following
+
+
+def _change_from_clip(track: Mapping, index: int, clip: Mapping,
+                      record: int, duration: int, left: int, how: str):
+    return _ce.ItemChange(
+        track_type=str(track["type"]), track_index=int(track["index"]),
+        item_index=int(index), record_frame=int(record),
+        duration=int(duration), left_offset=int(left),
+        previous_record=int(clip["record_in"]),
+        previous_duration=int(clip["duration"]), how=how,
+        comp_count=0, right_offset=clip.get("right_offset"),
+        name=str(clip.get("name") or ""))
+
+
+def _op_split(edit, position, tracks, spans, changes, insertions,
+              removals, moves, exclude, notes, in_place) -> bool:
+    row, index = str(edit.get("row") or "").upper(), edit.get("item")
+    if not row.startswith("V") or index is None:
+        raise TouchupRefused(
+            f"edit {position} (`split`) needs a video row and item",
+            "a split must identify one picture clip",
+            "address the clip by video row and item")
+    clip = _find_clip(tracks, row, int(index))
+    _require_simple_picture_clip(clip, "split", position, row, int(index))
+    at = int(edit["at_frame"])
+    start, end = int(clip["record_in"]), int(clip["record_out"])
+    if not start < at < end:
+        raise TouchupRefused(
+            f"edit {position} (`split`) boundary {at} is outside the interior of [{start}, {end})",
+            "split must leave two positive, non-overlapping spans",
+            "choose an interior record-frame boundary")
+    left = int(clip["left_offset"])
+    second_left = left + at - start
+    duration_a, duration_b = at - start, end - at
+    source_frames = clip.get("source_frames")
+    if source_frames is None or second_left + duration_b > int(source_frames):
+        raise TouchupRefused(
+            f"edit {position} (`split`) source window is unreadable or exceeds media bounds",
+            "both output source spans must be measured and inside the source",
+            "re-read source duration and choose an in-bounds cut")
+    changes.append(_change_from_clip(
+        next(track for track in tracks
+             if _row_of(track["type"], int(track["index"])) == row),
+        int(index), clip, start, duration_a, left, _ce.SHIFT))
+    insertions.append(_PendingSwap(
+        row=row, record_frame=at, duration=duration_b,
+        media=str(clip["source_file"]), left_offset=second_left,
+        carry_from=(row, int(index)), name=str(clip.get("name") or ""),
+        position=position))
+    notes.append(f"edit {position}: split {row}[{index}] at {at}; verify both source and record spans")
+    return True
+
+
+def _op_slide(edit, position, tracks, spans, changes, insertions,
+              removals, moves, exclude, notes, in_place) -> bool:
+    row, index = str(edit.get("row") or "").upper(), edit.get("item")
+    if not row.startswith("V") or index is None:
+        raise TouchupRefused(
+            f"edit {position} (`slide`) needs a video row and item",
+            "the first candidate slide composes one picture item and both neighbours",
+            "address one video item with contiguous neighbours")
+    track, previous, target, following = _adjacent_clips(
+        tracks, row, int(index), position, "slide")
+    delta = int(edit["to_record"]) - int(target["record_in"])
+    if not delta:
+        raise TouchupRefused(
+            f"edit {position} (`slide`) requests the current record frame",
+            "an unchanged cut needs no staged write",
+            "drop the no-op or choose a different record frame")
+    for idx, clip in zip((int(index) - 1, int(index), int(index) + 1),
+                         (previous, target, following)):
+        _require_simple_picture_clip(clip, "slide", position, row, idx)
+    if abs(delta) >= min(int(previous["duration"]), int(following["duration"])):
+        raise TouchupRefused(
+            f"edit {position} (`slide`) displacement {delta} consumes a neighbour",
+            "the target must remain between positive-duration adjacent items",
+            "reduce the displacement")
+    prev_len = int(previous["duration"]) + delta
+    next_len = int(following["duration"]) - delta
+    next_left = int(following["left_offset"]) + delta
+    previous_source_frames = previous.get("source_frames")
+    following_source_frames = following.get("source_frames")
+    if (prev_len <= 0 or next_len <= 0 or next_left < 0
+            or previous_source_frames is None
+            or int(previous["left_offset"]) + prev_len
+            > int(previous_source_frames)
+            or following_source_frames is None
+            or next_left + next_len > int(following_source_frames)
+            or (delta > 0
+                and int(previous.get("right_offset") or 0) < delta)):
+        raise TouchupRefused(
+            f"edit {position} (`slide`) lacks source headroom for {delta:+d} frames",
+            "both neighboring source windows must remain in media bounds",
+            "choose a smaller displacement")
+    first_index = int(index) - 1
+    last_index = int(index) + 1
+    changes.extend((
+        _change_from_clip(track, first_index, previous,
+                          int(previous["record_in"]), prev_len,
+                          int(previous["left_offset"]), _ce.EXTEND),
+        _change_from_clip(track, int(index), target,
+                          int(edit["to_record"]), int(target["duration"]),
+                          int(target["left_offset"]), _ce.SHIFT),
+        _change_from_clip(track, last_index, following,
+                          int(following["record_in"]) + delta, next_len,
+                          next_left, _ce.SHIFT),
+    ))
+    notes.append(f"edit {position}: slide {row}[{index}] by {delta:+d} frames with both neighbours")
+    return True
+
+
+def _op_roll(edit, position, tracks, spans, changes, insertions,
+             removals, moves, exclude, notes, in_place) -> bool:
+    row, index = str(edit.get("row") or "").upper(), edit.get("item")
+    if not row.startswith("V") or index is None:
+        raise TouchupRefused(
+            f"edit {position} (`roll`) needs an outgoing video row and item",
+            "the first candidate roll changes one shared cut between two picture clips",
+            "address the outgoing video clip by row and item")
+    track = next((track for track in tracks
+                  if _row_of(track["type"], int(track["index"])) == row), None)
+    clips = list((track or {}).get("clips") or ())
+    index = int(index)
+    if not 0 <= index < len(clips) - 1:
+        raise TouchupRefused(
+            f"edit {position} (`roll`) target {row}[{index}] has no following clip",
+            "a roll requires two adjacent items at one shared cut",
+            "target the outgoing item at a contiguous cut")
+    outgoing, incoming = clips[index:index + 2]
+    if int(outgoing["record_out"]) != int(incoming["record_in"]):
+        raise TouchupRefused(
+            f"edit {position} (`roll`) items are not contiguous",
+            "a shared-cut roll cannot change an existing gap or overlap",
+            "target adjacent clips at an exact shared boundary")
+    _require_simple_picture_clip(outgoing, "roll", position, row, index)
+    _require_simple_picture_clip(incoming, "roll", position, row, index + 1)
+    delta = int(edit["delta_frames"])
+    if not delta or abs(delta) >= min(int(outgoing["duration"]),
+                                      int(incoming["duration"])):
+        raise TouchupRefused(
+            f"edit {position} (`roll`) displacement {delta} is empty or consumes an item",
+            "both sides of the cut must retain positive duration",
+            "choose a smaller non-zero cut movement")
+    out_len = int(outgoing["duration"]) + delta
+    in_len = int(incoming["duration"]) - delta
+    in_left = int(incoming["left_offset"]) + delta
+    outgoing_source_frames = outgoing.get("source_frames")
+    incoming_source_frames = incoming.get("source_frames")
+    if (in_left < 0 or outgoing_source_frames is None
+            or int(outgoing["left_offset"]) + out_len
+            > int(outgoing_source_frames)
+            or incoming_source_frames is None
+            or in_left + in_len > int(incoming_source_frames)
+            or (delta > 0
+                and int(outgoing.get("right_offset") or 0) < delta)):
+        raise TouchupRefused(
+            f"edit {position} (`roll`) lacks source headroom for {delta:+d} frames",
+            "both source windows must remain inside measured media bounds",
+            "choose a smaller cut movement")
+    changes.extend((
+        _change_from_clip(track, index, outgoing,
+                          int(outgoing["record_in"]), out_len,
+                          int(outgoing["left_offset"]), _ce.EXTEND),
+        _change_from_clip(track, index + 1, incoming,
+                          int(incoming["record_in"]) + delta, in_len,
+                          in_left, _ce.SHIFT),
+    ))
+    notes.append(f"edit {position}: roll {row}[{index}] shared cut by {delta:+d} frames")
+    return True
+
+
 def _op_set_properties(edit, position, tracks, spans, changes,
                          insertions, removals, moves, exclude, notes,
                          in_place) -> bool:
@@ -1902,6 +2202,10 @@ _OP_HANDLERS = {
     "retime": _op_retime,
     "slip": _op_slip,
     "resize_still": _op_resize_still,
+    "resize_overlay": _op_resize_overlay,
+    "split": _op_split,
+    "slide": _op_slide,
+    "roll": _op_roll,
     "set_properties": _op_set_properties,
     "entry_motion": _op_entry_motion,
     "repair_hold_window": _op_repair_hold_window,
@@ -2267,6 +2571,12 @@ def _resolve_insertions(pool: Any, timeline: Any,
                 properties = dict(source.GetProperty() or {})
             except Exception:  # noqa: BLE001
                 properties = {}
+            if not properties:
+                raise TouchupRefused(
+                    f"edit {item.position} cannot read transform state from "
+                    f"{row}[{index}]",
+                    "the inserted half must inherit measurable native item state",
+                    "re-read the source clip and retry")
             nodes = _live_prop(source, "GetNumNodes", None)
             if nodes is not None and int(nodes) > 1:
                 raise TouchupRefused(
@@ -2765,6 +3075,96 @@ def _audio_fades(timeline: Any) -> dict:
     return fades
 
 
+def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
+                               entry: Mapping) -> tuple[dict, dict]:
+    """Lower output-pixel size to native properties and a pixel-QA record."""
+    from PIL import Image
+
+    from library.tools.layout_model import (
+        GeometryDescriptor,
+        LayoutItem,
+        LayoutModel,
+        Transform,
+        current_proxy_units,
+    )
+
+    pool_item = item.GetMediaPoolItem()
+    if pool_item is None:
+        raise TouchupRefused(
+            "overlay.resize target has no media-pool item",
+            "the source canvas and identity must be measured before a transform write",
+            "re-read the exact still overlay")
+    path = str(pool_item.GetClipProperty("File Path") or "")
+    if not path or os.path.realpath(path) != os.path.realpath(
+            str(entry["source_file"])):
+        raise TouchupRefused(
+            "overlay.resize source identity changed on staging",
+            "the candidate must still contain the exact targeted asset",
+            "discard the stale candidate and re-address the overlay")
+    try:
+        with Image.open(path) as asset:
+            source_size = tuple(map(int, asset.size))
+            alpha = asset.convert("RGBA").getchannel("A")
+            if alpha.getbbox() is None:
+                raise ValueError("asset has no alpha ink")
+            if alpha.getextrema()[0] == 255:
+                raise ValueError("asset has no transparent pixels")
+        frame = (int(timeline.GetSetting("timelineResolutionWidth")),
+                 int(timeline.GetSetting("timelineResolutionHeight")))
+        stored = item.GetProperty() or {}
+        if not isinstance(stored, Mapping):
+            raise TypeError("native transform properties are unreadable")
+        units = current_proxy_units(project)
+        current = Transform.from_dict({**dict(stored),
+                                       "pan_units": units,
+                                       "tilt_units": units})
+        if abs(current.rotation) > 1e-7 or abs(current.scaling - 1.0) > 1e-7:
+            raise ValueError(
+                "rotation or non-native Scaling has no qualified resize projection")
+        model = LayoutModel(*frame, units, units)
+        current_item = LayoutItem(*source_size, current)
+        centre = model.local_to_canvas(
+            current_item, source_size[0] * current.anchor_x,
+            source_size[1] * current.anchor_y)
+        width, height = int(entry["width"]), int(entry["height"])
+        box = (centre[0] - width / 2, centre[1] - height / 2,
+               centre[0] + width / 2, centre[1] + height / 2)
+        if (box[0] < 0 or box[1] < 0
+                or box[2] > frame[0] or box[3] > frame[1]):
+            raise ValueError(
+                "requested size around the current centre would clip the overlay")
+        lowered = model.place_absolute_box(
+            source_size, box, anchor=(current.anchor_x, current.anchor_y),
+            rotation=0.0, crop=(0.0, 0.0, 0.0, 0.0),
+            draw_gain=current.draw_gain)
+        properties = {key: float(value) for key, value in {
+            "Pan": lowered.pan, "Tilt": lowered.tilt,
+            "ZoomX": lowered.zoom_x, "ZoomY": lowered.zoom_y,
+            "Scaling": lowered.scaling,
+        }.items()}
+        descriptor = GeometryDescriptor(
+            frame=frame, box=box, canvas=source_size,
+            anchor=(current.anchor_x, current.anchor_y),
+            source_size=source_size, asset_mode="tight")
+        record = {
+            "label": f"{entry['row']}@{entry['record_frame']}",
+            "overlay_path": path, "absolute_box": box,
+            "geometry": descriptor.to_dict(), "canvas_wh": source_size,
+            "timeline_start_frame": int(item.GetStart()),
+            "duration_frames": int(item.GetDuration()),
+            "source_start_frame": int(item.GetSourceStartFrame()),
+            "requested_size": [width, height],
+        }
+        return properties, record
+    except TouchupRefused:
+        raise
+    except Exception as exc:
+        raise TouchupRefused(
+            f"overlay.resize geometry could not be lowered: {exc}",
+            "source pixels, proxy units, transform, and timeline canvas must all be measurable",
+            "correct the overlay or timeline measurements and retry") from exc
+
+
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -3218,7 +3618,7 @@ def _apply_in_place(project: Any, staged: Any,
     """
 
     applied: dict = {"properties": [], "enabled": [], "audio_fades": [],
-                     "transitions": [],
+                     "transitions": [], "overlay_resizes": [],
                      "entry_motion": [], "hold_windows": []}
     if not qualification.in_place:
         return applied
@@ -3443,6 +3843,25 @@ def _apply_in_place(project: Any, staged: Any,
             applied["properties"].append({
                 "row": row, "record_frame": entry["record_frame"],
                 "properties": dict(entry.get("properties") or {})})
+        if entry.get("kind") == "overlay_resize":
+            try:
+                unique_id = str(item.GetUniqueId() or "")
+            except Exception:  # noqa: BLE001 - a staged target must be addressable
+                unique_id = ""
+            if not unique_id:
+                raise TouchupError(
+                    f"the staged {row}@{entry.get('record_frame')} has no "
+                    "unique id for overlay.resize")
+            properties, pixel_record = _overlay_resize_projection(
+                item, staged, project, entry)
+            for key, value in sorted(properties.items()):
+                patch_operations.append({
+                    "op": "clip.set_property", "unique_id": unique_id,
+                    "key": key, "value": value})
+            applied["overlay_resizes"].append({
+                "row": row, "record_frame": entry["record_frame"],
+                "properties": properties, "pixel_record": pixel_record,
+                "verified": False})
     if patch_operations:
         from library.tools import edit_patch
         from library.tools import transaction_orchestration as _orch
@@ -3652,6 +4071,37 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
 
     source_rows = _live_rows(source)
     staged_rows = _live_rows(staged)
+    structural = {str(edit.get("op") or "")
+                  for edit in (spec.get("edits") or ())}
+    if structural & {"split", "slide", "roll"}:
+        for change in qualification.changes:
+            row = _row_of(change.track_type, int(change.track_index))
+            items = source_rows.get(row) or []
+            index = int(change.item_index)
+            if index >= len(items):
+                raise TouchupRefused(
+                    f"structural edit cannot read source item {row}[{index}]",
+                    "candidate-local reconstruction requires the approved source item",
+                    "re-read the timeline and retry")
+            item = items[index]
+            linked_reader = getattr(item, "GetLinkedItems", None)
+            if linked_reader is None:
+                raise TouchupRefused(
+                    f"structural edit cannot determine linked-item state for {row}[{index}]",
+                    "reconstruction must preserve linked audio/video relationships",
+                    "use a Resolve build with readable linked-item state")
+            try:
+                linked = list(linked_reader() or [])
+            except Exception as exc:
+                raise TouchupRefused(
+                    f"structural edit cannot read linked-item state for {row}[{index}]: {exc}",
+                    "reconstruction must preserve linked audio/video relationships",
+                    "re-read the timeline and retry") from exc
+            if linked:
+                raise TouchupRefused(
+                    f"structural edit target {row}[{index}] is linked",
+                    "this candidate route cannot carry linked items",
+                    "use an unlinked clip or a link-aware route")
     from library.tools.project_layout import Area, ProjectLayout
     comp_dir = os.path.join(
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
@@ -3809,6 +4259,27 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
             still_insertions, resolve_app=resolve_app)
         staged_tracks = _read.read_tracks(staged)
         _assert_still_insertions(staged_tracks, still_insertions)
+    resize_rows = (receipt.get("in_place") or {}).get(
+        "overlay_resizes") or []
+    if resize_rows:
+        if resolve_app is None:
+            raise TouchupError(
+                "overlay.resize requires a Resolve handle for independent "
+                "rendered-pixel verification; approved timeline remains intact")
+        from library.tools.overlay_verify import verify_rendered_boxes
+        pixel_report = verify_rendered_boxes(
+            resolve_app, project, staged,
+            [row["pixel_record"] for row in resize_rows],
+            os.path.join(comp_dir, "overlay_resize_pixels"),
+            tolerance_px=2)
+        if (pixel_report.get("passed") is not True
+                or int(pixel_report.get("checked", 0)) != len(resize_rows)):
+            raise TouchupError(
+                "overlay.resize rendered-pixel verification failed or was "
+                f"incomplete: {pixel_report}")
+        for row in resize_rows:
+            row["verified"] = True
+        receipt["in_place"]["overlay_resize_pixels"] = pixel_report
     staged_tracks = _read.read_tracks(staged)
     receipt["verification_read"] = _summarise_rows(staged_tracks)
     receipt["verify_seconds"] = round(

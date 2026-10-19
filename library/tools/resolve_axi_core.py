@@ -423,7 +423,9 @@ def _prepare_request_plan(request):
         if (originator_name in {"ren revise", "ren touch"}
                 and len(operation_ids) == 1
                 and operation_ids[0] in {
-                    "audio.gain", "audio.fade", "transition"}):
+                    "audio.gain", "audio.fade", "transition",
+                    "overlay.resize", "clip.split", "clip.slide",
+                    "clip.roll"}):
             route_context = {
                 "qualification_policy": "protected_experimental",
                 "protected_staging": True,
