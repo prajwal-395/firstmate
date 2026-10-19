@@ -471,7 +471,7 @@ def test_a_waiter_that_gives_up_names_the_holder(lock_dir):
     assert float(gave_up.split()[1]) < 3.0, gave_up
 
 
-def _spawn_cross_broker(source, broker_dir, instance_dir):
+def _spawn_cross_broker(source, broker_dir, instance_dir, *, stdin=None):
     """A client of one broker: its socket dir differs, its instance is shared."""
     env = dict(os.environ)
     env[resolve_lock.LOCK_DIR_ENV] = str(broker_dir)
@@ -482,6 +482,7 @@ def _spawn_cross_broker(source, broker_dir, instance_dir):
     env.pop(resolve_lock.INHERIT_ENV, None)
     env.pop(resolve_lock.INHERIT_MODE_ENV, None)
     return subprocess.Popen([sys.executable, "-c", source], env=env,
+                            stdin=stdin,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, encoding="utf-8")
 
@@ -535,6 +536,22 @@ _CROSS_BROKER_SHARED_HOLDER = textwrap.dedent("""
     print("RELEASED", flush=True)
 """)
 
+_CROSS_BROKER_GATED_SHARED_HOLDER = textwrap.dedent("""
+    import sys
+    from contextlib import contextmanager
+    sys.path.insert(0, {repo!r})
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    with resolve_lock.resolve_lease("read render inputs", exclusive=False,
+                                    owner="reader", timeout=5.0):
+        print("HELD", flush=True)
+        sys.stdin.readline()
+    print("RELEASED", flush=True)
+""")
+
 _CROSS_BROKER_WAITER = textwrap.dedent("""
     import sys, time
     from contextlib import contextmanager
@@ -547,6 +564,33 @@ _CROSS_BROKER_WAITER = textwrap.dedent("""
     started = time.monotonic()
     with resolve_lock.resolve_lease({purpose!r}, exclusive={exclusive},
                                     owner={owner!r}, timeout=5.0) as lease:
+        elapsed = time.monotonic() - started
+        print("ACQUIRED %.3f %.3f %s" % (elapsed, lease.wait_seconds,
+                                        lease.waited_on), flush=True)
+""")
+
+_CROSS_BROKER_QUEUED_WAITER = textwrap.dedent("""
+    import sys, time
+    from contextlib import contextmanager
+    sys.path.insert(0, {repo!r})
+    from library.tools import resolve_lock
+    @contextmanager
+    def no_broker_turn(*args, **kwargs):
+        yield None
+    resolve_lock._broker_turn = no_broker_turn
+    original_flock = resolve_lock._flock
+    reported_contention = False
+    def observed_flock(handle, exclusive, blocking):
+        global reported_contention
+        acquired = original_flock(handle, exclusive, blocking)
+        if not acquired and not reported_contention:
+            reported_contention = True
+            print("CONTENDED", flush=True)
+        return acquired
+    resolve_lock._flock = observed_flock
+    started = time.monotonic()
+    with resolve_lock.resolve_lease({purpose!r}, exclusive=True,
+                                    owner="writer", timeout=5.0) as lease:
         elapsed = time.monotonic() - started
         print("ACQUIRED %.3f %.3f %s" % (elapsed, lease.wait_seconds,
                                         lease.waited_on), flush=True)
@@ -589,16 +633,22 @@ def test_cross_broker_queued_exclusive_work_resumes_after_shared_read(
     for directory in (broker_a, broker_b, instance):
         directory.mkdir()
     reader = _spawn_cross_broker(
-        _CROSS_BROKER_SHARED_HOLDER.format(
-            repo=REPO_ROOT, purpose="read render inputs",
-            owner="reader", seconds=0.8),
-        broker_a, instance)
+        _CROSS_BROKER_GATED_SHARED_HOLDER.format(repo=REPO_ROOT),
+        broker_a, instance, stdin=subprocess.PIPE)
+    render = None
     try:
         assert reader.stdout.readline().strip() == "HELD"
         render = _spawn_cross_broker(
-            _CROSS_BROKER_WAITER.format(
-                repo=REPO_ROOT, purpose=purpose, owner="writer",
-                exclusive="True"), broker_b, instance)
+            _CROSS_BROKER_QUEUED_WAITER.format(
+                repo=REPO_ROOT, purpose=purpose), broker_b, instance)
+        import select
+        ready, _, _ = select.select([render.stdout], [], [], 5.0)
+        assert ready, "writer did not attempt the shared instance lock"
+        assert render.stdout.readline().strip() == "CONTENDED", (
+            "writer did not contend while the shared reader held its lease")
+        time.sleep(0.8)
+        reader.stdin.write("release\n")
+        reader.stdin.flush()
         output, _ = render.communicate(timeout=10)
         assert output.startswith("ACQUIRED "), output
         elapsed = float(output.split()[1])
@@ -608,6 +658,12 @@ def test_cross_broker_queued_exclusive_work_resumes_after_shared_read(
         assert elapsed >= 0.5, output
         assert lock_wait >= 0.5, output
     finally:
+        if reader.poll() is None and reader.stdin is not None:
+            reader.stdin.write("release\n")
+            reader.stdin.flush()
+        if render is not None and render.poll() is None:
+            render.kill()
+            render.communicate(timeout=10)
         reader.communicate(timeout=10)
 
 
