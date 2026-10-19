@@ -12375,7 +12375,8 @@ def _connect_resolve():
 
 
 def _record_reel_versions(project_folder: str, rows_by_final: dict,
-                          round_number=None, transaction_id=None) -> list:
+                          round_number=None, revision_ids=None,
+                          transaction_id=None) -> list:
     """One `build` (or `rollback`) version per promoted reel, with its plan."""
     from library.tools.plan_provenance import provenance_with_registry
     from library.tools.reel_proposal import proposal_path, read_proposal
@@ -12419,6 +12420,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
             entry = _versions.record(
                 project_folder, final, kind=_versions.KIND_REDO,
                 rows=rows, round=round_number,
+                revision_id=(revision_ids or {}).get(final),
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, redoes=redoes,
                 component_manifest=component_manifest,
@@ -12429,6 +12431,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
             entry = _versions.record(
                 project_folder, final, kind=_versions.KIND_ROLLBACK,
                 rows=rows, round=round_number,
+                revision_id=(revision_ids or {}).get(final),
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None, undoes=undoes,
                 component_manifest=component_manifest,
@@ -12439,6 +12442,7 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
             entry = _versions.record(
                 project_folder, final, kind=_versions.KIND_BUILD,
                 rows=rows, round=round_number,
+                revision_id=(revision_ids or {}).get(final),
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None,
                 component_manifest=component_manifest,
@@ -13892,6 +13896,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             {final: incoming_by_final[final] for final in ok_finals
              if incoming_by_final.get(final)},
             round_number=(stamped_round or {}).get("round"),
+            revision_ids={final: stamped_round["reels"][final]["revision_id"]
+                          for final in ok_finals
+                          if final in (stamped_round.get("reels") or {})},
             transaction_id=transaction_id)
     except Exception as record_failed:  # noqa: BLE001
         raise PromotionFailure(

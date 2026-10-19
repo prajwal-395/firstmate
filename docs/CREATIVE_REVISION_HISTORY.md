@@ -9,17 +9,19 @@ own stores and are referenced.
 | Fact | Authority | Revision link |
 |---|---|---|
 | Creative revision identity, parentage, author, intent, approval and lifecycle | `creative_revisions.json` | The canonical record itself |
-| Per-reel ordered versions and state digests | `reel_versions.json` | `revision_id`; rows are the legacy per-version projection |
+| Per-reel ordered versions and state digests | `reel_versions.json` | `revision_id`; this is the row snapshot authority |
 | Attributed reel acts and manual edits | `plan_provenance.json` / `reel_edit_history` | `revision_id` and existing source refs |
 | Exact before/after state and in-place recovery | `undo/<entry>/entry.json` | `revision_id`; journal remains the recovery authority |
 | Semantic creative commit, changes and commit ancestry | `commits/<id>/commit.json` | `revision_id`; commit parents are mapped to parent revision ids |
 | Resolve observed generations and machine-local live reads | Timeline Shadow SQLite | Shadow generations remain observations, linked through refs where recorded |
 | Structured editorial state and global event sequence | Project Model event history | `project_model_revision` and edit operation refs |
-| Round grouping and variant declarations | `rounds.json` and variant declarations | These describe grouping/branch intent; they do not mint applied revisions |
+| Round grouping and variant build projections | `rounds.json` and `reel_variant_builds.json` | `revision_id` plus row digest/count metadata; rows resolve through `reel_versions.json` |
 
 The revision ledger never replaces existing history and never embeds journal,
 timeline, or Project Model snapshots. Existing readers continue using their
-established projections. New writers attach the same revision id across the
+established projections. Legacy round and variant-build entries with embedded
+`rows` remain readable; new entries reference the row snapshot in
+`reel_versions.json`. New writers attach the same revision id across the
 touch journal, reel version, edit history and creative commit. A touch records
 its intent as `prepared` before Resolve mutation; prepared records remain valid
 when no approval or promotion follows.

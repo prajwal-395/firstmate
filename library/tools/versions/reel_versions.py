@@ -66,10 +66,12 @@ KIND_TOUCH = "touch"
 KIND_UNDO = "undo"
 KIND_ROLLBACK = "rollback"
 KIND_REDO = "redo"
+KIND_VARIANT = "variant"
 
 #: What `ren undo` reverses. The other kinds are what it produced.
 ACTS = (KIND_BUILD, KIND_TOUCH)
-KINDS = (KIND_BUILD, KIND_TOUCH, KIND_UNDO, KIND_ROLLBACK, KIND_REDO)
+KINDS = (KIND_BUILD, KIND_TOUCH, KIND_UNDO, KIND_ROLLBACK, KIND_REDO,
+         KIND_VARIANT)
 
 
 class ReelVersionsUnreadable(RuntimeError):
@@ -110,6 +112,24 @@ def _write(project_folder, document: Mapping) -> str:
 def versions_of(project_folder, final: str) -> list:
     """Every version of one reel, oldest first."""
     return list(read(project_folder)["reels"].get(final) or ())
+
+
+def version_for_revision(project_folder, revision_id: str) -> tuple[str, dict] | None:
+    """Resolve a revision reference to its authoritative version row."""
+    for final, entries in read(project_folder)["reels"].items():
+        for entry in entries:
+            if str(entry.get("revision_id") or "") == str(revision_id):
+                return str(final), dict(entry)
+    return None
+
+
+def rows_for_revision(project_folder, revision_id: str) -> dict:
+    """Rows for a referenced revision; refuse a dangling reference by id."""
+    found = version_for_revision(project_folder, revision_id)
+    if found is None:
+        raise ReelVersionsUnreadable(
+            f"creative revision {revision_id!r} has no reel version record")
+    return dict(found[1]["rows"])
 
 
 def record(project_folder, final: str, *, kind: str, rows: Mapping,
@@ -403,6 +423,7 @@ __all__ = [
     "KIND_ROLLBACK",
     "KIND_TOUCH",
     "KIND_UNDO",
+    "KIND_VARIANT",
     "ReelVersionsUnreadable",
     "build_before",
     "attach_component_manifest",
@@ -420,4 +441,6 @@ __all__ = [
     "take_pending_redo",
     "take_pending_rollback",
     "versions_of",
+    "version_for_revision",
+    "rows_for_revision",
 ]

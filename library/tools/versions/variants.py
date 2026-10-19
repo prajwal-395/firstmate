@@ -1111,6 +1111,13 @@ def record_build(project_folder, reel_number: int, base_final: str,
          "built_at": built_at, "rows": row_snapshot},
         sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     ).encode("utf-8")).hexdigest()
+    from library.tools.versions import reel_versions
+
+    reel_versions.record(
+        project_folder, final, kind=reel_versions.KIND_VARIANT,
+        rows=row_snapshot, at=built_at, revision_id=revision_id,
+        variant=str(suffix), timeline_id=str(resolve_timeline_id or ""),
+        base_final=str(base_final))
     document["builds"][final] = {
         "reel": int(reel_number),
         "base_final": str(base_final),
@@ -1121,11 +1128,30 @@ def record_build(project_folder, reel_number: int, base_final: str,
         "built_at": built_at,
         "revision_id": revision_id,
         "resolve_timeline_id": str(resolve_timeline_id or ""),
-        "rows": row_snapshot,
+        "rows_digest": rounds.digest_rows(row_snapshot),
+        "row_count": len(row_snapshot),
+        "item_count": sum((row.get("count") or 0)
+                           for row in row_snapshot.values()),
     }
     document["format"] = BUILDS_FORMAT
     _write_builds(project_folder, document)
     return document["builds"][final]
+
+
+def _rows_for_build(project_folder, entry: Mapping) -> dict:
+    """Read legacy embedded rows or resolve the canonical revision rows."""
+    if "rows" in entry:
+        return dict(entry["rows"] or {})
+    from library.tools.versions import reel_versions
+
+    try:
+        return reel_versions.rows_for_revision(
+            project_folder, str(entry["revision_id"]))
+    except Exception as unreadable:
+        raise ChoiceRefused(
+            f"variant build {entry.get('timeline', '')!r} has no readable revision rows",
+            str(unreadable),
+            "rebuild the variant before comparing or choosing it") from unreadable
 
 
 def record_approval(project_folder, reel_number: int, suffix: str,
@@ -1263,8 +1289,10 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
                 f"build the variant first (`ren variant <project> build "
                 f"{reel_number}`), then compare")
         entries[suffix] = entry
-    diff = rounds.diff_reel(entries[earlier_suffix].get("rows") or {},
-                                entries[later_suffix].get("rows") or {})
+    diff = rounds.diff_reel(_rows_for_build(project_folder,
+                                            entries[earlier_suffix]),
+                            _rows_for_build(project_folder,
+                                            entries[later_suffix]))
     diff["reel"] = int(reel_number)
     diff["earlier"] = entries[earlier_suffix]["timeline"]
     diff["later"] = entries[later_suffix]["timeline"]
@@ -1907,7 +1935,7 @@ def choose(project, pool, project_folder, reel_number: int,
     # are the same snapshot a promotion stores, so the round diff can
     # compare the next round against this one with no Resolve.
     chosen_entry = build_for(project_folder, reel_number, chosen_suffix)
-    chosen_rows = dict((chosen_entry or {}).get("rows") or {})
+    chosen_rows = _rows_for_build(project_folder, chosen_entry or {})
     forget_builds(project_folder, [chosen] + list(plan["archive"]))
 
     # The round records the CHOICE, not only the promotion: which

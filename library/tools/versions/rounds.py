@@ -293,6 +293,7 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     version record that fails a build is worse than no version record.
     """
     from datetime import datetime, timezone
+    import uuid
 
     moment = promoted_at or datetime.now(timezone.utc).isoformat()
     document = read_rounds(project_folder)
@@ -301,16 +302,31 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     built_at = dict((provenance or {}).get("built_at_reels") or {})
     built_with = dict((provenance or {}).get("built_with") or {})
     for final, rows in (rows_by_final or {}).items():
+        choice = (choices or {}).get(final)
+        revision_id = str((choice or {}).get("revision_id") or
+                          uuid.uuid4())
         entry = {
             "promoted_at": moment,
             "built_at": built_at.get(final, ""),
             "built_with": built_with.get(final, ""),
-            "rows": rows,
+            "revision_id": revision_id,
+            "rows_digest": digest_rows(rows),
+            "row_count": len(rows or {}),
+            "item_count": sum((row.get("count") or 0)
+                              for row in (rows or {}).values()),
             "source": SOURCE_STAMPED,
         }
-        choice = (choices or {}).get(final)
         if choice:
             entry["choice"] = dict(choice)
+        from library.tools import creative_revision
+
+        creative_revision.create(
+            project_folder, revision_id=revision_id,
+            intent="variant choice" if choice else "promoted reel build",
+            operations=[{"kind": "choice" if choice else "promotion"}],
+            affected_entities=[str(final)],
+            refs={"round": {"round": current["round"]}},
+            status="recorded")
         current["reels"][final] = entry
     document["format"] = ROUNDS_FORMAT
     document["rounds"] = boundaries
@@ -505,9 +521,13 @@ def render_rounds(document: Mapping) -> str:
         for name in sorted(reels):
             reel = reels[name]
             rows = reel.get("rows") or {}
-            items = sum((row.get("count") or 0) for row in rows.values())
+            row_count = reel.get("row_count", len(rows))
+            items = reel.get("item_count")
+            if items is None:
+                items = sum((row.get("count") or 0)
+                            for row in rows.values())
             lines.append(
-                f"      {name} - {len(rows)} row(s), {items} item(s), "
+                f"      {name} - {row_count} row(s), {items} item(s), "
                 f"promoted {reel.get('promoted_at', '')}")
             choice = reel.get("choice") or {}
             if choice:
@@ -647,14 +667,24 @@ def diff_rounds(project_folder, earlier: int, later: int) -> dict:
             reels[name] = {"state": "not rebuilt in this round",
                            "rows": [], "changed": []}
             continue
-        entry = diff_reel(first_reels[name].get("rows") or {},
-                          second_reels[name].get("rows") or {})
+        entry = diff_reel(_rows_for_round(project_folder, first_reels[name]),
+                          _rows_for_round(project_folder, second_reels[name]))
         entry["state"] = (UNCHANGED if not entry["changed"]
                           else "rebuilt and changed")
         entry["built_with"] = second_reels[name].get("built_with", "")
         entry["promoted_at"] = second_reels[name].get("promoted_at", "")
         reels[name] = entry
     return {"earlier": first, "later": second, "reels": reels}
+
+
+def _rows_for_round(project_folder, entry: Mapping) -> dict:
+    """Read legacy embedded rows or resolve a compact revision reference."""
+    if "rows" in entry:
+        return dict(entry["rows"] or {})
+    from library.tools.versions import reel_versions
+
+    return reel_versions.rows_for_revision(project_folder,
+                                           str(entry["revision_id"]))
 
 
 def row_line(row: Mapping) -> str:
