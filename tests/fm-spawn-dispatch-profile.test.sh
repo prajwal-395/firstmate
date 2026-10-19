@@ -2815,20 +2815,20 @@ printf '%s\n' Darwin
 SH
   chmod +x "$FAKEBIN_DIR/uname"
 
-  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=2 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=4 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
-  expect_code 75 "$status" "warning memory pressure should defer a fresh worker launch"
-  assert_contains "$out" "deferred $id: macOS memory pressure level=2; task remains queued" "deferral must say that the task remains queued"
+  expect_code 75 "$status" "critical memory pressure should defer a fresh worker launch"
+  assert_contains "$out" "deferred $id: macOS memory pressure level=4; task remains queued" "deferral must say that the task remains queued"
   [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "a deferred task must not publish worker metadata"
   [ ! -s "$LAUNCH_LOG" ] || fail "a deferred task must not launch a worker"
 
-  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=1 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  out=$(FM_FAKE_MEMORY_PRESSURE_LEVEL=2 run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
-  expect_code 0 "$status" "normal memory pressure should admit a fresh worker launch"
-  assert_contains "$out" "spawned $id harness=codex" "normal pressure should launch the worker"
+  expect_code 0 "$status" "warning memory pressure should admit a fresh worker launch"
+  assert_contains "$out" "spawned $id harness=codex" "warning pressure should launch the worker"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$(cat "$LAUNCH_LOG.raw")" "nice -n 10 /bin/sh -c " "worker launch must carry lower scheduling priority"
-  pass "memory pressure defers at warning, admits at normal, and worker launch uses nice +10"
+  pass "memory pressure defers at critical, admits at warning, and worker launch uses nice +10"
 }
 
 test_launch_brief_text_is_absent_from_recorded_argv
