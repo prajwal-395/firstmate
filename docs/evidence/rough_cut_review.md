@@ -50,7 +50,7 @@ rather than a reconstruction.
 
 Deliberately NOT in `library/tools/timeline_transcript.py`: that
 module rebuilds timeline audio from source media and transcribes it
-with Whisper for live Resolve timelines that carry no measured words
+with Voz + MFA for live Resolve timelines that carry no measured words
 at all. Concatenating already-measured words is a different mechanism
 for a different input; forcing it in there would be the second
 mechanism the WP2a brief says to stop at.

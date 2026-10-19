@@ -2,7 +2,7 @@
   "id": "step_1_05_prosody_analysis",
   "name": "Prosody Analysis",
   "version": "1.0.0",
-  "description": "Supplements the hybrid transcription (step 1.04 through timeline_transcript.transcribe_audio: on-device text through MFA, the only arm since the WhisperX arms left on 2026-09-24) with prosodic features: pitch (F0) contour, speaking rate, voice quality (jitter/shimmer/HNR), and intensity. Uses parselmouth (Praat wrapper) \u2014 deterministic signal processing. Enriches the LLM's understanding of speaker emphasis, questions, energy shifts.",
+  "description": "Supplements the hybrid transcription (step 1.04 through timeline_transcript.transcribe_audio: on-device text through MFA, the current transcription path) with prosodic features: pitch (F0) contour, speaking rate, voice quality (jitter/shimmer/HNR), and intensity. Uses parselmouth (Praat wrapper) \u2014 deterministic signal processing. Enriches the LLM's understanding of speaker emphasis, questions, energy shifts.",
   "level": "step",
   "interface": {
     "inputs": [

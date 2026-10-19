@@ -68,6 +68,6 @@
     "created": "2026-09-06",
     "last_modified": "2026-09-06",
     "source_process": "reels",
-    "notes": "Why this is a second process rather than nodes of edit_video is measured in docs/REEL_BUILD_HAS_NO_OWNING_NODE.md. It REUSES steps 4.01 and 4.05 through the operation registry (reel_build.reel_subtitle_segments) rather than growing a parallel caption path; library/steps/ is one tree and belongs to the repository, not to a process. There is no runner here: the two nodes are driven through library/tools/operations.py, which is what `manage_project.py build-reels` now does, because two of the five stages that make a reel are outside any DAG by construction - the transcript needs Resolve open and WhisperX loaded, and the approval is the captain's act."
+    "notes": "Why this is a second process rather than nodes of edit_video is measured in docs/REEL_BUILD_HAS_NO_OWNING_NODE.md. It REUSES steps 4.01 and 4.05 through the operation registry (reel_build.reel_subtitle_segments) rather than growing a parallel caption path; library/steps/ is one tree and belongs to the repository, not to a process. There is no runner here: the two nodes are driven through library/tools/operations.py, which is what `manage_project.py build-reels` now does, because two of the five stages that make a reel are outside any DAG by construction - the transcript needs Resolve open and the Voz + MFA transcription tools available, and the approval is the captain's act."
   }
 }

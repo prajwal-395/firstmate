@@ -39,7 +39,7 @@ PR 1180), rather than a copy of it - so the edit pipeline's words and
 the reels' words are timed by the same instruments, and every index
 says which one answered (`transcription_arm` / `transcription_aligner`
 on the document, `method` on each region). A cached index that predates
-the stamp is stamped as legacy WhisperX on read and served - only an
+the stamp is stamped with its legacy arm on read and served - only an
 explicit `ren reindex` moves a project onto Voz.
 Word start times are additionally snapped to the nearest audio onset
 (±23ms spectral transient) when within 30ms, giving consonant attacks
@@ -362,7 +362,7 @@ def snap_word_boundaries_to_onsets(
 # keep reading.
 
 
-def _method_name(arm: str, aligner: str, whisper_model_size: str) -> str:
+def _method_name(arm: str, aligner: str) -> str:
     """Return the stored method label, including labels from legacy records.
 
     Current transcription uses Voz (`da`) with MFA. Older indexes can
@@ -373,20 +373,20 @@ def _method_name(arm: str, aligner: str, whisper_model_size: str) -> str:
 
     if arm == hybrid_transcription.ARM_HYBRID:
         return f"hybrid-{aligner}"
-    return f"whisperx-wav2vec2-{whisper_model_size}"
+    return "whisperx-wav2vec2-large-v3"
 
 
-def _untranscribed(whisper_model_size: str, language: str) -> dict:
+def _untranscribed(language: str) -> dict:
     """The account a clip nothing could transcribe carries."""
     return {
         "arm": UNTRANSCRIBED,
         "aligner": UNTRANSCRIBED,
         "detected_language": language,
-        "method": f"untranscribed-{whisper_model_size}",
+        "method": "untranscribed",
     }
 
 
-def _transcription_from_record(record: dict, whisper_model_size: str,
+def _transcription_from_record(record: dict,
                                language: str) -> dict:
     """Which instrument answered, in the shape the index stores."""
     from library.tools import hybrid_transcription
@@ -397,9 +397,9 @@ def _transcription_from_record(record: dict, whisper_model_size: str,
         # The seam heard nothing and said so: keep the "none" stamp
         # rather than letting the legacy defaults below rewrite it
         # into an instrument that never ran.
-        return _untranscribed(whisper_model_size, language)
-    arm = arm or hybrid_transcription.ARM_WHISPERX
-    aligner = aligner or hybrid_transcription.ALIGNER_WAV2VEC2
+        return _untranscribed(language)
+    arm = arm or hybrid_transcription.ARM_HYBRID
+    aligner = aligner or hybrid_transcription.ALIGNER_MFA
     detected = (record or {}).get("language") or {}
     detected_language = (detected.get("language") if isinstance(
         detected, dict) else None) or language
@@ -407,7 +407,7 @@ def _transcription_from_record(record: dict, whisper_model_size: str,
         "arm": arm,
         "aligner": aligner,
         "detected_language": detected_language,
-        "method": _method_name(arm, aligner, whisper_model_size),
+        "method": _method_name(arm, aligner),
     }
 
 
@@ -467,7 +467,6 @@ def detect_speech_regions(
     audio_path: str,
     output_dir: str,
     onsets: list = None,
-    whisper_model_size: str = "large-v3",
     language: str = "en",
 ) -> tuple:
     """Detect speech regions through the reel path's transcription seam.
@@ -513,12 +512,11 @@ def detect_speech_regions(
     from library.tools import transcript_measurement
 
     regions: list = []
-    transcription = _untranscribed(whisper_model_size, language)
+    transcription = _untranscribed(language)
 
     try:
         aligned, record = transcript_measurement.transcribe(
-            audio_path, label=Path(audio_path).name,
-            model_size=whisper_model_size)
+            audio_path, label=Path(audio_path).name)
     except ImportError as e:
         print(
             f"  WARNING: transcriber not available ({e}), "
@@ -536,7 +534,7 @@ def detect_speech_regions(
         return regions, transcription
 
     transcription = _transcription_from_record(
-        record, whisper_model_size, language)
+        record, language)
 
     segments = (aligned or {}).get("segments") or []
     if not segments:
@@ -611,7 +609,6 @@ def _concat_wavs(audio_paths: list, scratch_dir: str) -> str:
 
 
 def transcribe_clips_batched(requests: list,
-                             whisper_model_size: str = "large-v3",
                              language: str = "en") -> dict:
     """Hear every clip once, align each language's windows in one run.
 
@@ -645,7 +642,7 @@ def transcribe_clips_batched(requests: list,
             continue
         aligned, record = stored
         transcription = _transcription_from_record(
-            record, whisper_model_size, language)
+            record, language)
         results[key] = (
             _regions_from_segments((aligned or {}).get("segments") or [],
                                    request.get("onsets"),
@@ -790,7 +787,7 @@ def transcribe_clips_batched(requests: list,
                                     transcript_measurement.HEARD_BATCHED,
                                     label=os.path.basename(path))
                             transcription = _transcription_from_record(
-                                record, whisper_model_size, language)
+                                record, language)
                             results[key] = (
                                 _regions_from_segments(
                                     moved, onsets,
@@ -805,7 +802,6 @@ def transcribe_clips_batched(requests: list,
             request["audio_path"],
             os.path.dirname(request["audio_path"]),
             onsets=request.get("onsets"),
-            whisper_model_size=whisper_model_size,
             language=language)
         results[key] = (regions, transcription)
     return results
@@ -2836,7 +2832,6 @@ class _PreparedBatch(dict):
 
 
 def _pretranscribe_misses(items: list, layout: ProjectLayout,
-                          whisper_model_size: str,
                           language: str) -> dict:
     """Extraction + onsets + ONE batched transcription for cache misses.
 
@@ -2925,8 +2920,7 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
           file=sys.stderr)
     try:
         batched = transcribe_clips_batched(
-            prepared, whisper_model_size=whisper_model_size,
-            language=language)
+            prepared, language=language)
     except Exception as e:
         # The batch itself must not fail the step either: every clip
         # takes the single-shot seam, which is exactly what the step
@@ -2942,7 +2936,6 @@ def _pretranscribe_misses(items: list, layout: ProjectLayout,
                 row["audio_path"],
                 os.path.dirname(row["audio_path"]),
                 onsets=row["onsets"],
-                whisper_model_size=whisper_model_size,
                 language=language)
             batched[row["key"]] = (regions, transcription)
         regions, transcription = batched[row["key"]]
@@ -2996,7 +2989,6 @@ def index_clip(
     video_path: str,
     clip_id: str,
     layout: ProjectLayout,
-    whisper_model_size: str = "large-v3",
     language: str = "en",
     pretranscribed: dict = None,
     shared_temporal_media=None,
@@ -3080,7 +3072,6 @@ def index_clip(
         speech, transcription = detect_speech_regions(
             audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
             onsets=onsets,
-            whisper_model_size=whisper_model_size,
             language=language,
         )
     else:
@@ -3354,7 +3345,6 @@ def index_audio_clip(
     audio_path: str,
     audio_id: str,
     layout: ProjectLayout,
-    whisper_model_size: str = "large-v3",
     language: str = "en",
     pretranscribed: dict = None,
 ) -> dict:
@@ -3399,7 +3389,6 @@ def index_audio_clip(
         speech, transcription = detect_speech_regions(
             wav_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
             onsets=onsets,
-            whisper_model_size=whisper_model_size,
             language=language,
         )
     else:
@@ -3476,7 +3465,6 @@ def index_audio_clip(
 def _index_audio_files(
     audio_catalog: list,
     layout: ProjectLayout,
-    whisper_model_size: str = "large-v3",
     language: str = "en",
 ) -> list:
     """Index every cataloged audio file, reusing whatever is on disk.
@@ -3501,7 +3489,7 @@ def _index_audio_files(
         items.append((audio_id, filepath,
                       os.path.join(index_dir, f"{audio_id}.json"), False))
     pretranscribed = _pretranscribe_misses(
-        items, layout, whisper_model_size, language)
+        items, layout, language)
     for i, entry in enumerate(audio_catalog):
         if isinstance(entry, dict):
             filepath = entry.get("path", "")
@@ -3526,7 +3514,7 @@ def _index_audio_files(
                 require_picture=False)
             if index is None:
                 index = index_audio_clip(
-                    filepath, audio_id, layout, whisper_model_size,
+                    filepath, audio_id, layout,
                     language=language,
                     pretranscribed=pretranscribed.get(audio_id))
                 _atomic_json_write(index_path, index)
@@ -3560,7 +3548,6 @@ def _index_audio_files(
 def build_temporal_index(
     raw_footage_files: list,
     layout: ProjectLayout,
-    whisper_model_size: str = "large-v3",
     language: str = "en",
     audio_catalog: list = None,
     semantic_analysis_documents: list = None,
@@ -3632,7 +3619,7 @@ def build_temporal_index(
         items.append((clip_id, filepath,
                       os.path.join(index_dir, f"{clip_id}.json"), True))
     pretranscribed = _pretranscribe_misses(
-        items, layout, whisper_model_size, language)
+        items, layout, language)
 
     # The per-clip lanes run concurrently on bounded FREE lanes
     # (`concurrency_routing.run_lanes`): the Fabric's read-only form -
@@ -3759,7 +3746,7 @@ def build_temporal_index(
                           file=sys.stderr)
             else:
                 index = index_clip(
-                    filepath, clip_id, layout, whisper_model_size,
+                    filepath, clip_id, layout,
                     language=language,
                     pretranscribed=pretranscribed.get(clip_id),
                     shared_temporal_media=shared_temporal_media,
@@ -4015,8 +4002,7 @@ def build_temporal_index(
         "total_reused": reused,
         "index_dir": index_dir,
         "audio_indices": _index_audio_files(
-            audio_catalog or [], layout, whisper_model_size,
-            language=language),
+            audio_catalog or [], layout, language),
     }
 
 
@@ -4101,7 +4087,6 @@ def compress_for_downstream(
 def index_project(raw_footage_files: list, semantic_analysis_documents: list,
                   clip_catalog: list, project_folder: str = "",
                   audio_catalog: list = None,
-                  whisper_model: str = "large-v3",
                   output_dir: str = "./pipeline_output") -> dict:
     """Index every clip of a project, reusing whatever is already on disk.
 
@@ -4142,7 +4127,7 @@ def index_project(raw_footage_files: list, semantic_analysis_documents: list,
 
     # ── Index, reusing whatever is already on disk ──
     result = build_temporal_index(
-        raw_footage_files, layout, whisper_model,
+        raw_footage_files, layout,
         language=language,
         audio_catalog=audio_catalog,
         semantic_analysis_documents=semantic_analysis_documents,
@@ -4193,12 +4178,6 @@ def main():
         help="Output directory (default: ./pipeline_output)",
     )
     parser.add_argument(
-        "--whisper-model", "-w",
-        default="large-v3",
-        choices=["tiny", "base", "small", "medium", "large-v3", "large-v2", "distil-large-v3"],
-        help="Whisper model size (default: large-v3)",
-    )
-    parser.add_argument(
         "--clip-id",
         help="Index only a specific clip_id (for debugging)",
     )
@@ -4238,7 +4217,7 @@ def main():
         raw_files, [], clip_catalog,
         project_folder=input_data.get("project_folder", ""),
         audio_catalog=input_data.get("audio_catalog"),
-        whisper_model=args.whisper_model, output_dir=args.output_dir)
+        output_dir=args.output_dir)
 
     # Output directly for DAG compatibility
     _emit(result)
@@ -4268,7 +4247,6 @@ if __name__ == "__main__":
 
 def reindex_region(project_folder: str, clip_id: str, source_file: str,
                    source_start: float, source_end: float,
-                   whisper_model_size: str = "large-v3",
                    pad_seconds: float = 0.5,
                    language: str = None) -> list:
     """Re-measure the speech in ONE span of one clip.
@@ -4310,7 +4288,7 @@ def reindex_region(project_folder: str, clip_id: str, source_file: str,
         # these into a clip-timed document with its own stamp.
         measured, _ = detect_speech_regions(
             audio_path=str(span_wav), output_dir=scratch, onsets=[],
-            whisper_model_size=whisper_model_size, language=language)
+            language=language)
 
     # Back onto the clip's clock, then bounded to what was ASKED for.
     regions = []

@@ -87,8 +87,8 @@ SECOND product, derived from a master timeline that already exists, and the whol
 chain that makes them - transcript, selection, approval, build, conformance -
 starts from an external input rather than from the top of the pipeline. Two of
 its five stages are already outside the DAG by construction:
-`timeline_transcript` needs Resolve open and WhisperX loaded, and the approval is
-the captain's.
+`timeline_transcript` needs Resolve open and the Voz + MFA transcription
+tools available, and the approval is the captain's.
 
 **The honest structure is a second process** beside `library/processes/edit_video`
 - its own `dag.json`, its own manifests, its own nodes for build and verify -

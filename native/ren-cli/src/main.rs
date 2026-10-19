@@ -206,7 +206,7 @@ fn no_interpreter_message(candidates: &[PathBuf]) -> String {
         }
     }
     lines.push(
-        "`run_pipeline.py` imports whisperx, mlx_vlm and torch through its steps, so a \
+        "`run_pipeline.py` imports mlx_vlm and torch through its steps, so a \
          stock interpreter is not a fallback - it dies inside a step rather than here.\n\
          Build the durable one ONCE PER MACHINE at \
          ~/.local/share/vep/venv-py312; docs/ML_ENVIRONMENT.md is the procedure."

@@ -128,7 +128,7 @@
       {
         "step_ref": "steps/step_1_04_temporal_index",
         "version_constraint": ">=1.0.0",
-        "role": "WhisperX transcription + energy analysis"
+        "role": "Voz + MFA transcription + energy analysis"
       },
       {
         "step_ref": "steps/step_1_05_prosody_analysis",
@@ -245,6 +245,6 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "shortform_video_editing",
-    "notes": "Complete pipeline for editing shortform vertical video from raw footage to final render. Uses DaVinci Resolve as the NLE, Remotion for subtitle overlays, WhisperX for transcription, and Gemma4/Ollama for LLM-driven editorial decisions."
+    "notes": "Complete pipeline for editing shortform vertical video from raw footage to final render. Uses DaVinci Resolve as the NLE, Remotion for subtitle overlays, Voz + MFA for transcription, and Gemma4/Ollama for LLM-driven editorial decisions."
   }
 }

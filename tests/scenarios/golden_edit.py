@@ -263,7 +263,7 @@ def install_seams(monkeypatch, recipe: Monologue, folder: Path) -> dict:
     # public names, never the privates this seam reaches.
     from library.capabilities.temporal import index as temporal
 
-    def hear(requests, whisper_model_size="large-v3", language="en"):
+    def hear(requests, language="en"):
         catalog = json.loads((folder / "pipeline_output" / "steps"
                               / "1_02_catalog_footage" / "output.json")
                              .read_text(encoding="utf-8"))

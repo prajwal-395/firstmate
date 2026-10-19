@@ -3,7 +3,7 @@
 Step 4.1: Generate Subtitles
 
 Converts speech segments from the audio spine into styled, timed subtitle
-entries. Uses word-level timestamps from WhisperX forced alignment (produced
+entries. Uses word-level timestamps from Voz transcription aligned by MFA (produced
 by Step 1.04, enriched via Bridge 2.02) to assign precise on/off times —
 NOT proportional estimation.
 
@@ -605,7 +605,7 @@ def resolve_caption_overlaps(entries: list) -> dict:
 def _clamp_stretched_words(words: list, min_display: float) -> list:
     """A word spanning longer than any genuine word keeps its onset only.
 
-    WhisperX stretches one word across the silence before the next
+    Transcription can stretch one word across the silence before the next
     speaker resumes - reel 10's 34.13s 'audits', reel 24's 3.03s
     'concise,'. The onset is the measured edge (the stretch runs
     forward over trailing silence) while the end is known-bad, and

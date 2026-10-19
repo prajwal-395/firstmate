@@ -55,7 +55,7 @@ This is the heaviest analysis step. It produces **10 distinct signal layers per 
 | # | Signal | Tool | Resolution | What It Produces |
 |---|---|---|---|---|
 | 1 | **Scene boundaries** | ffmpeg scene filter | Per-frame | Visual cut/change points with confidence scores |
-| 2 | **Speech regions** | WhisperX (faster-whisper + wav2vec2) | ±5-15ms per word | Transcript, word timestamps, confidence |
+| 2 | **Speech regions** | Voz transcription + MFA forced alignment, with onset snapping | Word-level | Transcript and word timestamps |
 | 3 | **Energy curve** | librosa RMS | 30Hz (frame-aligned) | Normalized energy envelope + scipy peak detection |
 | 4 | **Audio events** | torchaudio / librosa fallback | 2Hz | Silence, ambient noise classification |
 | 5 | **Motion energy** | ffmpeg frame diff + numpy | 30Hz (frame-aligned) | Visual motion magnitude + peak/high-motion times |
@@ -65,22 +65,21 @@ This is the heaviest analysis step. It produces **10 distinct signal layers per 
 | 9 | **Camera motion decomposition** | Derived from optical flow | 5Hz | Translation X/Y, zoom factor, residual |
 | 10 | **Face presence** | OpenCV Haar cascade (or heuristic) | 5Hz | 0-1 face confidence + present/absent timestamps |
 
-**Speech (WhisperX) technical details:**
+**Speech (Voz + MFA) details:**
 
 | Property | Value |
 |---|---|
-| Transcription model | faster-whisper large-v3, int8, CTranslate2 |
-| Transcription device | **CPU** (CTranslate2 has no MPS/Metal backend) |
-| Alignment model | wav2vec2 (phoneme forced alignment) |
-| Alignment device | **MPS** (Apple GPU — PyTorch does support MPS) |
-| Word accuracy | ±5-15ms (vs ±200-500ms from native Whisper) |
+| Transcription model | `da voz` (on-device) |
+| Transcription device | Local `da` runtime |
+| Alignment model | MFA forced alignment |
+| Alignment device | Configured MFA runtime |
 | Onset snapping | Word starts snapped to nearest librosa onset within 30ms |
-| Post-processing | Sanitizes wav2vec2 artifacts (overlaps, zero-duration, long words) |
+| Post-processing | Sanitizes MFA artifacts (overlaps, zero-duration, long words) |
 
 **Key design decisions:**
 - Energy + motion curves at **30Hz** — matches video frame rate for single-frame accuracy
 - Word onset snapping gives **sub-frame precision** for consonant attacks
-- Model caching across clips — WhisperX large-v3 takes ~3min to load, cached between clips
+- Audio measurements are cached by content; aligned words are reused across clips with identical audio
 
 ### 1B. Video Analysis — Gemma4 12B (MLX)
 
@@ -299,7 +298,7 @@ video_editing_pilot/
 │   │   ├── step_1_01_scan_project/
 │   │   ├── step_1_02_catalog_footage/
 │   │   ├── step_1_03_semantic_analysis/      ← Gemma4 vision (MLX)
-│   │   ├── step_1_04_temporal_index/         ← WhisperX + signal processing
+│   │   ├── step_1_04_temporal_index/         ← Voz + MFA + signal processing
 │   │   ├── step_1_05_prosody_analysis/       ← Parselmouth prosody
 │   │   ├── step_1_06_object_segmentation/    ← Not wired into the DAG
 │   │   ├── step_1_07_ocr_extraction/         ← Not wired into the DAG
@@ -355,7 +354,7 @@ video_editing_pilot/
 
 | Component | Status | Notes |
 |---|---|---|
-| WhisperX speech analysis | ✅ Built + tested | In step 1.04 temporal index |
+| Voz + MFA speech analysis | ✅ Built + tested | In step 1.04 temporal index |
 | Gemma4 vision analysis (v3) | ✅ Built | Dimension-indexed, repo-relative |
 | AF-Next SFX profiling | ✅ Built, 35% indexed | 26/74 files, resume-capable |
 | librosa technical SFX features | ✅ Built, 100% indexed | All 74 files |

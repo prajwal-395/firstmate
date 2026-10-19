@@ -1911,11 +1911,11 @@ def get_scene_boundaries(temporal_index):
 def load_transcript_text(clip_path, output_dir):
     """Load full transcript text for a clip.
 
-    Tries temporal index first (WhisperX), then falls back to pipeline data.
+    Tries the temporal index first, then falls back to pipeline data.
     """
     clip_stem = clip_path.stem
 
-    # Strategy 1: Temporal index (WhisperX — most reliable)
+    # Strategy 1: Temporal index (measured transcript)
     temporal_dir = clip_path.parent / "analysis" / "temporal_index"
     if temporal_dir.is_dir():
         for idx_file in sorted(temporal_dir.glob("clip_*.json")):
@@ -2313,7 +2313,7 @@ def compute_deterministic_assessment(temporal_index, transcript, duration=None,
 
     An empty ``speech_regions`` list is NOT a measurement of silence:
     ``step_1_04_temporal_index.detect_speech_regions`` returns ``[]`` both
-    when WhisperX ran and heard nothing and when WhisperX raised, and the
+    when transcription heard nothing and when transcription raised, and the
     two are indistinguishable from here.  So the speech fields start
     unmeasured and are only filled in by evidence: speech regions, or -
     for presence alone - a transcript.  ``speech_present`` is therefore

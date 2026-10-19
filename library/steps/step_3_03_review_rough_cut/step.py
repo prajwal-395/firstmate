@@ -382,7 +382,7 @@ def build_actual_script(a_roll_assignments: list, audio_spine: dict, voiceover_a
     index's words as step 2.02 bound them to each block, in the source
     domain the A-roll segments also play in. Reading them here needs
     no second mechanism beside `timeline_transcript.py` - that module
-    rebuilds timeline audio and transcribes it with Whisper for LIVE
+    rebuilds timeline audio and transcribes it with Voz + MFA for LIVE
     Resolve timelines that carry no measured words at all, which is a
     different job for a different input. Forcing this concatenation
     into it would be a second mechanism in the module, so it lives

@@ -347,7 +347,7 @@ there is nothing on its side to drift.
 
 There is NO stock-interpreter rung, and there must not be one, for
 the reason a fallback fails:
-`run_pipeline.py` imports whisperx, mlx_vlm and torch through its steps,
+`run_pipeline.py` imports mlx_vlm and torch through its steps,
 so a stock interpreter does not fail at launch where the message would
 be read - it fails forty seconds in, inside a step, with a traceback
 about a package nobody mentioned.
@@ -397,7 +397,7 @@ def _no_interpreter_message(repo_root: Optional[str | Path] = None) -> str:
     ]
     lines += [f"    {path}" for path in tried] or ["    (nothing - no rung applied)"]
     lines.append(
-        f"`run_pipeline.py` imports whisperx, mlx_vlm and torch through its "
+        f"`run_pipeline.py` imports mlx_vlm and torch through its "
         f"steps, so a stock interpreter is not a fallback - it dies inside a "
         f"step rather than here.\n"
         f"Build the durable one ONCE PER MACHINE at "

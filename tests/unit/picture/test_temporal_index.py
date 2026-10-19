@@ -1119,7 +1119,7 @@ class TestParallelLanesKeepTheSerialContract:
         shared_media_ids = []
 
         def fake_index_clip(video_path, clip_id, layout,
-                            whisper_model_size="large-v3", language="en",
+                            language="en",
                             pretranscribed=None, shared_temporal_media=None,
                             shared_media_attempted=False):
             if clip_id in ("clip_002", "clip_003"):

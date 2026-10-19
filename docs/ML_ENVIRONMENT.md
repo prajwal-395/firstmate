@@ -11,9 +11,9 @@ is not a guarantee, and the next machine - or the next person - has nothing with
 
 ## Why this is written down at all
 
-Measured 2026-09-05. Every ML environment on the build machine was **Python 3.14.6 carrying
-whisperx 3.2.0**, against a declared `whisperx>=3.8,<4` and a `requirements.txt` header
-saying, in capitals, *"BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a preference."*
+Historical incident, measured 2026-09-05: every ML environment on the build machine was
+Python 3.14.6 carrying WhisperX 3.2.0, despite the declared version floor and Python 3.12
+requirement. WhisperX has since been removed; transcription now uses Voz and MFA.
 
 whisperx 3.2.0 imports perfectly and then raises
 
@@ -28,13 +28,13 @@ that per clip and carries on, so project 001 measured **17 clips at "0 regions, 
 0 words"** - no transcript, no spine, no subtitles, the entire edit missing, reported as
 success.
 
-`manage_project.py` now REFUSES a non-compliant environment before a run starts, naming both
-numbers:
+`manage_project.py` refuses a non-compliant environment before a run starts, naming the
+installed and declared versions. The following output records the historical refusal:
 
 ```
 ERROR: 'run' has ML dependencies this interpreter can import but requirements.txt
 does not allow:
-  whisperx: installed 3.2.0, requires <4,>=3.8
+  <package>: installed <version>, requires <declared range>
 ```
 
 **A refusal whose remedy is undocumented is only half a fix.** This page is the other half.
@@ -140,9 +140,8 @@ path (see the PR body for the excerpt).
 
 Transcription is NOT verified here: ingest transcribes through Voz
 (`da voz`) and aligns through MFA, neither of which is a pip package.
-`ren doctor` checks both are installed; step 1.04 refuses loudly on
-audio neither can hear since the whisperx fallback arms left on
-2026-09-24 (requirements.txt header has the chain).
+`ren doctor` checks both are installed; step 1.04 refuses loudly when
+either required tool cannot process the audio.
 
 ## Point the gate at it
 

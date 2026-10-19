@@ -2,38 +2,9 @@
 # support, music, prosody, sound events, OCR, segmentation, SFX search
 # and the vision model.
 
-# BUILD THIS ENVIRONMENT ON PYTHON 3.12. It is not a preference: on 3.14
-# there is no set of these packages in which transcription works, and the
-# failure is silent. Measured 2026-08-17, on project 001's real footage.
-#
-# The chain, so nobody re-derives it (whisperx era, kept because the
-# failure mode is what the preflight's version-floor check exists for):
-#   - 3.14 has no wheel for the ctranslate2 whisperx 3.2.0 pins, so an env
-#     built there installs faster-whisper 1.2.1 instead of the 1.0.0
-#     whisperx 3.2.0 requires. 1.2.x added `multilingual` and `hotwords`
-#     to TranscriptionOptions, so every transcribe call raised
-#       TypeError: TranscriptionOptions.__init__() missing 2 required
-#       positional arguments: 'multilingual' and 'hotwords'
-#   - step_1_04 catches that per clip and carries on. All 17 clips of 001
-#     reported "0 regions, 0.0s speech, 0 words" and the run continued.
-#     No transcript means no speech selection, no spine and no subtitles,
-#     which is the entire edit - reported as success.
-#   - Going forward on 3.14 does not help either: newer whisperx needs
-#     torchaudio >= 2.9 via torch, and pyannote.audio still calls
-#     `torchaudio.list_audio_backends()` and imports `AudioMetaData`, both
-#     removed by then. Shimming one surfaces the next.
-#
-# whisperx is GONE since 2026-09-24, and that is a second chain worth
-# writing down so nobody re-adds the pin. Ingest transcribes through Voz
-# (`da voz`) and aligns through MFA since PR 1374, and whisperx 3.8.6 -
-# the latest release - pins `huggingface-hub<1.0.0` while every mlx-vlm
-# new enough to load gemma4 needs transformers>=5.1 (Hub>=1.5). The
-# solve is disjoint, so whisperx left the venv and the file together
-# with its fallback arms in `library/tools/timeline_transcript.py`.
-# What left with it: the full-WhisperX transcription fallback, the
-# wav2vec2 aligner behind MFA, and faster-whisper (nothing else
-# imported it). Non-English material and MFA outages now refuse loudly
-# instead of falling back - that tradeoff is the PR body, not this pin.
+# Build this environment on Python 3.12. The ML stack's measured lock is
+# requirements/lock/macos-arm64-py312.txt; transcription uses the external
+# Voz CLI and MFA, not a Python ASR package.
 librosa>=0.10
 # Beat and downbeat detection (step 2.06 via music_pipeline, surfaced per
 # candidate at choice time in 2.04). beat_this (CPJKU, MIT code AND MIT
