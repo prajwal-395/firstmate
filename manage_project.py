@@ -1305,6 +1305,11 @@ def cmd_variant(args):
                 print(f"      status  "
                       + (f"BUILT {built.get('built_at', '')[:19]}"
                          if built else "not built"))
+                if built:
+                    approval = built.get("approval") or {}
+                    if approval:
+                        print(f"      decision {approval.get('decision')} "
+                              f"revision {approval.get('revision_id', '')}")
         return
 
     if args.variant_command == "build":
@@ -1334,7 +1339,9 @@ def cmd_variant(args):
                      if record.get("watch") else ""))
         print(f"  Compare them: ren variant diff "
               f"{args.project} {args.reel} <suffix-a> <suffix-b>")
-        print(f"  Choose one:   ren variant choose "
+        print(f"  Approve one:  ren variant approve "
+              f"{args.project} {args.reel} <suffix> --why '...'")
+        print(f"  Promote it:   ren variant choose "
               f"{args.project} {args.reel} <suffix> --why '...'")
         return
 
@@ -1347,6 +1354,22 @@ def cmd_variant(args):
             emit_refusal_result(refused)
             sys.exit(REFUSAL_EXIT_CODE)
         print(variants.render_comparison(diff))
+        return
+
+    if args.variant_command in {"approve", "reject"}:
+        try:
+            decision = (variants.record_approval(
+                project_folder, args.reel, args.suffix, args.why)
+                if args.variant_command == "approve" else
+                variants.record_rejection(
+                    project_folder, args.reel, args.suffix, args.why))
+        except variants.ChoiceRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
+            sys.exit(REFUSAL_EXIT_CODE)
+        print(f"{decision['decision'].capitalize()} {decision['timeline']} "
+              f"revision {decision['revision_id']} by {decision['by']}: "
+              f"{decision['why']}")
         return
 
     if args.variant_command == "merge":
@@ -5275,7 +5298,7 @@ def main():
                        help="What the captain should look and listen for")
 
     v_build = v_sub.add_parser(
-        "build", help="Build a reel's declared variants beside the reel")
+        "build", help="Build review candidates beside the approved reel")
     v_build.add_argument("reel", type=int, metavar="N")
     v_build.add_argument("--suffix", action="append", default=[],
                          metavar="' (NAME)'",
@@ -5294,9 +5317,22 @@ def main():
     v_diff.add_argument("earlier", metavar="' (NAME-A)'")
     v_diff.add_argument("later", metavar="' (NAME-B)'")
 
+    for decision_name in ("approve", "reject"):
+        decision_parser = v_sub.add_parser(
+            decision_name,
+            help=("Approve a built revision for promotion" if
+                  decision_name == "approve" else
+                  "Reject a built revision"))
+        decision_parser.add_argument("reel", type=int, metavar="N")
+        decision_parser.add_argument("suffix", metavar="' (NAME)'")
+        decision_parser.add_argument(
+            "--why", required=True,
+            help="Why this exact built revision was "
+                 + ("approved" if decision_name == "approve" else "rejected"))
+
     v_choose = v_sub.add_parser(
         "choose",
-        help="Make one variant the reel; the other goes to the archive")
+        help="Promote an approved variant; the others go to the archive")
     v_choose.add_argument("reel", type=int, metavar="N")
     v_choose.add_argument("suffix", metavar="' (NAME)'",
                           help="The variant that won")

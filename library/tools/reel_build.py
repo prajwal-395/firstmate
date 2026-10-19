@@ -18481,7 +18481,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 project_folder, int(reel_number), moment.timeline_name,
                 str(spec.get("suffix", "")), rows,
                 watch=str(spec.get("watch", "")),
-                declares=list(spec.get("declares") or ()))
+                declares=list(spec.get("declares") or ()),
+                resolve_timeline_id=str(placed.GetUniqueId() or ""))
     except Exception:
         # Atomic batch (see docstring): every variant this call placed
         # goes, and names it never reached are tolerated by the

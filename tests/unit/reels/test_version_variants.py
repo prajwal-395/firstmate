@@ -963,6 +963,35 @@ def test_a_delete_resolve_declines_is_refused_not_reported_collected(project_fol
 def _built(project_folder):
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
     choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)", rows(4))
+    choice.record_approval(
+        project_folder, 9, " (j-cut)", "test approval")
+    choice.record_approval(
+        project_folder, 9, " (reaction-cutaway)", "test approval")
+
+
+def test_approval_names_the_exact_variant_revision(project_folder):
+    original = choice.record_build(
+        project_folder, 9, REEL, " (j-cut)", rows(2),
+        resolve_timeline_id="timeline-jcut")
+    approval = choice.record_approval(
+        project_folder, 9, " (j-cut)", "the opening lands cleanly")
+    assert approval["revision_id"] == original["revision_id"]
+    assert approval["resolve_timeline_id"] == "timeline-jcut"
+    assert approval["decision"] == "approved"
+    replacement = choice.record_build(
+        project_folder, 9, REEL, " (j-cut)", rows(3),
+        resolve_timeline_id="timeline-jcut")
+    assert replacement["revision_id"] != approval["revision_id"]
+    assert "approval" not in replacement
+
+
+def test_choose_refuses_a_variant_without_matching_approval(project_folder):
+    choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
+    project = _project([FakeTimeline(REEL), FakeTimeline(JCUT)])
+    with pytest.raises(choice.ChoiceRefused, match="no approval"):
+        choice.choose(
+            project, project.GetMediaPool(), project_folder, 9, REEL,
+            " (j-cut)", "reviewed", variant_names={JCUT})
 
 
 @pytest.mark.usefixtures("fake_preservation_snapshots")
@@ -997,6 +1026,8 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     recorded = rounds.read_rounds(project_folder)
     entry = recorded["rounds"][-1]["reels"][REEL]
     assert entry["choice"]["chosen"] == " (reaction-cutaway)"
+    assert entry["choice"]["revision_id"]
+    assert entry["choice"]["approval_why"] == "test approval"
     assert entry["choice"]["over"] == [JCUT]
     assert "lands the joke" in entry["choice"]["why"]
     # The round carries the CHOSEN cut's rows, so the next round can be

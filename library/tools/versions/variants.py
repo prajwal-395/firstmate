@@ -2,7 +2,7 @@
 a branch, built, compared and CHOSEN. Part of the version model
 (`library/tools/versions/__init__.py`); AGENTS.md 3: run state.
 
-Reached through `manage_project.py variant new|build|list|diff|choose|merge`.
+Reached through `manage_project.py variant new|build|list|diff|approve|reject|choose|merge`.
 
 Declaring: timeline variations as git branches
 ----------------------------------------------
@@ -79,7 +79,15 @@ loser has been archived and collected.
 what differs off disk, with Resolve closed.  A side that was never
 built and recorded RAISES rather than diffing against nothing.
 
-3. CHOOSING, as an act with a consequence
+3. APPROVING, as a recorded decision
+--------------------------------------
+`approve` and `reject` record the decision, reason and exact build revision
+digest. The record also carries Resolve's unique timeline id. Rebuilding a
+variant replaces its revision and clears the prior decision. `choose` refuses
+unless the current revision has an approval and its live timeline id still
+matches.
+
+4. CHOOSING, as an act with a consequence
 -----------------------------------------
 `choose`:
 
@@ -133,6 +141,7 @@ clutter measured against a real Resolve): docs/evidence/variants.md.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
@@ -1072,7 +1081,8 @@ def _write_builds(project_folder, document: Mapping) -> str:
 
 def record_build(project_folder, reel_number: int, base_final: str,
                  suffix: str, rows: Mapping, watch: str = "",
-                 declares: Sequence[str] = (), built_at: str = "") -> dict:
+                 declares: Sequence[str] = (), built_at: str = "",
+                 resolve_timeline_id: str = "") -> dict:
     """Record one built variant: what it is and what it contains.
 
     Keyed by the variant's TIMELINE NAME, which is the only identity
@@ -1083,6 +1093,13 @@ def record_build(project_folder, reel_number: int, base_final: str,
     """
     final = variant_timeline_name(str(base_final), str(suffix))
     document = read_builds(project_folder)
+    built_at = str(built_at or datetime.now(timezone.utc).isoformat())
+    row_snapshot = dict(rows or {})
+    revision_id = hashlib.sha256(json.dumps(
+        {"reel": int(reel_number), "timeline": final,
+         "built_at": built_at, "rows": row_snapshot},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
     document["builds"][final] = {
         "reel": int(reel_number),
         "base_final": str(base_final),
@@ -1090,13 +1107,90 @@ def record_build(project_folder, reel_number: int, base_final: str,
         "timeline": final,
         "watch": str(watch or ""),
         "declares": sorted(str(name) for name in (declares or ())),
-        "built_at": str(built_at
-                        or datetime.now(timezone.utc).isoformat()),
-        "rows": dict(rows or {}),
+        "built_at": built_at,
+        "revision_id": revision_id,
+        "resolve_timeline_id": str(resolve_timeline_id or ""),
+        "rows": row_snapshot,
     }
     document["format"] = BUILDS_FORMAT
     _write_builds(project_folder, document)
     return document["builds"][final]
+
+
+def record_approval(project_folder, reel_number: int, suffix: str,
+                    why: str, *, approved_by: str = "captain",
+                    approved_at: str = "") -> dict:
+    """Approve the exact currently recorded variant build revision."""
+    reason = str(why or "").strip()
+    if not reason:
+        raise ChoiceRefused(
+            "an approval with no reason",
+            "the approval must explain which treatment was accepted",
+            "re-run with --why describing the decision")
+    entry = build_for(project_folder, reel_number, suffix)
+    if entry is None:
+        raise ChoiceRefused(
+            f"variant {suffix!r} has no recorded build",
+            "an unbuilt variant has no revision to approve",
+            "build the variant, then compare and approve it")
+    if not entry.get("revision_id"):
+        raise ChoiceRefused(
+            f"variant {suffix!r} predates revision identity recording",
+            "its exact build revision cannot be established safely",
+            "rebuild this variant, then compare and approve the new revision")
+    document = read_builds(project_folder)
+    approval = {
+        "revision_id": str(entry["revision_id"]),
+        "timeline": str(entry["timeline"]),
+        "resolve_timeline_id": str(entry.get("resolve_timeline_id") or ""),
+        "built_at": str(entry["built_at"]),
+        "decision": "approved",
+        "why": reason,
+        "by": str(approved_by or "captain"),
+        "at": str(approved_at or datetime.now(timezone.utc).isoformat()),
+    }
+    document["builds"][str(entry["timeline"])] = {**entry,
+                                                     "approval": approval}
+    _write_builds(project_folder, document)
+    return approval
+
+
+def record_rejection(project_folder, reel_number: int, suffix: str,
+                     why: str, *, rejected_by: str = "captain",
+                     rejected_at: str = "") -> dict:
+    """Reject the exact currently recorded variant build revision."""
+    reason = str(why or "").strip()
+    if not reason:
+        raise ChoiceRefused(
+            "a rejection with no reason",
+            "the rejection must explain why this treatment was declined",
+            "re-run with --why describing the decision")
+    entry = build_for(project_folder, reel_number, suffix)
+    if entry is None:
+        raise ChoiceRefused(
+            f"variant {suffix!r} has no recorded build",
+            "an unbuilt variant has no revision to reject",
+            "build the variant first")
+    if not entry.get("revision_id"):
+        raise ChoiceRefused(
+            f"variant {suffix!r} predates revision identity recording",
+            "its exact build revision cannot be established safely",
+            "rebuild this variant, then review the new revision")
+    decision = {
+        "revision_id": str(entry["revision_id"]),
+        "timeline": str(entry["timeline"]),
+        "resolve_timeline_id": str(entry.get("resolve_timeline_id") or ""),
+        "built_at": str(entry["built_at"]),
+        "decision": "rejected",
+        "why": reason,
+        "by": str(rejected_by or "captain"),
+        "at": str(rejected_at or datetime.now(timezone.utc).isoformat()),
+    }
+    document = read_builds(project_folder)
+    document["builds"][str(entry["timeline"])] = {**entry,
+                                                     "approval": decision}
+    _write_builds(project_folder, document)
+    return decision
 
 
 def forget_builds(project_folder, timelines: Sequence[str]) -> list:
@@ -1165,6 +1259,8 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
     diff["later"] = entries[later_suffix]["timeline"]
     diff["earlier_watch"] = entries[earlier_suffix].get("watch", "")
     diff["later_watch"] = entries[later_suffix].get("watch", "")
+    diff["earlier_revision"] = entries[earlier_suffix].get("revision_id", "")
+    diff["later_revision"] = entries[later_suffix].get("revision_id", "")
     return diff
 
 
@@ -1182,7 +1278,9 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
                 if diff.get("earlier_watch") else ""),
              f"  B: {diff.get('later')}"
              + (f"  - watch: {diff['later_watch']}"
-                if diff.get("later_watch") else "")]
+                if diff.get("later_watch") else ""),
+             f"  A revision: {diff.get('earlier_revision') or 'legacy/unrecorded'}",
+             f"  B revision: {diff.get('later_revision') or 'legacy/unrecorded'}"]
     rerendered = diff.get("rerendered") or []
     changed = diff.get("changed") or []
     if not changed:
@@ -1497,7 +1595,7 @@ def choose(project, pool, project_folder, reel_number: int,
            variant_names=(), supersede_declared=(),
            promoted_at: str | None = None,
            accept_editor_changes=None) -> dict:
-    """Make one variant the reel. The other goes to the archive.
+    """Promote an approved variant revision; other variants are archived.
 
     The order is the promotion's order and for its reasons: the
     incumbent is retired FIRST (so the reel's name is free), the chosen
@@ -1505,8 +1603,10 @@ def choose(project, pool, project_folder, reel_number: int,
     LAST - a choice that refuses partway must never have already retired
     an approval it did not replace.
 
-    `why` is required. `variant_names` is the reel's declared variant
-    timeline names (`declared_variant_names`).
+    `why` is required. The exact built revision must already have an
+    approval record, and the Resolve timeline id is checked against that
+    record before any rename. `variant_names` is the reel's declared
+    variant timeline names (`declared_variant_names`).
     """
     from library.tools import reel_signoff as signoff
     if not str(why or "").strip():
@@ -1516,7 +1616,31 @@ def choose(project, pool, project_folder, reel_number: int,
             "later",
             "re-run with --why saying why this treatment won")
     chosen = variant_timeline_name(str(base_final), str(chosen_suffix))
+    approved_build = build_for(project_folder, reel_number, chosen_suffix)
+    approval = ((approved_build or {}).get("approval") or {})
+    if (not approved_build
+            or approval.get("decision") != "approved"
+            or approval.get("revision_id")
+            != approved_build.get("revision_id")):
+        raise ChoiceRefused(
+            f"variant {chosen!r} has no approval for its current revision",
+            "promotion is allowed only for the exact variant revision the "
+            "captain approved",
+            "compare the built variants, then run `ren variant approve` "
+            "before choosing one")
     live = _timelines_by_name(project)
+    chosen_timeline = live.get(chosen)
+    expected_timeline_id = str(approval.get("resolve_timeline_id") or "")
+    actual_timeline_id = str(
+        chosen_timeline.GetUniqueId() or "") if chosen_timeline else ""
+    if (chosen_timeline is None
+            or (expected_timeline_id
+                and actual_timeline_id != expected_timeline_id)):
+        raise ChoiceRefused(
+            f"approved variant {chosen!r} no longer has its recorded "
+            "Resolve timeline identity",
+            "the approved revision is stale; no timeline was promoted",
+            "rebuild and review the current variant before approving it")
     from library.tools import plan_provenance
     from library.tools import reel_replace_guard
     review_dir = os.path.join(str(project_folder), "pipeline_output", "review")
@@ -1616,6 +1740,7 @@ def choose(project, pool, project_folder, reel_number: int,
 
     report = {"reel": int(reel_number), "chosen": chosen,
               "base_final": base_final, "why": str(why),
+              "approval": dict(approval),
               "retired": None, "archived": {}, "unfiled": [],
               "collected": [], "kept": plan["kept"],
               "round": current_round}
@@ -1792,6 +1917,12 @@ def choose(project, pool, project_folder, reel_number: int,
             choices={base_final: {
                 "chosen": str(chosen_suffix),
                 "chosen_timeline": chosen,
+                "revision_id": str(approved_build["revision_id"]),
+                "approved_by": str(approval.get("by") or ""),
+                "approved_at": str(approval.get("at") or ""),
+                "approval_why": str(approval.get("why") or ""),
+                "resolve_timeline_id": str(
+                    approval.get("resolve_timeline_id") or ""),
                 "over": sorted(plan["archive"]),
                 "why": str(why),
             }})
