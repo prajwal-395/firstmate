@@ -96,6 +96,8 @@ BRANCH_COMMITTED = "branch_committed"
 """A task worktree's allow-listed text committed."""
 TIMELINE_OPERATIONS = "timeline_operations"
 """The N operations one committed patch ran, with its verdict."""
+EDIT_TRANSACTION_STAGE = "edit_transaction_stage"
+"""One durable EditPatch lifecycle event, including per-operation progress."""
 UI_TRANSACTION = "ui_transaction"
 """One committed resolve.ui_transaction receipt: its operation, provider,
 observed before/after, actions, verification and outcome. The UI path's

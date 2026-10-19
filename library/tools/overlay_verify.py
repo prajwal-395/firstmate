@@ -52,6 +52,121 @@ RENDERED_BOX_MARGIN_PX = 32
 PIXEL_CENTROID_TOLERANCE = 2.0
 
 
+def verify_rendered_frames(frames: Sequence[dict], *, expected_bbox=None,
+                           safe_zone=None, motion=None,
+                           forbidden_mask_path: Optional[str] = None,
+                           black_threshold: int = 4) -> dict:
+    """Independently inspect rendered overlay frames and measured geometry.
+
+    Each frame row names a decoded RGBA ``path``. ``expected_bbox`` and
+    ``safe_zone`` use output-frame half-open pixel coordinates. ``motion``
+    may provide ``expected_centres`` (one x/y per sampled frame) and a pixel
+    tolerance. Missing measurements are listed as skipped and never pass.
+    """
+    from PIL import Image, ImageChops, ImageStat
+
+    findings, skipped, measured = [], [], []
+    for index, row in enumerate(frames):
+        path = row.get("path")
+        if not path:
+            skipped.append({"frame": index, "reason": "no rendered frame path"})
+            continue
+        try:
+            with Image.open(path) as source:
+                image = source.convert("RGBA")
+        except (OSError, ValueError) as exc:
+            skipped.append({"frame": index, "reason": f"cannot decode rendered frame: {exc}"})
+            continue
+        bbox = image.getchannel("A").point(
+            lambda value: 255 if value >= ALPHA_INK_THRESHOLD else 0).getbbox()
+        if bbox is None:
+            skipped.append({"frame": index, "reason": "render contains no measurable alpha ink"})
+            continue
+        bbox = tuple(map(int, bbox))
+        measured.append({"frame": index, "size": image.size, "bbox": bbox})
+        if forbidden_mask_path:
+            try:
+                with Image.open(forbidden_mask_path) as source_mask:
+                    mask = source_mask.convert("L")
+                if mask.size != image.size:
+                    raise ValueError("occlusion mask dimensions differ from render")
+                alpha = image.getchannel("A").point(
+                    lambda value: 255 if value >= ALPHA_INK_THRESHOLD else 0)
+                overlap = ImageStat.Stat(ImageChops.multiply(alpha, mask)).mean[0]
+                if overlap > 0:
+                    findings.append({"frame": index, "check": "occlusion_acceptable",
+                                     "overlap_mean": overlap})
+            except (OSError, ValueError) as exc:
+                skipped.append({"frame": index, "reason": f"occlusion mask unavailable: {exc}"})
+        if expected_bbox is not None and tuple(expected_bbox) != bbox:
+            findings.append({"frame": index, "check": "bounding_box_matches_request",
+                             "expected": tuple(expected_bbox), "actual": bbox})
+        if safe_zone is not None:
+            left, top, right, bottom = map(int, safe_zone)
+            if bbox[0] < left or bbox[1] < top or bbox[2] > right or bbox[3] > bottom:
+                findings.append({"frame": index, "check": "inside_safe_zone",
+                                 "safe_zone": tuple(safe_zone), "actual": bbox})
+        if bbox[0] <= 0 or bbox[1] <= 0 or bbox[2] >= image.width or bbox[3] >= image.height:
+            findings.append({"frame": index, "check": "not_clipped", "actual": bbox})
+        rgb = image.convert("RGB").crop(bbox)
+        if all(channel <= black_threshold for channel in ImageStat.Stat(rgb).mean):
+            findings.append({"frame": index, "check": "no_unexpected_black_frames",
+                             "reason": "rendered frame is black"})
+    if motion is not None:
+        expected = motion.get("expected_centres")
+        tolerance = float(motion.get("tolerance_px", 2.0))
+        if not expected or len(expected) != len(measured):
+            skipped.append({"reason": "motion expectation does not match measured frames"})
+        else:
+            for row, centre in zip(measured, expected):
+                x0, y0, x1, y1 = row["bbox"]
+                actual = ((x0 + x1) / 2, (y0 + y1) / 2)
+                gap = ((actual[0] - centre[0]) ** 2 + (actual[1] - centre[1]) ** 2) ** 0.5
+                if gap > tolerance:
+                    findings.append({"frame": row["frame"], "check": "motion_matches_request",
+                                     "expected": tuple(centre), "actual": actual,
+                                     "gap_px": gap})
+    occlusion_status = ("measured" if forbidden_mask_path and not any(
+        "occlusion mask" in row.get("reason", "") for row in skipped)
+                        else "not_measured")
+    return {"passed": bool(measured) and not findings and not skipped
+            and occlusion_status == "measured",
+            "measured": measured, "findings": findings, "skipped": skipped,
+            "occlusion": {"status": occlusion_status,
+                          "reason": ("render checked against forbidden-area mask"
+                                     if occlusion_status == "measured" else
+                                     "requires a separately supplied forbidden-area mask")}}
+
+
+def acceptance_evidence(*, values: Optional[dict], pixels: Optional[dict],
+                        rendered: Optional[dict], has_safe_zone: bool,
+                        has_motion_expectation: bool) -> dict:
+    """Translate independent visual reports to acceptance-contract facts."""
+    rendered = rendered or {}
+    findings = rendered.get("findings", ())
+    measured = rendered.get("measured", ())
+    checks = {
+        "projected_geometry_matches_request": bool(
+            values and values.get("passed") and values.get("checked")),
+        "rendered_pixels_match_request": bool(
+            pixels and pixels.get("passed") and pixels.get("checked")
+            and rendered.get("passed")),
+        "bounding_box_matches_request": bool(measured) and not any(
+            row.get("check") == "bounding_box_matches_request" for row in findings),
+        "inside_safe_zone": bool(measured and has_safe_zone) and not any(
+            row.get("check") == "inside_safe_zone" for row in findings),
+        "not_clipped": bool(measured) and not any(
+            row.get("check") == "not_clipped" for row in findings),
+        "occlusion_acceptable": rendered.get("occlusion", {}).get("status") == "measured"
+        and not any(row.get("check") == "occlusion_acceptable" for row in findings),
+        "no_unexpected_black_frames": bool(measured) and not any(
+            row.get("check") == "no_unexpected_black_frames" for row in findings),
+        "motion_matches_request": bool(has_motion_expectation and measured)
+        and not any(row.get("check") == "motion_matches_request" for row in findings),
+    }
+    return checks
+
+
 def _numbers(stored: Optional[dict]) -> Optional[Dict[str, float]]:
     """Stored transform as floats, or None when there is nothing to judge."""
     if not isinstance(stored, dict):

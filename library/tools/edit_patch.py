@@ -81,7 +81,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 
-from library.tools import edit_algebra, edit_backend, protocol_conformance, resolve_lock
+from library.tools import edit_algebra, edit_backend, operation_acceptance, protocol_conformance, resolve_lock
 from library.tools import transaction_receipt
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
@@ -562,6 +562,7 @@ def apply_live_patch(*, project, timeline, capability: str,
                      operations, conflict_domains,
                      idempotency_key: str, preconditions=(),
                      postconditions=(),
+                     acceptance_evidence: dict | None = None,
                      store: shadow.ShadowStore | None = None,
                      project_folder: str | None = None,
                      model_revision: int | None = None) -> dict:
@@ -701,13 +702,15 @@ def apply_live_patch(*, project, timeline, capability: str,
         return apply_patch(patch, resolve=None, project=project,
                            timeline=timeline, store=store,
                            project_folder=project_folder,
-                           model_revision=model_revision)
+                           model_revision=model_revision,
+                           acceptance_evidence=acceptance_evidence)
 
 
 def apply_patch(patch, *, resolve, project, timeline,
                 store: shadow.ShadowStore | None = None,
                 project_folder: str | None = None,
-                model_revision: int | None = None) -> dict:
+                model_revision: int | None = None,
+                acceptance_evidence: dict | None = None) -> dict:
     """Commit one patch to the live timeline; the receipt, as plain data.
 
     The broker's `timeline.apply_patch` job. `resolve` is the app handle
@@ -801,6 +804,18 @@ def apply_patch(patch, *, resolve, project, timeline,
             edit_algebra.insertion_sources():
         live = shadow.read_live(project, timeline)
         if shadow.snapshot_hash(live) != head.hash:
+            if project_folder:
+                from library.tools import event_log
+
+                pending = transaction_receipt.interrupted(
+                    event_log.read_events(project_folder))
+                prior = next((row for row in pending
+                              if row["transaction_id"] == patch.id), None)
+                if prior:
+                    _emit_transaction_stage(
+                        project_folder, patch, "recovery_required",
+                        prior_transaction=prior,
+                        actual_state=live, required=False)
             seen = store.record(
                 project=project_name, timeline_id=timeline_id,
                 timeline_name=timeline_name, snapshot=live,
@@ -815,10 +830,26 @@ def apply_patch(patch, *, resolve, project, timeline,
             _refuse(patch, "preconditions do not hold: " + "; ".join(failures),
                     "a patch states what it assumes of its base",
                     "re-plan against the live timeline")
+        # This durable intent is the recovery anchor: it must reach the
+        # existing project event journal before the first Resolve write.
+        journaled = _emit_transaction_stage(
+            project_folder, patch, "prepared", base_generation=head.generation,
+            expected_state={"operations": list(patch.operations),
+                            "postconditions": list(patch.postconditions)},
+            required=bool(project_folder))
         ran, stopped, id_map, after = execute_physical_patch(
             patch, live=live, timeline=timeline, project=project,
             project_name=project_name, timeline_id=timeline_id,
             timeline_name=timeline_name, project_folder=project_folder)
+    journal_errors = []
+    try:
+        observed_journaled = _emit_transaction_stage(
+            project_folder, patch, "observed", actual_state=after,
+            applied_operations=ran, stopped=stopped, required=False)
+        if project_folder and not observed_journaled:
+            journal_errors.append("could not persist the observed timeline state")
+    except OSError as exc:
+        journal_errors.append(str(exc))
     from library.tools import transform_write_log
 
     # SmartReframe is Resolve's equivalent transform setter. Its result
@@ -850,7 +881,19 @@ def apply_patch(patch, *, resolve, project, timeline,
     receipt = verify_execution(
         patch, base=base, head_generation=head.generation, ran=ran,
         id_map=id_map, after=after, stopped=stopped,
-        hold_seconds=hold_seconds)
+        hold_seconds=hold_seconds,
+        acceptance_evidence=acceptance_evidence,
+        journaled=journaled, journal_errors=journal_errors)
+    try:
+        verified_journaled = _emit_transaction_stage(
+            project_folder, patch, "verified", status=receipt["status"],
+            stopped=stopped, actual_state=after,
+            acceptance_contracts=receipt["acceptance_contracts"],
+            required=False)
+        if project_folder and not verified_journaled:
+            receipt["journal"]["errors"].append("could not persist verification outcome")
+    except OSError as exc:
+        receipt["journal"]["errors"].append(str(exc))
     return commit_execution(
         patch, receipt=receipt, snapshot=after, store=store,
         project_name=project_name, timeline_id=timeline_id,
@@ -889,6 +932,20 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
     stopped = None
     for index, op in enumerate(patch.operations):
         spec = OPERATIONS[op["op"]]
+        try:
+            applying_journaled = _emit_transaction_stage(
+                project_folder, patch, "applying", index=index,
+                op=op["op"], required=False)
+        except OSError as raised:
+            stopped = {"index": index, "op": op["op"],
+                       "raised": f"transaction journal: {raised}",
+                       "failure_type": "journal_write_failed"}
+            break
+        if project_folder and not applying_journaled:
+            stopped = {"index": index, "op": op["op"],
+                       "raised": "transaction journal did not record applying stage",
+                       "failure_type": "journal_write_failed"}
+            break
         try:
             if spec.item:
                 resolved = id_map.get(op["unique_id"], op["unique_id"])
@@ -940,6 +997,20 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
             break
         ran.append({"index": index, "op": op["op"],
                     "returned": bool(returned)})
+        try:
+            applied_journaled = _emit_transaction_stage(
+                project_folder, patch, "operation_applied", index=index,
+                op=op["op"], returned=bool(returned), required=False)
+        except OSError as raised:
+            stopped = {"index": index, "op": op["op"],
+                       "raised": f"transaction journal: {raised}",
+                       "failure_type": "journal_write_failed"}
+            break
+        if project_folder and not applied_journaled:
+            stopped = {"index": index, "op": op["op"],
+                       "raised": "transaction journal did not record applied operation",
+                       "failure_type": "journal_write_failed"}
+            break
         if op["op"] == "clip.insert":
             id_map[op["client_unique_id"]] = op["unique_id"]
             # Append returns the newly assigned handle. Re-listing
@@ -957,7 +1028,10 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
 
 def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
                      ran: list, id_map: dict, after: dict,
-                     stopped: dict | None, hold_seconds: float) -> dict:
+                     stopped: dict | None, hold_seconds: float,
+                     acceptance_evidence: dict | None = None,
+                     journaled: bool = False,
+                     journal_errors: list | None = None) -> dict:
     """Judge physical execution only from the observed read-back."""
     verify_ops = []
     verify_rows = []
@@ -972,18 +1046,100 @@ def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
     judged = [{"index": row["index"], "op": row["op"],
                "returned": row["returned"], "failure": failure}
               for (row, _), failure in zip(verify_rows, failures)]
+    unrelated_changes = _unrelated_clip_changes(patch, base, after, id_map)
+    supplied_evidence = acceptance_evidence or {}
+    acceptance_contracts = []
+    for verify_op, result in zip(verify_ops, judged):
+        index = result["index"]
+        evidence = dict(supplied_evidence.get(index, {}))
+        evidence.setdefault("unrelated_items_unchanged", not unrelated_changes)
+        acceptance_contracts.append(operation_acceptance.evaluate(
+            verify_op, readback_passed=(result["failure"] is None),
+            evidence=evidence))
     post_failures = _judge(patch.postconditions, after, base)
     ok = (stopped is None and not post_failures
+          and all(contract["passed"] for contract in acceptance_contracts)
           and not any(row["failure"] for row in judged))
     return {
         "patch_id": patch.id,
         "status": "committed" if ok else "verification_failed",
+        "resolve_write_status": "committed" if ok else "verification_failed",
         "base_generation": head_generation,
+        "project": patch.project,
+        "timeline": patch.timeline,
+        "requested_operation_count": len(patch.operations),
+        "expected_state": {"operations": list(patch.operations),
+                            "postconditions": list(patch.postconditions)},
+        "readback": after,
+        "backend": "edit_patch",
+        "idempotency_key": patch.id,
         "operations": judged,
+        "unrelated_changes": unrelated_changes,
+        "acceptance_contracts": acceptance_contracts,
         "stopped": stopped,
+        "recovery_result": {"status": "not_attempted",
+                            "reason": ("transaction verified" if ok else
+                                       "read-back retained for recovery")},
+        "journal": {"intent_persisted": journaled,
+                    "errors": journal_errors or []},
         "postcondition_failures": post_failures,
         "exclusive_hold_seconds": round(hold_seconds, 4),
     }
+
+
+def _emit_transaction_stage(project_folder, patch: EditPatch, stage: str,
+                            *, required: bool, **fields) -> bool:
+    """Append a lifecycle event to the existing per-project event log."""
+    if not project_folder:
+        return False
+    from library.tools import event_log
+
+    try:
+        payload = {
+            "transaction_id": patch.id,
+            "idempotency_key": patch.id,
+            "project": patch.project,
+            "timeline": patch.timeline,
+            "stage": stage,
+            "base_generation": patch.base_generation,
+            "operations": list(patch.operations),
+            **fields,
+        }
+        event_log.emit(project_folder, event_log.EDIT_TRANSACTION_STAGE,
+                       **payload)
+    except OSError:
+        if required:
+            raise
+        return False
+    return True
+
+
+def _unrelated_clip_changes(patch: EditPatch, before: dict, after: dict,
+                            id_map: dict) -> list:
+    """Report changed clips outside the transaction's declared spans/targets."""
+    def rows(snapshot):
+        return {str(clip["unique_id"]): clip
+                for track in snapshot["tracks"] for clip in track["clips"]}
+
+    old, new = rows(before), rows(after)
+    targets = {str(op[key]) for op in patch.operations
+               for key in ("unique_id", "client_unique_id") if op.get(key)}
+    targets.update(str(actual) for actual in id_map.values())
+    affected = patch.affected_spans
+    changed = []
+    for unique_id in sorted(old.keys() | new.keys()):
+        if old.get(unique_id) == new.get(unique_id) or unique_id in targets:
+            continue
+        entry = old.get(unique_id) or new.get(unique_id)
+        clip = entry
+        start = int(clip["record_in"])
+        end = int(clip["record_out"])
+        if any(start < span_end and span_start < end
+               for span_start, span_end in affected):
+            continue
+        changed.append({"unique_id": unique_id, "before": old.get(unique_id),
+                        "after": new.get(unique_id)})
+    return changed
 
 
 def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
@@ -999,15 +1155,37 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
         expected_head=receipt["base_generation"],
         patch={**patch.to_dict(), "operations": recorded_operations},
         receipt=receipt)
+    model_commit = {"status": "not_required", "revision": None}
     if model_revision is not None:
         from library.tools import project_model_editorial
-        project_model_editorial.commit_edit_readback(
-            project_folder, patch=patch,
-            readback=store.snapshot(generation), execution=receipt,
-            generation=generation.generation,
-            expected_revision=model_revision)
+        try:
+            revision = project_model_editorial.commit_edit_readback(
+                project_folder, patch=patch,
+                readback=store.snapshot(generation), execution=receipt,
+                generation=generation.generation,
+                expected_revision=model_revision)
+            model_commit = {"status": "committed", "revision": revision}
+        except Exception as exc:  # noqa: BLE001 - durable Resolve write remains recorded
+            model_commit = {"status": "failed",
+                            "error": f"{type(exc).__name__}: {exc}"}
+    receipt = {**receipt, "resolve_write_status": receipt["status"],
+               "project_model_commit": model_commit,
+               "status": ("project_model_commit_failed"
+                          if model_commit["status"] == "failed"
+                          else receipt["status"]),
+               "generation": generation.generation,
+               "fingerprint": generation.hash,
+               "readback": generation.summary()}
+    receipt = transaction_receipt.standardize(receipt)
+    generation = store.update_receipt(generation, receipt)
+    _emit_transaction_stage(
+        project_folder, patch,
+        "committed" if receipt["committed"]["status"] == "committed" else "recorded",
+        generation=generation.generation,
+        project_model_commit=model_commit, status=receipt["status"],
+        required=False)
     _emit_patch_event(project_folder, receipt, generation.generation)
-    return _receipt_of(generation)
+    return receipt
 
 
 def _emit_patch_event(project_folder: str | None, receipt: dict,

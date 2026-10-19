@@ -173,6 +173,44 @@ def test_a_patch_commits_and_becomes_the_next_generation(world):
         receipt["generation"]
 
 
+def test_partial_patch_receipt_records_exact_applied_ops_and_retry_is_safe(
+        world, monkeypatch):
+    project, timeline, _item, store, base = world
+    original = timeline.AddMarker
+    calls = 0
+
+    def fail_second(frame, color, name, note, duration, custom_data=""):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected failure between operations")
+        return original(frame, color, name, note, duration, custom_data)
+
+    monkeypatch.setattr(timeline, "AddMarker", fail_second)
+    patch = _patch("partial-two-op", base.generation, [
+        {"op": "marker.add", "frame": 12, "color": "Blue", "name": "first"},
+        {"op": "marker.add", "frame": 13, "color": "Blue", "name": "second"},
+    ], ["markers"], [[12, 14]])
+    receipt = _apply(patch, project, timeline, store)
+    assert receipt["status"] == "verification_failed"
+    assert receipt["executing"]["stopped"]["index"] == 1
+    assert receipt["applied"] == {
+        "status": "partial", "operations": 1, "requested": 2,
+        "complete": False}
+    assert len(timeline.GetMarkers()) == 1
+    assert _apply(patch, project, timeline, store) == receipt
+    assert calls == 2
+    from library.tools import event_log, transaction_receipt
+    events = event_log.read_events(store.path.parent)
+    interrupted = transaction_receipt.interrupted(events)
+    assert interrupted[0]["status"] == "recovery_required"
+    assert interrupted[0]["operations"] == [{"index": 0, "op": "marker.add"}]
+    stages = [event["fields"]["stage"] for event in events
+              if event["fields"].get("transaction_id") == receipt["patch_id"]]
+    assert "prepared" in stages and "operation_applied" in stages
+    assert stages[-1] == "recorded"
+
+
 def test_reusing_a_patch_id_with_different_contents_refuses(world):
     project, timeline, _item, store, base = world
     first = _patch("stable-id", base.generation, [

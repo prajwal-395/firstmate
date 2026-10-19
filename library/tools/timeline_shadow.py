@@ -646,6 +646,20 @@ class ShadowStore:
                 (project, timeline_id, patch_id)).fetchone()
         return _row_to_generation(row) if row else None
 
+    def update_receipt(self, generation: Generation,
+                       receipt: dict) -> Generation:
+        """Refresh the recorded outcome after downstream persistence finishes."""
+        with self._connect() as db:
+            changed = db.execute(
+                "UPDATE generations SET receipt=? WHERE project=? AND timeline_id=? AND generation=?",
+                (json.dumps(receipt, sort_keys=True, ensure_ascii=True),
+                 generation.project, generation.timeline_id,
+                 generation.generation)).rowcount
+        if changed != 1:
+            raise ShadowError("recorded transaction generation disappeared")
+        return self.get(generation.project, generation.timeline_id,
+                        generation.generation)
+
     def generations_of(self, project: str) -> list[Generation]:
         """Every recorded generation of every timeline in a project.
 
