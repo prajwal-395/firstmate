@@ -137,7 +137,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import threading
 import time
 import wave
 from pathlib import Path
@@ -261,6 +260,16 @@ def source_dir(content_digest: str, root: Optional[Path] = None) -> Path:
     return (Path(root) if root is not None else memory_root()) / content_digest
 
 
+_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def _slot_thread_lock(path: Path) -> threading.RLock:
+    key = os.path.realpath(path)
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.RLock())
+
+
 # ── Reading the project side (catalog + recorded digests) ──────────
 # The memory must not depend on footage search; the dependency
 # runs the other way. So the two project reads it needs are local and
@@ -275,7 +284,8 @@ def _load_json(path: Path):
                               for char in path.parent.name))
     try:
         from library.tools.cache_lifecycle import cache_file_lease
-        with cache_file_lease(path), open(path, encoding="utf-8") as handle:
+        with _slot_thread_lock(path), cache_file_lease(path), \
+                open(path, encoding="utf-8") as handle:
             document = json.load(handle)
         if is_source_slot:
             artifact_id = _register_source_memory_cache(path, document)
@@ -863,10 +873,6 @@ def build_untranscribed_document(content_digest: str, source_file: str,
 # ── Writing and reading the store ──────────────────────────────────
 
 
-_WRITE_LOCKS: dict[str, threading.Lock] = {}
-_WRITE_LOCKS_GUARD = threading.Lock()
-
-
 def write_json(path: Path, payload: dict) -> None:
     """Atomic write: temp file plus rename, so a killed build never
     leaves a half-written slot that reads as fresh.
@@ -883,22 +889,30 @@ def write_json(path: Path, payload: dict) -> None:
     payload = _with_evidence_envelope(path, payload)
     validate_evidence_envelope(payload["evidence_envelope"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    lock_key = os.path.realpath(path)
-    with _WRITE_LOCKS_GUARD:
-        thread_lock = _WRITE_LOCKS.setdefault(lock_key, threading.Lock())
-    with thread_lock, cache_file_lease(path, exclusive=True):
-        fd, staged_name = tempfile.mkstemp(
-            dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                json.dump(payload, handle, indent=1)
-            os.replace(staged_name, path)
-        except BaseException:
+    thread_lock = _slot_thread_lock(path)
+    from library.tools.resource_leases import ResourceLeaseBusy
+    with thread_lock:
+        for attempt in range(100):
             try:
-                os.unlink(staged_name)
-            except OSError:
-                pass
-            raise
+                with cache_file_lease(path, exclusive=True):
+                    fd, staged_name = tempfile.mkstemp(
+                        dir=str(path.parent), prefix=f".{path.name}.",
+                        suffix=".tmp")
+                    try:
+                        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                            json.dump(payload, handle, indent=1)
+                        os.replace(staged_name, path)
+                    except BaseException:
+                        try:
+                            os.unlink(staged_name)
+                        except OSError:
+                            pass
+                        raise
+                break
+            except ResourceLeaseBusy:
+                if attempt == 99:
+                    raise
+                time.sleep(0.01)
     digest = path.parent.name
     if (len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)):
         source_file = payload.get("source_file")

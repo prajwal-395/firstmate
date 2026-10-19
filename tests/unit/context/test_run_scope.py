@@ -274,8 +274,14 @@ def test_the_refusal_happens_before_anything_is_written(bare_project):
     assert "enhancement_spec" in summary["reason"]
     assert state_path.read_bytes() == before, (
         "a refused run wrote to pipeline_data.json")
-    assert not (bare_project / "pipeline_output").exists(), (
-        "a refused run created output directories")
+    # The run's project activity lease records its lifecycle before scope
+    # resolution. The refusal may leave only those lease events.
+    output = bare_project / "pipeline_output"
+    events = output / "logs" / "event_log.jsonl"
+    if events.exists():
+        rows = [json.loads(line) for line in events.read_text(
+            encoding="utf-8").splitlines()]
+        assert rows and all(row["type"].startswith("lease_") for row in rows)
 
 
 # --------------------------------------------------------------------------

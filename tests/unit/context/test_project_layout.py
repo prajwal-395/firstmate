@@ -1173,8 +1173,10 @@ def test_drt_drp_otio_never_planned_in_any_class(tmp_path):
     assert loose in names
     assert not names & {smoke, archived, interchange, package}
     kept = {item["path"]: item["why"] for item in plan.kept}
-    for path in (smoke, archived, interchange, package):
-        assert "never purged" in kept[path]
+    assert "never purged" in kept[smoke]
+    assert "quarantine time is not recorded" in kept[archived]
+    assert "never purged" in kept[interchange]
+    assert "never purged" in kept[package]
 
     manifest = retention.write_plan(plan)
     with open(manifest, "a", encoding="utf-8") as stream:

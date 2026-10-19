@@ -94,6 +94,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #
 STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
+        # Catalog and segmentation both traverse the edit receipt/cleanup
+        # adapters during project-model publication; changes invalidate both.
+        "library/tools/artifact_lifecycle.py",
+        "library/tools/cache_lifecycle.py",
+        "library/tools/edit_execution_adapters.py",
+        "library/tools/execution/deliver_audio_mix.py",
+        "library/tools/execution/remove_proof.py",
+        "library/tools/proof_cleanup.py",
+        "library/tools/resolve_axi_sdk/__init__.py",
+        "library/tools/retention.py",
+        "library/tools/safe_zone_guide.py",
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
         # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
@@ -607,6 +618,17 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/motion_evidence.py',
     ),
     "step_1_01_scan_project": (
+        "library/tools/safe_zone_guide.py",
+        # Scan's legacy code closure traverses the shared cleanup/execution
+        # modules through catalog support; keep its cache key complete.
+        "library/tools/artifact_lifecycle.py",
+        "library/tools/cache_lifecycle.py",
+        "library/tools/edit_execution_adapters.py",
+        "library/tools/execution/deliver_audio_mix.py",
+        "library/tools/execution/remove_proof.py",
+        "library/tools/proof_cleanup.py",
+        "library/tools/resolve_axi_sdk/__init__.py",
+        "library/tools/retention.py",
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
         # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
@@ -1706,6 +1728,15 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/reproducibility.py',
     ),
     "step_1_03_semantic_analysis": (
+        "library/tools/artifact_lifecycle.py",
+        "library/tools/cache_lifecycle.py",
+        "library/tools/edit_execution_adapters.py",
+        "library/tools/execution/deliver_audio_mix.py",
+        "library/tools/execution/remove_proof.py",
+        "library/tools/proof_cleanup.py",
+        "library/tools/resolve_axi_sdk/__init__.py",
+        "library/tools/retention.py",
+        "library/tools/safe_zone_guide.py",
         "library/tools/transaction_receipt.py",
         "library/tools/operation_acceptance.py",
         # VC-12/VC-07/VC-08 (PRs 2714/2721/2723): the shared edit-request
@@ -2255,6 +2286,15 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/versions/reproducibility.py',
     ),
     "step_1_04_temporal_index": (
+        "library/tools/artifact_lifecycle.py",
+        "library/tools/cache_lifecycle.py",
+        "library/tools/edit_execution_adapters.py",
+        "library/tools/execution/deliver_audio_mix.py",
+        "library/tools/execution/remove_proof.py",
+        "library/tools/proof_cleanup.py",
+        "library/tools/resolve_axi_sdk/__init__.py",
+        "library/tools/retention.py",
+        "library/tools/safe_zone_guide.py",
         "library/tools/accepted_edit_replay.py",
         "library/tools/creative_revision.py",
         "library/tools/direct_transaction.py",

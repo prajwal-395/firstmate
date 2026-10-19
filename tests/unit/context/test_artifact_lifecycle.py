@@ -83,14 +83,23 @@ def test_quarantine_expiry_job_is_not_runnable_before_its_recorded_time(
     assert lifecycle.pending_cleanup_jobs(project) == []
 
 
-def test_interrupted_cleanup_job_returns_to_queue_for_reproof(tmp_path):
+def test_interrupted_cleanup_job_returns_to_queue_for_reproof(tmp_path,
+                                                              monkeypatch):
     project = str(tmp_path / "project")
     (tmp_path / "project").mkdir()
     job, _ = lifecycle.schedule_cleanup_job(
         project, event_id="signoff:reel-a:round-2", project_id="project-a",
         run_id="signoff-2", job_id="cleanup-2", reason="sign-off")
     lifecycle.transition_cleanup_job(project, job, "running")
+    # Recovery only requeues a worker proven dead on this host; the test
+    # process is alive, so model the OS's ESRCH response for its recorded pid.
+    import errno
+    from library.tools import artifact_lifecycle as lifecycle_module
 
+    def dead_worker(_pid, _signal):
+        raise OSError(errno.ESRCH, "worker exited")
+
+    monkeypatch.setattr(lifecycle_module.os, "kill", dead_worker)
     recovered = lifecycle.recover_interrupted_cleanup_jobs(project)
 
     assert recovered == 1
@@ -106,6 +115,8 @@ def test_inventory_counts_shared_inode_physical_bytes_once(tmp_path):
     os.link(first_path, second_path)
     first = _record(tmp_path, artifact_id="artifact-a", path=first_path)
     second = _record(tmp_path, artifact_id="artifact-b", path=second_path)
+    first = replace(first, identity=lifecycle.FileIdentity.capture(first_path))
+    second = replace(second, identity=lifecycle.FileIdentity.capture(second_path))
     lifecycle.register_artifact(project, first)
     lifecycle.register_artifact(project, second)
 

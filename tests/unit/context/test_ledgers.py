@@ -109,6 +109,10 @@ def _index_document(clip_id):
         "energy_curve": {"peak_times": []},
         "audio_events": [],
         "motion_energy": {"high_motion_times": []},
+        "optical_flow_direction": {"method": "farneback",
+                                   "motion_peaks": []},
+        "sound_events": [],
+        "sound_event_method": "panns-cnn14-decisionlevelmax",
     }
 
 
@@ -224,6 +228,9 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
         }
 
     monkeypatch.setattr(module, "index_clip", fake_index_clip)
+    # The assertion is about rerun selection and reuse accounting. Source
+    # memory's independent cache-lease behavior has its own concurrency test.
+    monkeypatch.setattr(module, "write_sound_memory", lambda *_args, **_kwargs: None)
     result = module.build_temporal_index(
         files, ProjectLayout(root), "en")
 
