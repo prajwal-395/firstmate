@@ -41,7 +41,7 @@ the `.drt` is the recovery exception, not the version record.
    ledgers in `pipeline_data.json`, the run id from provenance -
    and invents no new metadata.  A line is omitted when its source
    is absent rather than filled in.
-4. `stage_for_commit` stages the text record plus the explicitly named
+4. `stage_for_commit` stages changed text records plus explicitly named
    promoted-reel `.drt` recovery archives. The allow-list decides which
    PATHS are versioned; `TEXT_SUFFIXES` plus a content sniff decide
    which of those paths are committable text. A versioned binary
@@ -79,14 +79,15 @@ stays an explicit act.
 
 from __future__ import annotations
 
-from library.tools.resolve_lock import under_lease
-
 import datetime
 import hashlib
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
+
+from library.tools.resolve_lock import under_lease
 
 # ── The allow-list ──────────────────────────────────────────────
 # Project-relative paths that ARE versioned.  Everything else -
@@ -222,6 +223,73 @@ TEXT_SUFFIXES = frozenset({
 BINARY_MANIFEST_REL = "pipeline_output/provenance/binary_manifest.json"
 
 _SNIFF_BYTES = 8192
+_FULL_AUDIT_EVERY_COMMITS = 20
+_FULL_AUDIT_MARKER = "ren-version-store-audit.json"
+
+
+def _phase_measure(timings: dict[str, float | int | str], phase: str,
+                   started: float) -> None:
+    elapsed = round(time.perf_counter() - started, 6)
+    timings[phase] = elapsed
+    # A missing run ledger is a no-op. Keep this best-effort: profiling
+    # must never make project versioning fail.
+    try:
+        from library.tools import perf_ledger
+        perf_ledger.record(
+            "version_store", elapsed,
+            started_at=time.time() - elapsed,
+            git_phase=phase)
+    except Exception as exc:  # noqa: BLE001 - instrumentation cannot block a commit
+        timings[f"{phase}_ledger_error"] = type(exc).__name__
+
+
+def _porcelain_paths(output: str) -> list[str]:
+    """Decode NUL-delimited porcelain v1 paths, including rename records."""
+    fields = output.split("\0")
+    paths = []
+    index = 0
+    while index < len(fields):
+        record = fields[index]
+        index += 1
+        if not record:
+            continue
+        if len(record) < 4:
+            raise RuntimeError(f"malformed git status record: {record!r}")
+        paths.append(record[3:])
+        if record[:2].strip() in {"R", "C"} and index < len(fields):
+            # Rename/copy status includes the original path as the next
+            # NUL-delimited field. Both sides must leave the index coherent.
+            paths.append(fields[index])
+            index += 1
+    return paths
+
+
+def _audit_due(project_folder: str) -> tuple[bool, int]:
+    """Run the expensive allowlist walk once per 20 committed revisions."""
+    root = Path(project_folder)
+    count = git(project_folder, "rev-list", "--count", "HEAD")
+    if count.returncode != 0 or not count.stdout.strip():
+        return True, 0
+    revisions = int(count.stdout.strip())
+    marker = root / ".git" / _FULL_AUDIT_MARKER
+    try:
+        previous = json.loads(marker.read_text(encoding="utf-8"))
+        audited = int(previous["revision"])
+    except (OSError, ValueError, KeyError, TypeError):
+        audited = -_FULL_AUDIT_EVERY_COMMITS
+    due = revisions - audited >= _FULL_AUDIT_EVERY_COMMITS
+    if revisions == 1 and audited <= 0:
+        due = True
+    return due, revisions
+
+
+def _record_audit(project_folder: str, revision: int) -> None:
+    marker = Path(project_folder) / ".git" / _FULL_AUDIT_MARKER
+    try:
+        marker.write_text(json.dumps({"revision": revision}) + "\n",
+                          encoding="utf-8")
+    except OSError:  # noqa: S110 - advisory marker; audit remains safe to repeat
+        pass
 
 
 def _sniffs_as_text(path: Path) -> bool:
@@ -775,19 +843,20 @@ def verify_binary_manifest(project_folder: str) -> dict:
 def stage_for_commit(project_folder: str) -> dict:
     """The store's own staging: the ONLY staging the version model uses.
 
-    Replaces every raw `git add -A` site (the audit named four on an
-    earlier base; P2 routed three through `commit_build` and dropped
-    the fourth, leaving the one inside `commit_build` - this
-    function).  Fail-closed: an untracked binary stays unstaged via
-    the allow-list ignore, a staged binary (tracked before this
+    Uses Git's changed-path status and the generated allow-list to stage
+    only changed paths. A complete allowlist walk and binary-manifest
+    reconciliation runs every 20 committed revisions. Fail-closed: an
+    untracked binary stays unstaged via the allow-list ignore, a staged
+    binary (tracked before this
     rule, or force-added) is `rm --cached` - the working tree is never
     touched. Promoted-reel `.drt` recovery archives are the one explicit
     binary exception; all other versioned binaries land in the manifest,
     which is itself staged.
     """
     root = Path(project_folder)
+    timings: dict[str, float | int | str] = {}
     report: dict = {"staged": True, "binaries_recorded": [],
-                    "untracked": []}
+                    "untracked": [], "timings": timings}
     # Existing project repos were initialized with a broader external/
     # allow-list. Refresh it before collecting files so new state paths
     # stay out and declarations remain versioned.
@@ -795,16 +864,106 @@ def stage_for_commit(project_folder: str) -> dict:
     body = gitignore_body()
     if not ignore.is_file() or ignore.read_text(encoding="utf-8") != body:
         ignore.write_text(body, encoding="utf-8")
-    try:
-        entries = binary_manifest_entries(project_folder)
-    except RuntimeError as exc:
-        report["staged"] = False
-        report["reason"] = str(exc)
+    audit, audit_revision = _audit_due(project_folder)
+    status_started = time.perf_counter()
+    status = git(project_folder, "status", "--porcelain=v1", "-z",
+                 "--untracked-files=all")
+    _phase_measure(timings, "status", status_started)
+    if status.returncode != 0:
+        report.update(staged=False,
+                      reason=f"git status failed: {status.stderr.strip()[-400:]}")
         return report
-    write_binary_manifest(project_folder, entries)
+    scan_started = time.perf_counter()
+    try:
+        changed_paths = list(dict.fromkeys(_porcelain_paths(status.stdout)))
+    except RuntimeError as exc:
+        report.update(staged=False, reason=str(exc))
+        return report
+    if audit:
+        try:
+            versioned = _versioned_files(root)
+        except RuntimeError as exc:
+            report.update(staged=False, reason=str(exc))
+            return report
+        _phase_measure(timings, "scan", scan_started)
+        full_entries = []
+        hash_started = time.perf_counter()
+        for path in versioned:
+            if is_drt_recovery_archive(path, root) or is_committable_text(path):
+                continue
+            rel = str(path.relative_to(root))
+            full_entries.append({"path": rel, "size": path.stat().st_size,
+                                 "sha256": _sha256(path)})
+        _phase_measure(timings, "hash", hash_started)
+        _record_audit(project_folder, audit_revision)
+        report["full_tree_audit"] = True
+    else:
+        try:
+            previous = json.loads(
+                (root / BINARY_MANIFEST_REL).read_text(encoding="utf-8"))
+            full_entries = previous.get("files")
+            if not isinstance(full_entries, list):
+                raise ValueError("binary manifest files are not a list")
+            for entry in full_entries:
+                rel = entry.get("path") if isinstance(entry, dict) else None
+                digest = entry.get("sha256") if isinstance(entry, dict) else None
+                if (not isinstance(rel, str) or Path(rel).is_absolute()
+                        or ".." in Path(rel).parts
+                        or not isinstance(entry.get("size"), int)
+                        or entry["size"] < 0
+                        or not isinstance(digest, str) or len(digest) != 64
+                        or any(char not in "0123456789abcdef" for char in digest)):
+                    raise ValueError("binary manifest contains an invalid entry")
+        except (OSError, ValueError, AttributeError):
+            # No trustworthy baseline: force an allowlist walk now.
+            scan_started = time.perf_counter()
+            versioned = _versioned_files(root)
+            _phase_measure(timings, "scan", scan_started)
+            full_entries = []
+            hash_started = time.perf_counter()
+            for path in versioned:
+                if is_drt_recovery_archive(path, root) or is_committable_text(path):
+                    continue
+                full_entries.append({
+                    "path": str(path.relative_to(root)),
+                    "size": path.stat().st_size, "sha256": _sha256(path)})
+            _phase_measure(timings, "hash", hash_started)
+            report["full_tree_audit"] = True
+
+    entries_by_path = {entry["path"]: entry for entry in full_entries}
+    if not report.get("full_tree_audit"):
+        # Porcelain status omits ignored untracked files and reports tracked
+        # files even if a later ignore rule now excludes them. The generated
+        # allowlist remains the authority for untracked paths.
+        _phase_measure(timings, "scan", scan_started)
+        hash_started = time.perf_counter()
+        for rel in changed_paths:
+            path = root / rel
+            if not path.is_file():
+                entries_by_path.pop(rel, None)
+            elif not is_drt_recovery_archive(path, root) and not is_committable_text(path):
+                entries_by_path[rel] = {
+                    "path": rel, "size": path.stat().st_size,
+                    "sha256": _sha256(path)}
+            else:
+                entries_by_path.pop(rel, None)
+        _phase_measure(timings, "hash", hash_started)
+    entries = sorted(entries_by_path.values(), key=lambda entry: entry["path"])
     report["binaries_recorded"] = entries
-    add = git(project_folder, "add", "-A")
+    report["files"] = len(changed_paths)
+    report["bytes"] = sum(entry["size"] for entry in entries
+                          if entry["path"] in changed_paths)
+    write_binary_manifest(project_folder, entries)
+    # The generated manifest is always eligible; only paths returned by
+    # Git status plus it are passed to Git, never the whole project tree.
+    to_stage = list(dict.fromkeys(
+        f":(literal){path}"
+        for path in [*changed_paths, BINARY_MANIFEST_REL]))
+    index_started = time.perf_counter()
+    add = git(project_folder, "add", "--pathspec-from-file=-",
+              "--pathspec-file-nul", input="\0".join(to_stage) + "\0")
     if add.returncode != 0:
+        _phase_measure(timings, "index", index_started)
         report["staged"] = False
         report["reason"] = f"git add failed: {add.stderr.strip()[-400:]}"
         return report
@@ -812,6 +971,7 @@ def stage_for_commit(project_folder: str) -> dict:
 
     listed = git(project_folder, "ls-files", "-z", "--", "external")
     if listed.returncode != 0:
+        _phase_measure(timings, "index", index_started)
         report["staged"] = False
         report["reason"] = ("git ls-files failed while excluding external "
                             f"state: {listed.stderr.strip()[-400:]}")
@@ -830,6 +990,7 @@ def stage_for_commit(project_folder: str) -> dict:
         untrack = git(project_folder, "rm", "--cached", "-q", "-f", "--",
                       *state_paths)
         if untrack.returncode != 0:
+            _phase_measure(timings, "index", index_started)
             report["staged"] = False
             report["reason"] = ("git rm --cached failed while excluding "
                                 f"external state: {untrack.stderr.strip()[-400:]}")
@@ -842,21 +1003,52 @@ def stage_for_commit(project_folder: str) -> dict:
                 if not is_committable_text(root / p)
                 and not is_drt_recovery_archive(root / p, root)]
     if binaries:
-        untrack = git(project_folder, "rm", "--cached", "-q", "--",
+        untrack = git(project_folder, "rm", "--cached", "-q", "-f", "--",
                       *binaries)
         if untrack.returncode != 0:
+            _phase_measure(timings, "index", index_started)
             report["staged"] = False
             report["reason"] = (
                 f"git rm --cached failed: "
                 f"{untrack.stderr.strip()[-400:]}")
             return report
         report["untracked"] = sorted(binaries)
+    if report.get("full_tree_audit") and entries:
+        # A legacy binary may already be tracked yet unchanged, so it would
+        # not appear in the staged diff above. The periodic audit is the
+        # recovery point that removes those old blobs from the index.
+        tracked = git(project_folder, "ls-files", "-z")
+        if tracked.returncode != 0:
+            _phase_measure(timings, "index", index_started)
+            report["staged"] = False
+            report["reason"] = ("git ls-files failed during binary audit: "
+                                f"{tracked.stderr.strip()[-400:]}")
+            return report
+        tracked_paths = set(tracked.stdout.split("\0"))
+        legacy_binaries = sorted(
+            entry["path"] for entry in entries
+            if entry["path"] in tracked_paths)
+        if legacy_binaries:
+            untrack = git(project_folder, "rm", "--cached", "-q", "-f",
+                          "--", *legacy_binaries)
+            if untrack.returncode != 0:
+                _phase_measure(timings, "index", index_started)
+                report["staged"] = False
+                report["reason"] = (
+                    "git rm --cached failed during binary audit: "
+                    f"{untrack.stderr.strip()[-400:]}")
+                return report
+            report["untracked"] = sorted(set(report["untracked"])
+                                         | set(legacy_binaries))
+    # Re-add the text manifest after binary protection may have removed a
+    # previously tracked binary from the index.
     manifest_add = git(project_folder, "add", "--", BINARY_MANIFEST_REL)
     if manifest_add.returncode != 0:
+        _phase_measure(timings, "index", index_started)
         report["staged"] = False
-        report["reason"] = (
-            f"git add manifest failed: "
-            f"{manifest_add.stderr.strip()[-400:]}")
+        report["reason"] = (f"git add manifest failed: "
+                            f"{manifest_add.stderr.strip()[-400:]}")
+    _phase_measure(timings, "index", index_started)
     return report
 
 
@@ -1060,22 +1252,30 @@ def commit_build(project_folder: str, message: str | None = None) -> dict:
         return {"committed": False,
                 "reason": staged.get("reason", "staging failed"),
                 "binaries_recorded": staged.get("binaries_recorded", [])}
+    timings = dict(staged.get("timings") or {})
+    status_started = time.perf_counter()
     status = git(project_folder, "status", "--porcelain")
+    _phase_measure(timings, "status", status_started)
     if not status.stdout.strip():
         return {"committed": False, "reason": "clean",
-                "binaries_recorded": staged.get("binaries_recorded", [])}
+                "binaries_recorded": staged.get("binaries_recorded", []),
+                "timings": timings}
     msg = message if message is not None else render_commit_message(project_folder)
+    commit_started = time.perf_counter()
     commit = git(project_folder, "commit", "-m", msg)
+    _phase_measure(timings, "commit", commit_started)
     if commit.returncode != 0:
         return {"committed": False,
                 "reason": f"git commit failed: {commit.stderr.strip()[-400:]}",
-                "binaries_recorded": staged.get("binaries_recorded", [])}
+                "binaries_recorded": staged.get("binaries_recorded", []),
+                "timings": timings}
     rev = git(project_folder, "rev-parse", "--short", "HEAD")
     files = git(project_folder, "show", "--pretty=format:", "--name-only", "HEAD")
     return {"committed": True,
             "commit": rev.stdout.strip(),
             "files": sorted(f for f in files.stdout.splitlines() if f.strip()),
-            "binaries_recorded": staged.get("binaries_recorded", [])}
+            "binaries_recorded": staged.get("binaries_recorded", []),
+            "timings": timings}
 
 
 def write_build_record(project_folder: str, timeline_name: str,

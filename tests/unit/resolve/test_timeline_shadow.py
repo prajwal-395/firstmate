@@ -464,6 +464,9 @@ def test_a_second_machine_sees_the_same_generations_after_sync(tmp_path):
     head = store_b.head("Podcast", timeline_id)
     assert head is not None and head.generation == 2
     assert head.source == shadow.OBSERVED
+    older = store_b.get("Podcast", timeline_id, 1)
+    assert store_b.snapshot(older) == store_a.snapshot(
+        store_a.get("Podcast", timeline_id, 1))
 
     read = timeline_read.read("Podcast", "Reel 09", store=store_b)
     assert read.generation.generation == 2
@@ -486,6 +489,60 @@ def test_a_sync_is_idempotent_and_never_clobbers_local_data(tmp_path):
     again = shadow.sync_project(mirror, store=store_b)
     assert again["generations"] == 0 and again["snapshots"] == 0
     assert store_b.head("Podcast", timeline_id).generation == head_before
+
+
+def test_export_reuses_old_snapshot_objects_and_restores_history(tmp_path):
+    """A new generation adds one immutable object and keeps old restores."""
+    source = shadow.ShadowStore(tmp_path / "source.db")
+    first = {"timeline": "first", "tracks": []}
+    second = {"timeline": "second", "tracks": []}
+    source.record(project="Podcast", timeline_id="timeline:1",
+                  timeline_name="Reel 01", snapshot=first,
+                  source=shadow.OBSERVED, expected_head=0)
+    project = tmp_path / "project"
+    shadow.export_project("Podcast", project, store=source)
+
+    first_hash = shadow.snapshot_hash(first)
+    first_object = shadow._snapshot_object_path(project, first_hash)
+    original_bytes = first_object.read_bytes()
+    source.record(project="Podcast", timeline_id="timeline:1",
+                  timeline_name="Reel 01", snapshot=second,
+                  source=shadow.OBSERVED, expected_head=1)
+    shadow.export_project("Podcast", project, store=source)
+
+    index = json.loads(shadow.project_shadow_path(project).read_text(
+        encoding="utf-8"))
+    assert index["format"] == "timeline_shadow/2"
+    assert "snapshots" not in index
+    assert first_object.read_bytes() == original_bytes
+    assert shadow._snapshot_object_path(
+        project, shadow.snapshot_hash(second)).is_file()
+
+    restored = shadow.ShadowStore(tmp_path / "restored.db")
+    report = shadow.sync_project(project, store=restored)
+    assert report["generations"] == 2
+    assert restored.snapshot(restored.get("Podcast", "timeline:1", 1)) == first
+    assert restored.snapshot(restored.get("Podcast", "timeline:1", 2)) == second
+
+
+def test_sync_still_reads_the_embedded_legacy_mirror(tmp_path):
+    """Projects with the original embedded snapshot format remain readable."""
+    source = shadow.ShadowStore(tmp_path / "source.db")
+    source.record(project="Podcast", timeline_id="timeline:legacy",
+                  timeline_name="Legacy", snapshot={"legacy": True},
+                  source=shadow.OBSERVED, expected_head=0)
+    legacy_project = tmp_path / "legacy-project"
+    path = shadow.project_shadow_path(legacy_project)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(source.export_document("Podcast")),
+                    encoding="utf-8")
+
+    restored = shadow.ShadowStore(tmp_path / "restored-legacy.db")
+    report = shadow.sync_project(legacy_project, store=restored)
+
+    assert report["generations"] == 1
+    assert restored.snapshot(restored.get(
+        "Podcast", "timeline:legacy", 1)) == {"legacy": True}
 
 
 def test_a_write_still_rereads_live_after_a_sync(tmp_path):

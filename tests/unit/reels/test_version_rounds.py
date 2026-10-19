@@ -673,6 +673,38 @@ def test_previously_tracked_external_state_is_untracked_without_deleting(
         '"new": true}\n')
 
 
+def test_incremental_staging_keeps_allowlist_and_untracked_binary_guard(
+        tmp_path):
+    """A small update stages changed records without sweeping the tree."""
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    _write(tmp_path, "pipeline_data.json", '{"revision": 1}\n')
+    _write(tmp_path, "pipeline_run.json", '{"status": "old"}\n')
+    assert bvc.commit_build(str(tmp_path), message="baseline")["committed"]
+
+    _write(tmp_path, "pipeline_data.json", '{"revision": 2}\n')
+    image = "marker_feedback/stills/unrequested.png"
+    image_path = tmp_path / image
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\nbytes")
+
+    report = bvc.stage_for_commit(str(tmp_path))
+
+    staged = set(_git_2(tmp_path, "diff", "--cached", "--name-only")
+                 .splitlines())
+    assert report["staged"] is True
+    assert "pipeline_data.json" in staged
+    assert "pipeline_run.json" not in staged
+    assert image not in staged
+    assert image in {entry["path"] for entry in report["binaries_recorded"]}
+    assert {"scan", "hash", "index", "status"} <= set(report["timings"])
+
+    (tmp_path / "pipeline_data.json").unlink()
+    deleted = bvc.stage_for_commit(str(tmp_path))
+    assert deleted["staged"] is True
+    assert "D pipeline_data.json" in _git_2(
+        tmp_path, "diff", "--cached", "--name-status").splitlines()
+
+
 def test_learned_context_crash_tmp_stays_out(tmp_path):
     """The allow-list names the record, not the directory.
 

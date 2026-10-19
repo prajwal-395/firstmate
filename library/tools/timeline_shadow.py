@@ -59,15 +59,15 @@ hash.
 The project-scoped mirror
 -------------------------
 The local store is the query engine; the project git repo is the
-substrate every machine sees. So each project also carries a mirror of
-its own generations at `pipeline_output/review/timeline_shadow.json`
-(on the version store's allow-list). `export_project` writes it on
-commit (`versions/store.py`); `sync_project` merges it into a fresh
-local store when a project is opened (`manage_project.py`). A second
-machine - or a restarted Ren - then answers from the same generations
-without a live read. The mirror is a read answer only: `edit_patch`
-still re-reads live inside the lease, so a synced generation is never a
-write precondition.
+substrate every machine sees. Each project carries a revision index at
+`pipeline_output/review/timeline_shadow.json` and immutable snapshots at
+`pipeline_output/review/timeline_shadow/objects/sha256/<hash>.json`.
+`export_project` writes missing content objects and updates the index;
+`sync_project` reads both when a project opens. The original embedded
+`timeline_shadow/1` format remains readable. A second machine - or a
+restarted Ren - answers from the same generations without a live read.
+The mirror is a read answer only: `edit_patch` still re-reads live inside
+the lease, so a synced generation is never a write precondition.
 
     python3 -m library.tools.timeline_shadow log     --project P --timeline T
     python3 -m library.tools.timeline_shadow clips   --project P --timeline T [--generation N]
@@ -344,18 +344,17 @@ def default_db_path() -> Path:
 # ── The project-scoped mirror: sharing generations across machines ──
 #
 # The SQLite store above is machine-local runtime state. The project
-# git repo is the one substrate every machine sees, so the shadow is
-# mirrored into it: `export_project` writes every generation of one
-# project to `pipeline_output/review/timeline_shadow.json` (on the
-# version store's allow-list, `/pipeline_output/review/**`), and
-# `sync_project` merges that file into a fresh local store. A second
-# machine - or a restarted Ren - then sees the same generations
-# without a live read. The mirror never changes the write path:
+# git repo is the one substrate every machine sees. The JSON index points
+# to immutable, content-addressed snapshot objects beside it. The original
+# embedded format remains readable by `sync_project`. The mirror never
+# changes the write path:
 # `edit_patch` still re-reads live inside the lease, so a synced
 # generation is a read answer, never a write precondition.
 
-SHADOW_FORMAT = "timeline_shadow/1"
-"""The version of the project-scoped shadow file format."""
+SHADOW_FORMAT = "timeline_shadow/2"
+"""The version of the incremental project-scoped shadow index."""
+
+LEGACY_SHADOW_FORMAT = "timeline_shadow/1"
 
 SHADOW_FILENAME = "timeline_shadow.json"
 """The mirror's filename, under `pipeline_output/review/`."""
@@ -372,22 +371,84 @@ def project_shadow_path(project_folder) -> Path:
     return Path(project_folder) / "pipeline_output" / "review" / SHADOW_FILENAME
 
 
+def project_shadow_objects_dir(project_folder) -> Path:
+    """Immutable snapshot object directory beside the revision index."""
+    return (Path(project_folder) / "pipeline_output" / "review"
+            / "timeline_shadow" / "objects" / "sha256")
+
+
+def _snapshot_object_path(project_folder, digest: str) -> Path:
+    if (len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)):
+        raise ValueError(f"invalid timeline snapshot hash {digest!r}")
+    return project_shadow_objects_dir(project_folder) / f"{digest}.json"
+
+
 def export_project(project_name: str, project_folder,
                    store: ShadowStore | None = None) -> Path:
-    """Write the project-scoped mirror for `project_name` to the project.
+    """Write new content-addressed snapshots and the current revision index.
 
     The shared half of the shadow: called by `versions/store.py` on
     commit, so the mirror lands in the project git repo and travels to
     every machine that has the repo. Returns the path written.
     """
     store = store or ShadowStore()
-    document = store.export_document(project_name)
+    generations = store.generations_of(project_name)
+    object_dir = project_shadow_objects_dir(project_folder)
+    object_dir.mkdir(parents=True, exist_ok=True)
+    by_hash = {generation.hash: generation for generation in generations}
+    digests = []
+    for digest in sorted(by_hash):
+        object_path = _snapshot_object_path(project_folder, digest)
+        if object_path.is_file():
+            digests.append(digest)
+            continue
+        generation = by_hash[digest]
+        try:
+            body = store.snapshot(generation)
+        except ShadowError:
+            continue
+        if snapshot_hash(body) != digest:
+            raise ShadowError(f"snapshot {digest} failed content verification")
+        staged_object = object_path.with_suffix(".json.staged")
+        staged_object.write_text(
+            json.dumps(body, indent=2, sort_keys=True, ensure_ascii=False,
+                       default=str) + "\n", encoding="utf-8")
+        os.replace(staged_object, object_path)
+        digests.append(digest)
+    exported_digests = set(digests)
+    generations = [generation for generation in generations
+                   if generation.hash in exported_digests]
+    index = {
+        "format": SHADOW_FORMAT,
+        "project": project_name,
+        "snapshot_objects": digests,
+        "generations": [{
+            "project": generation.project,
+            "timeline_id": generation.timeline_id,
+            "generation": generation.generation,
+            "timeline_name": generation.timeline_name,
+            "hash": generation.hash,
+            "source": generation.source,
+            "patch": generation.patch,
+            "receipt": generation.receipt,
+            "recorded_at": generation.recorded_at,
+            "verified_at": generation.verified_at,
+            "model_revision": generation.model_revision,
+            "nle_binding_ids": list(generation.nle_binding_ids),
+        } for generation in generations],
+    }
     path = project_shadow_path(project_folder)
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(index, indent=2, sort_keys=True, ensure_ascii=False,
+                         default=str) + "\n"
+    try:
+        if path.read_text(encoding="utf-8") == payload:
+            return path
+    except OSError:
+        pass
     staged = path.with_suffix(".json.staged")
-    staged.write_text(
-        json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False,
-                   default=str) + "\n", encoding="utf-8")
+    staged.write_text(payload, encoding="utf-8")
     os.replace(staged, path)
     return path
 
@@ -410,7 +471,29 @@ def sync_project(project_folder, store: ShadowStore | None = None) -> dict:
         return {"generations": 0, "snapshots": 0, "path": str(path)}
     if not isinstance(document, dict):
         return {"generations": 0, "snapshots": 0, "path": str(path)}
-    report = store.merge_document(document)
+    if document.get("format") == SHADOW_FORMAT:
+        snapshots = {}
+        for digest in document.get("snapshot_objects") or []:
+            try:
+                object_path = _snapshot_object_path(project_folder, digest)
+                body = json.loads(object_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError) as exc:
+                raise ShadowError(
+                    f"snapshot object {digest!r} is missing or unreadable") from exc
+            if snapshot_hash(body) != digest:
+                raise ShadowError(f"snapshot object {digest!r} failed verification")
+            snapshots[digest] = body
+        merge_document = {
+            "format": LEGACY_SHADOW_FORMAT,
+            "project": document.get("project"),
+            "snapshots": snapshots,
+            "generations": document.get("generations") or [],
+        }
+    else:
+        # Format 1 embedded snapshot bodies in the index. Keep that format
+        # readable so projects committed before the object store still sync.
+        merge_document = document
+    report = store.merge_document(merge_document)
     report["path"] = str(path)
     return report
 
@@ -963,13 +1046,11 @@ class ShadowStore:
         return self.get(project, timeline_id, generation)
 
     def export_document(self, project: str) -> dict:
-        """The project-scoped mirror document for `project`.
+        """The legacy embedded mirror document for `project`.
 
-        Every generation of the project and the snapshots they
-        reference, as one JSON-able dict. A generation whose snapshot
-        is missing is skipped rather than exported broken: the mirror
-        stays loadable, and the next live read records the snapshot
-        again.
+        Every generation and embedded snapshot in the original format.
+        `export_project` uses the incremental object format; this method
+        remains for callers that need a legacy document.
         """
         generations = []
         snapshots: dict = {}
@@ -994,7 +1075,7 @@ class ShadowStore:
             })
             snapshots[generation.hash] = body
         return {
-            "format": SHADOW_FORMAT,
+            "format": LEGACY_SHADOW_FORMAT,
             "project": project,
             "snapshots": snapshots,
             "generations": generations,
@@ -1016,7 +1097,7 @@ class ShadowStore:
         for a reader, not picked by the merge.
         """
         report = {"generations": 0, "snapshots": 0, "conflicts": []}
-        if document.get("format") != SHADOW_FORMAT:
+        if document.get("format") != LEGACY_SHADOW_FORMAT:
             return report
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
