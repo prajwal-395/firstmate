@@ -7,25 +7,28 @@ over the old one; this module changes the built reel instead, through
 What the caller states, and what it does not
 --------------------------------------------
 The caller states the change STRUCTURALLY: which reel, which item,
-what changes - one of the ten ops below.  Mapping a captain's
+what changes - one of the eleven ops below.  Mapping a captain's
 natural-language note onto such a change is the NEXT task and is
 explicitly not this one; this module is the mechanism that task will
 call.
 
-The ten ops
+The eleven ops
 ------------
 The first five delete and re-place through the composition; `add_row`
-makes a declared row; `set_enabled`, `set_properties` and
-`entry_motion` are IN-PLACE: they write onto the staged item itself - no delete,
-no place - and ride `Qualification.in_place` rather than
-changes/insertions/removals.  They run before the composition off the
-same staging, so a capture taken after them carries them, and a spec
-mixing them with composition ops stays servable: one source item, one
-edit (`_check_single_claim`). The `set_properties` and `set_enabled`
+makes a declared row; `set_enabled`, `set_properties`,
+`entry_motion` and `repair_hold_window` are IN-PLACE: they write onto
+the staged item itself - no delete, no place - and ride
+`Qualification.in_place` rather than changes/insertions/removals.
+They run before the composition off the same staging, so a capture
+taken after them carries them, and a spec mixing them with
+composition ops stays servable: one source item, one edit
+(`_check_single_claim`). The `set_properties` and `set_enabled`
 writes are filed onto the carried-edits ledger at promotion
 (`editor_edit_carry.derive_touch_edits`), so the next plan-change
 rebuild carries them like the editor's own - and refuses by name when
-the touched passage no longer plays.
+the touched passage no longer plays.  `entry_motion` and
+`repair_hold_window` write Fusion comps no rebuild re-derives, so
+they are not carried there.
 
 - `move` - an overlay item to a different record position on the SAME
   row.  Same duration, same pixels.  A move across rows refuses: the
@@ -82,18 +85,31 @@ the touched passage no longer plays.
   it keeps its span, file and treatment, so disabling a graphic never
   deletes it.
 - `entry_motion` - IN-PLACE.  An entrance and/or exit fade authored
-  as a Fusion comp (`fusion.comp_builder.build_effect_comp` over the
-  `fade_in_frames`/`fade_out_frames` keys, the same dispatch the comp
-  pass reads) and imported onto the staged item, then conformed by
-  the pass's own `comp_media_window.conform_item` and verified by
-  re-read.  Overlay rows (V3+ video) only: V1/V2 are comp-bearing
-  rows whose treatments the comp pass owns (same boundary as
-  `add_overlay`), audio rows carry no Fusion comps, and an item
-  already carrying a drawing comp refuses - a second treatment the
-  recorded manifest does not know would be dropped silently by the
-  next re-derivation.  The ramp must fit inside what the item plays
-  (`fade_in + fade_out <= duration - 1`), else the effect holds
-  across the whole clip (`fusion.played_window`).
+as a Fusion comp (`fusion.comp_builder.build_effect_comp` over the
+`fade_in_frames`/`fade_out_frames` keys, the same dispatch the comp
+pass reads) and imported onto the staged item, then conformed by
+the pass's own `comp_media_window.conform_item` and verified by
+re-read.  Overlay rows (V3+ video) only: V1/V2 are comp-bearing
+rows whose treatments the comp pass owns (same boundary as
+`add_overlay`), audio rows carry no Fusion comps, and an item
+already carrying a drawing comp refuses - a second treatment the
+recorded manifest does not know would be dropped silently by the
+next re-derivation.  The ramp must fit inside what the item plays
+(`fade_in + fade_out <= duration - 1`), else the effect holds
+across the whole clip (`fusion.played_window`).
+- `repair_hold_window` - IN-PLACE.  A freeze-hold tail's Fusion comp
+media windows rebound to the Timeline binding Resolve derives the
+correct window from (`hold_window_repair.repair_hold_item_windows`),
+then proved by fresh reads until consecutive reads agree and cover
+every played frame.  The target states `row`, `item`, `record_frame`
+and `duration`, and the source basename it expects: the gate refuses
+unless exactly that hold is there - a baked hold file
+(`reel_ending.BAKED_HOLD_PREFIXES`) or a native zero-speed hold -
+carrying at least one Fusion comp.  No span, no source range, no
+transform, no grade and no neighbouring item moves: the only
+difference the promotion carries is the comp inputs the reads prove.
+A hold whose windows will not converge refuses rather than shipping
+a tail that cannot render (`comp_media_window`).
 
 The qualification gate
 ----------------------
@@ -612,8 +628,9 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
 
     `spec` is `{"reel": N, "edits": [...], "exclude": [[row, idx]]}`.
     Each edit carries `op` - `move`, `swap_pixels`, `add_overlay`,
-    `remove_overlay`, `retime`, `set_properties` or `entry_motion` -
-    and the fields that op documents in the module docstring.
+    `remove_overlay`, `retime`, `set_properties`, `entry_motion` or
+    `repair_hold_window` - and the fields that op documents in the
+    module docstring.
     Raises `TouchupRefused` for anything unclassifiable, naming why.
     Never falls back to a rebuild.
     """
@@ -1547,6 +1564,108 @@ def _op_entry_motion(edit, position, tracks, spans, changes,
     return False
 
 
+def _op_repair_hold_window(edit, position, tracks, spans, changes,
+                           insertions, removals, moves, exclude, notes,
+                           in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    if not row or item_index is None:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) needs "
+            f"`row` and `item` (got {dict(edit)!r})",
+            "a window repair naming no item cannot be staged",
+            f"give edit {position} `row` and `item`, then re-run "
+            f"`ren touch`")
+    try:
+        record_frame = int(edit.get("record_frame"))
+        duration = int(edit.get("duration"))
+    except (TypeError, ValueError):
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) needs "
+            f"`record_frame` and `duration` as frame counts "
+            f"(got {edit.get('record_frame')!r}/"
+            f"{edit.get('duration')!r})",
+            "the repair pins its item by span, so a shifted timeline "
+            "refuses instead of repairing the wrong item",
+            f"give edit {position} integer `record_frame` and "
+            f"`duration`, then re-run `ren touch`")
+    source = str(edit.get("source") or "")
+    if not source:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) names no `source`",
+            "the repair pins its item by the source basename it "
+            "expects, so a re-placed timeline refuses instead of "
+            "repairing whatever sits at that span now",
+            f"name the hold file's basename as `source` on edit "
+            f"{position}, then re-run `ren touch`")
+    if _is_audio_row(row):
+        raise TouchupRefused(
+            f"edit {position} repairs a hold window on {row}",
+            "a window repair rebinds Fusion comp inputs - audio rows "
+            "carry no Fusion comps",
+            "repair the hold on its video row, then re-run `ren touch`")
+    clip = _find_clip(tracks, row, int(item_index))
+    if int(clip["record_in"]) != record_frame:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) expects "
+            f"{row}[{item_index}] at record frame {record_frame}, and "
+            f"it starts at {clip['record_in']}",
+            "the timeline moved under the spec - repairing by position "
+            "would repair the wrong item",
+            f"re-read the reel and restate edit {position}, then "
+            f"re-run `ren touch`")
+    if int(clip["duration"]) != duration:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) expects "
+            f"{row}[{item_index}] to play {duration}f, and it plays "
+            f"{clip['duration']}f",
+            "a window is judged against the frames its item plays - "
+            "repairing against a stale length covers the wrong span",
+            f"re-read the reel and restate edit {position}, then "
+            f"re-run `ren touch`")
+    base = str(clip.get("source_file") or "").rsplit("/", 1)[-1]
+    if base != source:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) expects "
+            f"{source!r} at {row}[{item_index}], and {base!r} is there",
+            "the timeline changed under the spec - repairing by span "
+            "alone would repair the wrong pixels",
+            f"re-read the reel and restate edit {position}, then "
+            f"re-run `ren touch`")
+    from library.tools import hold_window_repair as _hold
+    try:
+        native = (clip.get("speed") is not None
+                  and abs(float(clip.get("speed"))) <= 1e-9)
+    except (TypeError, ValueError):
+        native = False
+    if not _hold.is_hold_source(
+            str(clip.get("source_file") or "")) and not native:
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) targets "
+            f"{row}[{item_index}] {base!r}, which is neither a baked "
+            f"hold file nor a native zero-speed hold",
+            "a window repair outside a freeze-hold tail is a treatment "
+            "change by another name, and treatments ride the comp pass "
+            "(`ren build`), not a touchup",
+            f"point edit {position} at the reel's freeze-hold tail, "
+            f"then re-run `ren touch`")
+    if not _ce.treatment_comps(clip):
+        raise TouchupRefused(
+            f"edit {position} (`repair_hold_window`) targets "
+            f"{row}[{item_index}], which carries no drawing comp",
+            "there is no media window to repair on an untreated item",
+            "nothing to do - drop the edit and re-run `ren touch`")
+    in_place.append({"kind": "repair_hold_window", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": record_frame,
+                     "duration": duration,
+                     "source": base})
+    notes.append(f"edit {position}: repair hold windows on "
+                 f"{row}[{item_index}] {base!r} ({duration}f, in place - "
+                 f"rebind with stable re-read verify, no delete/place)")
+    return False
+
+
 _OP_HANDLERS = {
     "move": _op_move,
     "swap_pixels": _op_swap_pixels,
@@ -1558,6 +1677,7 @@ _OP_HANDLERS = {
     "resize_still": _op_resize_still,
     "set_properties": _op_set_properties,
     "entry_motion": _op_entry_motion,
+    "repair_hold_window": _op_repair_hold_window,
 }
 
 
@@ -2807,7 +2927,7 @@ def _apply_in_place(project: Any, staged: Any,
     """
 
     applied: dict = {"properties": [], "enabled": [],
-                     "entry_motion": []}
+                     "entry_motion": [], "hold_windows": []}
     if not qualification.in_place:
         return applied
     rows = _live_rows(staged)
@@ -2895,7 +3015,61 @@ def _apply_in_place(project: Any, staged: Any,
                 "the plan and timeline disagree")
         applied["entry_motion"].append(_import_entry_comp(
             hits[0], entry, comp_dir))
+    for entry in qualification.in_place:
+        if entry.get("kind") != "repair_hold_window":
+            continue
+        row = str(entry.get("row")).upper()
+        items = rows.get(row) or []
+        hits = [item for item in items
+                if _live_prop(item, "GetStart", None)
+                == int(entry["record_frame"])]
+        if len(hits) != 1:
+            raise TouchupError(
+                f"the staging copy holds {len(hits)} items at "
+                f"{row}@{entry.get('record_frame')} for the hold "
+                f"window repair - the plan and timeline disagree")
+        applied["hold_windows"].append(_repair_hold_window(
+            staged, entry, comp_dir))
     return applied
+
+
+def _repair_hold_window(staged: Any, entry: Mapping,
+                        comp_dir: str) -> dict:
+    """Rebind the staged hold item's comp windows, verified by re-read.
+
+    The repair runs on the STAGING copy only: `hold_window_repair`
+    rebinds each drawing comp to the Timeline binding and proves the
+    window with fresh reads until consecutive reads agree and cover
+    every played frame.  A hold that will not converge raises instead
+    of shipping - the staging stands for diagnosis and the approved
+    timeline was never touched.  The receipt carries the per-comp
+    before/after and every fresh read, so the touch files what the
+    promotion's only difference is.
+    """
+    from library.tools import hold_window_repair as _hold
+
+    row = str(entry.get("row")).upper()
+    try:
+        record_frame = int(entry["record_frame"])
+        duration = int(entry["duration"])
+    except (TypeError, ValueError):
+        raise TouchupError(
+            f"the staged hold repair on {row} names no integer "
+            f"record frame and duration ({entry.get('record_frame')!r}/"
+            f"{entry.get('duration')!r}) - the plan and the timeline "
+            f"disagree and the approved timeline stands") from None
+    source = str(entry.get("source") or "")
+    try:
+        receipt = _hold.repair_hold_item_windows(
+            staged, row, record_frame, duration, comp_dir)
+    except _hold.HoldWindowRefused as refused:
+        raise TouchupError(
+            f"the staged {row}@{record_frame} hold window repair "
+            f"refused: {refused}") from refused
+    receipt["row"] = row
+    receipt["record_frame"] = record_frame
+    receipt["source"] = source
+    return receipt
 
 
 def _import_entry_comp(item: Any, entry: Mapping, comp_dir: str) -> dict:
@@ -3224,13 +3398,33 @@ def _promote(project_folder: str, project: Any, pool: Any,
             project_folder, final, detection["pending"])
         # Items this spec removes are replaced wholesale by declaration -
         # their baseline-vs-live deltas are the touch's own replacement,
-        # never unattributed losses (`reel_replace_guard`).
+        # never unattributed losses (`reel_replace_guard`).  An in-place
+        # hold-window repair rewrites the same item's comp inputs by
+        # declaration too, so its span attributes the same way: the
+        # journal archives both sides and the receipt records every
+        # write, which is what makes the delta attributed rather than
+        # phantom.
         replaced_spans = []
         for removal in (getattr(qualification, "removals", None) or ()):
             row = str((removal or {}).get("row") or "").upper()
             try:
                 record_frame = int((removal or {}).get("record_frame"))
                 duration = int((removal or {}).get("duration"))
+                if row.startswith("V"):
+                    replaced_spans.append(
+                        ("video", int(row[1:]), record_frame, duration))
+                elif row.startswith("A"):
+                    replaced_spans.append(
+                        ("audio", int(row[1:]), record_frame, duration))
+            except (TypeError, ValueError):
+                continue
+        for entry in (getattr(qualification, "in_place", None) or ()):
+            if str((entry or {}).get("kind") or "") != "repair_hold_window":
+                continue
+            row = str((entry or {}).get("row") or "").upper()
+            try:
+                record_frame = int((entry or {}).get("record_frame"))
+                duration = int((entry or {}).get("duration"))
                 if row.startswith("V"):
                     replaced_spans.append(
                         ("video", int(row[1:]), record_frame, duration))

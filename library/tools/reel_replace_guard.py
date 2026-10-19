@@ -754,15 +754,17 @@ def _replaced_stills(change: dict, staged: dict) -> list[dict]:
 
 
 def _change_within_replaced_span(change: dict, replaced) -> bool:
-    """Whether this pending delta sits on an item the touch spec removes.
+    """Whether this pending delta sits on an item the touch spec owns.
 
     A `swap_pixels` / `remove_overlay` states its item's replacement
-    wholesale - new pixels at a stated span, verified by re-read - so a
-    baseline-vs-live delta on exactly that item is attributed to the
-    touch, never carried as the editor's and never an unattributed loss:
-    the old item is deleted by declaration and its replacement is the
-    spec, not a silent drop. Anything added, any marker, any setting,
-    and any item outside the stated removal spans still refuses below.
+    wholesale - new pixels at a stated span, verified by re-read - and a
+    `repair_hold_window` states its item's comp-input rewrite the same
+    way, so a baseline-vs-live delta on exactly that item is attributed
+    to the touch, never carried as the editor's and never an
+    unattributed loss: the old item is deleted or rewritten by
+    declaration and its replacement is the spec, not a silent drop.
+    Anything added, any marker, any setting, and any item outside the
+    stated spans still refuses below.
     `replaced` is `(track_type, track_index, record_in, duration)` spans
     from the qualified spec; unreadable values fail closed (no match).
     """

@@ -2341,6 +2341,15 @@ ALGEBRA: dict[str, AlgebraOp] = {
         verify=lambda op, after: None,
         key=lambda op: ("overlay", op["unique_id"]), merge="replace",
         inverse=_self("the inverse clears the animation")),
+    "hold.repair_window": AlgebraOp(
+        id="hold.repair_window", domain="fusion",
+        required=("unique_id",),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("hold", op["unique_id"]), merge="replace",
+        inverse=_self("the inverse carries the previous window"),
+        note="A freeze-hold tail's comp media windows rebound in place; "
+        "spans, pixels, transforms and grades unchanged."),
 
     # ── projected captain edits (domain: picture_transform) ─────────
     "transform_override": AlgebraOp(
@@ -2773,7 +2782,7 @@ PLAN_OPS = (
     "subject_effect", "motion_graphic", "brand_asset", "end_card",
 )
 
-#: The touch-up's ten ops, each resolving to an algebra id. `retime`,
+#: The touch-up's eleven ops, each resolving to an algebra id. `retime`,
 #: `set_properties`, `set_enabled` and `add_row` alias ops the other
 #: vocabularies already name; the rest are the touch-up's own.
 TOUCHUP_VIEW = {
@@ -2787,6 +2796,7 @@ TOUCHUP_VIEW = {
     "add_row": "track.add",
     "set_enabled": "clip.set_enabled",
     "entry_motion": "overlay.entry_motion",
+    "repair_hold_window": "hold.repair_window",
 }
 
 #: `captain_edits.KINDS` - every kind is a ledger op.

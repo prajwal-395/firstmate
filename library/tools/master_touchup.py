@@ -10,7 +10,7 @@ timeline the project's `resolve.timeline_name` declares.
 What the caller states, and what it does not
 --------------------------------------------
 The caller states the change STRUCTURALLY: which item, what changes -
-one of the ten ops `reel_touchup` documents.  The qualification gate is
+one of the eleven ops `reel_touchup` documents.  The qualification gate is
 the SAME gate (`reel_touchup.qualify`): the ops are one structural
 vocabulary, and a change that is unclassifiable for a reel is
 unclassifiable for the master.  Mapping a captain's natural-language
