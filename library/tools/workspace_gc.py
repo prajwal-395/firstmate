@@ -5,18 +5,24 @@ walks Ren's own data home, keeps the newest qualification workflow runs,
 and keeps source-memory digests referenced by project state or retained
 qualification runs. Qualification media and repository fixtures are never
 candidate roots. A plan and JSON proof are written before apply; apply
-recomputes the plan and refuses if a candidate changed.
+recomputes the plan and moves exact, non-media candidates to a 24-hour
+restorable quarantine.
 """
 
 from __future__ import annotations
 
+import argparse
+import fcntl
 import hashlib
 import json
 import os
 import re
-import shutil
+import subprocess
+import sys
+import time
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import journal_naming, qualification_project, source_memory
@@ -25,6 +31,19 @@ from library.tools.shared_environment import vep_home
 KEEP_WORKFLOW_RUNS = 2
 PLAN_DIRNAME = "gc-plans"
 PROTECTED_SUFFIXES = (".drp", ".drt", ".otio")
+PROTECTED_MEDIA_SUFFIXES = frozenset({
+    ".3gp", ".aac", ".aif", ".aiff", ".alac", ".amr", ".arw",
+    ".avi", ".avif", ".bmp", ".cr2", ".flac", ".flv", ".gif",
+    ".heic", ".ico", ".jpeg", ".jpg", ".m2ts", ".m4a", ".m4v",
+    ".mkv", ".mov", ".mp3", ".mp4", ".mpeg", ".mpg", ".mxf",
+    ".nef", ".oga", ".ogg", ".opus", ".png", ".raw", ".svg",
+    ".tif", ".tiff", ".ts", ".wav", ".webm", ".webp",
+})
+PROTECTED_MODEL_SUFFIXES = frozenset({
+    ".bin", ".ckpt", ".gguf", ".h5", ".model", ".onnx", ".pt",
+    ".pth", ".safetensors",
+})
+QUARANTINE_GRACE = timedelta(hours=24)
 
 
 class WorkspaceGcRefused(RuntimeError):
@@ -37,6 +56,26 @@ class Entry:
     bytes: int
     sha256: str
     reason: str
+    device: int
+    inode: int
+    mtime_ns: int
+    link_count: int
+
+
+def _entry(path: Path, reason: str) -> Entry:
+    info = path.stat()
+    return Entry(str(path.resolve()), info.st_size, _digest(path), reason,
+                 info.st_dev, info.st_ino, info.st_mtime_ns, info.st_nlink)
+
+
+def _protected(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    return (suffix in PROTECTED_SUFFIXES
+            or suffix in PROTECTED_MEDIA_SUFFIXES
+            or suffix in PROTECTED_MODEL_SUFFIXES
+            or any(part.lower() in {"model", "models", "weights",
+                                    "model_weights"} for part in path.parts)
+            or suffix == ".gz")
 
 
 def _digest(path: Path) -> str:
@@ -127,16 +166,15 @@ def _referenced_digests(roots: list[Path], retained_runs: list[Path]) -> set[str
     return found
 
 
-def _reference_text(roots: list[Path]) -> list[str]:
+def _reference_text(roots: list[Path]):
     """Read durable project and fixture records that may pin an exact path."""
-    records = []
     for root in roots:
         for path in root.rglob("*"):
             if path.is_symlink() or not path.is_file() or path.suffix.lower() not in {
                     ".json", ".txt", ".md", ".yaml", ".yml"}:
                 continue
             try:
-                records.append(path.read_text(encoding="utf-8"))
+                yield path.read_text(encoding="utf-8")
             except (OSError, UnicodeError) as exc:
                 raise WorkspaceGcRefused(
                     f"cannot inspect project reachability record {path}: {exc}") from exc
@@ -144,11 +182,10 @@ def _reference_text(roots: list[Path]) -> list[str]:
     for path in [*tests.rglob("*.py"), *tests.rglob("*.json"),
                  *tests.rglob("*.md")]:
         try:
-            records.append(path.read_text(encoding="utf-8"))
+            yield path.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             raise WorkspaceGcRefused(
                 f"cannot inspect retained fixture reference {path}: {exc}") from exc
-    return records
 
 
 def plan() -> dict:
@@ -182,7 +219,6 @@ def plan() -> dict:
     retained = (runs if mode == KEEP else
                 list(dict.fromkeys([*recent, *unfinished])))
     roots = _project_roots()
-    references = _reference_text(roots)
     digests = _referenced_digests(roots, retained)
     candidates: list[Entry] = []
 
@@ -191,14 +227,10 @@ def plan() -> dict:
             if old_run in retained:
                 continue
             for path in _files(old_run):
-                if path.suffix.lower() in PROTECTED_SUFFIXES:
+                if _protected(path) or path.stat().st_nlink != 1:
                     continue
-                absolute = str(path.resolve())
-                if any(absolute in record for record in references):
-                    continue
-                candidates.append(Entry(
-                    str(path), path.stat().st_size, _digest(path),
-                    "workflow run outside newest-two retention"))
+                candidates.append(_entry(
+                    path, "workflow run outside newest-two retention"))
 
     memory_root = source_memory.memory_root().expanduser().resolve()
     if not memory_root.is_relative_to(home):
@@ -216,26 +248,39 @@ def plan() -> dict:
                 continue
             files = list(_files(entry))
             for path in files:
-                if path.suffix.lower() in PROTECTED_SUFFIXES:
+                if _protected(path) or path.stat().st_nlink != 1:
                     continue
-                candidates.append(Entry(str(path), path.stat().st_size,
-                                        _digest(path), "source digest has no project-state reference"))
+                candidates.append(_entry(
+                    path, "source digest has no project-state reference"))
 
     scratch = home / "scratch"
     if scratch.is_dir():
         # Scratch files are eligible only when no project state names their
         # absolute path. Read failures refuse, rather than implying deadness.
         for path in _files(scratch):
-            if path.suffix.lower() in PROTECTED_SUFFIXES:
+            if _protected(path) or path.stat().st_nlink != 1:
                 continue
-            absolute = str(path.resolve())
-            if any(absolute in record for record in references):
-                continue
-            candidates.append(Entry(absolute, path.stat().st_size,
-                                    _digest(path), "unreferenced Ren scratch file"))
+            candidates.append(_entry(path, "unreferenced Ren scratch file"))
+
+    # Search each durable record once for any candidate path. Checking every
+    # path against every retained record made the plan quadratic in the
+    # candidate count and held the full project corpus in memory.
+    candidate_paths = {entry.path for entry in candidates}
+    referenced: set[str] = set()
+    if candidate_paths:
+        alternatives = "|".join(
+            re.escape(path) for path in sorted(candidate_paths, key=len, reverse=True))
+        path_pattern = re.compile(f"(?=({alternatives}))")
+        for record in _reference_text([*roots, *retained]):
+            referenced.update(match.group(1)
+                              for match in path_pattern.finditer(record))
+            if len(referenced) == len(candidate_paths):
+                break
+    candidates = [entry for entry in candidates
+                  if entry.path not in referenced]
 
     unique = {entry.path: entry for entry in candidates}
-    return {"format": "ren-workspace-gc/1", "home": str(home), "mode": mode,
+    return {"format": "ren-workspace-gc/2", "home": str(home), "mode": mode,
             "created_at": datetime.now(UTC).isoformat(),
             "kept_workflow_runs": [str(path) for path in retained],
             "candidates": [asdict(unique[path]) for path in sorted(unique)]}
@@ -249,38 +294,230 @@ def write_plan(document: dict) -> Path:
     return path
 
 
-def apply_plan(manifest: str | Path) -> dict:
-    path = Path(manifest).expanduser().resolve()
+@contextmanager
+def _manifest_lock(path: Path):
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    with lock_path.open("a", encoding="utf-8") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _read_manifest(path: Path) -> dict:
     try:
-        before = json.loads(path.read_text(encoding="utf-8"))
+        document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise WorkspaceGcRefused(f"cannot read GC manifest {path}: {exc}") from exc
-    if before.get("format") != "ren-workspace-gc/1":
+    if document.get("format") != "ren-workspace-gc/2":
         raise WorkspaceGcRefused("unsupported workspace GC manifest")
-    if before.get("mode") != "lean":
-        if before.get("mode") == "keep":
-            return {"removed": [], "bytes": 0}
-        raise WorkspaceGcRefused("manifest has no declared retention mode")
-    fresh = plan()
-    expected = {row["path"]: row for row in before["candidates"]}
-    current = {row["path"]: row for row in fresh["candidates"]}
-    if any(current.get(key) != value for key, value in expected.items()):
-        raise WorkspaceGcRefused("candidate reachability or content changed; nothing removed")
-    home = Path(before["home"]).resolve()
-    removed = []
-    for item in before["candidates"]:
-        target = Path(item["path"]).resolve()
-        if not target.is_relative_to(home):
-            raise WorkspaceGcRefused(f"candidate escaped Ren's data home: {target}")
-        if not target.is_file() or target.is_symlink():
-            raise WorkspaceGcRefused(f"candidate is no longer a regular file: {target}")
-        if target.stat().st_size != item["bytes"] or _digest(target) != item["sha256"]:
-            raise WorkspaceGcRefused(f"candidate changed since planning: {target}")
-    for item in before["candidates"]:
-        target = Path(item["path"])
-        target.unlink()
-        removed.append(str(target))
-    before["applied_at"] = datetime.now(UTC).isoformat()
-    before["removed"] = removed
-    path.write_text(json.dumps(before, indent=2) + "\n", encoding="utf-8")
-    return {"removed": removed, "bytes": sum(row["bytes"] for row in before["candidates"])}
+    return document
+
+
+def _same_identity(path: Path, item: dict) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return (path.is_file() and not path.is_symlink()
+            and info.st_dev == item["device"]
+            and info.st_ino == item["inode"]
+            and info.st_size == item["bytes"]
+            and info.st_mtime_ns == item["mtime_ns"]
+            and info.st_nlink == item["link_count"]
+            and _digest(path) == item["sha256"])
+
+
+def _inside_home(path: Path, home: Path) -> bool:
+    try:
+        return path.resolve(strict=False).is_relative_to(home.resolve(strict=True))
+    except OSError:
+        return False
+
+
+def _write_manifest(path: Path, document: dict) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(document, indent=2) + "\n",
+                         encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def apply_plan(manifest: str | Path) -> dict:
+    path = Path(manifest).expanduser().resolve()
+    with _manifest_lock(path):
+        before = _read_manifest(path)
+        if before.get("mode") != "lean":
+            if before.get("mode") == "keep":
+                return {"quarantined": [], "bytes": 0}
+            raise WorkspaceGcRefused("manifest has no declared retention mode")
+        if not before["candidates"]:
+            return {"quarantined": [], "bytes": 0}
+        if before.get("quarantined"):
+            raise WorkspaceGcRefused("manifest has already been applied")
+        fresh = plan()
+        expected = {row["path"]: row for row in before["candidates"]}
+        current = {row["path"]: row for row in fresh["candidates"]}
+        if any(current.get(key) != value for key, value in expected.items()):
+            raise WorkspaceGcRefused(
+                "candidate reachability or content changed; nothing moved")
+        home = Path(before["home"]).expanduser().resolve(strict=True)
+        if home != vep_home().expanduser().resolve(strict=True):
+            raise WorkspaceGcRefused(
+                "manifest Ren data home does not match this machine")
+        stamp = datetime.now(UTC)
+        quarantine_parent = home / "quarantine"
+        quarantine_root = quarantine_parent / "workspace-gc"
+        if quarantine_parent.is_symlink() or quarantine_root.is_symlink():
+            raise WorkspaceGcRefused("Ren workspace quarantine path is a symlink")
+        quarantine = quarantine_root / stamp.strftime("%Y%m%dT%H%M%S%fZ")
+        if not _inside_home(quarantine, home):
+            raise WorkspaceGcRefused("quarantine path escaped Ren's data home")
+        quarantine.mkdir(parents=True, exist_ok=False)
+        quarantined = []
+        before["applied_at"] = stamp.isoformat()
+        before["restore_until"] = (stamp + QUARANTINE_GRACE).isoformat()
+        before["quarantine_root"] = str(quarantine)
+        before["quarantined"] = quarantined
+        _write_manifest(path, before)
+        worker = subprocess.Popen(
+            [sys.executable, "-m", "library.tools.workspace_gc", "--expire",
+             str(path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        before["expiry_worker_pid"] = worker.pid
+        _write_manifest(path, before)
+        for item in before["candidates"]:
+            target = Path(item["path"])
+            if not target.is_absolute() or not _inside_home(target, home):
+                raise WorkspaceGcRefused(
+                    f"candidate escaped Ren's data home: {target}")
+            if not _same_identity(target, item):
+                raise WorkspaceGcRefused(
+                    f"candidate identity changed since planning: {target}")
+            digest = hashlib.sha256(item["path"].encode("utf-8")).hexdigest()[:16]
+            destination = quarantine / f"{digest}-{target.name}"
+            if os.path.lexists(destination):
+                raise WorkspaceGcRefused(
+                    f"quarantine destination already exists: {destination}")
+            os.replace(target, destination)
+            quarantined.append({**item, "quarantine_path": str(destination),
+                                "state": "quarantined"})
+            _write_manifest(path, before)
+        return {"quarantined": quarantined,
+                "bytes": sum(row["bytes"] for row in quarantined),
+                "restore_until": before["restore_until"],
+                "manifest": str(path), "expiry_worker_pid": worker.pid}
+
+
+def restore_plan(manifest: str | Path) -> dict:
+    path = Path(manifest).expanduser().resolve()
+    with _manifest_lock(path):
+        document = _read_manifest(path)
+        if not document.get("quarantined"):
+            return {"restored": [], "bytes": 0}
+        if datetime.now(UTC) >= datetime.fromisoformat(document["restore_until"]):
+            raise WorkspaceGcRefused("the 24-hour restore window has expired")
+        home = Path(document["home"]).expanduser().resolve(strict=True)
+        if home != vep_home().expanduser().resolve(strict=True):
+            raise WorkspaceGcRefused(
+                "manifest Ren data home does not match this machine")
+        quarantine_root = Path(document["quarantine_root"]).resolve(strict=True)
+        if quarantine_root != home / "quarantine" / "workspace-gc" / quarantine_root.name:
+            raise WorkspaceGcRefused("manifest quarantine root is not owned by Ren")
+        restored = []
+        for item in document["quarantined"]:
+            if item["state"] != "quarantined":
+                continue
+            source = Path(item["quarantine_path"])
+            target = Path(item["path"])
+            if (not _inside_home(source, home)
+                    or not _inside_home(target, home)):
+                raise WorkspaceGcRefused("restore path escaped Ren's data home")
+            if source.parent != quarantine_root:
+                raise WorkspaceGcRefused("quarantined file escaped its batch")
+            if not _same_identity(source, item):
+                raise WorkspaceGcRefused(
+                    f"quarantined identity changed: {source}")
+            if os.path.lexists(target):
+                raise WorkspaceGcRefused(
+                    f"restore destination already exists: {target}")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(source, target)
+            item["state"] = "restored"
+            restored.append(str(target))
+            _write_manifest(path, document)
+        return {"restored": restored,
+                "bytes": sum(row["bytes"] for row in document["quarantined"]
+                             if row["path"] in restored),
+                "manifest": str(path)}
+
+
+def expire_plan(manifest: str | Path) -> dict:
+    path = Path(manifest).expanduser().resolve()
+    with _manifest_lock(path):
+        document = _read_manifest(path)
+        until = datetime.fromisoformat(document["restore_until"])
+        delay = (until - datetime.now(UTC)).total_seconds()
+    if delay > 0:
+        time.sleep(delay)
+    with _manifest_lock(path):
+        document = _read_manifest(path)
+        home = Path(document["home"]).expanduser().resolve(strict=True)
+        if home != vep_home().expanduser().resolve(strict=True):
+            raise WorkspaceGcRefused(
+                "manifest Ren data home does not match this machine")
+        quarantine_root = Path(document["quarantine_root"]).resolve(strict=True)
+        if quarantine_root != home / "quarantine" / "workspace-gc" / quarantine_root.name:
+            raise WorkspaceGcRefused("manifest quarantine root is not owned by Ren")
+        expired = []
+        for item in document.get("quarantined", []):
+            if item["state"] != "quarantined":
+                continue
+            source = Path(item["quarantine_path"])
+            target = Path(item["path"])
+            if (not _inside_home(source, home)
+                    or not _inside_home(target, home)):
+                raise WorkspaceGcRefused("expiry path escaped Ren's data home")
+            if source.parent != quarantine_root:
+                raise WorkspaceGcRefused("quarantined file escaped its batch")
+            if os.path.lexists(target):
+                raise WorkspaceGcRefused(
+                    f"original path was recreated before expiry: {target}")
+            if not _same_identity(source, item):
+                raise WorkspaceGcRefused(f"quarantined identity changed: {source}")
+            source.unlink()
+            item["state"] = "expired"
+            expired.append(str(source))
+            _write_manifest(path, document)
+        document["expired_at"] = datetime.now(UTC).isoformat()
+        _write_manifest(path, document)
+        return {"expired": expired,
+                "bytes": sum(row["bytes"] for row in document.get("quarantined", [])
+                             if row["quarantine_path"] in expired)}
+
+
+def _expire_worker(manifest: str) -> int:
+    try:
+        expire_plan(manifest)
+    except Exception as exc:  # noqa: BLE001 - persist any missed expiry
+        path = Path(manifest).expanduser().resolve()
+        try:
+            with _manifest_lock(path):
+                document = _read_manifest(path)
+                document["expiry_error"] = str(exc)
+                _write_manifest(path, document)
+        except Exception:
+            pass
+        return 1
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="workspace-gc-worker")
+    parser.add_argument("--expire", required=True)
+    args = parser.parse_args(argv)
+    return _expire_worker(args.expire)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

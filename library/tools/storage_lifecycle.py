@@ -247,7 +247,8 @@ def resolve_legacy_census(projects: list[str]) -> dict:
 
     with resolve_lock.resolve_lease(
             "legacy Resolve lifecycle census", exclusive=True,
-            timeout=0, description="Read exact recorded Resolve identities"):
+            timeout=15 * 60,
+            description="Read exact recorded Resolve identities"):
         from library.tools.marker_feedback import connect_resolve
 
         resolve = connect_resolve()

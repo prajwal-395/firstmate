@@ -1127,9 +1127,16 @@ def cmd_workspace_gc(args):
     try:
         if args.apply:
             result = workspace_gc.apply_plan(args.apply)
-            print(f"Removed {len(result['removed'])} file(s), "
-                  f"{result['bytes'] / (1024 ** 3):.2f} GiB. Manifest "
+            print(f"Quarantined {len(result['quarantined'])} file(s), "
+                  f"{result['bytes'] / (1024 ** 3):.2f} GiB, "
+                  f"restorable until {result['restore_until']}. Manifest "
                   f"updated at {args.apply}.")
+            return
+        if args.restore:
+            result = workspace_gc.restore_plan(args.restore)
+            print(f"Restored {len(result['restored'])} file(s), "
+                  f"{result['bytes'] / (1024 ** 3):.2f} GiB from "
+                  f"{args.restore}.")
             return
         document = workspace_gc.plan()
         manifest = workspace_gc.write_plan(document)
@@ -1139,7 +1146,7 @@ def cmd_workspace_gc(args):
     candidates = document["candidates"]
     total = sum(row["bytes"] for row in candidates)
     print(f"{len(candidates)} file(s), {total / (1024 ** 3):.2f} GiB "
-          f"would go. Nothing was removed; review {manifest} and apply "
+          f"would be quarantined for 24 hours. Nothing was moved; review {manifest} and apply "
           f"with `ren workspace-gc --apply {manifest}`.")
 
 
@@ -5312,9 +5319,13 @@ def main():
     p_purge.set_defaults(func=cmd_purge)
 
     p_workspace_gc = _add_command(sub, "workspace-gc")
-    p_workspace_gc.add_argument(
+    workspace_gc_action = p_workspace_gc.add_mutually_exclusive_group()
+    workspace_gc_action.add_argument(
         "--apply", default="", metavar="MANIFEST",
-        help="apply a reviewed Ren data-home collection manifest")
+        help="quarantine files in a reviewed Ren data-home manifest for 24 hours")
+    workspace_gc_action.add_argument(
+        "--restore", default="", metavar="MANIFEST",
+        help="restore files from a reviewed Ren data-home quarantine manifest")
     p_workspace_gc.set_defaults(func=cmd_workspace_gc)
 
     p_discharge = _add_command(sub, "discharge-uncarried")
