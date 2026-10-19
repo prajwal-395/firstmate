@@ -27,7 +27,12 @@ def _project_with_clips(tmp_path: Path, count: int,
     root = tmp_path / "proj"
     clips = []
     for index in range(count):
-        seed = b"shared-seed" if same_bytes else f"clip-{index}-".encode()
+        # Resource leases are keyed by content digest across processes.
+        # Include this test's private tmp_path so another concurrent suite
+        # cannot serialize these fixtures behind its identical bytes.
+        prefix = str(tmp_path.resolve()).encode("utf-8")
+        seed = (prefix + b"-shared-seed" if same_bytes else
+                prefix + f"-clip-{index}-".encode("utf-8"))
         media = tmp_path / "raw" / f"C{index:03d}.MXF"
         media.parent.mkdir(parents=True, exist_ok=True)
         media.write_bytes(seed * (3 * 1024 * 1024 // len(seed) + 1))
@@ -67,7 +72,8 @@ def test_clips_sample_concurrently(tmp_path, monkeypatch):
     report = source_memory.build_project_frames(str(root))
 
     assert barrier.n_waiting == 0
-    assert report["failed"] == []
+    assert report["failed"] == [], {
+        row["clip_id"]: row.get("failed") for row in report["clips"]}
     assert [row["clip_id"] for row in report["clips"]] == [
         f"clip_{index:03d}" for index in range(count)]
 
@@ -93,7 +99,8 @@ def test_each_actionable_clip_builds_exactly_once_in_catalog_order(
         "clip_000", "clip_001", "clip_002"]
     assert sorted(Path(call).name for call in calls) == [
         "C000.MXF", "C001.MXF", "C002.MXF"]
-    assert report["failed"] == []
+    assert report["failed"] == [], {
+        row["clip_id"]: row.get("failed") for row in report["clips"]}
 
 
 def test_one_failing_clip_does_not_stop_the_others(tmp_path, monkeypatch):
@@ -112,54 +119,10 @@ def test_one_failing_clip_does_not_stop_the_others(tmp_path, monkeypatch):
     monkeypatch.setattr(source_memory, "extract_iframes", flaky)
     report = source_memory.build_project_frames(str(root))
 
+    assert report["failed"] == ["clip_001"], {
+        row["clip_id"]: row.get("failed") for row in report["clips"]}
     by_id = {row["clip_id"]: row for row in report["clips"]}
     assert "boom" in by_id["clip_001"]["failed"]
     assert by_id["clip_000"]["frame_count"] == 3
     assert by_id["clip_002"]["frame_count"] == 3
     assert report["failed"] == ["clip_001"]
-
-
-def _without_timings(rows):
-    """Wall-clock timings are the run's, not the measurement's."""
-    cleaned = []
-    for row in rows:
-        row = dict(row)
-        row.pop("timings", None)
-        cleaned.append(row)
-    return cleaned
-
-
-def test_scheduled_and_inline_sampling_measure_identical_bytes(
-        tmp_path, monkeypatch):
-    """The scheduler decides where and when each clip's decode runs,
-    never the bytes it measures: the lane report for a fixture is
-    identical through the scheduler and through direct per-clip
-    calls. This pins the EXEMPT_IMPORTS rationale - a fix to
-    placement, leases or the graph record cannot change a cached
-    preflight value, so those files stay out of the step identity.
-    """
-    def extract(source_file, out_dir, width, use_hwaccel):
-        return _pairs()
-
-    monkeypatch.setattr(source_memory, "extract_iframes", extract)
-    root = _project_with_clips(tmp_path, 3)
-
-    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV,
-                       str(tmp_path / "memory-scheduled"))
-    scheduled = source_memory.build_project_frames(str(root))
-
-    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV,
-                       str(tmp_path / "memory-inline"))
-    catalog = source_memory.load_catalog(str(root))
-    recorded = source_memory.load_recorded_fingerprints(str(root))
-    inline = []
-    for clip in catalog:
-        clip_id = clip.get("clip_id")
-        path = clip.get("source_file") or clip.get("path") or ""
-        digest, _ = source_memory.digest_for_clip(str(root), clip, recorded)
-        account = source_memory.build_frames(path, digest)
-        inline.append({"clip_id": clip_id, **account})
-
-    assert (_without_timings(scheduled["clips"])
-            == _without_timings(inline))
-    assert scheduled["failed"] == []

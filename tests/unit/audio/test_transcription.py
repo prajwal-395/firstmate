@@ -395,8 +395,7 @@ def test_batch_prep_runs_one_lane_per_clip_and_drops_failures(
                               "method": "untranscribed-test"}))
 
     layout = ProjectLayout(str(tmp_path))
-    out = temporal_index._pretranscribe_misses(items, layout, "large-v3",
-                                               "en")
+    out = temporal_index._pretranscribe_misses(items, layout, "en")
 
     assert list(out) == ["clip_001", "clip_003"]
     assert os.path.basename(out["clip_001"][0]) == "clip_001.wav"

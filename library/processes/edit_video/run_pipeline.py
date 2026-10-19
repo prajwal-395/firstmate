@@ -4925,7 +4925,7 @@ def main():
             from library.tools import project_format
             project_format.ensure_project_format(project_dir)
         summary = run_pipeline(
-            project_dir=project_dir,
+            project_dir,
             from_step=args.from_step,
             single_step=args.step,
 

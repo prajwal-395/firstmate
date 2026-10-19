@@ -10,8 +10,8 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 |---|---|---|---:|---:|---:|---:|---|
 | `angle_plan` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.automation` | no_executor | `unique_id`, `param`, `keyframes` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `audio.fade` | no_executor | `unique_id`, `fade_in`, `fade_out` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `audio.gain` | no_executor | `unique_id`, `db` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `audio.fade` | implemented_unqualified | `unique_id`, `fade_in`, `fade_out` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `audio.gain` | implemented_unqualified | `unique_id`, `db` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.pan` | no_executor | `unique_id`, `pan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio_mix` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -23,13 +23,13 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `clip.move` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.replace` | implemented_unqualified | `unique_id`, `source_file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.ripple` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.roll` | no_executor | `unique_id`, `delta_frames` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.roll` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_enabled` | implemented_unqualified | `unique_id`, `enabled` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_property` | implemented_unqualified | `unique_id`, `key`, `value` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.slide` | no_executor | `unique_id`, `to_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.slide` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.slip` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.split` | no_executor | `unique_id`, `at_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.split` | implemented_unqualified | `unique_id`, `at_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.unlink` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip_lut` | no_executor | `unique_id`, `lut` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -64,7 +64,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
-| `overlay.resize` | no_executor | `unique_id`, `width`, `height` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `plan_change` | planning_only | `node`, `note` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -82,6 +82,6 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `track.rename` | implemented_unqualified | `track_type`, `track_index`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.reorder` | implemented_unqualified | `track_type`, `from_index`, `to_index`, `name` | yes | yes | no | no | post-write snapshot checked by _verify_track_reorder |
 | `transform_override` | no_executor | `unique_id`, `key`, `value` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `transition` | planning_only | `carrier`, `transition` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `transition` | planning_only | `carrier`, `transition` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `visual_effect` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `voice_isolation` | no_executor | `track_index` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

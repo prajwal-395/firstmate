@@ -80,6 +80,6 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `track.rename` | `none` | True | the inverse carries the previous name |
 | `track.reorder` | `none` | True | the inverse carries the previous index |
 | `transform_override` | `none` | True | the inverse carries the previous value |
-| `transition` | `none` | False | a planner re-run has no timeline inverse (C-04) |
+| `transition` | `none` | False | transition deletion has no qualified compensation |
 | `visual_effect` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `voice_isolation` | `none` | True | the inverse restores the pre-isolation state |

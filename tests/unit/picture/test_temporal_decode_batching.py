@@ -40,7 +40,7 @@ def test_audio_preparation_batches_identical_source_by_digest(monkeypatch, tmp_p
     prepared = step._pretranscribe_misses([
         ("clip_a", str(source), str(index_dir / "a.json"), True),
         ("clip_b", str(alias), str(index_dir / "b.json"), True),
-    ], Layout(), "large-v3", "en")
+    ], Layout(), "en")
 
     assert len(decoded) == 1
     assert prepared["clip_a"][0].endswith("/clip_a.wav")

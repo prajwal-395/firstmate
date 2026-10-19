@@ -31,6 +31,14 @@ def test_acceptance_runner_requires_observed_receipt_and_first_attempt():
             "checks": {"target_property_readback": True},
             "collateral_changes": [],
             "benchmark": {"attempts": 1},
+            "discovery": {
+                "operation": _task.operation,
+                "discovered_from_request": True,
+            },
+            "backend_selection": {
+                "selected": "resolve_axi",
+                "selection_correct": True,
+            },
         }
 
     report = editorial_acceptance.run_tasks(driver)
