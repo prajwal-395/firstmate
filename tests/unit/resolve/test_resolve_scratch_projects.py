@@ -1,10 +1,21 @@
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from library.tools import resolve_scratch_projects as scratch
 from library.tools import resolve_axi
+from library.tools import resolve_scratch_projects as scratch
+
+
+@pytest.fixture(autouse=True)
+def local_lifecycle_log(monkeypatch, tmp_path):
+    monkeypatch.setattr(scratch, "_lifecycle_log_path",
+                        lambda: tmp_path / "event_log.jsonl")
+    monkeypatch.setattr("library.tools.resolve_lock.exclusive_held",
+                        lambda: True)
+    monkeypatch.setattr("library.tools.shared_environment.vep_home",
+                        lambda: tmp_path)
 
 
 class Timeline:
@@ -35,6 +46,10 @@ class Project:
         self.timelines = list(timelines)
         self.current = self.timelines[0] if self.timelines else None
         self.settings = {}
+        self.uid = f"project-{name}"
+
+    def GetUniqueId(self):
+        return self.uid
 
     def GetSetting(self, key):
         return self.settings.get(key, "")
@@ -102,6 +117,10 @@ class Manager:
 
     def DeleteProject(self, name):
         del self.projects[name]
+        return True
+
+    def ExportProject(self, name, path):
+        Path(path).write_bytes(f"export:{name}".encode())
         return True
 
     def ImportProject(self, path, name):
@@ -199,7 +218,7 @@ def test_delete_refuses_open_and_non_scratch_projects(monkeypatch):
 def test_delete_removes_only_closed_scratch_and_restores_origin(monkeypatch):
     resolve, manager = prepare(monkeypatch, captain())
     name = "Ren Scratch - delete-test"
-    manager.projects[name] = Project(name)
+    scratch.create(resolve, manager, name)
     result = scratch.delete(resolve, manager, name)
     assert name not in manager.projects
     assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
@@ -264,8 +283,8 @@ def test_create_refuses_when_rate_does_not_read_back(monkeypatch):
 
     def lying_create(self, name):
         project = original(self, name)
-        project.SetSetting = lambda key, value: True  # noqa: ARG005 - claims the write, stores nothing
-        project.SetSettings = lambda values: True  # noqa: ARG005
+        project.SetSetting = lambda key, value: True  # claims the write, stores nothing
+        project.SetSettings = lambda values: True
         return project
 
     monkeypatch.setattr(Manager, "CreateProject", lying_create)

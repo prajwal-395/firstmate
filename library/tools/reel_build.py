@@ -12027,7 +12027,10 @@ def recover_interrupted_promotions(project, project_folder: str) -> list:
             _retirement.retire_timelines(
                 project, pool, retained, retirement_rounds)
         if discarded:
-            _retirement.delete_backups(project, pool, discarded)
+            _retirement.delete_backups(
+                project, pool, discarded, project_folder=project_folder,
+                run_id=record["transaction_id"],
+                job_id=record["transaction_id"])
         from library.tools import staging_holds as _holds
         _holds.release_holds(
             project_folder, [row["staging"] for row in rows])
@@ -13957,7 +13960,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             discarded = _retire.delete_backups(
                 project, pool,
                 {backups[final]: backup_objects[final]
-                 for final in delete_finals if final in backup_objects})
+                 for final in delete_finals if final in backup_objects},
+                project_folder=project_folder, run_id=transaction_id,
+                job_id=transaction_id)
             retirement["deleted"] = discarded["deleted"]
         live_names = {
             timeline.GetName()

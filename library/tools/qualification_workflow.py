@@ -430,6 +430,16 @@ def _file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _timeline_fingerprint(project, timeline) -> str:
+    """Fingerprint the full quick-read picture for edit-preservation checks."""
+    from library.tools import timeline_shadow
+
+    snapshot = timeline_shadow.read_live(project, timeline)
+    encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":"),
+                         ensure_ascii=False, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _run_analysis(copy_path: Path, run_dir: Path, run_id: str) -> dict:
     projects = run_dir / "projects"
     memory = run_dir / "source-memory"
@@ -642,13 +652,18 @@ def prepare_broker_job(params: dict) -> dict:
 
     allowed = {"project", "source_copy", "timeline", "run_stamp", "source_start",
                "source_end", "output_dir", "output_name",
-               "timeout_seconds", "source_sha256"}
+               "timeout_seconds", "source_sha256",
+               "lifecycle_project_folder", "lifecycle_run_id"}
     if set(params) != allowed:
         raise JobRefused("qualification.workflow accepts exactly "
                          f"{sorted(allowed)}")
     if params["project"] != QUALIFICATION_PROJECT:
         raise JobRefused("qualification.workflow only accepts "
                          f"{QUALIFICATION_PROJECT!r}")
+    lifecycle_project = Path(params["lifecycle_project_folder"]).expanduser().resolve()
+    if (not lifecycle_project.is_dir() or not params["lifecycle_run_id"]
+            or not isinstance(params["lifecycle_run_id"], str)):
+        raise JobRefused("qualification lifecycle needs a real project folder and run id")
     source = Path(params["source_copy"]).expanduser().resolve()
     if not source.is_relative_to(qp.real_media_dir().resolve()) or not source.is_file():
         raise JobRefused("source_copy must be an existing qualification media copy")
@@ -656,6 +671,8 @@ def prepare_broker_job(params: dict) -> dict:
     allowed_output = (qp.media_dir() / "workflow-runs").resolve()
     if not output_dir.is_relative_to(allowed_output):
         raise JobRefused("output_dir must stay under qualification workflow-runs")
+    if not lifecycle_project.is_relative_to(output_dir.parent):
+        raise JobRefused("lifecycle project must stay inside this workflow run")
     start, end = params["source_start"], params["source_end"]
     if (not isinstance(start, (int, float)) or isinstance(start, bool)
             or not isinstance(end, (int, float)) or isinstance(end, bool)
@@ -869,23 +886,49 @@ def _run_broker_job(job: dict, resolve, current: dict,
         timeline = pool.CreateEmptyTimeline(params["timeline"])
         if not timeline:
             raise WorkflowQualificationError("Resolve could not create timeline")
-        timeline_uid = str(timeline.GetUniqueId() or "")
-        if not timeline_uid:
+        from library.tools import artifact_lifecycle, event_log
+        project_id = str(project.GetUniqueId() or "")
+        timeline_id = str(timeline.GetUniqueId() or "")
+        if not project_id or not timeline_id:
             raise WorkflowQualificationError(
-                "Resolve created a timeline without a unique id; cleanup is held")
-        from library.tools.event_log import emit
+                "Resolve did not return exact project and timeline identities")
+        lifecycle_log = event_log.log_path(params["lifecycle_project_folder"])
+        qualification_project_artifact_id = artifact_lifecycle.stable_artifact_id(
+            project_id, params["lifecycle_run_id"], job["id"],
+            "resolve_qualification_project", project_id)
+        artifact_lifecycle.register_resolve_artifact(
+            lifecycle_log, artifact_id=qualification_project_artifact_id,
+            kind="resolve_qualification_project", project_id=project_id,
+            run_id=params["lifecycle_run_id"], job_id=job["id"],
+            identity={"object_type": "project",
+                      "project_unique_id": project_id,
+                      "object_unique_id": project_id,
+                      "project_name": project.GetName()},
+            retention_class="protected", state=artifact_lifecycle.RETAINED)
+        lifecycle_artifact_id = artifact_lifecycle.stable_artifact_id(
+            project_id, params["lifecycle_run_id"], job["id"],
+            "resolve_qualification_timeline", timeline_id)
+        lifecycle_identity = {
+            "object_type": "timeline", "project_unique_id": project_id,
+            "object_unique_id": timeline_id,
+            "project_name": project.GetName(),
+            "object_name": timeline.GetName()}
+        artifact_lifecycle.register_resolve_artifact(
+            lifecycle_log, artifact_id=lifecycle_artifact_id,
+            kind="resolve_qualification_timeline", project_id=project_id,
+            run_id=params["lifecycle_run_id"], job_id=job["id"],
+            identity=lifecycle_identity, state=artifact_lifecycle.ACTIVE)
+        # Keep the qualification workflow's recovery ledger in sync with the
+        # shared artifact lifecycle registry. Existing recovery reads this
+        # event to find a newly created timeline after an interrupted run.
         workflow_root = Path(params["output_dir"]).resolve().parent
         _lifecycle_project(workflow_root)
-        project_uid = ""
-        get_project_uid = getattr(project, "GetUniqueId", None)
-        if callable(get_project_uid):
-            project_uid = str(get_project_uid() or "")
-        emit(str(workflow_root), "qualification_resolve_resource",
-             task=job["id"], run_id=params["run_stamp"],
-             job_id=job["id"], project=QUALIFICATION_PROJECT,
-             project_unique_id=project_uid,
-             timeline=params["timeline"], timeline_unique_id=timeline_uid,
-             state="created")
+        event_log.emit(str(workflow_root), "qualification_resolve_resource",
+                       task=job["id"], run_id=params["run_stamp"],
+                       job_id=job["id"], project=QUALIFICATION_PROJECT,
+                       project_unique_id=project_id,
+                       timeline=params["timeline"],
+                       timeline_unique_id=timeline_id, state="created")
         from library.tools.resolve_lock import assert_current_timeline
         assert_current_timeline(project, timeline)
         if project.GetCurrentTimeline().GetName() != params["timeline"]:
@@ -1001,6 +1044,13 @@ def _run_broker_job(job: dict, resolve, current: dict,
             if not manager.SaveProject():
                 raise WorkflowQualificationError(
                     "Resolve refused to save the Qualification edit")
+        lifecycle_identity["content_sha256"] = _timeline_fingerprint(
+            project, timeline)
+        artifact_lifecycle.transition_resolve_artifact(
+            lifecycle_log, lifecycle_artifact_id,
+            artifact_lifecycle.COMPLETED,
+            reason="qualification edit and save completed",
+            identity=lifecycle_identity)
 
         current["name"] = "export"
         from library.tools.execution import resolve_render
@@ -1014,13 +1064,17 @@ def _run_broker_job(job: dict, resolve, current: dict,
                        "evidence": render})
         duration_frames = int(timeline.GetEndFrame() - timeline.GetStartFrame())
         return {"project": QUALIFICATION_PROJECT,
-                "project_unique_id": project_uid,
+                "project_unique_id": project_id,
                 "timeline": params["timeline"], "fps": timeline_fps,
+                "timeline_unique_id": timeline_id,
+                "lifecycle_artifact_id": lifecycle_artifact_id,
+                "lifecycle_project_folder": params["lifecycle_project_folder"],
+                "lifecycle_log": str(lifecycle_log),
+                "timeline_content_sha256": lifecycle_identity["content_sha256"],
                 "duration_seconds": duration_frames / timeline_fps,
                 "media_imported": imported,
                 "media_path": str(source),
                 "media_unique_id": media_item.GetUniqueId(),
-                "timeline_unique_id": timeline_uid,
                 "selected_source_span": [params["source_start"], params["source_end"]],
                 "edit_construction": {"video_clips": 1, "audio_clips": 1,
                                       "selected_from_fresh_analysis": True,
@@ -1091,6 +1145,7 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                    "qualification_copy", "duration_seconds", "bytes", "sha256")})
         _write_report(report_path, report)
         copy_path = Path(selected["qualification_copy"])
+        lifecycle_project_folder = None
         for ordinal in range(1, runs + 1):
             run_id = f"{ordinal}-{uuid.uuid4().hex[:8]}"
             run_dir = root / f"run-{ordinal}"
@@ -1134,6 +1189,8 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                    evidence={**analysis["evidence"], "analysis_hit": hit})
             one["analysis_hit"] = hit
             _write_report(report_path, report)
+            if lifecycle_project_folder is None:
+                lifecycle_project_folder = analysis["project_folder"]
 
             timeline_name = f"Q Workflow {run_stamp} {ordinal}"
             export_dir = root / "exports"
@@ -1152,7 +1209,9 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                       "output_dir": str(export_dir),
                       "output_name": f"{timeline_name.replace(' ', '_')}",
                       "timeout_seconds": RENDER_TIMEOUT_SECONDS,
-                      "source_sha256": selected["sha256"]}
+                      "source_sha256": selected["sha256"],
+                      "lifecycle_project_folder": str(lifecycle_project_folder),
+                      "lifecycle_run_id": run_stamp}
             try:
                 receipt = _broker_call(
                     "qualification.workflow", params,
@@ -1238,6 +1297,31 @@ def run(index_path: str | Path, *, query: str = DEFAULT_QUERY,
                 raise WorkflowQualificationError(
                     f"run {ordinal} final render QA failed: "
                     f"{'; '.join(qa['issues'])}")
+        # Retire only after every run passed its final evidence gate, in one
+        # short AXI maintenance call under one exclusive Resolve lease.
+        from library.tools import artifact_lifecycle, event_log
+        retire_args = [str(REPO_ROOT / "bin" / "resolve-axi"), "timeline",
+                       "delete", "--project-folder",
+                       str(lifecycle_project_folder)]
+        for one in report["runs"]:
+            evidence = one["resolve"]
+            lifecycle_log = event_log.log_path(
+                evidence["lifecycle_project_folder"])
+            artifact_lifecycle.transition_resolve_artifact(
+                lifecycle_log, evidence["lifecycle_artifact_id"],
+                artifact_lifecycle.DISPOSABLE,
+                reason="qualification run and render validation passed")
+            retire_args.extend(["--artifact-id", evidence["lifecycle_artifact_id"]])
+        retire_args.append("--apply")
+        retirement = subprocess.run(
+            retire_args, cwd=REPO_ROOT, capture_output=True, text=True,
+            encoding="utf-8", timeout=300, check=False)
+        if retirement.returncode != 0:
+            raise WorkflowQualificationError(
+                "qualification timelines passed QA but guarded retirement "
+                f"refused: {retirement.stdout[-4000:]} {retirement.stderr[-4000:]}")
+        report["timeline_retirement"] = retirement.stdout[-8000:]
+        _write_report(report_path, report)
         report["passed"] = (
             len(report["runs"]) == 2
             and all(stage["status"] == "passed" for stage in report["stages"])

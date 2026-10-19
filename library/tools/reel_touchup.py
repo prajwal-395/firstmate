@@ -4291,7 +4291,8 @@ def _promote(project_folder: str, project: Any, pool: Any,
                                               current_round)}
     if _signoff.base_name(final) in _signoff.signed_off(project_folder):
         stale_retirement = (_retire.delete_backups(
-            project, pool, stale_backups) if stale_backups
+            project, pool, stale_backups, project_folder=project_folder,
+            run_id=journal["id"], job_id=journal["id"]) if stale_backups
             else {"deleted": []})
         retirement = _retire.retire_timelines(
             project, pool,
@@ -4302,7 +4303,9 @@ def _promote(project_folder: str, project: Any, pool: Any,
         retirement = {"archived": {}, "unfiled": [], "collected": [],
                       "kept": [], **_retire.delete_backups(
                           project, pool,
-                          [current_backup, *stale_backups])}
+                          [current_backup, *stale_backups],
+                          project_folder=project_folder,
+                          run_id=journal["id"], job_id=journal["id"])}
     retirement.setdefault("kept", [])
     retirement["kept"].extend(
         {"name": backup,

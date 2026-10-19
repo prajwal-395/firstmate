@@ -18,10 +18,11 @@ import hashlib
 import json
 import math
 import os
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from library.tools import resolve_switch_guard
+from library.tools import artifact_lifecycle, resolve_switch_guard
 from library.tools.qualification_project import switch_project
 from library.tools.resolve_lock import assert_current_timeline
 
@@ -30,6 +31,55 @@ SCRATCH_PREFIX = "Ren Scratch - "
 
 class ScratchProjectError(RuntimeError):
     pass
+
+
+def _lifecycle_log_path() -> Path:
+    """Use one machine-wide event stream for projects with no Ren folder."""
+    from library.tools.resolve_lock import instance_lock_dir
+
+    return instance_lock_dir() / "event_log.jsonl"
+
+
+def _record_created_project(project, timeline=None, *, job_id="") -> list[str]:
+    lifecycle = artifact_lifecycle
+    project_id = str(project.GetUniqueId() or "")
+    if not project_id:
+        raise ScratchProjectError(
+            "Resolve did not return a stable project identity; ownership was not recorded")
+    owner_job = job_id or uuid.uuid4().hex
+    run_id = owner_job
+    project_identity = {"object_type": "project",
+                        "project_unique_id": project_id,
+                        "object_unique_id": project_id,
+                        "project_name": project.GetName()}
+    artifact_ids = []
+    project_artifact_id = lifecycle.stable_artifact_id(
+        project_id, run_id, owner_job, "resolve_scratch_project", project_id)
+    lifecycle.register_resolve_artifact(
+        _lifecycle_log_path(), artifact_id=project_artifact_id,
+        kind="resolve_scratch_project", project_id=project_id,
+        run_id=run_id, job_id=owner_job, identity=project_identity,
+        retention_class="retained", state=lifecycle.RETAINED)
+    artifact_ids.append(project_artifact_id)
+    if timeline is not None:
+        timeline_id = str(timeline.GetUniqueId() or "")
+        if not timeline_id:
+            raise ScratchProjectError(
+                "Resolve did not return a stable timeline identity; ownership was not recorded")
+        timeline_identity = {"object_type": "timeline",
+                             "project_unique_id": project_id,
+                             "object_unique_id": timeline_id,
+                             "project_name": project.GetName(),
+                             "object_name": timeline.GetName()}
+        timeline_artifact_id = lifecycle.stable_artifact_id(
+            project_id, run_id, owner_job, "resolve_scratch_timeline", timeline_id)
+        lifecycle.register_resolve_artifact(
+            _lifecycle_log_path(), artifact_id=timeline_artifact_id,
+            kind="resolve_scratch_timeline", project_id=project_id,
+            run_id=run_id, job_id=owner_job, identity=timeline_identity,
+            retention_class="retained", state=lifecycle.RETAINED)
+        artifact_ids.append(timeline_artifact_id)
+    return artifact_ids
 
 
 def _name(name: str) -> str:
@@ -295,8 +345,10 @@ def create(resolve, manager, name: str, fps=None, width=None, height=None) -> di
                 or current_timeline.GetUniqueId() != timeline.GetUniqueId()
                 or int(readback.GetTimelineCount() or 0) != 1):
             raise ScratchProjectError(f"empty timeline did not read back in {name!r}")
+        owned_artifacts = _record_created_project(readback, current_timeline)
         return {"project": name, "timeline": current_timeline.GetName(),
                 "timeline_count": 1,
+                "owned_artifacts": owned_artifacts,
                 **({"requested": requested} if requested else {}),
                 **_read_project_shape(readback),
                 "restored": {"project": state["project"],
@@ -324,7 +376,9 @@ def import_project(resolve, manager, drp: str | Path, name: str) -> dict:
         current = manager.GetCurrentProject()
         if not current or current.GetName() != name:
             raise ScratchProjectError(f"imported project {name!r} did not read back as current")
+        owned_artifacts = _record_created_project(current)
         return {"project": name, "source": str(artifact), "imported": True,
+                "owned_artifacts": owned_artifacts,
                 "timeline_count": int(project.GetTimelineCount() or 0),
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
@@ -358,7 +412,7 @@ def open_project(resolve, manager, name: str) -> dict:
             "restore_with": "resolve-axi project scratch restore --apply"}
 
 
-def delete(resolve, manager, name: str) -> dict:
+def delete(resolve, manager, name: str, *, artifact_id: str = "") -> dict:
     name = str(name or "").strip()
     if name == "Podcast (field test)" or not name.startswith(SCRATCH_PREFIX):
         raise ScratchProjectError(f"refusing to delete non-scratch project {name!r}")
@@ -368,10 +422,39 @@ def delete(resolve, manager, name: str) -> dict:
         raise ScratchProjectError(f"refusing to delete the open project {name!r}")
     if not _listed(manager, name):
         raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
-    with _preserve_origin(resolve, manager) as state:
-        # Resolve's DeleteProject is irreversible. Export and verify a
-        # recovery archive before asking it to remove this exact Ren
-        # namespace project; keep the receipt beside the archive.
+    lifecycle = artifact_lifecycle
+    log_path = _lifecycle_log_path()
+    candidates = [row for row in lifecycle.resolve_artifacts(log_path)
+                  if row["kind"] == "resolve_scratch_project"
+                  and row["identity"].get("project_name") == name
+                  and (not artifact_id or row["artifact_id"] == artifact_id)
+                  and row.get("state") != lifecycle.PURGED]
+    if len(candidates) != 1:
+        raise ScratchProjectError(
+            f"project {name!r} has no unique recorded Resolve identity; "
+            "unrecorded resources are protected")
+    ownership = candidates[0]
+    identity = ownership["identity"]
+    if identity.get("object_type") != "project" or not identity.get("object_unique_id"):
+        raise ScratchProjectError("recorded scratch project identity is incomplete")
+    if ownership["state"] == lifecycle.RETAINED:
+        lifecycle.transition_resolve_artifact(
+            log_path, ownership["artifact_id"], lifecycle.DISPOSABLE,
+            reason="explicit guarded scratch-project retirement requested")
+    elif ownership["state"] != lifecycle.DISPOSABLE:
+        raise ScratchProjectError(
+            f"scratch project is not eligible for retirement: {ownership['state']}")
+
+    def retire_exact(recorded_identity):
+        with _preserve_origin(resolve, manager) as state:
+            target = switch_project(manager, name)
+            target_id = str(target.GetUniqueId() or "") if target else ""
+            if target_id != recorded_identity["object_unique_id"]:
+                raise ScratchProjectError(
+                    "Resolve project identity changed since ownership was recorded")
+            if not manager.SaveProject():
+                raise ScratchProjectError(
+                    "Resolve would not save the exact scratch project; deletion refused")
         from library.tools.shared_environment import vep_home
 
         backup_root = vep_home() / "resolve-scratch-backups"
@@ -387,36 +470,48 @@ def delete(resolve, manager, name: str) -> dict:
             raise ScratchProjectError(
                 f"Resolve export for {name!r} did not produce a readable "
                 "non-empty .drp; project was not deleted")
-        receipt = backup.with_suffix(".json")
-        receipt.write_text(json.dumps({
-            "project": name,
-            "backup": str(backup),
-            "exported_at": datetime.now(UTC).isoformat(),
+        receipt_path = backup.with_suffix(".json")
+        receipt_path.write_text(json.dumps({
+            "project": name, "resolve_project_id": recorded_identity["object_unique_id"],
+            "backup": str(backup), "exported_at": datetime.now(UTC).isoformat(),
             "sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
         }, indent=2) + "\n", encoding="utf-8")
         if not manager.DeleteProject(name):
             raise ScratchProjectError(f"Resolve refused to delete scratch project {name!r}")
         _settle_after_lifecycle_call()
         if _listed(manager, name):
-            raise ScratchProjectError(f"deleted project {name!r} remains in the project list")
-        return {"project": name, "deleted": True,
-                "backup": str(backup), "receipt": str(receipt),
+            raise ScratchProjectError(f"deleted project {name!r} remains in the project folder")
+        return {"verified": True, "project": name,
+                "backup": str(backup), "receipt": str(receipt_path),
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
                              "page": state["page"], "verified": True}}
 
+    result = lifecycle.retire_resolve_artifact(
+        log_path, ownership["artifact_id"], identity, retire_exact)
+    return {"project": name, "deleted": True, **result["receipt"]}
+
 
 def plan_collection(manager) -> Path:
-    """Write an editable manifest of closed, exactly Ren-namespaced projects."""
+    """Write a manifest from exact owned identities; legacy rows stay protected."""
     from library.tools.shared_environment import vep_home
+    from library.tools import artifact_lifecycle as lifecycle
 
     current = manager.GetCurrentProject()
-    current_name = current.GetName() if current else None
-    names = sorted(name for name in (manager.GetProjectListInCurrentFolder() or [])
-                   if str(name).startswith(SCRATCH_PREFIX)
-                   and str(name) != current_name)
-    names_digest = hashlib.sha256(
-        json.dumps(names, separators=(",", ":")).encode("utf-8")).hexdigest()
+    current_id = str(current.GetUniqueId() or "") if current else ""
+    rows = [row for row in lifecycle.resolve_artifacts(_lifecycle_log_path())
+            if row["kind"] == "resolve_scratch_project"
+            and row.get("state") == lifecycle.RETAINED
+            and row["identity"].get("object_unique_id") != current_id]
+    rows.sort(key=lambda row: row["artifact_id"])
+    candidates = [{"artifact_id": row["artifact_id"],
+                   "identity": row["identity"],
+                   "project": row["identity"]["project_name"],
+                   "selected": False} for row in rows]
+    rows_digest = hashlib.sha256(json.dumps(
+        [{key: row[key] for key in ("artifact_id", "identity", "project")}
+         for row in candidates], sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
     directory = vep_home() / "resolve-scratch-gc"
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
@@ -424,10 +519,9 @@ def plan_collection(manager) -> Path:
     manifest.write_text(json.dumps({
         "format": "ren-resolve-scratch-gc/1",
         "created_at": datetime.now(UTC).isoformat(),
-        "current_project_kept": current_name,
-        "candidate_names_sha256": names_digest,
-        "candidates": [{"project": name, "selected": False}
-                       for name in names],
+        "current_project_id_kept": current_id,
+        "candidate_identities_sha256": rows_digest,
+        "candidates": candidates,
     }, indent=2) + "\n", encoding="utf-8")
     return manifest
 
@@ -444,33 +538,32 @@ def apply_collection(resolve, manager, manifest: str | Path) -> dict:
     rows = document.get("candidates")
     if not isinstance(rows, list):
         raise ScratchProjectError("scratch collection manifest has no candidate list")
-    planned_names = [_name(row.get("project")) for row in rows
-                     if isinstance(row, dict)]
+    planned = [{"artifact_id": row["artifact_id"],
+                "identity": row["identity"],
+                "project": _name(row["project"]),
+                "selected": bool(row.get("selected"))} for row in rows
+               if isinstance(row, dict)]
     digest = hashlib.sha256(json.dumps(
-        planned_names, separators=(",", ":")).encode("utf-8")).hexdigest()
-    if digest != document.get("candidate_names_sha256"):
+        [{key: row[key] for key in ("artifact_id", "identity", "project")}
+         for row in planned], sort_keys=True,
+        separators=(",", ":")).encode("utf-8")).hexdigest()
+    if digest != document.get("candidate_identities_sha256"):
         raise ScratchProjectError(
-            "candidate names changed since planning; create a fresh manifest")
-    names = []
-    for row in rows:
-        if not isinstance(row, dict) or not row.get("selected"):
-            continue
-        name = _name(row.get("project"))
-        if name not in set(planned_names):
-            raise ScratchProjectError(
-                f"{name!r} was not in the original candidate list")
-        if name not in names:
-            names.append(name)
+            "candidate identities changed since planning; create a fresh manifest")
+    selected = [row for row in planned if row["selected"]]
     available = set(manager.GetProjectListInCurrentFolder() or [])
     current = manager.GetCurrentProject()
-    current_name = current.GetName() if current else None
-    for name in names:
-        if name == current_name or name not in available:
+    current_id = str(current.GetUniqueId() or "") if current else ""
+    for row in selected:
+        name = row["project"]
+        if (row["identity"].get("object_unique_id") == current_id
+                or name not in available):
             raise ScratchProjectError(
                 f"{name!r} is open or no longer present; nothing was collected")
     removed = []
-    for name in names:
-        removed.append(delete(resolve, manager, name))
+    for row in selected:
+        removed.append(delete(resolve, manager, row["project"],
+                              artifact_id=row["artifact_id"]))
         document["collected"] = removed
         document["updated_at"] = datetime.now(UTC).isoformat()
         path.write_text(json.dumps(document, indent=2) + "\n",

@@ -11,9 +11,10 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
-from functools import wraps
+import uuid
 from collections import defaultdict
 from dataclasses import asdict, dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +43,7 @@ TRANSITIONS = {
     RECOVERY_HOLD: {RETAINED, DISPOSABLE},
     RETAINED: {DISPOSABLE},
     CACHEABLE: {DISPOSABLE},
-    DISPOSABLE: {QUARANTINED, PURGED},
+    DISPOSABLE: {QUARANTINED, PURGING, PURGED},
     QUARANTINED: {DISPOSABLE, PURGING},
     PURGING: {PURGED, DISPOSABLE},
     PURGED: set(),
@@ -105,8 +106,16 @@ def _event_fields(event: dict) -> dict:
 
 
 def _latest_artifacts(project_folder: str) -> dict[str, dict]:
+    return _latest_from_events(event_log.read_events(project_folder))
+
+
+def _latest_artifacts_path(log_path: str | os.PathLike) -> dict[str, dict]:
+    return _latest_from_events(event_log.read_events_path(log_path))
+
+
+def _latest_from_events(events) -> dict[str, dict]:
     latest = {}
-    for event in event_log.read_events(project_folder):
+    for event in events:
         fields = _event_fields(event)
         artifact_id = fields.get("artifact_id")
         if not artifact_id:
@@ -130,6 +139,43 @@ def register_artifact(project_folder: str, record: ArtifactRecord) -> bool:
     return created
 
 
+def register_resolve_artifact(log_path: str | os.PathLike, *, artifact_id: str,
+                              kind: str, project_id: str, run_id: str,
+                              job_id: str, identity: dict,
+                              retention_class: str = "temporary",
+                              state: str = CREATED) -> bool:
+    """Register a Resolve object in the same lifecycle event stream.
+
+    Resolve objects have no filesystem inode. Their identity is the exact
+    Resolve project ID plus object ID and type, recorded alongside the same
+    ownership fields and lifecycle states as file artifacts.
+    """
+    if not all((artifact_id, kind, project_id, run_id, job_id)):
+        raise LifecycleRefused("unknown Resolve artifact ownership is protected")
+    if state not in LIFECYCLE_STATES:
+        raise ValueError(f"unknown artifact lifecycle state: {state}")
+    if (not isinstance(identity, dict)
+            or not identity.get("project_unique_id")
+            or not identity.get("object_unique_id")
+            or identity.get("object_type") not in {"project", "timeline"}):
+        raise LifecycleRefused("Resolve artifact identity is incomplete")
+    _, created = event_log.emit_once_path(
+        log_path, ARTIFACT_REGISTERED, artifact_id, task=job_id,
+        artifact_id=artifact_id, kind=kind, project_id=project_id,
+        run_id=run_id, job_id=job_id, identity_type="resolve",
+        identity=identity, retention_class=retention_class, state=state,
+        dependencies=[], pinned=retention_class in {"retained", "protected"})
+    recorded = _latest_artifacts_path(log_path).get(artifact_id)
+    if (recorded is None or recorded.get("identity_type") != "resolve"
+            or recorded.get("identity") != identity
+            or recorded.get("project_id") != project_id
+            or recorded.get("run_id") != run_id
+            or recorded.get("job_id") != job_id):
+        raise LifecycleRefused(
+            f"Resolve artifact id is already owned by a different identity: {artifact_id}")
+    return created
+
+
 def transition_artifact(project_folder: str, artifact_id: str, target: str,
                         *, reason: str, event_id: str = "") -> bool:
     """Make a recoverable, idempotent lifecycle transition in the event log."""
@@ -150,6 +196,85 @@ def transition_artifact(project_folder: str, artifact_id: str, target: str,
     return True
 
 
+def transition_resolve_artifact(log_path: str | os.PathLike, artifact_id: str,
+                                target: str, *, reason: str,
+                                event_id: str = "",
+                                identity: dict | None = None) -> bool:
+    """Transition an event-log-owned Resolve object using lifecycle states."""
+    if target not in LIFECYCLE_STATES:
+        raise ValueError(f"unknown artifact lifecycle state: {target}")
+    current = _latest_artifacts_path(log_path).get(artifact_id)
+    if current is None or current.get("identity_type") != "resolve":
+        raise LifecycleRefused(f"Resolve artifact ownership is unknown: {artifact_id}")
+    old = current.get("state", CREATED)
+    if old == target:
+        return False
+    if target not in TRANSITIONS.get(old, set()):
+        raise LifecycleRefused(f"invalid artifact transition {old} -> {target}")
+    stable_event_id = event_id or f"artifact:{artifact_id}:{old}:{target}"
+    event_log.emit_once_path(
+        log_path, ARTIFACT_TRANSITION, stable_event_id,
+        task=current["job_id"], artifact_id=artifact_id, state=target,
+        previous_state=old, reason=reason,
+        **({"identity": identity} if identity is not None else {}))
+    return True
+
+
+def resolve_artifacts(log_path: str | os.PathLike, *,
+                      job_id: str = "") -> list[dict]:
+    """Return the latest recorded Resolve artifact ownership rows."""
+    rows = [dict(fields, artifact_id=artifact_id)
+            for artifact_id, fields in _latest_artifacts_path(log_path).items()
+            if fields.get("identity_type") == "resolve"
+            and (not job_id or fields.get("job_id") == job_id)]
+    return sorted(rows, key=lambda row: row["artifact_id"])
+
+
+def retire_resolve_artifact(log_path: str | os.PathLike, artifact_id: str,
+                            identity: dict, retire) -> dict:
+    """Run an exact-identity retirement callback under Resolve's lease.
+
+    The callback performs Resolve read-back, deletion and post-delete census.
+    It must return ``{"verified": True}``; otherwise the lifecycle remains
+    disposable for a safe retry.
+    """
+    from library.tools import resolve_lock
+
+    if not resolve_lock.exclusive_held():
+        raise LifecycleRefused("Resolve retirement requires the exclusive instance lease")
+    row = _latest_artifacts_path(log_path).get(artifact_id)
+    if row is None or row.get("identity_type") != "resolve":
+        raise LifecycleRefused(f"Resolve artifact ownership is unknown: {artifact_id}")
+    if row.get("state") not in {DISPOSABLE, PURGING}:
+        raise LifecycleRefused(
+            f"Resolve artifact is not disposable: {row.get('state')}")
+    if row.get("identity") != identity:
+        raise LifecycleRefused("Resolve artifact identity differs from its ownership record")
+    attempt_id = uuid.uuid4().hex
+    if row.get("state") == DISPOSABLE:
+        transition_resolve_artifact(
+            log_path, artifact_id, PURGING,
+            reason="guarded Resolve retirement started",
+            event_id=f"resolve-retirement:{artifact_id}:{attempt_id}:started")
+    try:
+        receipt = retire(dict(row["identity"]))
+        if not isinstance(receipt, dict) or receipt.get("verified") is not True:
+            raise LifecycleRefused(
+                "Resolve deletion did not verify against a fresh census")
+    except Exception:
+        transition_resolve_artifact(
+            log_path, artifact_id, DISPOSABLE,
+            reason="Resolve retirement refused; safe retry remains",
+            event_id=f"resolve-retirement:{artifact_id}:{attempt_id}:refused")
+        raise
+    transition_resolve_artifact(
+        log_path, artifact_id, PURGED,
+        reason="Resolve census confirms object is absent",
+        event_id=f"resolve-retirement:{artifact_id}:{attempt_id}:purged")
+    return {"artifact_id": artifact_id, "receipt": receipt,
+            "state": PURGED}
+
+
 def inventory(project_folder: str) -> dict[str, Any]:
     """Inventory recorded artifacts; report logical and inode-deduplicated bytes."""
     entries = []
@@ -158,6 +283,13 @@ def inventory(project_folder: str) -> dict[str, Any]:
         lambda: {"artifacts": 0, "logical_bytes": 0, "physical_bytes": 0})
     for artifact_id, fields in _latest_artifacts(project_folder).items():
         identity = fields.get("identity", {})
+        if fields.get("identity_type") == "resolve":
+            entries.append({**fields, "artifact_id": artifact_id,
+                            "identity_matches": None,
+                            "ownership_known": bool(fields.get("project_id")
+                                                     and fields.get("run_id")
+                                                     and fields.get("job_id"))})
+            continue
         path = Path(fields["path"])
         try:
             current = FileIdentity.capture(path)

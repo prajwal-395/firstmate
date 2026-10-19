@@ -322,7 +322,8 @@ def retire_timelines(project, pool, backups: dict,
     return {"archived": archived, "unfiled": unfiled}
 
 
-def delete_backups(project, pool, backup_objects: dict | list | tuple) -> dict:
+def delete_backups(project, pool, backup_objects: dict | list | tuple, *,
+                   project_folder: str, run_id: str, job_id: str) -> dict:
     """Delete the backup timelines outright - the DEFAULT promotion path.
 
     `backup_objects` is the backup timeline objects for the generations
@@ -349,6 +350,8 @@ def delete_backups(project, pool, backup_objects: dict | list | tuple) -> dict:
         BACKUP_SUFFIX,
         assert_deletion_scope,
     )
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools import event_log
 
     targets = (list(backup_objects.values()) if isinstance(backup_objects, dict)
                else list(backup_objects or ()))
@@ -382,24 +385,72 @@ def delete_backups(project, pool, backup_objects: dict | list | tuple) -> dict:
     assert_deletion_scope(targets, set(names))
     record: dict = {"deleted": []}
     if targets:
-        deleted = sorted(name for name in
-                         (t.GetName() for t in targets) if name)
-        if not pool.DeleteTimelines(targets):
+        project_id = str(project.GetUniqueId() or "")
+        if not project_id or not all((project_folder, run_id, job_id)):
             raise RetirementRefused(
-                f"Resolve declined to delete {len(deleted)} backup(s) "
-                f"({', '.join(deleted)}). They are still in the project "
-                f"under their backup names - nothing was reported "
-                f"deleted.")
-        remaining = {
-            str(timeline.GetUniqueId() or "")
-            for index in range(1, project.GetTimelineCount() + 1)
-            if (timeline := project.GetTimelineByIndex(index)) is not None
-        }
-        if set(target_ids) & remaining:
-            raise RetirementRefused(
-                "Resolve returned from deleting backups, but one or more "
-                "target timeline ids remain in the project.")
-        record["deleted"] = deleted
+                "backup retirement needs the Resolve project identity and "
+                "owning Ren job; nothing was deleted")
+        log_path = event_log.log_path(project_folder)
+        for timeline, name, timeline_id in zip(targets, names, target_ids):
+            identity = {"object_type": "timeline",
+                        "project_unique_id": project_id,
+                        "object_unique_id": timeline_id,
+                        "project_name": project.GetName(),
+                        "object_name": name}
+            artifact_id = lifecycle.stable_artifact_id(
+                project_id, run_id, job_id, "resolve_reel_backup", timeline_id)
+            lifecycle.register_resolve_artifact(
+                log_path, artifact_id=artifact_id,
+                kind="resolve_reel_backup", project_id=project_id,
+                run_id=run_id, job_id=job_id, identity=identity,
+                state=lifecycle.COMPLETED)
+            latest = next(row for row in lifecycle.resolve_artifacts(log_path)
+                          if row["artifact_id"] == artifact_id)
+            if latest["state"] == lifecycle.COMPLETED:
+                lifecycle.transition_resolve_artifact(
+                    log_path, artifact_id, lifecycle.DISPOSABLE,
+                    reason="promotion record committed; backup has no remaining owner")
+            elif latest["state"] != lifecycle.DISPOSABLE:
+                raise RetirementRefused(
+                    f"backup lifecycle state is protected: {latest['state']}")
+
+            def delete_exact(recorded_identity, *, expected_name=name):
+                if str(project.GetUniqueId() or "") != recorded_identity[
+                        "project_unique_id"]:
+                    raise RetirementRefused("Resolve project identity changed before backup delete")
+                current = [project.GetTimelineByIndex(index)
+                           for index in range(1, project.GetTimelineCount() + 1)
+                           if project.GetTimelineByIndex(index)]
+                matches = [item for item in current
+                           if str(item.GetUniqueId() or "")
+                           == recorded_identity["object_unique_id"]]
+                if not matches:
+                    return {"verified": True, "already_absent": True,
+                            "deleted_timeline_id": recorded_identity["object_unique_id"]}
+                if (len(matches) != 1
+                        or matches[0].GetName() != expected_name
+                        or expected_name != recorded_identity["object_name"]):
+                    raise RetirementRefused(
+                        "backup timeline identity or name changed before deletion")
+                assert_deletion_scope(matches, {expected_name})
+                if not pool.DeleteTimelines(matches):
+                    return {"verified": False, "delete_returned": False}
+                remaining_ids = {
+                    str(item.GetUniqueId() or "")
+                    for index in range(1, project.GetTimelineCount() + 1)
+                    if (item := project.GetTimelineByIndex(index)) is not None
+                }
+                return {"verified": recorded_identity["object_unique_id"]
+                            not in remaining_ids,
+                        "deleted_timeline_id": recorded_identity["object_unique_id"]}
+
+            try:
+                lifecycle.retire_resolve_artifact(
+                    log_path, artifact_id, identity, delete_exact)
+            except lifecycle.LifecycleRefused as exc:
+                raise RetirementRefused(
+                    f"Resolve backup {name!r} was not retired: {exc}") from exc
+            record["deleted"].append(name)
     return record
 
 
@@ -463,6 +514,132 @@ def collect_superseded(project, pool, existing_names, finals,
                 f"was reported collected.")
         record["collected"] = collected
     return record
+
+
+def retire_owned_qualification_timeline(resolve, manager, project_folder,
+                                       artifact_id: str) -> dict:
+    """Retire one completed qualification timeline by recorded Resolve ID.
+
+    This is the AXI guarded retirement operation. The caller holds the
+    exclusive Resolve lease; the ownership record, exact project/timeline
+    IDs, content fingerprint, durable plan, and post-delete census all have
+    to agree before the mutation is allowed.
+    """
+    import json
+    from datetime import UTC, datetime
+
+    from library.tools import artifact_lifecycle as lifecycle
+    from library.tools.qualification_project import (
+        QUALIFICATION_PROJECT, borrowed, switch_project,
+    )
+    from library.tools.resolve_lock import exclusive_held
+    from library.tools.shared_environment import vep_home
+
+    if not exclusive_held():
+        raise RetirementRefused("Resolve timeline retirement requires its exclusive lease")
+    log_path = lifecycle.event_log.log_path(project_folder)
+    rows = [row for row in lifecycle.resolve_artifacts(log_path)
+            if row["artifact_id"] == artifact_id
+            and row["kind"] == "resolve_qualification_timeline"]
+    if len(rows) != 1:
+        raise RetirementRefused("timeline has no unique recorded qualification ownership")
+    row = rows[0]
+    if row.get("state") not in {lifecycle.DISPOSABLE, lifecycle.PURGING}:
+        raise RetirementRefused(f"timeline is not disposable: {row.get('state')}")
+    identity = row.get("identity") or {}
+    if (identity.get("object_type") != "timeline"
+            or identity.get("project_name") != QUALIFICATION_PROJECT
+            or not identity.get("project_unique_id")
+            or not identity.get("object_unique_id")
+            or not identity.get("content_sha256")):
+        raise RetirementRefused("timeline ownership identity or change fingerprint is incomplete")
+
+    plan_root = vep_home() / "resolve-timeline-retirement"
+    plan_root.mkdir(parents=True, exist_ok=True)
+    plan_path = plan_root / f"{artifact_id}.json"
+    plan = {"format": "ren-resolve-timeline-retirement/1",
+            "artifact_id": artifact_id, "identity": identity,
+            "created_at": datetime.now(UTC).isoformat(),
+            "selected": True, "job_id": row["job_id"],
+            "run_id": row["run_id"]}
+    plan_path.write_text(json.dumps(plan, sort_keys=True, indent=2) + "\n",
+                         encoding="utf-8")
+    try:
+        readback_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RetirementRefused(f"retirement plan did not read back: {exc}") from exc
+    if (readback_plan.get("artifact_id") != artifact_id
+            or readback_plan.get("identity") != identity
+            or readback_plan.get("selected") is not True):
+        raise RetirementRefused("retirement plan identity changed before apply")
+
+    def delete_exact(recorded_identity):
+        with borrowed(resolve):
+            project = switch_project(manager, QUALIFICATION_PROJECT)
+            project_id = str(project.GetUniqueId() or "") if project else ""
+            if project_id != recorded_identity["project_unique_id"]:
+                raise RetirementRefused("qualification project identity changed")
+            matches = []
+            for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+                timeline = project.GetTimelineByIndex(index)
+                if timeline and str(timeline.GetUniqueId() or "") == recorded_identity[
+                        "object_unique_id"]:
+                    matches.append(timeline)
+            if not matches:
+                return {"verified": True, "project_unique_id": project_id,
+                        "deleted_timeline_id": recorded_identity["object_unique_id"],
+                        "already_absent": True}
+            if len(matches) != 1:
+                raise RetirementRefused("recorded timeline id is ambiguous")
+            target = matches[0]
+            if target.GetName() != recorded_identity["object_name"]:
+                raise RetirementRefused("recorded timeline name changed")
+            if not project.SetCurrentTimeline(target):
+                raise RetirementRefused("Resolve would not select the recorded timeline")
+            current = project.GetCurrentTimeline()
+            if (not current or str(current.GetUniqueId() or "")
+                    != recorded_identity["object_unique_id"]):
+                raise RetirementRefused("recorded timeline selection did not read back")
+            from library.tools.qualification_workflow import _timeline_fingerprint
+            fingerprint = _timeline_fingerprint(project, current)
+            if fingerprint != recorded_identity["content_sha256"]:
+                raise RetirementRefused(
+                    "qualification timeline changed after its owning job; human edits are held")
+            if not manager.SaveProject():
+                raise RetirementRefused("Resolve refused to save before timeline retirement")
+            alternates = [project.GetTimelineByIndex(index)
+                          for index in range(1, int(project.GetTimelineCount() or 0) + 1)
+                          if project.GetTimelineByIndex(index)]
+            alternate = next((candidate for candidate in alternates
+                              if str(candidate.GetUniqueId() or "")
+                              != recorded_identity["object_unique_id"]), None)
+            if alternate is None:
+                raise RetirementRefused(
+                    "no other timeline can preserve the project while retiring this one")
+            if not project.SetCurrentTimeline(alternate):
+                raise RetirementRefused("Resolve would not move off the target timeline")
+            current = project.GetCurrentTimeline()
+            if (not current or str(current.GetUniqueId() or "")
+                    == recorded_identity["object_unique_id"]):
+                raise RetirementRefused("Resolve cursor still points at the target timeline")
+            pool = project.GetMediaPool()
+            if not pool.DeleteTimelines([target]):
+                raise RetirementRefused("Resolve refused to delete the recorded timeline")
+            remaining = [project.GetTimelineByIndex(index)
+                         for index in range(1, int(project.GetTimelineCount() or 0) + 1)]
+            if any(item and str(item.GetUniqueId() or "")
+                   == recorded_identity["object_unique_id"] for item in remaining):
+                raise RetirementRefused("timeline id remains in Resolve after deletion")
+            if not manager.SaveProject():
+                raise RetirementRefused("Resolve refused to save the verified timeline deletion")
+            return {"verified": True, "project_unique_id": project_id,
+                    "deleted_timeline_id": recorded_identity["object_unique_id"],
+                    "remaining_timeline_ids": [str(item.GetUniqueId() or "")
+                                                for item in remaining if item]}
+
+    result = lifecycle.retire_resolve_artifact(
+        log_path, artifact_id, identity, delete_exact)
+    return {"plan": str(plan_path), **result}
 
 
 def render(report: dict) -> str:

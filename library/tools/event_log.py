@@ -259,6 +259,35 @@ def emit_once(project_folder, event_type: str, event_id: str,
         return _append_locked(path, event_type, task, fields), True
 
 
+def emit_once_path(path, event_type: str, event_id: str,
+                   task: str = "", **fields: Any) -> tuple[dict, bool]:
+    """Deduplicate an event in an explicitly addressed event log.
+
+    Resolve-owned resources do not always belong to a Ren filesystem
+    project. They still use this event log and its locking/sequence rules,
+    at the Resolve instance's lifecycle log when no project scope exists.
+    """
+    if not event_id:
+        raise ValueError("emit_once_path requires a stable, non-empty event_id")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_project_file(path):
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            lines = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if (isinstance(event, dict)
+                    and event.get("fields", {}).get("event_id") == event_id):
+                return event, False
+        fields["event_id"] = event_id
+        return _append_locked(path, event_type, task, fields), True
+
+
 def _append_locked(path: Path, event_type: str, task: str,
                    fields: dict) -> dict:
     seq = _read_last_seq(path) + 1
@@ -281,7 +310,12 @@ def read_events(project_folder, task: str = "",
     writer's tail) is skipped, not fatal - the events before it are
     the worker's real history.
     """
-    path = log_path(project_folder)
+    return read_events_path(log_path(project_folder), task=task, since=since)
+
+
+def read_events_path(path, task: str = "", since: int = 0) -> list[dict]:
+    """Read the canonical event format from an explicitly addressed log."""
+    path = Path(path)
     try:
         with open(path, "r", encoding="utf-8") as handle:
             lines = handle.readlines()

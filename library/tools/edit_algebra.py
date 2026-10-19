@@ -3390,6 +3390,7 @@ AXI_OPERATION_MAP: dict[str, tuple[str, ...]] = {
     "multicam.sync": (),
     "timeline.duplicate": (),
     "timeline.checkpoint": (),
+    "timeline.delete": (),
     "media.ingest": (),
     "media.relink": (),
     "render.queue": (),
@@ -3403,6 +3404,9 @@ AXI_OPERATION_LIMITATIONS = {
     "clip.transition": ("No matching algebra operation is currently declared.",),
     "color.lut": ("No matching algebra operation is currently declared.",),
     "audio.isolate": ("No matching algebra operation is currently declared.",),
+    "timeline.delete": (
+        ("Guarded lifecycle retirement only: exact Resolve ID, recorded owner, "
+         "disposable state, recovery/fingerprint checks, and exclusive lease."),),
 }
 
 

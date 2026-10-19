@@ -3096,7 +3096,9 @@ def _undo_touch_connected(project_folder, entry, connect,
         # Raised before the first write: the timeline is as the touch
         # left it, so the reference is only debris.
         reel_retirement.delete_backups(project, pool,
-                                       {reference_name: reference})
+                                       {reference_name: reference},
+                                       project_folder=project_folder,
+                                       run_id=entry["id"], job_id=entry["id"])
         plan_provenance.finish_timeline_inventory(
             review_dir, inventory_operation,
             reel_replace_guard.timeline_inventory(project))
@@ -3165,7 +3167,9 @@ def _undo_touch_connected(project_folder, entry, connect,
             from snapshot_failed
     try:
         receipt["reference_deleted"] = reel_retirement.delete_backups(
-            project, pool, {reference_name: reference})["deleted"]
+            project, pool, {reference_name: reference},
+            project_folder=project_folder,
+            run_id=entry["id"], job_id=entry["id"])["deleted"]
     finally:
         plan_provenance.finish_timeline_inventory(
             review_dir, inventory_operation,

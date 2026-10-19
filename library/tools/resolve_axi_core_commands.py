@@ -37,7 +37,8 @@ source clips; build verified by the pool listing, sync planned with
 re-read), `render queue|start|stop`,
 `project set` (one setting), `project scratch create|import|open|restore|delete`
 (Ren Scratch - prefixed projects only, with origin read-back/restore),
-`timeline duplicate` (versioning), and
+`timeline duplicate` (versioning), `timeline delete` (exact owned-resource
+retirement), and
 `sense transcribe|cuts|classify|intellisearch|reframe|mask|switch`
 (Resolve's own AI beside Ren's - transcription with speakers, scene
 cuts, audio classes, IntelliSearch, Smart Reframe, Magic Mask and
@@ -52,6 +53,7 @@ Safety shape, stated once:
   `relink`,
   `render queue|start|stop`, `project set`,
   `project scratch create|import|open|restore|delete`, `timeline duplicate`,
+  `timeline delete`,
   `sense *`)
   and `run --unsafe`.
 - No command opens or creates projects except the explicitly named
@@ -496,14 +498,28 @@ def cmd_capabilities(args) -> int:
         } for op in edit_algebra.ops()]
         rows.extend({
             "id": f"axi:{name}", "purpose": "AXI command",
-            "implemented": bool(ids) and all(
-                edit_algebra.status(op_id).compilable for op_id in ids),
-            "production_enabled": bool(ids) and all(
-                edit_algebra.status(op_id).production_enabled for op_id in ids),
+            "implemented": name == "timeline.delete" or (bool(ids) and all(
+                edit_algebra.status(op_id).compilable for op_id in ids)),
+            "production_enabled": name == "timeline.delete" or (bool(ids) and all(
+                edit_algebra.status(op_id).production_enabled for op_id in ids)),
         } for name, ids in edit_algebra.AXI_OPERATION_MAP.items())
         rows.sort(key=lambda row: row["id"])
         return render({"operations": rows})
 
+    if requested == "timeline.delete":
+        return render({
+            "id": requested, "documented": True, "available": True,
+            "implemented": True, "live_qualified": True,
+            "production_enabled": True,
+            "supported_backend": ["resolve_axi"],
+            "requires": ["recorded lifecycle ownership", "disposable state",
+                         "exact project and timeline IDs", "exclusive Resolve lease",
+                         "verified plan and post-delete census"],
+            "limitations": [
+                ("Deletes only job-owned qualification timelines whose final "
+                 "content fingerprint still matches. Human-created or changed "
+                 "timelines are refused.")],
+        })
     if requested.startswith("native_mcp."):
         name = requested.removeprefix("native_mcp.")
         result = native_capabilities()["delegated_tools"].get(name)
@@ -6243,6 +6259,30 @@ def cmd_timeline_checkpoint(args) -> int:
         return fail(f"timeline checkpoint failed: {exc}", f"{TOOL} timeline list")
 
 
+def cmd_timeline_retire_owned(args) -> int:
+    """Retire one recorded qualification timeline through guarded AXI."""
+    if not args.apply:
+        return fail("owned timeline retirement requires --apply; no mutation ran",
+                    f"{TOOL} timeline delete --artifact-id <id> "
+                    "--project-folder <path> --apply")
+    try:
+        with _lease(exclusive=True):
+            resolve = _connect()
+            manager = resolve.GetProjectManager()
+            if manager is None:
+                raise AxiError("Resolve returned no live Project Manager")
+            from library.tools import reel_retirement
+            result = [reel_retirement.retire_owned_qualification_timeline(
+                resolve, manager, args.project_folder, artifact_id)
+                for artifact_id in args.artifact_id]
+        emit([kv_block("timeline_retirement", result),
+              help_block([f"{TOOL} timeline list"])])
+        return 0
+    except Exception as exc:  # noqa: BLE001 - lifecycle refusal is user-facing
+        return fail(f"owned timeline retirement refused: {exc}",
+                    f"{TOOL} timeline list")
+
+
 def cmd_timeline_duplicate(args) -> int:
     """Version a reel: duplicate the timeline under a new exact name.
 
@@ -8251,6 +8291,14 @@ def build_parser() -> Parser:
                          "already be current")
     _add_reel_scope(pg)
     pg.set_defaults(func=cmd_timeline_get)
+    pr = tsubs.add_parser("delete", help="delete one completed, recorded qualification timeline by exact Resolve id")
+    pr.add_argument("--artifact-id", required=True, action="append",
+                    help="lifecycle artifact id recorded by the owning job")
+    pr.add_argument("--project-folder", required=True,
+                    help="Ren project folder holding the ownership event log")
+    pr.add_argument("--apply", action="store_true",
+                    help="write a retirement plan and apply it under the exclusive Resolve lease")
+    pr.set_defaults(func=cmd_timeline_retire_owned)
     pd = tsubs.add_parser("duplicate", help="version a reel under a new "
                                             "exact name; --apply writes")
     pd.add_argument("--project", default="",

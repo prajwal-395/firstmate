@@ -1887,7 +1887,10 @@ def _composed(project_folder: str, project, staged, tracks: list,
                                "timeline_name": staged_name})
         finally:
             reel_retirement.delete_backups(project, pool,
-                                           {reference_name: reference})
+                                           {reference_name: reference},
+                                           project_folder=project_folder,
+                                           run_id=f"editor-edit-carry:{phase}:{staged_name}",
+                                           job_id=f"editor-edit-carry:{phase}:{staged_name}")
         before = {(_ce.row_label(track["type"], int(track["index"])), index): clip
                   for track in tracks
                   for index, clip in enumerate(track.get("clips") or ())}
