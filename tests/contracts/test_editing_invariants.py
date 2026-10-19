@@ -63,7 +63,8 @@ def test_failed_replacement_keeps_the_approved_timeline(edit_world):
 
     # A missing candidate is a failed replacement request. The live
     # approved timeline must remain identifiable and playable.
-    with pytest.raises(reel_build.ReelBuildError, match="not in Resolve"):
+    with pytest.raises(reel_build.ReelBuildError,
+                       match="not a staging container"):
         reel_build.promote_staged_reels(
             str(edit_world[3].path.parent), "VC Invariant Project",
             "VC Master", {"Approved Reel": "Missing Candidate"},
@@ -97,7 +98,7 @@ def test_qa01_reel09_unattributed_human_edit_is_not_silently_overwritten(
     with pytest.raises(edit_patch.StalePatch) as refused:
         _apply(patch, project, timeline, store, tmp_path)
 
-    assert "changed since" in str(refused.value)
+    assert "unrecorded Resolve edit" in str(refused.value)
     assert refused.value.manual_edit_recorded
     assert "intent is unknown" in refused.value.user_message
     assert 30 in timeline.GetMarkers()
@@ -173,6 +174,7 @@ def test_version_identity_survives_rename_and_duplicate_names(
     renamed = shadow.observe(project, timeline, store)
     duplicate = FakeTimeline("VC Reel (renamed)", project=project)
     project.adopt(duplicate)
+    project.SetCurrentTimeline(duplicate)
     second = shadow.observe(project, duplicate, store)
 
     assert renamed.timeline_id == base.timeline_id
@@ -198,10 +200,6 @@ def test_promotion_accounts_for_native_markers_it_cannot_carry(edit_world):
     assert "nothing was playing" in uncarried[0]["why"]
 
 
-@pytest.mark.xfail(
-    reason="Receipt stage semantics are owned by vep-exec-pl-verify; this test records the partial-application contract.",
-    strict=True,
-)
 def test_receipt_does_not_call_a_partial_patch_fully_applied(
         edit_world, tmp_path):
     """Defect: generic receipt standardization hides a stopped operation."""

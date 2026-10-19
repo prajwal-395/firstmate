@@ -162,10 +162,17 @@ def test_a_typed_chat_note_needs_no_marker_frame():
 
 
 def _program_note(ops: list) -> dict:
+    parameters = {
+        "clip.set_property": {"unique_id": "clip-1", "key": "Pan",
+                              "value": 1.0},
+        "clip.set_enabled": {"unique_id": "clip-1", "enabled": False},
+        "clip.delete": {"unique_id": "clip-1"},
+    }
     return {"basis": marker_routing.BASIS_EDIT_SPEC,
             "outcome": marker_routing.OUTCOME_UNROUTED, "steps": [],
             "frame": None, "evidence": {"edit_spec_ops": [
-                {"op": op, "owner": None, "ledger_op": "edit_program"}
+                {"op": op, "owner": None, "ledger_op": "edit_program",
+                 **parameters.get(op, {})}
                 for op in ops]}}
 
 

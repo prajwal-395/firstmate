@@ -26,7 +26,8 @@ def _target(uid="clip-1"):
 
 
 def _op(op="clip.set_property", uid="clip-1", **params):
-    merged = {"key": "Pan", "value": 5.0}
+    merged = ({"key": "Pan", "value": 5.0}
+              if op == "clip.set_property" else {})
     merged.update(params)
     return EditOperation(op=op, target=_target(uid), params=merged,
                          expected_effect=f"set {op} on {uid}")

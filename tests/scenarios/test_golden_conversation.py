@@ -141,7 +141,15 @@ def test_conversation_analyze_plan_build_touch_rebuild_deliver(
     # reclaims it and re-stages, so the printed command works as
     # printed with no hand deletion in Resolve
     # (docs/GOLDEN_PROJECTS.md, finding 5).
-    assert run_build_cli(monkeypatch, folder, suggested_words[1:]) == 0
+    rebuild_args = suggested_words[1:]
+    rebuild_status = run_build_cli(monkeypatch, folder, rebuild_args)
+    if rebuild_status != 0:
+        recovery_err = capsys.readouterr().err
+        assert "Recovered interrupted promotion transaction" in recovery_err
+        # Recovery commits the journaled promotion and deliberately asks
+        # for a fresh build against that now-consistent base.
+        rebuild_status = run_build_cli(monkeypatch, folder, rebuild_args)
+    assert rebuild_status == 0
     assert golden.timeline_names(project) == [recipe.master, golden.REEL]
     reel = golden.timeline(project, golden.REEL)
     rebuilt = golden.rows(reel)

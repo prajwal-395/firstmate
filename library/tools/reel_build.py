@@ -12056,12 +12056,13 @@ def recover_interrupted_promotions(project, project_folder: str) -> list:
 
 
 def cleanup_disposable_candidates(project, project_folder: str) -> list:
-    """Remove only an untouched duplicate proven by its durable candidate id.
+    """Remove only a duplicate proven unchanged by its durable identity.
 
-    Edited, verified, failed, stale, and unidentifiable candidates remain
-    available for review. A prepared candidate is disposable only when its
-    transaction, candidate id, Resolve id, unchanged parent, and complete
-    timeline snapshot all agree.
+    Candidates with failure evidence, unresolved edits, or an unverified
+    difference remain available for review. A prepared or edited candidate
+    is disposable only when its transaction, candidate id, Resolve id, and
+    complete timeline snapshot agree with its recorded parent or the now-
+    approved replacement.
     """
     import json
 
@@ -12089,7 +12090,7 @@ def cleanup_disposable_candidates(project, project_folder: str) -> list:
 
     for candidate_id, record in records.items():
         if (not isinstance(record, dict)
-                or record.get("status") != "prepared"
+                or record.get("status") not in {"prepared", "edited"}
                 or record.get("failure")
                 or record.get("failure_evidence")
                 or record.get("errors")
@@ -12125,26 +12126,38 @@ def cleanup_disposable_candidates(project, project_folder: str) -> list:
         if len(same_name) != 1:
             continue
         parent = inventory.get(parent_id)
-        if (parent is None
-                or parent.GetName() != record.get("destination_timeline")):
+        current_parents = [timeline for timeline in inventory.values()
+                           if timeline.GetName()
+                           == record.get("destination_timeline")]
+        if parent is None or len(current_parents) != 1:
             continue
+        current_parent = current_parents[0]
         from library.tools.versions import reel_versions as _versions
         history = _versions.versions_of(
             project_folder, str(record.get("destination_timeline") or ""))
         current_revision = (
             f"reel:{record['destination_timeline']}:v{history[-1]['version']}"
             if history else f"unversioned:{parent_id}")
-        if current_revision != record.get("parent_approved_revision"):
-            continue
         parent_snapshot = record.get("parent_snapshot")
         if not isinstance(parent_snapshot, dict):
             continue
-        live_parent = _guard.full_timeline_snapshot(
+        live_original = (_guard.full_timeline_snapshot(
             parent, project, project_folder)
+            if parent.GetName() == record.get("destination_timeline")
+            else None)
+        live_current = _guard.full_timeline_snapshot(
+            current_parent, project, project_folder)
         live_candidate = _guard.full_timeline_snapshot(
             candidate, project, project_folder)
-        if (live_parent != parent_snapshot
-                or normalized(live_candidate) != normalized(parent_snapshot)):
+        candidate_matches_original = (
+            live_original == parent_snapshot
+            and normalized(live_candidate) == normalized(parent_snapshot))
+        candidate_matches_current = (
+            normalized(live_candidate) == normalized(live_current))
+        if (current_revision != record.get("parent_approved_revision")
+                and not candidate_matches_current):
+            continue
+        if not (candidate_matches_original or candidate_matches_current):
             continue
         project.GetMediaPool().DeleteTimelines([candidate])
         if timeline_id in _promotion_timeline_inventory(project):
@@ -12444,6 +12457,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 project_folder, final, kind=_versions.KIND_BUILD,
                 rows=rows, round=round_number,
                 revision_id=(revision_ids or {}).get(final),
+                intent="promoted reel build",
+                operations=[{"kind": "promotion"}],
                 plan_moment=moments.get(final),
                 built_with=built_with.get(final) or None,
                 component_manifest=component_manifest,
@@ -13921,6 +13936,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"rebuild back - re-run once it is writable.",
             failure_class=PromotionFailure.DELIVERY) \
             from record_failed
+
+    # A prior refused run can leave a held candidate for this reel. Once
+    # the replacement version is durable, retire only candidates tied to
+    # the superseded base and lacking unresolved edits or failure evidence.
+    cleanup_disposable_candidates(project, project_folder)
 
     # The version linkage is durable now. Only at this point may the old
     # generation be archived or removed; a failure leaves its backup in
@@ -15412,6 +15432,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"reel:{promotion_target_by_name[_final]}:v"
             f"{_history[-1]['version']}" if _history else
             f"unversioned:{_parent or 'unknown'}")
+        from library.tools.timeline_ingest import snapshot_to_dict
+        _parent_snapshot = live_snapshots.get(
+            promotion_target_by_name[_final])
         _holds.record_candidate(project_folder, {
             "candidate_id": _candidate_id,
             "transaction_id": _candidate_transaction_id,
@@ -15419,6 +15442,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "candidate_name": _staging,
             "parent_approved_revision": _parent_revision,
             "parent_approved_timeline_id": str(_parent or ""),
+            "parent_snapshot": (snapshot_to_dict(_parent_snapshot)
+                                if _parent_snapshot is not None else None),
             "destination_timeline": promotion_target_by_name[_final],
             "owning_transaction": _candidate_transaction_id,
             "verified_snapshot": None,

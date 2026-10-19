@@ -158,8 +158,9 @@ def test_prepare_resolves_track_position_and_binds_it():
     assert any("filled from assumed resolution" in note
                for note in result.assumptions)
     assert result.affected.spans == ((0, 48),)
-    assert result.no_write_needed
-    assert "NO WRITE NEEDED" in edit_preparation.explain(result)
+    assert not result.no_write_needed
+    assert "Pan reads 0.0, wants 5.0" in result.no_write.reason
+    assert "write needed" in edit_preparation.explain(result)
 
 
 def test_prepare_refuses_position_outside_the_row():

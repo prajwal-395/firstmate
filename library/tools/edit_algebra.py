@@ -3381,6 +3381,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "clip.roll": SAFETY_COMPLEX_LOCALIZED,
     "clip.slip": SAFETY_COMPLEX_LOCALIZED,
     "redraw_closer": SAFETY_COMPLEX_LOCALIZED,
+    "hold.repair_window": SAFETY_COMPLEX_LOCALIZED,
     # Topology, timing or identity effects: staged with dependent ranges.
     "clip.delete": SAFETY_STRUCTURAL,
     "clip.insert": SAFETY_STRUCTURAL,

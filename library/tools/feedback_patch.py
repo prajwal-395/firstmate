@@ -149,13 +149,21 @@ def _decide_program(operations: list, steps: list) -> dict:
     plan for a rebuild to re-choose; a program with an op outside the
     restorable families is refused by naming it, never rebuilt around.
     """
-    from library.tools import execution_router
+    from library.tools import edit_request, execution_router
     from library.tools.feedback_patch_apply import SUPPORTED_OPS
 
-    ops = [operation.get("op") or "" for operation in operations]
+    try:
+        normalized = [edit_request._program_op_to_operation(operation, index)
+                      .to_algebra_op()
+                      for index, operation in enumerate(operations)]
+    except (TypeError, ValueError) as exc:
+        return {"verdict": VERDICT_REFUSED,
+                "reason": f"the timeline program is invalid: {exc}",
+                "steps": steps, "execution": None}
+    ops = [operation["op"] for operation in normalized]
     try:
         routing = execution_router.route_compiled_edit(
-            {"operations": operations}).as_dict()
+            {"operations": normalized}).as_dict()
     except execution_router.RoutingRefused as exc:
         return {"verdict": VERDICT_REFUSED,
                 "reason": f"the shared execution planner refused this edit: {exc}",

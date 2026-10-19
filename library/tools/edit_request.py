@@ -361,8 +361,10 @@ class EditRequest:
             expected_base_generation=(None if base is None else int(base)),
             expected_model_revision=(None if model is None else int(model)),
             originator=dict(data.get("originator") or {"kind": "agent"}),
-            operations=tuple(EditOperation.from_dict(op)
-                             for op in (data.get("operations") or ())),
+            operations=tuple(
+                op if isinstance(op, EditOperation)
+                else EditOperation.from_dict(op)
+                for op in (data.get("operations") or ())),
             preconditions=tuple(dict(c) for c in
                                 (data.get("preconditions") or ())),
             idempotency_key=str(data.get("idempotency_key") or data.get("id")
@@ -865,9 +867,10 @@ def from_touchup_spec(spec: Mapping[str, Any], *,
             # cross-row moves). `to_record` is that destination frame.
             edit["to_frame"] = edit.pop("to_record")
         target = (EditTarget.from_selector(selector) if selector else None)
-        if target is None or (not target.unique_id
-                               and not target.name
-                               and target.position is None):
+        if (op_id != "track.add"
+                and (target is None or (not target.unique_id
+                                        and not target.name
+                                        and target.position is None))):
             raise EditRequestError(
                 f"touch-up edit {index} ({name!r}) names no item: "
                 "an in-place change without a target is not plannable")
