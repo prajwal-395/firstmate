@@ -1711,32 +1711,90 @@ def _build_timeline_under_lease(
     # Note: We import media BEFORE creating timeline to detect actual FPS.
     root_folder = media_pool.GetRootFolder()
 
-    # What the pool already holds, BEFORE this build adds anything.
-    # Judged defensively: on fakes and older proxies these calls can
-    # answer anything, and a scan that raises must read as "nothing
-    # pooled", never as a failed build.
+    # One recursive inventory serves both import deduplication and later
+    # media-pool lookup. Resolve calls across its proxy boundary are much
+    # more expensive than these in-memory index updates.
+    pool_clips_by_path = {}
+    pool_clips_by_name = {}
+    pool_sequences_by_dir = {}
+    pool_folders_by_name = {}
     _pooled_paths = set()
-    try:
-        _stack = [root_folder]
-        while _stack:
-            _folder = _stack.pop()
-            try:
-                _clips = list(_folder.GetClipList() or [])
-            except (Exception, TypeError):
-                _clips = []
-            for _c in _clips:
+    pool_inventory_counts = {"folder_visits": 0, "folder_reads": 0,
+                             "clip_reads": 0, "import_batches": 0,
+                             "folder_switches": 0}
+    pool_inventory_started = time.perf_counter()
+    pool_index_complete = True
+
+    def _index_pool_clip(clip, *, strict=False):
+        nonlocal pool_index_complete
+        try:
+            name = clip.GetName()
+        except Exception:
+            if strict:
+                raise
+            pool_index_complete = False
+            name = ""
+        try:
+            filepath = clip.GetClipProperty("File Path") or ""
+        except Exception:
+            if strict:
+                raise
+            pool_index_complete = False
+            filepath = ""
+        if filepath:
+            _pooled_paths.add(filepath)
+            pool_clips_by_path[filepath] = clip
+            if '[' in filepath:
+                pool_sequences_by_dir[
+                    os.path.dirname(filepath.split('[')[0])] = clip
+        if name:
+            pool_clips_by_name[name] = clip
+
+    def _scan_pool(folder, *, root=False, strict=False):
+        """Inventory a folder tree once, tolerating unreadable proxy calls."""
+        nonlocal pool_index_complete
+        pool_inventory_counts["folder_visits"] += 1
+        pool_inventory_counts["folder_reads"] += 2
+        try:
+            clips = list(folder.GetClipList() or [])
+        except (Exception, TypeError):
+            if strict:
+                raise
+            pool_index_complete = False
+            clips = []
+        for clip in clips:
+            pool_inventory_counts["clip_reads"] += 2
+            _index_pool_clip(clip, strict=strict)
+        try:
+            children = list(folder.GetSubFolderList() or [])
+        except (Exception, TypeError):
+            if strict:
+                raise
+            pool_index_complete = False
+            children = []
+        for child in children:
+            if root:
                 try:
-                    _fp = _c.GetClipProperty("File Path") or ""
+                    pool_inventory_counts["folder_reads"] += 1
+                    pool_folders_by_name[child.GetName()] = child
                 except Exception:
-                    _fp = ""
-                if _fp:
-                    _pooled_paths.add(_fp)
-            try:
-                _stack.extend(list(_folder.GetSubFolderList() or []))
-            except (Exception, TypeError):
-                pass
+                    if strict:
+                        raise
+                    pool_index_complete = False
+                    pass
+            _scan_pool(child, strict=strict)
+
+    try:
+        _scan_pool(root_folder, root=True)
     except Exception:
-        _pooled_paths = set()
+        # Preserve the existing defensive behavior: an unreadable pool
+        # inventory means "unknown", not a build failure.
+        _pooled_paths.clear()
+        pool_clips_by_path.clear()
+        pool_clips_by_name.clear()
+        pool_sequences_by_dir.clear()
+        pool_folders_by_name.clear()
+        pool_index_complete = False
 
     def _import_to_folder(folder_name, paths):
         # The pool is not a scratch dir: media that is already pooled is
@@ -1745,7 +1803,8 @@ def _build_timeline_under_lease(
         # 222), so importing blindly litters a shared project with a
         # duplicate per source per build. Exact-path match only: a mere
         # basename match could be a different file with the same name.
-        wanted = [p for p in paths if p and p in available_paths]
+        wanted = list(dict.fromkeys(
+            p for p in paths if p and p in available_paths))
         skipped = [p for p in wanted if p in _pooled_paths]
         if skipped:
             results.setdefault("pool_dedupe_skipped", []).extend(skipped)
@@ -1756,17 +1815,27 @@ def _build_timeline_under_lease(
             return 0
         
         media_pool.SetCurrentFolder(root_folder)
-        folder = None
-        for sub in (root_folder.GetSubFolderList() or []):
-            if sub.GetName() == folder_name:
-                folder = sub
-                break
+        pool_inventory_counts["folder_switches"] += 1
+        folder = pool_folders_by_name.get(folder_name)
         if not folder:
             folder = media_pool.AddSubFolder(root_folder, folder_name)
+            if folder:
+                pool_folders_by_name[folder_name] = folder
             
         media_pool.SetCurrentFolder(folder)
+        pool_inventory_counts["folder_switches"] += 1
+        pool_inventory_counts["import_batches"] += 1
         imported = media_pool.ImportMedia(paths)
         media_pool.SetCurrentFolder(root_folder)
+        pool_inventory_counts["folder_switches"] += 1
+        if imported:
+            for clip in imported:
+                pool_inventory_counts["clip_reads"] += 2
+                _index_pool_clip(clip)
+        else:
+            # Some Resolve proxies do not return imported handles. Refresh
+            # only in that case so subsequent placement still sees imports.
+            _scan_pool(root_folder, root=True)
         return len(imported) if imported else 0
 
     total_imported = 0
@@ -1775,25 +1844,19 @@ def _build_timeline_under_lease(
     # captain's own `Source footage`; subtitle, motion-graphics and
     # timed-text renders (all 4.05/4.06-family products) under their
     # render bins, where the organiser's per-timeline filing keeps them.
-    total_imported += _import_to_folder(
-        bin_layout.SOURCE_BIN, [c.get('source_file', '') for c in v1_clips])
-    total_imported += _import_to_folder(
-        bin_layout.SOURCE_BIN, [c.get('source_file', '') for c in v2_clips])
-    total_imported += _import_to_folder(
-        bin_layout.SOURCE_BIN,
-        [c.get('source_file', '') for c in a2_clips + a3_clips])
+    source_paths = (
+        [c.get('source_file', '') for c in v1_clips]
+        + [c.get('source_file', '') for c in v2_clips]
+        + [c.get('source_file', '') for c in a2_clips + a3_clips]
+        + [c.get('source_file', '') for c in room_tone_fills]
+        + [c.get('source_file', '') for c in a1_voiceover_clips])
+    total_imported += _import_to_folder(bin_layout.SOURCE_BIN, source_paths)
     # Room-tone fills ride the same bin as the fetched bed and SFX:
     # pipeline audio the build placed, filed by the organiser under
     # the timelines that place it.
-    total_imported += _import_to_folder(
-        bin_layout.SOURCE_BIN,
-        [c.get('source_file', '') for c in room_tone_fills])
-    # Voiceover narration rides no V1 carrier, so its files arrive
-    # through no other import: without this the A1 placement below
-    # finds nothing pooled and the words never reach the timeline.
-    total_imported += _import_to_folder(
-        bin_layout.SOURCE_BIN,
-        [c.get('source_file', '') for c in a1_voiceover_clips])
+    # Voiceover narration rides no V1 carrier, so include it in the same
+    # source-bin import batch; without it the A1 placement below finds
+    # nothing pooled and the words never reach the timeline.
     # A sequence arrives as its frame files in one call, which is what
     # groups them into a single image-sequence pool item.
     sub_paths = [s.get('overlay_path', '') for s in sub_segments]
@@ -1806,43 +1869,37 @@ def _build_timeline_under_lease(
         bin_layout.SUBTITLES_BIN, sub_paths)
     total_imported += _import_to_folder(
         bin_layout.MOTION_GRAPHICS_BIN,
-        [s.get('overlay_path', '') for s in mg_segments])
-    total_imported += _import_to_folder(
-        bin_layout.MOTION_GRAPHICS_BIN,
-        [s.get('overlay_path', '') for s in tt_segments])
-    total_imported += _import_to_folder(
-        bin_layout.MOTION_GRAPHICS_BIN,
-        [s.get('overlay_path', '') for s in sg_segments])
+        ([s.get('overlay_path', '') for s in mg_segments]
+         + [s.get('overlay_path', '') for s in tt_segments]
+         + [s.get('overlay_path', '') for s in sg_segments]))
+
+    if not pool_index_complete:
+        # The first pass is lenient for deduplication, as before. Lookup
+        # still needs a complete inventory; mirror the old strict indexing
+        # pass only when the lenient read missed anything.
+        _pooled_paths.clear()
+        pool_clips_by_path.clear()
+        pool_clips_by_name.clear()
+        pool_sequences_by_dir.clear()
+        pool_folders_by_name.clear()
+        _scan_pool(root_folder, root=True, strict=True)
+        pool_index_complete = True
     
     if total_imported > 0:
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)
 
+    results["pool_inventory_metrics"] = {
+        **pool_inventory_counts,
+        "inventory_read_calls": (pool_inventory_counts["folder_reads"]
+                                 + pool_inventory_counts["clip_reads"]),
+        "pool_import_calls": pool_inventory_counts["import_batches"],
+        "set_current_folder_calls": pool_inventory_counts["folder_switches"],
+        "elapsed_s": round(time.perf_counter() - pool_inventory_started, 4),
+        "index_complete": pool_index_complete,
+        "indexed_clips": len(pool_clips_by_name),
+        "indexed_paths": len(pool_clips_by_path),
+    }
     _clock.lap("pool_scan")
-    # Build pool clip lookup.
-    root_folder = media_pool.GetRootFolder()
-    pool_clips_by_path = {}
-    pool_clips_by_name = {}
-    # An image sequence reports one File Path with a bracket range
-    # (`dir/frame-[00-46].png`), so no single frame path matches it.
-    # The frame directory does - and frame directories are per segment,
-    # so the mapping stays one to one.
-    pool_sequences_by_dir = {}
-
-    def _scan_folder(folder):
-        for clip in (folder.GetClipList() or []):
-            name = clip.GetName()
-            filepath = clip.GetClipProperty("File Path") or ""
-            if filepath:
-                pool_clips_by_path[filepath] = clip
-                if '[' in filepath:
-                    pool_sequences_by_dir[
-                        os.path.dirname(filepath.split('[')[0])] = clip
-            pool_clips_by_name[name] = clip
-        for sub in (folder.GetSubFolderList() or []):
-            _scan_folder(sub)
-
-    _scan_folder(root_folder)
-
     def _find_pool_clip(filepath: str) -> object:
         """Look up a media pool clip by filepath first, then basename fallback."""
         item = pool_clips_by_path.get(filepath)
