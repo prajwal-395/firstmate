@@ -54,3 +54,10 @@ The registry lane owns the canonical execution-capability registry format.
 This inventory therefore exports installed method facts and invocation
 constraints as source metadata; the existing `edit_algebra.OP_STATUS` remains
 the authority for editorial operation meaning and backend qualification.
+
+The remaining route decisions for `overlay.resize`, `clip.split`,
+`clip.slide`, `clip.roll` and Fairlight are recorded in
+[`resolve_remaining_route_evaluation.md`](resolve_remaining_route_evaluation.md).
+Documented setters and candidate staged compositions are not live
+qualification; production routing stays closed until operation-specific
+verification and recovery evidence exists.
