@@ -136,6 +136,47 @@ STATUS_FAILED = "failed"
 STATUS_UNDONE = "undone"
 STATUS_UNDO_FAILED = "undo_failed"
 
+_ACCEPTED_TOUCH_OVERRIDE_OPS = frozenset({
+    "move", "swap_pixels", "add_overlay", "remove_overlay", "retime",
+    "resize_still", "set_properties", "add_row", "set_enabled",
+    "entry_motion",
+})
+
+
+def accepted_edit_record(project_folder: str, entry: Mapping) -> dict:
+    """Build the persistent semantic record for one accepted touch."""
+    from library.tools import plan_provenance, timeline_diff
+
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    provenance = plan_provenance.read_provenance(review_dir) or {}
+    spec = entry.get("spec") or {}
+    operations = []
+    for operation in spec.get("edits") or ():
+        op = str(operation["op"])
+        if op not in _ACCEPTED_TOUCH_OVERRIDE_OPS:
+            raise UndoRefused(
+                f"accepted touch {entry['id']!r} contains unclassified "
+                f"operation {op!r}; its rebuild policy is unknown",
+                "the edit cannot be safely represented as a declaration "
+                "update or a versioned override",
+                "classify this operation before accepting the touch")
+        operations.append({"operation": dict(operation),
+                           "policy": "versioned_override"})
+    return {
+        "format": "accepted_reel_edit/1",
+        "intent": str(spec.get("note") or "").strip(),
+        "operations": operations,
+        "recorded_edit_program": dict(spec),
+        "source_declaration": {
+            "plan_content_hash": provenance.get("plan_content_hash"),
+            "plan_path": provenance.get("plan_path"),
+        },
+        "changes": timeline_diff.diff_timelines(
+            (entry.get("before") or {}).get("tracks") or (),
+            (entry.get("after") or {}).get("tracks") or ()),
+        "verified_from_journal": entry["id"],
+    }
+
 
 class UndoRefused(RenRefusal):
     """An undo that declined before changing anything. Always by name."""
@@ -1503,6 +1544,11 @@ def open_entry(project_folder, *, final: str, reel: int,
         "resolve_project": resolve_project,
         "batch": batch or "",
         "spec": json.loads(json.dumps(dict(spec or {}), default=str)),
+        # A replayed accepted edit is materialized by the full-rebuild
+        # lifecycle. Keep its source journal explicit so it is not
+        # mistaken for a new independent intent on the next rebuild.
+        "accepted_replay_of": (str(spec["accepted_replay_of"])
+                               if spec.get("accepted_replay_of") else None),
         "gate_class": gate_class,
         "opened_at": _now(),
         "status": STATUS_OPEN,
@@ -1539,6 +1585,10 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     from library.tools.versions import reel_versions
 
     entry["after"] = {"tracks": reel_read.read_tracks(after_timeline)}
+    review_dir = os.path.join(project_folder, "pipeline_output", "review")
+    # Persist intent, its recorded edit program, policy per operation and
+    # the declaration revision against which the touch was accepted.
+    entry["accepted_edit"] = accepted_edit_record(project_folder, entry)
     if preservation_snapshot is not None:
         after_snapshot = dict(preservation_snapshot)
     elif project is not None:
@@ -1551,7 +1601,7 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
         entry["preservation_after"] = after_snapshot
         from library.tools.plan_provenance import record_timeline_snapshot
         record_timeline_snapshot(
-            os.path.join(project_folder, "pipeline_output", "review"),
+            review_dir,
             entry["final"], after_snapshot, action="touchup",
             action_journal=entry["id"])
     # VC-14: the reel's component manifest, built from existing

@@ -16544,6 +16544,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # The promotion record for the end-of-build summaries (None where
     # this build promoted nothing: unverified, refused, or left alone).
     _promoted_record: dict | None = None
+    accepted_edit_replays: dict = {}
     _verification_s = None
     _commit_promotion_s = None
     if verify and not built_reel_names and left_alone:
@@ -16815,6 +16816,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         except Exception as exc:  # noqa: BLE001
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected", flush=True)
+        # A build re-materializes the declarations. Accepted touch-ups
+        # are semantic edits layered over those declarations, so replay
+        # them through the qualified staged touch path and its read-back
+        # checks before the build is reported complete.
+        from library.tools import accepted_edit_replay as _accepted_replay
+        accepted_edit_replays = _accepted_replay.replay_accepted_touches(
+            project_folder, final_names)
         # A single-reel lane cannot inspect sibling timelines while they
         # may be changing. Full builds keep their established
         # whole-project sweep. The sweep is informational and never
@@ -17140,6 +17148,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "pending_promotions": pending_promotions,
         "timeline_inventory_before": final_build_inventory,
         "timelines_built": built_reel_names,
+        "accepted_edit_replays": accepted_edit_replays,
         **({"master_snapshot": master_snapshot_record}
            if isinstance(master_snapshot_record, dict) else {}),
         # Reels this call deliberately did NOT build: a recorded strike
