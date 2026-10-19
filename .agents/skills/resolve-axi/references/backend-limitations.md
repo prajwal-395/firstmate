@@ -40,13 +40,14 @@ Consult the owning implementation for these constraints:
 |---|---|---:|---:|---:|---|---|
 | `caption_fix` | `resolve_axi` | yes | no | no | Only operations reached by the Resolve AXI command dispatch.; only Resolve text/title items exposing a supported text property; rendered caption images require regeneration; Rewrite caption text. | none |
 | `clip.delete` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; A local delete leaves a gap; `clip.ripple` closes it. | none |
-| `clip.delete` | `resolve_axi` | yes | no | no | Only operations reached by the Resolve AXI command dispatch.; A local delete leaves a gap; `clip.ripple` closes it. | none |
+| `clip.delete` | `resolve_axi` | yes | no | no | Only operations reached by the Resolve AXI command dispatch.; local delete leaves a gap; ripple must be a separate explicitly requested staged operation; A local delete leaves a gap; `clip.ripple` closes it. | none |
 | `clip.insert` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; Places a pool clip at a stated span; the inverse deletes it. | none |
 | `clip.insert` | `reel_append_placement` | yes | no | no | Recorded full-build placement; not an existing-timeline patch.; Places a pool clip at a stated span; the inverse deletes it. | none |
 | `clip.insert` | `reel_otio_placement` | yes | no | no | Recorded full-build placement; OTIO representability refusals apply.; Places a pool clip at a stated span; the inverse deletes it. | none |
 | `clip.link` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; Link clips so later edits move them together. The shadow read-back does not capture link state; the executor verifies by re-read. | none |
 | `clip.move` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; same-row overlay items only; cross-row moves require remove plus add; An item to a different record position on the same row. | none |
 | `clip.replace` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; A clip's source for another pool clip at the same span, carrying the remapped Fusion keys (`fusion_keys`) and the grade assertion (`expected_grade`) with the binding so a commit can never land new media under stale keys (the Unit 5 swap-back). | none |
+| `clip.ripple` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; one target clip changes played length; every affected later item must be readable and recoverable on the staged copy; Shift every later clip on the track by delta frames. | none |
 | `clip.set_enabled` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable. | none |
 | `clip.set_enabled` | `feedback_patch_apply` | yes | no | no | Local restorable feedback operations only; no pool fetch or ripple. | none |
 | `clip.set_enabled` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints. | none |
@@ -54,6 +55,7 @@ Consult the owning implementation for these constraints:
 | `clip.set_property` | `feedback_patch_apply` | yes | no | no | Local restorable feedback operations only; no pool fetch or ripple.; One transform property; the inverse restores the old value. | none |
 | `clip.set_property` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; One transform property; the inverse restores the old value. | `tests/qualification/test_golden_conversation_live.py` |
 | `clip.set_property` | `composed_edit` | yes | no | no | Composition-level staging and validation rules apply.; One transform property; the inverse restores the old value. | `tests/qualification/test_golden_conversation_live.py` |
+| `clip.slip` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; one target source window shifts within measured source bounds; its record span stays fixed and the staged replacement must read back exactly; Slip the source under a fixed timeline window. The staged touch-up path reads the source bounds and exact placement back. | none |
 | `clip.smart_reframe` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; Resolve's SmartReframe; judged on its framing properties. | none |
 | `clip.smart_reframe` | `resolve_axi` | yes | no | no | Only operations reached by the Resolve AXI command dispatch.; Resolve's SmartReframe; judged on its framing properties. | none |
 | `clip.trim` | `resolve_axi` | yes | no | no | Only operations reached by the Resolve AXI command dispatch.; source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back; New in/out points on one clip; the gap is the caller's. | none |
@@ -82,7 +84,6 @@ Consult the owning implementation for these constraints:
 | `overlay.add` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; native PNG stills use still_placement exact-duration routing; staging must re-read the requested span; A new overlay item on an overlay row. | none |
 | `overlay.entry_motion` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints. | none |
 | `overlay.remove` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints. | none |
-| `overlay.resize` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints. | none |
 | `overlay.swap_pixels` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; An overlay's pixels for a re-rendered file. | none |
 | `picture.keyframe` | `edit_patch` | yes | no | no | Only algebra operations with a native apply are schedulable.; A keyframed picture parameter, written through the transform write log. | none |
 | `retime` | `reel_touchup` | yes | no | no | Only the named touch-up vocabulary and its declared constraints.; Constant-percent speed; a ramp reaches the timeline as stepped segments (`retime.segments`), never as a curve. | none |

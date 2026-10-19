@@ -1291,6 +1291,54 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
     return True
 
 
+def _op_slip(edit, position, tracks, spans, changes, insertions,
+             removals, moves, exclude, notes, in_place) -> bool:
+    """Shift one item's source window while its record span stays fixed."""
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    delta = int(edit.get("delta_frames", 0))
+    if not row or item_index is None or delta == 0:
+        raise TouchupRefused(
+            f"edit {position} (`slip`) needs `row`, `item` and a nonzero "
+            f"`delta_frames` (got {dict(edit)!r})",
+            "a source-window edit with no target or no movement is not "
+            "a slip",
+            f"give edit {position} a target and nonzero delta, then "
+            f"re-run `ren touch`")
+    clip = _find_clip(tracks, row, int(item_index))
+    left_offset = clip.get("left_offset")
+    source_frames = clip.get("source_frames")
+    duration = int(clip["duration"])
+    if left_offset is None or source_frames is None:
+        raise TouchupRefused(
+            f"edit {position} (`slip`) cannot read the source bounds of "
+            f"{row}[{item_index}]",
+            "the new source window cannot be proven to fit the media",
+            "re-read the timeline and source metadata, then re-run "
+            "`ren touch`")
+    new_left = int(left_offset) + delta
+    if new_left < 0 or new_left + duration > int(source_frames):
+        raise TouchupRefused(
+            f"edit {position} (`slip`) requests source frames "
+            f"{new_left}..{new_left + duration} of {source_frames}",
+            "the source window exceeds measured media bounds",
+            "choose a delta that keeps the full played span inside the "
+            "source, then re-run `ren touch`")
+    track_type = "audio" if row.startswith("A") else "video"
+    changes.append(_ce.ItemChange(
+        track_type=track_type, track_index=int(row[1:]),
+        item_index=int(item_index), record_frame=int(clip["record_in"]),
+        duration=duration, left_offset=new_left,
+        previous_record=int(clip["record_in"]),
+        previous_duration=duration, how="slip",
+        comp_count=_ce.treatment_comps(clip),
+        right_offset=int(source_frames) - new_left - duration,
+        name=clip.get("name", "")))
+    notes.append(f"edit {position}: slip {row}[{item_index}] source "
+                 f"window by {delta:+d}f; record span unchanged")
+    return False
+
+
 def _op_resize_still(edit, position, tracks, spans, changes, insertions,
                      removals, moves, exclude, notes, in_place) -> bool:
     row = str(edit.get("row") or "").upper()
@@ -1710,6 +1758,7 @@ _OP_HANDLERS = {
     "set_enabled": _op_set_enabled,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
+    "slip": _op_slip,
     "resize_still": _op_resize_still,
     "set_properties": _op_set_properties,
     "entry_motion": _op_entry_motion,

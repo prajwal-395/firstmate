@@ -75,6 +75,17 @@ def _trim(context) -> dict:
     ], "clip.trim", "AXI undo journal; failed replacement restores the timeline snapshot")
 
 
+def _delete(context) -> dict:
+    row, index = _target_position(
+        context.snapshot, str(context.operation["unique_id"]))
+    return _verified_command(context, [
+        "edit", "delete", "--track", row, "--index", str(index),
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ], "clip.delete",
+       "AXI undo journal; verify exact item absence before recovery")
+
+
 def _caption_fix(context) -> dict:
     operation = context.operation
     row, index = _target_position(
@@ -132,6 +143,18 @@ def _touchup(context) -> dict:
         if operation_id == "clip.move":
             edit = {"op": "move", "row": row, "item": index,
                     "to_record": int(operation["to_frame"])}
+        elif operation_id == "clip.ripple":
+            clip = next(
+                clip for track in context.snapshot["tracks"]
+                for clip in track["clips"]
+                if clip["unique_id"] == operation["unique_id"])
+            duration = (int(clip["duration"])
+                        + int(operation["delta_frames"]))
+            edit = {"op": "retime", "row": row, "item": index,
+                    "duration": duration}
+        elif operation_id == "clip.slip":
+            edit = {"op": "slip", "row": row, "item": index,
+                    "delta_frames": int(operation["delta_frames"])}
         elif operation_id == "overlay.remove":
             edit = {"op": "remove_overlay", "row": row, "item": index}
         elif operation_id == "overlay.swap_pixels":
@@ -175,8 +198,11 @@ def register_builtin_edit_executors() -> None:
 
     desired = {
         ("clip.trim", "resolve_axi"): _trim,
+        ("clip.delete", "resolve_axi"): _delete,
         ("caption_fix", "resolve_axi"): _caption_fix,
         ("clip.move", "reel_touchup"): _touchup,
+        ("clip.ripple", "reel_touchup"): _touchup,
+        ("clip.slip", "reel_touchup"): _touchup,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

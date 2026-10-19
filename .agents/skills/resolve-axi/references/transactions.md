@@ -14,8 +14,10 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `clip.link` | implemented_unqualified | `unique_id`, `with_unique_ids` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.move` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.replace` | implemented_unqualified | `unique_id`, `source_file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.ripple` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_enabled` | implemented_unqualified | `unique_id`, `enabled` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_property` | implemented_unqualified | `unique_id`, `key`, `value` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.slip` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.unlink` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -37,7 +39,6 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
-| `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

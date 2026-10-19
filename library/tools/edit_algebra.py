@@ -1823,7 +1823,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         verify=lambda op, after: _verify_source_frames(op, after),
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
         inverse=_self("the inverse carries the negated delta"),
-        note="Slip the source under a fixed timeline window."),
+        note="Slip the source under a fixed timeline window. The staged "
+             "touch-up path reads the source bounds and exact placement "
+             "back."),
     "clip.slide": AlgebraOp(
         id="clip.slide", domain="timeline_structure",
         required=("unique_id", "to_frame"),
@@ -1970,9 +1972,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "gain"),
         merge="replace",
         inverse=_self("the inverse carries the previous dB"),
-        note="Per-clip gain in dB. No live-Resolve apply (the scripting "
-             "API carries no per-clip audio surface); `otio_mix."
-             "apply_audio_ops` writes it through the OTIO mix path."),
+        note="Per-clip gain in dB. OTIO writes and reads levels during the "
+             "build, but no candidate-preserving semantic adapter exists "
+             "yet."),
     "audio.pan": AlgebraOp(
         id="audio.pan", domain="audio_mix",
         required=("unique_id", "pan"),
@@ -1991,9 +1993,9 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"], "audio", "fade"),
         merge="replace",
         inverse=_self("the inverse carries the previous envelope"),
-        note="Fade in/out with curve. No live-Resolve apply; "
-             "`otio_mix.apply_audio_ops` writes it through the OTIO mix "
-             "path and reads it back."),
+        note="Fade in/out with curve. OTIO writes and reads levels during "
+             "the build, but no candidate-preserving semantic adapter "
+             "exists yet."),
     "audio.automation": AlgebraOp(
         id="audio.automation", domain="audio_mix",
         required=("unique_id", "param", "keyframes"),
@@ -2333,7 +2335,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         span=_item_span, item=True,
         verify=lambda op, after: None,
         key=lambda op: ("overlay", op["unique_id"]), merge="replace",
-        inverse=_self("the inverse carries the previous size")),
+        inverse=_self("the inverse carries the previous size"),
+        note="Width and height are output-geometry values. Existing "
+             "resize_still changes duration only; no candidate adapter "
+             "currently links the geometry model to pixel verification."),
     "overlay.entry_motion": AlgebraOp(
         id="overlay.entry_motion", domain="fusion",
         required=("unique_id", "frames"),
@@ -2425,7 +2430,10 @@ ALGEBRA: dict[str, AlgebraOp] = {
         span=lambda op, base: None,
         verify=lambda op, after: None,
         key=lambda op: ("plan", "transition"), merge="ordered",
-        inverse=_never("a planner re-run has no timeline inverse (C-04)")),
+        inverse=_never("a planner re-run has no timeline inverse (C-04)"),
+        note="Planning carrier only. Native AddTransition has a guarded "
+             "command and build path, but no semantic candidate adapter "
+             "with promotion verification."),
     "shot_selection": AlgebraOp(
         id="shot_selection", domain="timeline_structure",
         required=("plan",),
@@ -2969,17 +2977,84 @@ _BACKEND_LIMITATIONS = {
 # the current production contract.
 _BACKEND_QUALIFICATIONS = {}
 
+# Route research is reported to discovery so a missing adapter does not
+# silently imply that UI control is the next attempt. Inspection is not
+# qualification; each gap remains fail-closed.
+_ROUTE_EVALUATION = {
+    "overlay.resize": {
+        "inspected": ["Fusion scripting", "layout_model", "overlay_verify", "OTIO"],
+        "available": ["geometry model and rendered-pixel verifier exist independently"],
+        "gaps": ["resize_still changes duration only", "no protected adapter joins output-pixel geometry to rendered-box verification", "OTIO transform round-trip does not prove requested output dimensions"],
+        "next": "Connect geometry calculation and pixel verification to protected staged touch-up.",
+        "not_yet_evaluated": ["native transform method alternatives", "Blackmagic MCP mutation surface beyond delegated tools", "third-party MCP candidates", "Workflow Integration plugins"],
+    },
+    "audio.gain": {
+        "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities"],
+        "available": ["OTIO mix writes and reads gain in the build path"],
+        "gaps": ["SetProperty(Volume) is not a working measured writer", "deliver_audio_mix replaces the timeline and is not a candidate semantic adapter", "no rendered audio acceptance evidence for this request path"],
+        "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins", "Resolve Fairlight UI-independent controls"],
+        "next": "Evaluate remaining scripted routes, then expose the fastest safe route on a protected candidate and verify rendered audio.",
+    },
+    "audio.fade": {
+        "inspected": ["native scripting", "OTIO mix", "Blackmagic MCP delegated capabilities"],
+        "available": ["OTIO mix writes and reads volume keyframes in the build path"],
+        "gaps": ["no measured native per-item writer", "deliver_audio_mix replaces the timeline and is not a candidate semantic adapter", "no rendered fade-envelope acceptance evidence for this request path"],
+        "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins", "Resolve Fairlight UI-independent controls"],
+        "next": "Evaluate remaining scripted routes, then expose the fastest safe route on a protected candidate and verify rendered audio.",
+    },
+    "clip.split": {
+        "inspected": ["native scripting", "composed_edit", "OTIO"],
+        "available": ["SplitAtFrame is used for segmented retimes"],
+        "gaps": ["no candidate adapter verifies two exact resulting items and carries effects", "OTIO is a whole-timeline path without localized preservation proof"],
+        "next": "Add staged SplitAtFrame with exact two-item and preservation read-back.",
+        "not_yet_evaluated": ["Blackmagic MCP mutation surface beyond delegated tools", "third-party MCP candidates", "Workflow Integration plugins"],
+    },
+    "clip.slide": {
+        "inspected": ["composed_edit", "reel_touchup", "OTIO"],
+        "available": [],
+        "gaps": ["move does not compose target and both neighbours' source windows", "OTIO lacks candidate-local collateral proof"],
+        "next": "Compose all source-window and record edits on staging, then verify exact spans.",
+        "not_yet_evaluated": ["native method inventory for neighbour edits", "Blackmagic MCP mutation surface beyond delegated tools", "third-party MCP candidates", "Workflow Integration plugins"],
+    },
+    "clip.roll": {
+        "inspected": ["composed_edit", "reel_touchup", "OTIO"],
+        "available": [],
+        "gaps": ["touch-up has no shared-cut two-item composition", "OTIO lacks candidate-local collateral proof"],
+        "next": "Compose both source windows and the shared cut on staging, then verify exact spans.",
+        "not_yet_evaluated": ["native method inventory for shared-cut edits", "Blackmagic MCP mutation surface beyond delegated tools", "third-party MCP candidates", "Workflow Integration plugins"],
+    },
+    "transition": {
+        "inspected": ["native scripting", "Fusion build path", "OTIO"],
+        "available": ["AddTransition is used by guarded AXI command and native build applicator"],
+        "gaps": ["algebra operation is a planning carrier, not an exact target cut", "no protected candidate semantic adapter", "OTIO retention does not prove exact placement"],
+        "next": "Define exact cut identity and apply/read back on staging before promotion.",
+        "not_yet_evaluated": ["third-party MCP candidates", "Workflow Integration plugins"],
+    },
+}
+
 _WORKFLOW_EVIDENCE = {
-    "clip.trim": (
-        "library/tools/composed_edit.py:plan_ripple (workflow-level timing composition; no standalone trim adapter)",),
     "clip.ripple": (
-        "library/tools/composed_edit.py:plan_ripple (workflow-level ripple planning; no standalone ripple adapter)",),
+        "library/tools/composed_edit.py:plan_ripple (staged timeline-wide timing composition)",),
 }
 
 _IMPLEMENTATION_EVIDENCE = {
+    ("clip.delete", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_delete",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
+    ),
     ("clip.trim", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
+    ),
+    ("clip.ripple", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_retime",
+        "library/tools/composed_edit.py:plan_ripple",
+    ),
+    ("clip.slip", "reel_touchup"): (
+        "library/tools/edit_execution_adapters.py:_touchup",
+        "library/tools/reel_touchup.py:_op_slip",
+        "library/tools/composed_edit.py:apply_composed_edit",
     ),
     ("caption_fix", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_caption_fix",
@@ -2996,6 +3071,12 @@ _IMPLEMENTATION_EVIDENCE = {
 _BACKEND_OPERATION_LIMITATIONS = {
     ("clip.trim", "resolve_axi"):
         ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
+    ("clip.delete", "resolve_axi"):
+        ("local delete leaves a gap; ripple must be a separate explicitly requested staged operation",),
+    ("clip.ripple", "reel_touchup"):
+        ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
+    ("clip.slip", "reel_touchup"):
+        ("one target source window shifts within measured source bounds; its record span stays fixed and the staged replacement must read back exactly",),
     ("caption_fix", "resolve_axi"):
         ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
     ("clip.move", "reel_touchup"):
@@ -3030,7 +3111,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     # by the caller-facing touch-up vocabulary.
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
-        "clip.set_enabled", "retime", "overlay.resize", "clip.set_property",
+        "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
         "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
@@ -3320,6 +3401,7 @@ def capability(op_id: str) -> dict | None:
         "qualification_status": entry.qualification_status,
         "implementation_status": entry.implementation_status,
         "workflow_evidence": list(entry.workflow_evidence),
+        "route_evaluation": _ROUTE_EVALUATION.get(entry.id),
         "backends": [{
             "id": backend.backend,
             "implemented": backend.compilable,

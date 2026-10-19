@@ -22,12 +22,12 @@ The contract names the operation's read-back verifier. A successful API return a
 | `clip.link` | implemented_unqualified | `unique_id`, `with_unique_ids` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.move` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.replace` | implemented_unqualified | `unique_id`, `source_file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.ripple` | workflow_only | `unique_id`, `delta_frames` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.ripple` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.roll` | no_executor | `unique_id`, `delta_frames` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_enabled` | implemented_unqualified | `unique_id`, `enabled` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_property` | implemented_unqualified | `unique_id`, `key`, `value` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.slide` | no_executor | `unique_id`, `to_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.slip` | no_executor | `unique_id`, `delta_frames` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.slip` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.split` | no_executor | `unique_id`, `at_frame` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.trim` | implemented_unqualified | `unique_id`, `in_frame`, `out_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -64,7 +64,7 @@ The contract names the operation's read-back verifier. A successful API return a
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
-| `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.resize` | no_executor | `unique_id`, `width`, `height` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `plan_change` | planning_only | `node`, `note` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
