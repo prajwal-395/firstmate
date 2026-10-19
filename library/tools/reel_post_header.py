@@ -531,7 +531,9 @@ def _tight_segments(png: str, runs, fps: float, frame: tuple[int, int],
     tight, canvas = tight_still(png, frame)
     placement = placement_for(canvas, frame, draw_gain)
     size = {"width": canvas[2] - canvas[0], "height": canvas[3] - canvas[1],
-            "canvas_box": list(canvas), "placement": placement}
+            "canvas_box": list(canvas),
+            "absolute_canvas_box": list(canvas),
+            "placement": placement}
     return [{"overlay_path": tight, "media_type": "still",
              "format": OVERLAY_STILL_FORMAT_NAME,
              "timeline_start": a / fps,

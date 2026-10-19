@@ -125,9 +125,9 @@ def _failed(ranges, width, height, error):
 
 @under_lease("render segments")
 def render_batch(resolve, project, timeline, ranges,
-                 output_dir: str = None,
-                 resolution: str = "720p",
-                 max_gap_frames: Optional[int] = None,
+                 output_dir: str | None = None,
+                 resolution: str | tuple[int, int] = "720p",
+                 max_gap_frames: int | None = None,
                  name_prefix: str = "qa_batch",
                  timeout: int = 120) -> BatchRenderResult:
     """Render several timeline ranges in ONE configure-render-cleanup pass.
@@ -143,7 +143,12 @@ def render_batch(resolve, project, timeline, ranges,
         output_dir = tempfile.mkdtemp(prefix="vqa_segment_")
     os.makedirs(output_dir, exist_ok=True)
 
-    width, height = QA_RESOLUTIONS.get(resolution, QA_RESOLUTIONS["720p"])
+    if (isinstance(resolution, tuple) and len(resolution) == 2
+            and all(isinstance(value, int) and value > 0
+                    for value in resolution)):
+        width, height = resolution
+    else:
+        width, height = QA_RESOLUTIONS.get(resolution, QA_RESOLUTIONS["720p"])
     if max_gap_frames is None:
         max_gap_frames = merge_gap_frames(resolution)
     merged = merge_ranges(ranges, max_gap_frames)

@@ -12,7 +12,7 @@ Nothing here reaches Resolve or a real project.
 from __future__ import annotations
 import json
 from library.processes.reels import run_reels
-from library.tools import capability_outputs
+from library.tools import capability_outputs, operations
 import sys
 import types
 from pathlib import Path
@@ -33,6 +33,13 @@ from tests.resolve_double import FakeProject
 import datetime
 from library.tools import reel_phase_log as phase_log
 from library.tools import reel_semantic_visual as sem_vis
+
+
+@pytest.fixture(autouse=True)
+def _picture_gate_is_a_separate_unit(monkeypatch):
+    module = operations.load_step_module("step_7_02_verify_reels")
+    monkeypatch.setattr(
+        module, "verify_staged_overlay_pictures", lambda *_args: [])
 from types import SimpleNamespace
 from library.tools import reel_prebuild_census as census
 from library.tools import resolve_bin_layout as bins
@@ -163,7 +170,6 @@ sys.path.insert(0, str(REPO))
 
 import manage_project  # noqa: E402
 from library.tools import capabilities  # noqa: E402
-from library.tools import operations  # noqa: E402
 from library.tools import processes as processes_mod  # noqa: E402
 from library.tools import requirements as _R  # noqa: E402
 from library.tools import worker_requirements  # noqa: E402

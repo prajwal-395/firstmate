@@ -135,36 +135,34 @@ def assert_timeline_media_online(timeline) -> None:
 
 
 def corner_brand_bug_segment(asset: str, canvas: tuple[int, int],
-                             frame_box: tuple[float, float, float, float],
+                             box: tuple[float, float, float, float],
                              start_frame: int, end_frame: int,
                              ending_start_frame: int, *,
-                             width: float, margin: float, fps: float,
+                             fps: float,
                              pan_units: str = "original",
                              tilt_units: str = "original",
                              draw_gain: float = 1.0) -> dict:
     """Describe a static top-right brand bug as one positioned PNG item.
 
-    ``frame_box`` and all dimensions are absolute canvas pixels. The box is
-    inset by the same margin on the right and top. The returned segment can
-    be passed through Ren's normal still overlay placement path.
+    ``box`` is the declared absolute rectangle in canvas pixels. The
+    returned segment can be passed through Ren's normal still overlay
+    placement path, which lowers the box again using the live timeline
+    dimensions and proxy units.
     """
     if os.path.splitext(asset)[1].lower() != ".png":
         raise ReelGraphicsError("corner brand bug must be a single PNG still")
     source_w, source_h = assert_tight_alpha(asset)
-    x0, y0, x1, y1 = map(float, frame_box)
-    width, margin = float(width), float(margin)
-    if width <= 0 or margin < 0 or x1 <= x0 or y1 <= y0 or fps <= 0:
-        raise ReelGraphicsError("corner brand bug requires a positive frame, width, and margin")
-    height = width * source_h / source_w
-    box = (x1 - margin - width, y0 + margin,
-           x1 - margin, y0 + margin + height)
-    if box[0] < x0 or box[3] > y1:
-        raise ReelGraphicsError("corner brand bug does not fit inside the A-roll frame")
-    from library.tools.layout_model import LayoutItem, LayoutModel, Transform
+    x0, y0, x1, y1 = map(float, box)
+    canvas_w, canvas_h = map(float, canvas)
+    if (x0 < 0 or y0 < 0 or x1 <= x0 or y1 <= y0
+            or x1 > canvas_w or y1 > canvas_h or fps <= 0):
+        raise ReelGraphicsError(
+            "corner brand bug requires a positive box inside the reel canvas")
+    from library.tools.layout_model import LayoutModel
     model = LayoutModel(canvas[0], canvas[1], pan_units, tilt_units)
-    item = LayoutItem(source_w, source_h,
-                      transform=Transform(draw_gain=draw_gain), label="corner brand bug")
-    transform = model.compute_transform(item, box)
+    transform = model.place_absolute_box(
+        (source_w, source_h), (x0, y0, x1, y1), anchor=(1.0, 0.0),
+        draw_gain=draw_gain)
     require_current_units(model, transform)
     assert_before_end(start_frame, end_frame, ending_start_frame,
                       "corner brand bug")
@@ -174,7 +172,64 @@ def corner_brand_bug_segment(asset: str, canvas: tuple[int, int],
         "timeline_end": int(end_frame) / fps,
         "total_frames": int(end_frame) - int(start_frame),
         "ending_start_frame": int(ending_start_frame),
-        "placement_label": "corner_brand_bug", "absolute_canvas_box": list(box),
+        "placement_label": "corner_brand_bug",
+        "absolute_canvas_box": [x0, y0, x1, y1],
         "tight_box": {"width": source_w, "height": source_h,
-                      "placement": transform.to_dict()},
+                      "placement": transform.to_dict(),
+                      "absolute_canvas_box": [x0, y0, x1, y1],
+                      "anchor": [1.0, 0.0],
+                      "frame": list(canvas)},
     }
+
+
+def declared_corner_brand_bug(project_folder: str) -> dict | None:
+    """Read the project's explicit corner-logo asset and canvas box."""
+    import yaml
+
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    try:
+        with open(project_yaml, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        # Synthetic unit projects that do not model project declarations
+        # have no corner mark to place.
+        return None
+    except (OSError, yaml.YAMLError) as exc:
+        raise ReelGraphicsError(
+            f"cannot read corner brand bug declaration: {exc}") from exc
+    declaration = ((config.get("effect") or {}).get("corner_brand_bug"))
+    if declaration is None:
+        return None
+    if not isinstance(declaration, dict):
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug must declare an asset and absolute box")
+    unknown = sorted(set(declaration) - {"asset", "box", "anchor"})
+    if unknown:
+        raise ReelGraphicsError(
+            f"effect.corner_brand_bug declares unread keys {unknown}")
+    asset = declaration.get("asset")
+    box = declaration.get("box")
+    anchor = declaration.get("anchor", "top_right")
+    if not isinstance(asset, str) or not asset.strip():
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug.asset must be a non-empty path")
+    if not isinstance(box, list) or len(box) != 4:
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug.box must be [x0, y0, x1, y1]")
+    if anchor != "top_right":
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug.anchor must be 'top_right'")
+    path = asset if os.path.isabs(asset) else os.path.join(project_folder, asset)
+    if not os.path.isfile(path):
+        raise ReelGraphicsError(
+            f"effect.corner_brand_bug.asset is missing: {path}")
+    if os.path.splitext(path)[1].lower() != ".png":
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug.asset must be a PNG still")
+    try:
+        normalized_box = [float(value) for value in box]
+    except (TypeError, ValueError) as exc:
+        raise ReelGraphicsError(
+            "effect.corner_brand_bug.box must contain four numbers") from exc
+    return {"asset": os.path.abspath(path), "box": normalized_box,
+            "anchor": anchor}

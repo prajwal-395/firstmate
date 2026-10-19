@@ -16,3 +16,12 @@ import pytest
 @pytest.fixture(autouse=True)
 def _isolated_shadow_store(tmp_path, monkeypatch):
     monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.db"))
+
+
+@pytest.fixture(autouse=True)
+def _render_gate_uses_the_dedicated_unit_tests(monkeypatch):
+    from library.tools.operations import load_step_module
+
+    verify_step = load_step_module("step_7_02_verify_reels")
+    monkeypatch.setattr(
+        verify_step, "verify_staged_overlay_pictures", lambda *_args: [])

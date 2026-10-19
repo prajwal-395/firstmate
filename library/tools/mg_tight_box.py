@@ -1800,6 +1800,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
     from library.tools.tight_box import (
         TightBoxClipsInk,
         TightBoxMismatch,
+        canvas_offset,
         crop_probe_to_tight,
     )
 
@@ -1808,6 +1809,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
     if not full_path or not full_props:
         rendered["tight_fallback"] = (
             "no full-canvas probe to bind from - stays full canvas")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback']})", file=sys.stderr)
         return
@@ -1817,12 +1819,14 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             f"the full-canvas probe could not be measured - stays full "
             f"canvas: {exc}")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
     if union is None:
         rendered["tight_fallback"] = (
             "the probe drew nothing on any frame - stays full canvas")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback']})", file=sys.stderr)
         return
@@ -1835,6 +1839,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             (refusal.message() if refusal is not None else str(exc))
             or str(exc))
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
@@ -1842,6 +1847,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             refusal.message() if refusal is not None
             else "no tight box and no reason")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
@@ -1863,6 +1869,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             f"the probe could not be cropped to "
             f"{box.width}x{box.height} - stays full canvas: {exc}")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
@@ -1876,6 +1883,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             f"the tight crop is not its probe's region - stays full "
             f"canvas: {exc}")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
@@ -1895,6 +1903,7 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         rendered["tight_fallback"] = (
             f"the tight record could not be written - stays full "
             f"canvas: {exc}")
+        rendered["geometry"] = "full"
         print(f"  {name}: {kind} stays full canvas "
               f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
         return
@@ -1908,10 +1917,14 @@ def bind_probe_tight(name: str, planned: dict, rendered: dict,
         os.path.basename(tight_path))[0]
     rendered["geometry"] = "tight"
     rendered["tight_fallback"] = ""
+    ox, oy = canvas_offset(box)
     rendered["tight_box"] = {
         "width": box.width,
         "height": box.height,
         "placement": dict(box.placement),
+        "origin": [ox, oy],
+        "absolute_canvas_box": [ox, oy, ox + box.width, oy + box.height],
+        "frame": [box.full_width, box.full_height],
     }
     rendered["tight_report"] = report
     print(f"  {name}: {kind} bound tight "

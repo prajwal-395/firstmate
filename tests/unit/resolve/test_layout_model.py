@@ -10,11 +10,17 @@ These tests name the defects:
 import pytest
 
 from library.tools.layout_model import (
+    GeometryDescriptor,
     LayoutItem,
     LayoutModel,
     LayoutModelError,
     Transform,
+    current_proxy_units,
     reproduce_300px_offset,
+)
+from library.tools.resolve_transform import (
+    native_position_to_resolve,
+    resolve_to_native_position,
 )
 
 
@@ -82,6 +88,59 @@ class TestCanvasToLocal:
 
 
 class TestComputeTransform:
+    def test_geometry_descriptor_round_trips_with_native_projection(self):
+        descriptor = GeometryDescriptor(
+            frame=(1080, 1920), box=(740, 90, 980, 260),
+            canvas=(480, 340), anchor=(1.0, 0.0), parent="brand-root",
+            native_projection={"Pan": 1500, "Tilt": 500,
+                               "pan_units": "quarter"})
+        assert GeometryDescriptor.from_dict(
+            descriptor.to_dict()) == descriptor
+
+    def test_output_geometry_moves_exactly_40_pixels(self):
+        model = LayoutModel(1080, 1920)
+        item = LayoutItem(1080, 1920, Transform())
+        box = (40, 0, 1120, 1920)
+        transform = model.compute_transform(item, box)
+        placed = model.placed_box(LayoutItem(1080, 1920, transform))
+        assert placed == pytest.approx(box)
+        assert placed[0] == pytest.approx(40)
+
+    def test_geometry_and_pan_tilt_round_trip(self):
+        frame = (1080, 1920)
+        canvas = (728, 480)
+        centre = (842.5, 317.25)
+        pan_tilt = native_position_to_resolve(
+            centre, canvas, frame, draw_gain=1.0)
+        assert resolve_to_native_position(
+            {"Pan": pan_tilt[0], "Tilt": pan_tilt[1]},
+            canvas, frame, draw_gain=1.0) == pytest.approx(centre)
+
+    def test_crop_and_scale_geometry_round_trips(self):
+        model = LayoutModel(1080, 1920)
+        source = LayoutItem(800, 400, Transform())
+        box = (190, 350, 1790, 1150)
+        transform = model.compute_transform(source, box)
+        assert transform.scaling == pytest.approx(1.0)  # native crop base
+        assert transform.zoom_x == pytest.approx(2.0)
+        assert transform.zoom_y == pytest.approx(2.0)
+        placed = model.placed_box(LayoutItem(800, 400, transform))
+        assert placed == pytest.approx(box)
+
+    def test_three_level_parent_chain_round_trips(self):
+        model = LayoutModel(1920, 1080)
+        canvas_parent = LayoutItem(
+            1920, 1080, Transform(pan=20, tilt=-30, zoom_x=.8, zoom_y=.8))
+        nested_parent = LayoutItem(
+            960, 540, Transform(pan=-10, tilt=15, zoom_x=.5, zoom_y=.5),
+            parent=canvas_parent)
+        child = LayoutItem(
+            200, 100, Transform(pan=5, tilt=-8, zoom_x=1.2, zoom_y=1.2),
+            parent=nested_parent)
+        canvas_point = model.local_to_canvas(child, 75, 40)
+        assert model.canvas_to_local(child, *canvas_point) == pytest.approx(
+            (75, 40))
+
     def test_compute_transform_round_trips_to_placed_box(self):
         model = LayoutModel(1920, 1080)
         item = LayoutItem(200, 100, Transform())
@@ -102,6 +161,25 @@ class TestComputeTransform:
         transform = model.compute_transform(item, box)
         assert abs(transform.zoom_x - 1.0) < 1e-6
         assert abs(transform.zoom_y - 1.0) < 1e-6
+
+    @pytest.mark.parametrize(
+        ("units", "factor"),
+        [("original", 1), ("half", 2), ("quarter", 4),
+         ("eighth", 8)],
+    )
+    def test_absolute_box_uses_delivery_timeline_and_current_proxy_units(
+            self, units, factor):
+        # The project is 4K landscape, while the reel timeline is its own
+        # 1080x1920 delivery canvas. Placement is computed from the latter.
+        model = LayoutModel(1080, 1920, units, units)
+        source = LayoutItem(200, 80)
+        box = (800, 100, 1000, 180)
+        transform = model.compute_transform(source, box)
+        assert transform.pan == pytest.approx(1944 / factor)
+        assert transform.tilt == pytest.approx(19680 / factor)
+        assert model.refuse_unit_mismatch(transform) is None
+        placed = model.placed_box(LayoutItem(200, 80, transform))
+        assert placed == pytest.approx(box)
 
 
 class TestUnitMismatch:
@@ -125,6 +203,23 @@ class TestUnitMismatch:
         assert reason is not None
         assert "quarter" in reason
         assert "original" in reason
+
+    @pytest.mark.parametrize("ratio", ["Original", "Half", "Quarter", "Eighth"])
+    def test_reads_active_proxy_ratio(self, ratio):
+        class Project:
+            def GetSetting(self, key):
+                assert key == "perfProxyResolutionRatio"
+                return ratio
+
+        assert current_proxy_units(Project()) == ratio.lower()
+
+    def test_unknown_proxy_ratio_is_refused(self):
+        class Project:
+            def GetSetting(self, _key):
+                return "mystery"
+
+        with pytest.raises(LayoutModelError, match="unknown"):
+            current_proxy_units(Project())
 
     def test_original_vs_quarter_refused(self):
         model = LayoutModel(1920, 1080,

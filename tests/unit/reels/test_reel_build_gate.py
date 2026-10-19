@@ -1205,6 +1205,14 @@ def _verify_step_module():
     return load_step_module("step_7_02_verify_reels", "step.py")
 
 
+@pytest.fixture(autouse=True)
+def _picture_gate_is_a_separate_unit(monkeypatch):
+    """These tests cover staging and promotion, not Resolve pixel renders."""
+    module = _verify_step_module()
+    monkeypatch.setattr(
+        module, "verify_staged_overlay_pictures", lambda *_args: [])
+
+
 @contextmanager
 def _noop_lease(*_args, **_kwargs):
     yield

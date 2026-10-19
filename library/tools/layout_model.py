@@ -41,6 +41,7 @@ its nearest positioned ancestor.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Optional
 
 from library.tools.resolve_transform import (
@@ -51,12 +52,109 @@ from library.tools.resolve_transform import (
 )
 
 
+_PROXY_POSITION_UNIT_SCALE = {
+    # Pan/Tilt values follow the proxy pixel grid. A quarter-resolution
+    # proxy pixel spans four original pixels, so the stored value needed
+    # for the same screen displacement is one quarter as large.
+    "original": 1.0,
+    "full": 1.0,
+    "half": 2.0,
+    "quarter": 4.0,
+    "eighth": 8.0,
+}
+
+
+def current_proxy_units(project) -> str:
+    """Read the active Resolve proxy ratio used by Pan/Tilt writes."""
+    try:
+        value = project.GetSetting("perfProxyResolutionRatio")
+    except Exception as exc:  # noqa: BLE001 - an unmeasured unit is unsafe
+        raise LayoutModelError(
+            f"cannot read Resolve proxy position units: {exc}") from exc
+    units = str(value or "").strip().lower()
+    aliases = {"original": "original", "full": "full", "half": "half",
+               "quarter": "quarter", "eighth": "eighth"}
+    if units not in aliases:
+        raise LayoutModelError(
+            f"Resolve returned unknown perfProxyResolutionRatio {value!r}")
+    return aliases[units]
+
+
 class LayoutModelError(ValueError):
     """A layout coordinate conversion or transform write is invalid."""
 
 
 class UnitMismatchError(LayoutModelError):
     """A transform write was computed under a different proxy unit setting."""
+
+
+@dataclass(frozen=True)
+class GeometryDescriptor:
+    """Output-canvas geometry plus the native projection used to place it.
+
+    The box is the intended visible item rectangle in output pixels.  The
+    native projection is evidence about the Resolve properties compiled from
+    that intent; verification must still measure the rendered output.
+    """
+
+    frame: tuple[int, int]
+    box: tuple[float, float, float, float]
+    canvas: tuple[float, float]
+    anchor: tuple[float, float] = (0.5, 0.5)
+    parent: Optional[str] = None
+    native_projection: Optional[dict] = None
+    space: str = "output_px"
+
+    def __post_init__(self):
+        if self.space != "output_px":
+            raise LayoutModelError(
+                f"geometry space must be 'output_px', got {self.space!r}")
+        if len(self.frame) != 2 or min(map(int, self.frame)) <= 0:
+            raise LayoutModelError(f"invalid output frame {self.frame!r}")
+        if len(self.canvas) != 2 or min(map(float, self.canvas)) <= 0:
+            raise LayoutModelError(f"invalid item canvas {self.canvas!r}")
+        if len(self.box) != 4:
+            raise LayoutModelError(f"invalid output box {self.box!r}")
+        x0, y0, x1, y1 = map(float, self.box)
+        if (not all(isfinite(value) for value in
+                    (x0, y0, x1, y1, *map(float, self.canvas)))
+                or x1 <= x0 or y1 <= y0):
+            raise LayoutModelError(f"output box must have area, got {self.box!r}")
+        if len(self.anchor) != 2 or any(
+                not 0 <= float(value) <= 1 for value in self.anchor):
+            raise LayoutModelError(f"invalid geometry anchor {self.anchor!r}")
+
+    def to_dict(self) -> dict:
+        return {
+            "space": self.space,
+            "frame": list(self.frame),
+            "box": list(self.box),
+            "position": [(self.box[0] + self.box[2]) / 2.0,
+                         (self.box[1] + self.box[3]) / 2.0],
+            "size": [self.box[2] - self.box[0],
+                     self.box[3] - self.box[1]],
+            "canvas": list(self.canvas),
+            "anchor": list(self.anchor),
+            "parent": self.parent,
+            "native_projection": dict(self.native_projection or {}),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GeometryDescriptor":
+        descriptor = cls(
+            space=data["space"], frame=tuple(data["frame"]),
+            box=tuple(data["box"]), canvas=tuple(data["canvas"]),
+            anchor=tuple(data["anchor"]), parent=data["parent"],
+            native_projection=dict(data.get("native_projection") or {}),
+        )
+        expected = descriptor.to_dict()
+        for key in ("position", "size"):
+            if key in data and (len(data[key]) != 2 or any(
+                    abs(float(actual) - float(wanted)) > 1e-9
+                    for actual, wanted in zip(data[key], expected[key]))):
+                raise LayoutModelError(
+                    f"geometry descriptor {key} disagrees with its output box")
+        return descriptor
 
 
 @dataclass(frozen=True)
@@ -208,6 +306,8 @@ class LayoutModel:
             self.canvas_width, self.canvas_height,
             item_cx, item_cy,
             base_scale, item.transform.draw_gain)
+        pan /= _proxy_position_unit_scale(self.current_pan_units)
+        tilt /= _proxy_position_unit_scale(self.current_tilt_units)
 
         return Transform(
             pan=pan, tilt=tilt,
@@ -217,6 +317,31 @@ class LayoutModel:
             tilt_units=self.current_tilt_units,
             draw_gain=item.transform.draw_gain,
         )
+
+    def place_absolute_box(self, source_size: tuple[float, float],
+                           box: tuple[float, float, float, float], *,
+                           anchor: tuple[float, float] = (0.5, 0.5),
+                           draw_gain: float = FALLBACK_DRAW_GAIN) -> Transform:
+        """Lower one absolute canvas box to a Resolve transform.
+
+        ``box`` is the visible rectangle in delivery-canvas pixels;
+        ``anchor`` describes the source point used to align it.  Every
+        overlay placement path should call this conversion rather than
+        carrying its own Pan/Tilt or scale arithmetic.
+        """
+        if len(anchor) != 2 or any(not 0.0 <= float(v) <= 1.0
+                                  for v in anchor):
+            raise LayoutModelError(f"anchor must be a normalized pair, got {anchor!r}")
+        source_w, source_h = map(float, source_size)
+        x0, y0, x1, y1 = map(float, box)
+        if source_w <= 0 or source_h <= 0:
+            raise LayoutModelError(f"source size must be positive, got {source_size!r}")
+        if x1 <= x0 or y1 <= y0:
+            raise LayoutModelError(f"canvas box must have positive size, got {box!r}")
+        item = LayoutItem(source_w, source_h,
+                          Transform(draw_gain=draw_gain))
+        transform = self.compute_transform(item, (x0, y0, x1, y1), anchor)
+        return transform
 
     def refuse_unit_mismatch(self, transform: Transform) -> Optional[str]:
         """Return a refusal reason if the transform's units do not match.
@@ -259,7 +384,9 @@ class LayoutModel:
         cx, cy = drawn_centre(
             src_w, src_h,
             self.canvas_width, self.canvas_height,
-            pan, tilt, base_scale, item.transform.draw_gain)
+            pan * _proxy_position_unit_scale(self.current_pan_units),
+            tilt * _proxy_position_unit_scale(self.current_tilt_units),
+            base_scale, item.transform.draw_gain)
         x0 = cx - drawn_w / 2.0
         y0 = cy - drawn_h / 2.0
         return (x0, y0, x0 + drawn_w, y0 + drawn_h)
@@ -281,7 +408,10 @@ class LayoutModel:
         canvas_cx, canvas_cy = drawn_centre(
             src_w, src_h,
             self.canvas_width, self.canvas_height,
-            item.transform.pan, item.transform.tilt,
+            item.transform.pan * _proxy_position_unit_scale(
+                self.current_pan_units),
+            item.transform.tilt * _proxy_position_unit_scale(
+                self.current_tilt_units),
             NATIVE_BASE_SCALE, item.transform.draw_gain)
 
         drawn_w = src_w * zoom_x
@@ -306,7 +436,10 @@ class LayoutModel:
         canvas_cx, canvas_cy = drawn_centre(
             src_w, src_h,
             self.canvas_width, self.canvas_height,
-            item.transform.pan, item.transform.tilt,
+            item.transform.pan * _proxy_position_unit_scale(
+                self.current_pan_units),
+            item.transform.tilt * _proxy_position_unit_scale(
+                self.current_tilt_units),
             NATIVE_BASE_SCALE, item.transform.draw_gain)
 
         drawn_w = src_w * zoom_x
@@ -405,7 +538,9 @@ class LayoutModel:
         return drawn_centre(
             src_w, src_h,
             self.canvas_width, self.canvas_height,
-            pan, tilt, base_scale, item.transform.draw_gain)
+            pan * _proxy_position_unit_scale(self.current_pan_units),
+            tilt * _proxy_position_unit_scale(self.current_tilt_units),
+            base_scale, item.transform.draw_gain)
 
     def _parent_base_scale(self, item: LayoutItem) -> float:
         """The base scale for an item with a parent.
@@ -431,6 +566,15 @@ class LayoutModel:
 def _positive(value: float, name: str) -> None:
     if value <= 0:
         raise LayoutModelError(f"{name} must be positive, got {value}")
+
+
+def _proxy_position_unit_scale(units: str) -> float:
+    try:
+        return _PROXY_POSITION_UNIT_SCALE[str(units).lower()]
+    except KeyError as exc:
+        raise LayoutModelError(
+            f"unsupported proxy position units {units!r}; expected one of "
+            f"{sorted(_PROXY_POSITION_UNIT_SCALE)}") from exc
 
 
 def reproduce_300px_offset() -> tuple[float, float]:

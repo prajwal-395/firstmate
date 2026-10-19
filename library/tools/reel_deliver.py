@@ -434,14 +434,12 @@ def timeline_name_for_reel(project_folder: str, reel: Optional[int]) -> str:
 
 def _built_names_for(project_folder: str, number: int,
                      plan_name: str) -> list:
-    """What the build actually placed for this reel, if anything.
+    """What verification promoted for this reel, else what build staged.
 
-    Read off the build record (the `reel.build` record's
-    `reel_build.timelines_built`), never inferred: the record carries the final
-    names including any `--name-suffix`. A reel never built has no
-    entry, which reads as "not built" rather than as the plan's name -
-    the plan's name is what the caller falls back to only when the
-    record says nothing at all.
+    A successful `reel.verify` record has the exact promoted names. Before
+    that exists, read the build record's `timelines_built` and convert its
+    staging suffix, preserving the plan name as the fallback for an
+    unbuilt reel.
     """
     from library.tools.project_layout import ProjectLayout
 
@@ -453,9 +451,16 @@ def _built_names_for(project_folder: str, number: int,
     except (OSError, ValueError):
         return []
     from library.tools import capability_outputs
+    head = f"Reel {int(number):02d} -"
+    verification = capability_outputs.read(
+        state, "reel.verify").get("reel_verification") or {}
+    verified = [name for name in
+                verification.get("timelines_verified") or []
+                if isinstance(name, str) and name.startswith(head)]
+    if verified:
+        return list(dict.fromkeys(verified))
     build = capability_outputs.read(state, "reel.build").get(
         "reel_build") or {}
-    head = f"Reel {int(number):02d} -"
     # `timelines_built` names what was in Resolve when the BUILD node
     # returned: the staging containers, which `verify_reels` then
     # renames onto their finals. A staging name is never a delivery

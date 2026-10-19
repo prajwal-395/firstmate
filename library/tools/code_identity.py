@@ -1113,9 +1113,6 @@ STEP_IMPLEMENTATION_DEPS = {
         # The catalog's retrieval text encoder is shared with footage search;
         # changes to its model loading and embedding path invalidate catalog output.
         "library/tools/analysis/mlx_minilm.py",
-        # The build's native append placement is imported by the catalog
-        # shared-code closure and must invalidate the preflight identity.
-        "library/tools/reel_append_placement.py",
         # Resolve frame fields used by the append placer are centralized
         # here; changes to this adapter affect the catalog's placement rows.
         "library/tools/resolve_temporal.py",
@@ -2882,6 +2879,9 @@ EXEMPT_IMPORTS = {
     # Reel timeline overlay validation and layout lowering run after the
     # preflight outputs are frozen; they cannot change a footage measurement.
     "library/tools/reel_graphics.py",
+    # Resolve overlay geometry only runs during reel construction, after
+    # preflight measurement outputs are frozen.
+    "library/tools/layout_model.py",
     # Live-Resolve ingest machinery.  The only preflight-reachable
     # reference is timeline_transcript.main, a command-line entry point
     # no run executes; preflight transcription never connects to

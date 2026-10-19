@@ -2133,6 +2133,8 @@ def test_reel_verify_operation_corrects_noncurrent_transform_read(
         "plan_path": str(plan_path),
         "timelines_built": [STAGING],
         "staged_timelines": {FINAL: STAGING},
+        "reel_overlay_placements": {STAGING: []},
+        "overlay_picture_scope_complete": True,
         # This is the gain recorded by Reel 24's build log.
         "draw_gain_calibration": {"gain": 1.0},
     }

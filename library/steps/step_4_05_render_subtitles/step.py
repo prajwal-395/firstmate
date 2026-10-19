@@ -1116,6 +1116,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         if tight is None:
             return None
         from library.tools.tight_box import canvas_offset
+        ox, oy = canvas_offset(tight)
         return {
             "width": tight.width,
             "height": tight.height,
@@ -1124,7 +1125,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             # canvas is only the caption's own box, so "is it where a
             # subtitle goes" is a question about the FRAME
             # (`subtitle_qa.check_caption_geometry`).
-            "origin": list(canvas_offset(tight)),
+            "origin": [ox, oy],
+            "absolute_canvas_box": [ox, oy, ox + tight.width,
+                                    oy + tight.height],
             "frame": [tight.full_width, tight.full_height],
         }
 

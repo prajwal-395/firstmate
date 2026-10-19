@@ -54,6 +54,8 @@ def record_uncarried_notes(project_folder: str, markers) -> dict:
     captain's words verbatim, and blocks that reel's sign-off until an
     explicit discharge says what happened to the note.
     """
+
+
     import sys as _sys
 
     try:
@@ -74,6 +76,87 @@ def record_uncarried_notes(project_folder: str, markers) -> dict:
               f"discharge-uncarried {project_folder}` lists what each "
               f"reel owes", file=_sys.stderr, flush=True)
     return report
+
+
+def verify_staged_overlay_pictures(project_folder: str,
+                                   resolve_project_name: str,
+                                   staged: dict,
+                                   build: dict) -> list[str]:
+    """Render and measure every overlay on the held staging timelines."""
+    import json
+    import os
+
+    from library.tools.overlay_verify import verify_rendered_boxes
+    from library.tools.resolve_lock import cursor_excursion, resolve_lease
+    from library.tools.timeline_ingest import resolve_project_exactly
+    from library.tools.reel_build import (
+        ReelVerificationRefused, _connect_resolve,
+    )
+
+    by_staging = build.get("reel_overlay_placements") or {}
+    if build.get("overlay_picture_scope_complete") is not True:
+        raise ReelVerificationRefused(
+            "the build has no complete overlay picture-check scope; "
+            "nothing was promoted", failed_reels=list(staged.values()))
+    overlays_to_check = [name for name in staged.values()
+                         if by_staging.get(name, [])]
+    for staging_name in staged.values():
+        if by_staging.get(staging_name, []):
+            continue
+        evidence_dir = os.path.join(
+            project_folder, "pipeline_output", "scratch",
+            "overlay_picture_checks", staging_name)
+        picture_report = verify_rendered_boxes(
+            None, None, None, [], evidence_dir, allow_empty=True)
+        os.makedirs(evidence_dir, exist_ok=True)
+        with open(os.path.join(evidence_dir, "picture-check.json"),
+                  "w", encoding="utf-8") as report_file:
+            json.dump(picture_report, report_file, indent=2)
+
+    failed_picture_checks = []
+    if overlays_to_check:
+        with resolve_lease("verify rendered overlay boxes", exclusive=True):
+            resolve = _connect_resolve() if overlays_to_check else None
+            if overlays_to_check and not resolve.OpenPage("edit"):
+                raise RuntimeError(
+                    "Resolve would not open the Edit page for rendered "
+                    "overlay verification")
+            project = (resolve_project_exactly(
+                resolve.GetProjectManager(), resolve_project_name)
+                if overlays_to_check else None)
+            for staging_name in overlays_to_check:
+                timeline = next((
+                    project.GetTimelineByIndex(index)
+                    for index in range(
+                        1, int(project.GetTimelineCount() or 0) + 1)
+                    if project.GetTimelineByIndex(index) is not None
+                    and project.GetTimelineByIndex(index).GetName()
+                    == staging_name), None)
+                if timeline is None:
+                    failed_picture_checks.append(staging_name)
+                    continue
+                evidence_dir = os.path.join(
+                    project_folder, "pipeline_output", "scratch",
+                    "overlay_picture_checks", staging_name)
+                with cursor_excursion(
+                        project, timeline,
+                        purpose=f"picture-check {staging_name}"):
+                    picture_report = verify_rendered_boxes(
+                        resolve, project, timeline,
+                        by_staging.get(staging_name, []), evidence_dir)
+                with open(os.path.join(evidence_dir, "picture-check.json"),
+                          "w", encoding="utf-8") as report_file:
+                    json.dump(picture_report, report_file, indent=2)
+                if not picture_report["passed"]:
+                    failed_picture_checks.append(staging_name)
+                    print(f"Rendered overlay picture check refused "
+                          f"{staging_name}: {picture_report}", file=sys.stderr)
+    if failed_picture_checks:
+        raise ReelVerificationRefused(
+            "rendered overlay picture check failed for "
+            + ", ".join(failed_picture_checks),
+            failed_reels=failed_picture_checks)
+    return []
 
 
 def verify_reels(data: dict) -> dict:
@@ -273,6 +356,11 @@ def verify_reels(data: dict) -> dict:
             # it is not composed by hand outside reel_build.py).
             transcript_path=str(transcript_path(project_folder)),
             only_reels=timelines_built)
+        if staged:
+            # Structural conformance proves timeline contents; this second
+            # gate measures what Resolve actually draws before promotion.
+            verify_staged_overlay_pictures(
+                project_folder, resolve_project_name, staged, build)
     except ReelVerificationRefused as gate_refused:
         # The gate refused NAMED reels: exactly those staging
         # containers and their baselines go before the refusal

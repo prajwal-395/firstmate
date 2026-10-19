@@ -1386,6 +1386,24 @@
     1
   ],
   [
+    "library/tools/overlay_verify.py",
+    "verify_rendered_boxes",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/overlay_verify.py",
+    "verify_rendered_boxes",
+    "SetClipEnabled",
+    2
+  ],
+  [
+    "library/tools/overlay_verify.py",
+    "verify_rendered_boxes",
+    "SetClipEnabled",
+    3
+  ],
+  [
     "library/tools/project_model_qualification.py",
     "_setup_fusion_live",
     "AddFusionComp",

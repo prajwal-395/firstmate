@@ -386,7 +386,9 @@ def _fitter_for_style(style: dict, max_width: float,
 def placement_for_box(canvas_w: float, canvas_h: float,
                       canvas_cx: float, canvas_cy: float,
                       full_w: int, full_h: int,
-                      draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
+                      draw_gain: float = FALLBACK_DRAW_GAIN,
+                      pan_units: str = "original",
+                      tilt_units: str = "original") -> dict:
     """The SetProperty values putting a native-pixel clip's centre where
     the full-frame coordinates say.
 
@@ -397,10 +399,16 @@ def placement_for_box(canvas_w: float, canvas_h: float,
     (see `resolve_transform`); callers pinning the 2026-09-11
     calibration pass 1.0 explicitly.
     """
-    pan, tilt = pan_tilt_for_centre(canvas_w, canvas_h, full_w, full_h,
-                                    canvas_cx, canvas_cy,
-                                    NATIVE_BASE_SCALE, draw_gain)
-    return {"scaling": 1, "pan": pan, "tilt": tilt}
+    from library.tools.layout_model import LayoutModel
+
+    model = LayoutModel(full_w, full_h, pan_units, tilt_units)
+    transform = model.place_absolute_box(
+        (canvas_w, canvas_h),
+        (canvas_cx - canvas_w / 2.0, canvas_cy - canvas_h / 2.0,
+         canvas_cx + canvas_w / 2.0, canvas_cy + canvas_h / 2.0),
+        draw_gain=draw_gain)
+    return {"scaling": transform.scaling, "pan": transform.pan,
+            "tilt": transform.tilt}
 
 
 #: How far the ink of a correctly placed overlay may sit from the

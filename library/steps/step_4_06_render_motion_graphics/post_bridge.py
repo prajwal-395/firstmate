@@ -739,69 +739,18 @@ def render_one_segment(planned: dict, out_dir: str,
             f"Unknown overlay_geometry {geometry!r}; "
             f"known: {list(GEOMETRIES)}.")
     props = planned["props"]
-    # The tight canvas, where declared. Computed from the same props
-    # the full render draws from, so the box fits the layout the frame
-    # would have drawn - see library/tools/mg_tight_box.py.
+    # A tight placement is measured from the rendered pixels below.
+    # TSX/Python layout estimates are not placement truth: a full-canvas
+    # render is the probe, and its alpha union is cropped once without a
+    # second layout or render.
     tight = None
     render_props = props
     tight_fallback = ""
     tight_refusal = None
     if geometry == "tight":
-        from library.tools.mg_tight_box import (
-            TightRefusal,
-            tighten_motion_graphics_props_with_reason,
-        )
-        from library.tools.tight_box import (
-            TightBoxClipsInk,
-            TightBoxMismatch,
-        )
-        # The timeline this graphic lands on: the delivery format, the
-        # same size the props render at. Resolved here rather than
-        # trusted from the props so a stale or foreign prop cannot
-        # gate itself against the wrong frame.
-        timeline_size = tuple(resolve_delivery_format(
-            project_folder or None))
-        try:
-            tight, tight_refusal = \
-                tighten_motion_graphics_props_with_reason(
-                    props, project_folder or "",
-                    timeline_size=timeline_size,
-                    draw_gain=draw_gain)
-        except (TightBoxClipsInk, TightBoxMismatch) as exc:
-            # The clamp gate and the frame bound: this graphic cannot
-            # ride a small box on this timeline (or its predicted box
-            # is bigger than the frame), so it renders full canvas.
-            # SAID, not silent - the caption path records the same
-            # fallback as `tight_fallback`, and the artefact sidecar
-            # records the machine-readable refusal beside it.
-            tight = None
-            tight_refusal = getattr(exc, "refusal", None)
-            if tight_refusal is None:
-                code = ("canvas_larger_than_frame"
-                        if isinstance(exc, TightBoxClipsInk)
-                        else "placement_unholdable")
-                kinds = sorted({
-                    str(e.get("element", ""))
-                    for e in props.get("elements", [])
-                    if e.get("element")})
-                tight_refusal = TightRefusal(
-                    reason=code, element=",".join(kinds) or None,
-                    detail=str(exc)[:500])
-            tight_fallback = str(exc)[:500]
-            print(f"  {progress} union unplaceable as tight - full "
-                  f"canvas: {tight_fallback[:300]}", file=sys.stderr)
-        if tight is None and tight_refusal is not None:
-            # A structural refusal (accents, assets, zones, coverage):
-            # the record says why, exactly as the raised paths do.
-            if not tight_fallback:
-                tight_fallback = tight_refusal.message()
-            print(f"  {progress} union covers the frame - full canvas "
-                  f"({tight_refusal.reason})", file=sys.stderr)
-        elif tight is not None:
-            render_props = tight.props
-            print(f"  {progress} tight {tight.width}x{tight.height} "
-                  f"(full {tight.full_width}x{tight.full_height})",
-                  file=sys.stderr)
+        render_props = props
+        print(f"  {progress} will bind placement to rendered alpha",
+              file=sys.stderr)
     else:
         # Full carrying was DECLARED (explicit geometry or the
         # project's own `pipeline.motion_graphics_overlay_geometry`),
@@ -819,18 +768,20 @@ def render_one_segment(planned: dict, out_dir: str,
     # disk: the file is content-keyed below.
     placement_label = segment_name or f"mg_{planned['index']:03d}"
     remotion = remotion_dir or _remotion_dir()
-    force_static_asset_video = (
-        tight is not None
-        and bool(render_props.get("elements"))
-        and all(element.get("element") == "channel_bug"
-                for element in render_props["elements"]))
-
     def _tight_record():
-        return ({
+        if tight is None:
+            return None
+        from library.tools.tight_box import canvas_offset
+        ox, oy = canvas_offset(tight)
+        return {
             "width": tight.width,
             "height": tight.height,
             "placement": tight.placement,
-        } if tight is not None else None)
+            "origin": [ox, oy],
+            "absolute_canvas_box": [ox, oy, ox + tight.width,
+                                    oy + tight.height],
+            "frame": [tight.full_width, tight.full_height],
+        }
 
     def _resolved_geometry():
         # What the file IS, for the record and the digest: a clamp or
@@ -964,8 +915,6 @@ def render_one_segment(planned: dict, out_dir: str,
                  names["still_key_path"], names["still_key"]),
                 ("video", names["video_path"],
                  names["video_key_path"], names["video_key"])):
-            if force_static_asset_video and media_type == "still":
-                continue
             _recorded = _read_recorded_key(key_path)
             _reuse_ok, _ = _cascade.overlay_reuse_allowed(key, _recorded)
             if not _reuse_ok or not os.path.isfile(overlay_path):
@@ -1010,12 +959,11 @@ def render_one_segment(planned: dict, out_dir: str,
         """
         if rendered is None or geometry != "tight":
             return rendered
-        if tight is not None or not tight_fallback:
+        if tight is not None:
             return rendered
-        from library.tools.mg_tight_box import MEASURED_RETRY_REASONS
         from library.tools import mg_tight_box as mgt
-        if (tight_refusal is not None
-                and tight_refusal.reason not in MEASURED_RETRY_REASONS):
+        if (tight_refusal is not None and tight_refusal.reason not in
+                mgt.MEASURED_RETRY_REASONS):
             return rendered
         mgt.bind_probe_tight(
             placement_label, {"props": props}, rendered,
@@ -1122,12 +1070,7 @@ def render_one_segment(planned: dict, out_dir: str,
 
     frames = _canonicalize_motion_frames(frames)
     identical = _motion_frames_are_identical(frames)
-    # A tight channel bug can require a rail-height canvas (the measured
-    # artwork stays small, while transparent space keeps its Pan/Tilt
-    # placeable). Reel PNGs have a stricter carriage contract: their alpha
-    # must fill the file, so carry this otherwise-static asset as alpha video.
-    # The pixels and placement stay exactly those the tight renderer measured.
-    if identical and not force_static_asset_video:
+    if identical:
         output_path = names["still_path"]
         shutil.copyfile(frames[0], output_path)
         media_type = "still"
@@ -1153,10 +1096,7 @@ def render_one_segment(planned: dict, out_dir: str,
         media_type = "video"
         reuse_key = names["video_key"]
         reuse_key_path = names["video_key_path"]
-        reason = ("static tight asset with placement padding"
-                  if identical and force_static_asset_video
-                  else "changing pixels")
-        print(f"    {reason}: carried as {OVERLAY_FORMAT_NAME}",
+        print(f"    changing pixels: carried as {OVERLAY_FORMAT_NAME}",
               file=sys.stderr)
 
     # Behind-subject rendering consumes every raster frame when it

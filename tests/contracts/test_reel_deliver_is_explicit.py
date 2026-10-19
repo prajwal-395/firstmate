@@ -119,6 +119,26 @@ def test_deliver_refuses_an_unknown_or_unapproved_reel(tmp_path):
         reel_deliver.timeline_name_for_reel(folder, 4)
 
 
+def test_deliver_prefers_the_promoted_name_from_verification(tmp_path):
+    from library.tools import reel_deliver
+
+    folder = _project_with_proposal(tmp_path, approved=(26,))
+    plan_name = reel_deliver._proposal_moments(folder)[0].timeline_name
+    state = {
+        "capability_outputs": {
+            "reel.build": {"reel_build": {
+                "timelines_built": [
+                    f"{plan_name}r (rebuild staging)"]}},
+            "reel.verify": {"reel_verification": {
+                "timelines_verified": [plan_name]}},
+        },
+    }
+    (Path(folder) / "pipeline_data.json").write_text(
+        json.dumps(state), encoding="utf-8")
+
+    assert reel_deliver.timeline_name_for_reel(folder, 26) == plan_name
+
+
 # ── The declaration slot, not a default ───────────────────────────
 
 

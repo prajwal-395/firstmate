@@ -901,6 +901,15 @@ def test_a_batch_starts_every_job_together_and_deletes_only_its_own(tmp_path):
     assert [job["JobId"] for job in project.GetRenderJobList()] == ["captain"]
 
 
+def test_segment_render_accepts_geometry_frame_dimensions(tmp_path):
+    tl, project = _project_2()
+    segment_renderer.render_batch(
+        FakeResolve(project), project, tl, [(300, 300)],
+        output_dir=str(tmp_path), resolution=(1920, 1080))
+    settings = project.render_settings
+    assert (settings["FormatWidth"], settings["FormatHeight"]) == (1920, 1080)
+
+
 def test_one_range_that_did_not_take_refuses_the_whole_batch(tmp_path):
     tl, project = _project_2(lie_on=2000)
     batch = segment_renderer.render_batch(

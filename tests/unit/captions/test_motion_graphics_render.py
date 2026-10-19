@@ -91,15 +91,19 @@ def _stub_npx(tmp_path: Path) -> Path:
     renderer.write_text(
         "import json, shutil, sys\n"
         "from pathlib import Path\n"
-        "from PIL import Image\n"
+        "from PIL import Image, ImageDraw\n"
         "args = sys.argv[1:]\n"
         "out = Path(args[3])\n"
         "props_path = args[args.index('--props') + 1]\n"
         "props = json.loads(Path(props_path).read_text(encoding='utf-8'))\n"
         "out.mkdir(parents=True, exist_ok=True)\n"
         "probe = out / '.probe.png'\n"
-        "Image.new('RGBA', (int(props['width']), int(props['height'])),\n"
-        "          (0, 0, 0, 0)).save(probe)\n"
+        "image = Image.new('RGBA', (int(props['width']), int(props['height'])),\n"
+        "                  (0, 0, 0, 0))\n"
+        "x0, y0 = int(props['width']) // 2 - 100, int(props['height']) // 2 - 100\n"
+        "ImageDraw.Draw(image).rectangle((x0, y0, x0 + 200, y0 + 200),\n"
+        "                                fill=(255, 255, 255, 255))\n"
+        "image.save(probe)\n"
         "for i in range(int(props['durationInFrames'])):\n"
         "    shutil.copyfile(probe, out / f'frame-{i}.png')\n"
         "probe.unlink()\n",
@@ -461,8 +465,7 @@ def test_default_path_is_tight(tmp_path, monkeypatch):
     out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
                      str(tmp_path))
     name = os.path.basename(out["overlay_path"])
-    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov", name), name
-    assert "_tight" not in name
+    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}_tight\.mov", name), name
     assert out["geometry"] == "tight"
     assert out["tight_box"] is not None
     assert os.path.isfile(out["overlay_path"])
@@ -506,6 +509,17 @@ def test_identical_rendered_pixels_are_kept_as_one_still(
     assert tuple(center) == (128, 128, 128, 128)
 
 
+def test_static_channel_bug_is_a_single_png_still(tmp_path, monkeypatch):
+    element = _el("channel_bug", duration=24)
+    element["asset"] = "/tmp/lucie-mark.png"
+    out, _ = _render(monkeypatch, _planned([element]), str(tmp_path),
+                     animated=False)
+
+    assert out["media_type"] == "still"
+    assert out["overlay_path"].endswith(".png")
+    assert not list(tmp_path.glob("*.mov"))
+
+
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
 def test_tight_renders_the_union_and_places_it_by_transform(
         tmp_path, monkeypatch):
@@ -516,11 +530,12 @@ def test_tight_renders_the_union_and_places_it_by_transform(
     out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
                      str(tmp_path), overlay_geometry="tight")
     name = os.path.basename(out["overlay_path"])
-    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov", name), name
+    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}_tight\.mov", name), name
     assert out["geometry"] == "tight"
     box = out["tight_box"]
     assert box["width"] < 1080 and box["height"] < 1920
-    assert "origin" not in box
+    assert box["absolute_canvas_box"]
+    assert box["origin"]
     placement = box["placement"]
     assert abs(placement["tilt"]) <= 3400
     stem = out["overlay_path"][:-len(".mov")]
@@ -539,12 +554,9 @@ def test_tight_renders_the_union_and_places_it_by_transform(
         "not the delivery frame")
 
 
-def test_a_predicted_clamp_refusal_is_retried_from_pixels(
+def test_rendered_pixels_are_the_only_tight_box_measurement(
         tmp_path, monkeypatch):
-    """The prediction is not the verdict: a graphic the predicted
-    clamp gate refuses is rebound from its own rendered pixels, and a
-    probe whose ink binds reaches the timeline as a verified tight
-    crop rather than full canvas."""
+    """The pre-render estimate is never consulted for placement."""
     import library.tools.mg_tight_box as mg_tight_box
     from library.tools.tight_box import TightBoxMismatch
 
@@ -570,8 +582,8 @@ def test_a_predicted_clamp_refusal_is_retried_from_pixels(
         open(stem[:-len("_tight")] + "_tightness.json",
              encoding="utf-8"))
     assert probe_sidecar["outcome"] == "full"
-    assert probe_sidecar["reason"] == "placement_unholdable"
-    assert probe_sidecar["element"] == "title_lockup"
+    assert probe_sidecar["reason"] == ""
+    assert probe_sidecar["element"] is None
 
 
 def test_explicit_full_declares_itself_on_the_artefact(
@@ -593,24 +605,17 @@ def test_explicit_full_declares_itself_on_the_artefact(
     assert census["full_by_design"] == 1
 
 
-def test_accents_stay_full_canvas_when_tight_is_asked(tmp_path, monkeypatch):
+def test_frame_accents_use_their_measured_alpha_bounds(tmp_path, monkeypatch):
     out, _ = _render(monkeypatch, _planned([_el("frame_accents")]),
                      str(tmp_path), overlay_geometry="tight")
-    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov",
+    assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}_tight\.mov",
                         os.path.basename(out["overlay_path"]))
-    assert "_tight" not in out["overlay_path"]
-    # The file IS full canvas, so the record says full: a structural
-    # refusal that kept the requested "tight" is how full-canvas files
-    # passed as tighten candidates. The refusal names itself, on the
-    # record and on the artefact sidecar beside the props.
-    assert out["geometry"] == "full"
-    assert out["tight_box"] is None
-    assert "frame_accents_span_by_design" in out["tight_fallback"]
+    assert out["geometry"] == "tight"
+    assert out["tight_box"] is not None
     stem = out["overlay_path"][:-len(".mov")]
     sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
-    assert sidecar["outcome"] == "full"
-    assert sidecar["reason"] == "frame_accents_span_by_design"
-    assert sidecar["element"] == "frame_accents"
+    assert sidecar["outcome"] == "tight"
+    assert sidecar["reason"] == ""
 
 
 # --------------------------------------------------------------------------

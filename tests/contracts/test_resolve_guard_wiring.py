@@ -419,8 +419,7 @@ CURSOR_SETTERS = {
     # covered by that lease.
     "library/tools/resolved/ui_transaction.py": (
         2, "exclusive: the broker's executor holds the lease"),
-    # Incremental staging cleanup restores the approved timeline through
-    # resolve_lock's runtime-guarded cursor establishment.
+    # Incremental staging cleanup runs under the build lease.
     "library/tools/reel_incremental.py": (
         1, "exclusive: build_staged_incremental runs under the build lease"),
 }

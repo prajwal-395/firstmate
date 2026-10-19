@@ -8851,10 +8851,11 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 and os.path.splitext(str(segment["overlay_path"]))[1].lower()
                 == ".png"):
             from library.tools.reel_graphics import (
-                ReelGraphicsError, assert_tight_alpha,
+                ReelGraphicsError, assert_tight_overlay_media,
             )
             try:
-                assert_tight_alpha(segment["overlay_path"], tight_box=segment.get("tight_box"))
+                assert_tight_overlay_media(
+                    segment["overlay_path"], segment.get("tight_box"))
             except ReelGraphicsError as exc:
                 raise ReelBuildError(f"{name}: {exc}") from exc
         if project_folder:
@@ -8935,6 +8936,13 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # placement (Reel 09: the captain's hand corrections), so a
         # rebuild lands where they put things.
         tight = segment.get("tight_box") or {}
+        placement_anchor = tight.get("anchor", (0.5, 0.5))
+        if isinstance(placement_anchor, str):
+            placement_anchor = {
+                "top_left": (0.0, 0.0), "top_right": (1.0, 0.0),
+                "bottom_left": (0.0, 1.0),
+                "bottom_right": (1.0, 1.0), "center": (0.5, 0.5),
+            }.get(placement_anchor, (0.5, 0.5))
         placed_label = (segment or {}).get("placement_label") or None
         if seen_ids is not None:
             seen_ids.append(placed_segment_id)
@@ -8943,6 +8951,20 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         canvas = ((tight.get("width"), tight.get("height"))
                   if tight.get("width") and tight.get("height")
                   else None)
+        geometry_descriptor = None
+        if canvas is not None:
+            from library.tools.layout_model import GeometryDescriptor
+            geometry_frame = frame or (
+                int(timeline.GetSetting("timelineResolutionWidth")),
+                int(timeline.GetSetting("timelineResolutionHeight")),
+            )
+            geometry_descriptor = GeometryDescriptor(
+                frame=tuple(map(int, geometry_frame)),
+                box=tuple(map(float, tight.get("absolute_canvas_box")
+                              or (0, 0, geometry_frame[0],
+                                  geometry_frame[1]))),
+                canvas=tuple(map(float, canvas)),
+                anchor=tuple(placement_anchor)).to_dict()
         # `draw_intent` arms the pixel half: the held values are judged
         # against what the overlay is FOR - a declared pin where the
         # captain put one - so a stale-carriage value that reads back
@@ -8969,6 +8991,9 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             intent_matched=intent_applied,
             draw_gain=draw_gain,
             resolve_project=project,
+            absolute_box=tight.get("absolute_canvas_box"),
+            anchor=tuple(placement_anchor),
+            geometry_descriptor=geometry_descriptor,
             project_folder=project_folder,
             timeline_name=name,
             draw_intent=draw_intent_for_segment(
@@ -9002,6 +9027,9 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 "frames_dir": "",
                 "timeline_start_frame": record_frame,
                 "duration_frames": int(duration_frames),
+                "absolute_box": (tight.get("absolute_canvas_box")
+                                 or [0, 0, int(frame[0]), int(frame[1])]),
+                "geometry": geometry_descriptor,
                 "source_start_frame": 0,
                 "transform": (dict(held_transform)
                               if isinstance(held_transform, Mapping) else None),
@@ -9451,6 +9479,29 @@ def prepare_reel_timeline(moment, master_clips, subtitle_segments, fps,
     picture_runs = _look_runs.frame_runs(placements_list, fps)
     overlay_runs = _ending_runs.overlay_runs_before_tail_cards(
         picture_runs, cards)
+    # A channel mark is a project declaration with a measured box on the
+    # delivery canvas. Keep it on picture runs only, through the same
+    # overlay planner as captions and other graphics, so the tail card
+    # owns the end of the reel without an out-of-band timeline item.
+    from library.tools.reel_graphics import (
+        ReelGraphicsError as _ReelGraphicsError,
+        corner_brand_bug_segment as _corner_brand_bug_segment,
+        declared_corner_brand_bug as _declared_corner_brand_bug,
+    )
+    try:
+        _corner_bug = _declared_corner_brand_bug(project_folder)
+        if _corner_bug is not None:
+            for _start, _end in overlay_runs:
+                _segment = _corner_brand_bug_segment(
+                    _corner_bug["asset"], (width, height),
+                    tuple(_corner_bug["box"]), _start, _end, _end,
+                    fps=fps, draw_gain=draw_gain)
+                _segment["segment_id"] = (
+                    f"corner_brand_bug_{_start}_{_end}")
+                semantic_segments = list(semantic_segments or [])
+                semantic_segments.append(_segment)
+    except _ReelGraphicsError as exc:
+        raise ReelBuildError(f"{name}: {exc}") from exc
     _header_window = None
     if look is not None:
         from library.tools.tv_frame import screen_window_rect
@@ -9936,6 +9987,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # throw away (library/tools/reel_placed_assets.py).
     # Already promoted out of scratch by `prepare_reel_timeline`.
     from library.tools.reel_placed_assets import assert_placeable
+    _sweep_records: list = []
+    _card_picture_records: list = []
     head_tail_at = 0
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
@@ -9975,11 +10028,38 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # rate it chose, and `source_frames` is what was measured
         # off the file.
         _card_frames = card.source_frames or card.duration_frames
-        pool.AppendToTimeline([{
+        card_placed = pool.AppendToTimeline([{
             "mediaPoolItem": card_item, "startFrame": 0,
             "endFrame": _card_frames, "mediaType": 1,
             "trackIndex": dest_row, "recordFrame": card.reel_start_frame,
         }])
+        if not card_placed:
+            raise ReelBuildError(
+                f"{name}: Resolve would not place card {path!r} at frame "
+                f"{card.reel_start_frame}")
+        from library.tools.overlay_placement import apply_placement_transform
+        card_box = (0, 0, int(width), int(height))
+        card_note = apply_placement_transform(
+            timeline, dest_row, int(card.reel_start_frame),
+            {"scaling": 1.0, "pan": 0.0, "tilt": 0.0},
+            label=f"card at {card.reel_start_frame}", kind="card",
+            canvas=(int(width), int(height)), frame=(int(width), int(height)),
+            absolute_box=card_box, anchor=(0.5, 0.5),
+            resolve_project=project, project_folder=project_folder,
+            timeline_name=name)
+        if card_note:
+            print(f"  {name}: {card_note}", file=sys.stderr)
+        _card_picture_records.append({
+            "label": f"card {getattr(card, 'placement', 'graphic')} "
+                     f"at {card.reel_start_frame}",
+            "track_index": dest_row,
+            "timeline_start_frame": int(card.reel_start_frame),
+            "duration_frames": int(card.duration_frames),
+            "absolute_box": list(card_box),
+            "canvas_wh": [int(width), int(height)],
+            "overlay_path": path,
+            "source_start_frame": 0,
+        })
 
     # The footage lookup is `pool_item_for` now, module level, because
     # every import in this module has to ask the same question and a
@@ -10172,7 +10252,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # timeline after the build and judges stored against intent.
     # REPORTED, never raised - collected here, run once, after the last
     # placement and before any row deletion moves the indices.
-    _sweep_records: list = []
     screen_window = None
     if look is not None:
         from library.tools import reel_look as _look
@@ -10499,6 +10578,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             # captions (legacy canvas, no render props) ride without it,
             # exactly as before.
             _caption_canvas = _segment_canvas(segment)
+            caption_geometry = None
+            caption_box = (segment.get("tight_box") or {}).get(
+                "absolute_canvas_box")
+            if _caption_canvas is not None:
+                from library.tools.layout_model import GeometryDescriptor
+                caption_geometry = GeometryDescriptor(
+                    frame=(int(width), int(height)),
+                    box=tuple(map(float, caption_box
+                                  or (0, 0, width, height))),
+                    canvas=tuple(map(float, _caption_canvas)),
+                ).to_dict()
             placed, note = place_overlay_segment(
                 pool, timeline, items[0],
                 track_index=track_plan.caption_row().index,
@@ -10515,6 +10605,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 intent_matched=applied_intent_keys,
                 draw_gain=draw_gain,
                 resolve_project=project,
+                absolute_box=caption_box,
+                geometry_descriptor=caption_geometry,
                 project_folder=project_folder,
                 timeline_name=name,
                 draw_intent=_draw_intent_for_segment(
@@ -10567,6 +10659,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                     "frames_dir": frame_dir,
                     "timeline_start_frame": record_start,
                     "duration_frames": content_frames,
+                    "absolute_box": (
+                        caption_box
+                        or [0, 0, int(width), int(height)]),
+                    "geometry": caption_geometry,
                     "source_start_frame": segment["source_in_frame"],
                     "transform": (dict(held_transform)
                                   if isinstance(held_transform, Mapping) else None),
@@ -11052,7 +11148,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     build_record["fps"] = float(fps)
     build_record["placements"] = serializable_placements(
         placements_list, fps=float(fps))
-    build_record["overlay_placements"] = [dict(row) for row in _sweep_records]
+    build_record["overlay_placements"] = [
+        dict(row) for row in (*_sweep_records, *_card_picture_records)]
     from library.tools.reel_otio_placement import RecordingTimeline
     if (resolve_app is not None and placement_expected is None
             and not isinstance(timeline, RecordingTimeline)):
@@ -16822,6 +16919,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # rate every derivation below was planned on.
         "reel_placements": reel_placements,
         "reel_overlay_placements": reel_overlay_placements,
+        # Every graphic placement path contributes a record, even when
+        # the frame contains no overlays. The verification node uses this
+        # declaration to distinguish a true empty overlay set from an old
+        # or incomplete build record.
+        "overlay_picture_scope_complete": True,
         "reel_fps": float(fps),
         "plan_path": proposal_path,
         "resolve_project_name": resolve_name,

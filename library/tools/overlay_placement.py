@@ -221,6 +221,9 @@ def apply_placement_transform(timeline, track_index: int,
                               intent_matched: Optional[list] = None,
                               draw_gain: float = FALLBACK_DRAW_GAIN,
                               resolve_project=None,
+                              absolute_box: tuple | None = None,
+                              anchor: tuple[float, float] = (0.5, 0.5),
+                              geometry_descriptor: dict | None = None,
                               project_folder: str | None = None,
                               timeline_name: str | None = None
                               ) -> str:
@@ -275,6 +278,9 @@ def apply_placement_transform(timeline, track_index: int,
                 placement_label=placement_label,
                 intent_matched=intent_matched, draw_gain=draw_gain,
                 resolve_project=resolve_project,
+                absolute_box=absolute_box,
+                anchor=anchor,
+                geometry_descriptor=geometry_descriptor,
                 project_folder=project_folder,
                 timeline_name=timeline_name)))
         return ""
@@ -288,8 +294,85 @@ def apply_placement_transform(timeline, track_index: int,
                                            draw_gain=draw_gain)
     if provenance == "declared":
         name = f"{name} (declared position)"
-    if not placement:
+    if not placement and absolute_box is None:
         return ""
+    if absolute_box is not None and canvas is not None:
+        # Placement is lowered at the write site, against this exact
+        # timeline and its active proxy units. The recorded transform is
+        # only a pre-render hint; the absolute canvas box is the contract.
+        try:
+            from library.tools.layout_model import (
+                GeometryDescriptor, LayoutModel, current_proxy_units,
+            )
+            actual_frame = (
+                int(timeline.GetSetting("timelineResolutionWidth")),
+                int(timeline.GetSetting("timelineResolutionHeight")),
+            )
+            units = current_proxy_units(resolve_project)
+            model = LayoutModel(*actual_frame, units, units)
+            descriptor = (GeometryDescriptor.from_dict(geometry_descriptor)
+                          if geometry_descriptor is not None else
+                          GeometryDescriptor(
+                              frame=tuple(map(int, frame or actual_frame)),
+                              box=tuple(map(float, absolute_box)),
+                              canvas=tuple(map(float, canvas)),
+                              anchor=tuple(anchor)))
+            if (tuple(map(int, descriptor.frame)) != actual_frame
+                    or tuple(map(float, descriptor.box))
+                    != tuple(map(float, absolute_box))
+                    or tuple(map(float, descriptor.canvas))
+                    != tuple(map(float, canvas))):
+                return (f"{name}: geometry descriptor does not match the "
+                        "planned frame, box, and item canvas")
+            if provenance == "declared":
+                # A captain's declared placement remains the requested
+                # geometry. Describe the pixels that its native projection
+                # predicts, while keeping the independent render check as
+                # the actual verification.
+                from library.tools.layout_model import LayoutItem, Transform
+                projected = Transform(
+                    pan=float(placement.get("pan", placement.get("Pan", 0))),
+                    tilt=float(placement.get("tilt", placement.get("Tilt", 0))),
+                    zoom_x=float(placement.get("zoom_x", placement.get(
+                        "ZoomX", placement.get("zoom", 1)))),
+                    zoom_y=float(placement.get("zoom_y", placement.get(
+                        "ZoomY", placement.get("zoom", 1)))),
+                    scaling=float(placement.get("scaling", 1)),
+                    pan_units=units, tilt_units=units, draw_gain=draw_gain)
+                descriptor = GeometryDescriptor(
+                    frame=descriptor.frame, box=model.placed_box(
+                        LayoutItem(float(canvas[0]), float(canvas[1]),
+                                   projected)),
+                    canvas=descriptor.canvas, anchor=descriptor.anchor,
+                    parent=descriptor.parent)
+            else:
+                lowered = model.place_absolute_box(
+                    canvas,
+                    tuple(float(v) for v in absolute_box),
+                    anchor=anchor,
+                    draw_gain=draw_gain)
+                placement = {"scaling": lowered.scaling,
+                             "pan": lowered.pan, "tilt": lowered.tilt,
+                             "zoom_x": lowered.zoom_x,
+                             "zoom_y": lowered.zoom_y}
+            descriptor = GeometryDescriptor(
+                frame=descriptor.frame, box=descriptor.box,
+                canvas=descriptor.canvas, anchor=descriptor.anchor,
+                parent=descriptor.parent,
+                native_projection={
+                    **placement,
+                    "pan_units": units,
+                    "tilt_units": units,
+                })
+            if geometry_descriptor is not None:
+                geometry_descriptor.clear()
+                geometry_descriptor.update(descriptor.to_dict())
+            if frame and tuple(map(int, frame)) != actual_frame:
+                return (f"{name}: timeline frame is {actual_frame[0]}x"
+                        f"{actual_frame[1]}, but its declared overlay box "
+                        f"was rendered for {frame[0]}x{frame[1]}")
+        except Exception as exc:  # noqa: BLE001 - never write guessed units
+            return f"{name}: cannot lower absolute overlay box: {exc}"
     try:
         items = timeline.GetItemListInTrack("video", track_index) or []
     except Exception:  # noqa: BLE001 - a proxy that does not serve it
@@ -333,6 +416,20 @@ def apply_placement_transform(timeline, track_index: int,
                 placed_item, prop, value, item_identity=item_identity,
                 **write_context)
         except Exception:  # noqa: BLE001 - judged below, not raised
+            ok = False
+        if not ok:
+            refused.append(f"{prop}={value}")
+            continue
+        pending.append((prop, float(value)))
+    for prop, key in (("ZoomX", "zoom_x"), ("ZoomY", "zoom_y")):
+        value = placement.get(key)
+        if value is None:
+            continue
+        try:
+            ok = set_property(
+                placed_item, prop, float(value), item_identity=item_identity,
+                **write_context)
+        except Exception:  # noqa: BLE001 - judged below
             ok = False
         if not ok:
             refused.append(f"{prop}={value}")
@@ -451,6 +548,9 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           intent_matched: Optional[list] = None,
                           draw_gain: float = FALLBACK_DRAW_GAIN,
                           resolve_project=None,
+                          absolute_box: tuple | None = None,
+                          anchor: tuple[float, float] = (0.5, 0.5),
+                          geometry_descriptor: dict | None = None,
                           project_folder: str | None = None,
                           timeline_name: str | None = None
                           ) -> tuple[bool, str]:
@@ -492,4 +592,7 @@ def place_overlay_segment(media_pool, timeline, pool_item,
         draw_intent=draw_intent, canvas=canvas, frame=frame,
         placement_label=placement_label, intent_matched=intent_matched,
         draw_gain=draw_gain, resolve_project=resolve_project,
+        absolute_box=absolute_box,
+        anchor=anchor,
+        geometry_descriptor=geometry_descriptor,
         project_folder=project_folder, timeline_name=timeline_name)

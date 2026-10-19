@@ -43,6 +43,8 @@ from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 #: threshold (`qa.subtitle_qa.ALPHA_INK_THRESHOLD`) without importing
 #: the QA chain for one number.
 ALPHA_INK_THRESHOLD = 16
+RENDERED_BOX_INK_THRESHOLD = 64
+RENDERED_BOX_MARGIN_PX = 32
 
 #: How far the stored-render ink centroid may sit from the
 #: intent-render one before the pixel half fails, in delivery-frame
@@ -55,8 +57,22 @@ def _numbers(stored: Optional[dict]) -> Optional[Dict[str, float]]:
     if not isinstance(stored, dict):
         return None
     try:
-        return {key: float(stored[key])
-                for key in ("scaling", "pan", "tilt")}
+        def read(lower, upper, default=None):
+            value = stored.get(lower, stored.get(upper, default))
+            return float(value) if value is not None else None
+
+        zoom = read("zoom", "Zoom", 1.0)
+        values = {
+            "scaling": read("scaling", "Scaling"),
+            "pan": read("pan", "Pan"),
+            "tilt": read("tilt", "Tilt"),
+            "zoom_x": read("zoom_x", "ZoomX", zoom),
+            "zoom_y": read("zoom_y", "ZoomY", zoom),
+        }
+        if any(values[key] is None
+               for key in ("scaling", "pan", "tilt")):
+            return None
+        return values
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -125,7 +141,13 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
             })
             continue
         checked += 1
-        gaps = {key: stored[key] - expected[key] for key in expected}
+        expected_values = _numbers(expected)
+        if expected_values is None:
+            skipped.append({"label": label,
+                            "reason": "expected transform is unreadable"})
+            continue
+        gaps = {key: stored[key] - expected_values[key]
+                for key in expected_values}
         worst = max(abs(gap) for gap in gaps.values())
         if worst > tolerance:
             findings.append({
@@ -134,11 +156,11 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
                 "segment_id": segment_id,
                 "provenance": provenance,
                 "stored": stored,
-                "expected": dict(expected),
+                "expected": expected_values,
                 "gap": gaps,
                 "verdict": (
                     f"stored {stored} is not the {provenance} "
-                    f"{dict(expected)} (worst gap {worst:.1f} past "
+                    f"{expected_values} (worst gap {worst:.1f} past "
                     f"tolerance {tolerance}) - a wrong-but-stored "
                     f"position: it reads back cleanly and sits "
                     f"where nothing intended"),
@@ -223,8 +245,319 @@ def composite_ink_centroid(frame_path: str, placement: dict,
                                draw_gain=draw_gain)
     except (KeyError, TypeError, ValueError):
         return None
-    return (ox + (ink[0] + ink[2]) / 2.0,
-            oy + (ink[1] + ink[3]) / 2.0)
+    zoom_x = float(placement.get("zoom_x", placement.get("zoom", 1.0)))
+    zoom_y = float(placement.get("zoom_y", placement.get("zoom", 1.0)))
+    source_w, source_h = map(float, canvas_wh)
+    centre_x, centre_y = ox + source_w / 2.0, oy + source_h / 2.0
+    return (centre_x + ((ink[0] + ink[2]) / 2.0 - source_w / 2.0) * zoom_x,
+            centre_y + ((ink[1] + ink[3]) / 2.0 - source_h / 2.0) * zoom_y)
+
+
+def verify_rendered_boxes(resolve, project, timeline, records: Sequence[dict],
+                          output_dir: str, *, tolerance_px: int = 12,
+                          allow_empty: bool = False) -> dict:
+    """Measure each overlay's actual rendered box against its reel box.
+
+    Each item is rendered twice at its midpoint: once with the item
+    enabled and once disabled. Their pixel difference isolates what
+    that overlay actually contributed to the composited picture.
+    Samples and the measured boxes are retained under pipeline output.
+    """
+    import os
+    import subprocess
+    import time
+    from types import SimpleNamespace
+    import uuid
+    import numpy as np
+    from PIL import Image
+    from library.tools.segment_renderer import (
+        cleanup_segment, extract_frames, render_batch,
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+    findings, checked, skipped = [], 0, []
+    if not records:
+        return {"passed": bool(allow_empty), "checked": 0, "findings": [],
+                "skipped": ([] if allow_empty else [{
+                    "label": "reel",
+                    "reason": "no overlay records were supplied"}]),
+                "detail": ("build declared no overlay placements"
+                           if allow_empty else ""),
+                "output_dir": output_dir}
+
+    def asset_alpha_bounds(record, source_frame, destination):
+        """Alpha box of the exact asset frame that plays at the sample."""
+        path = record.get("overlay_path")
+        if not path:
+            return None
+        if os.path.splitext(path)[1].lower() == ".png":
+            with Image.open(path) as image:
+                alpha = image.convert("RGBA").getchannel("A")
+                return alpha.point(
+                    lambda value: 255
+                    if value >= RENDERED_BOX_INK_THRESHOLD else 0
+                ).getbbox()
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", path,
+             "-vf", f"select=eq(n\\,{int(source_frame)})",
+             "-fps_mode", "passthrough", "-frames:v", "1", destination],
+            capture_output=True, timeout=30, check=False)
+        if result.returncode != 0 or not os.path.isfile(destination):
+            return None
+        with Image.open(destination) as image:
+            alpha = image.convert("RGBA").getchannel("A")
+            return alpha.point(
+                lambda value: 255
+                if value >= RENDERED_BOX_INK_THRESHOLD else 0
+            ).getbbox()
+
+    def item_asset_name(item):
+        """Resolve's returned pool item name, or empty when it cannot read it."""
+        try:
+            pool_item = item.GetMediaPoolItem()
+            if pool_item is None:
+                return ""
+            return str(pool_item.GetName() or "")
+        except Exception:  # noqa: BLE001 - missing media is a named refusal
+            return ""
+
+    def find_overlay_item(record, sample):
+        """Find the placed item by source asset and time, across video lanes.
+
+        Resolve drops an empty planned row and compacts the lanes. The
+        build's intended lane is therefore not a reliable reader index;
+        source identity plus the record span is.
+        """
+        path = record.get("overlay_path") or ""
+        expected_names = {os.path.basename(path).casefold(),
+                          os.path.splitext(os.path.basename(path))[0].casefold()}
+        matches = []
+        try:
+            track_count = int(timeline.GetTrackCount("video") or 0)
+        except Exception as exc:  # noqa: BLE001 - cannot enumerate picture rows
+            return None, f"video track inventory unavailable: {exc}"
+        for track in range(1, track_count + 1):
+            try:
+                items = timeline.GetItemListInTrack("video", track) or []
+            except Exception:  # noqa: BLE001 - another row can still match
+                continue
+            for candidate in items:
+                try:
+                    covers = (int(candidate.GetStart()) <= sample
+                              < int(candidate.GetEnd()))
+                except Exception:  # noqa: BLE001 - stale candidate handle
+                    continue
+                if not covers:
+                    continue
+                name = item_asset_name(candidate).casefold()
+                if name in expected_names:
+                    matches.append((track, candidate))
+        if len(matches) == 1:
+            return matches[0][1], matches[0][0]
+        if len(matches) > 1:
+            return None, f"{len(matches)} source-matched items cover frame {sample}"
+        return None, f"no source-matched overlay item covers frame {sample}"
+
+    def render_frame(frame, name, resolution):
+        # Resolve treats a one-frame render range as SelectAllFrames on
+        # some timelines, and two-frame H.264 segments can be too small for
+        # the renderer's broken-output guard. Render a short window around
+        # the requested sample, then extract only that frame.
+        timeline_end = int(timeline.GetEndFrame())
+        window = 12
+        mark_in = max(0, min(frame - window // 2,
+                             timeline_end - window))
+        mark_out = mark_in + window - 1
+        render_name = f"{name}-{uuid.uuid4().hex[:8]}"
+        batch = render_batch(
+            resolve, project, timeline, [(mark_in, mark_out)],
+            output_dir=output_dir, resolution=resolution,
+            name_prefix=render_name)
+        if not batch.segments:
+            raise RuntimeError("Resolve returned no segment for the frame")
+        segment = batch.segments[0]
+        if not segment.success:
+            raise RuntimeError(
+                f"Resolve frame render failed: {segment.error or 'unknown error'}")
+        try:
+            # Resolve can report a completed H.264 job before the file is
+            # ready for ffmpeg to decode. Retry with a bounded backoff; a
+            # genuinely missing sample still raises below.
+            # Keep extraction tied to the exact marks requested from
+            # Resolve. Its segment result can expose stale marks when a
+            # completed render job is reused.
+            extraction_segment = SimpleNamespace(
+                path=segment.path, mark_in=mark_in, mark_out=mark_out,
+                success=segment.success)
+            for delay in (0.0, 0.5, 1.0, 2.0, 4.0, 8.0):
+                extracted = extract_frames(
+                    extraction_segment, [frame], output_dir)
+                if extracted.get(frame):
+                    return extracted[frame]
+                if delay:
+                    time.sleep(delay)
+            # The common extractor can reject a valid H.264 sample when
+            # Resolve's segment marks disagree with the requested window.
+            # Decode by the request-relative index as a last, checked path.
+            direct_path = os.path.join(
+                output_dir, f"{render_name}-direct.png")
+            direct = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-i", segment.path,
+                 "-vf", f"select=eq(n\\,{frame - mark_in})",
+                 "-fps_mode", "passthrough", "-frames:v", "1",
+                 direct_path],
+                capture_output=True, timeout=60, check=False)
+            if (direct.returncode == 0 and os.path.isfile(direct_path)
+                    and os.path.getsize(direct_path) > 0):
+                return direct_path
+            return None
+        finally:
+            cleanup_segment(segment.path)
+
+    for ordinal, record in enumerate(records, 1):
+        box = record.get("absolute_box")
+        if not box or len(box) != 4:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "no declared absolute box"})
+            continue
+        descriptor_data = record.get("geometry")
+        descriptor = None
+        if descriptor_data is None:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "geometry descriptor is missing"})
+            continue
+        try:
+            from library.tools.layout_model import GeometryDescriptor
+            descriptor = GeometryDescriptor.from_dict(descriptor_data)
+        except (KeyError, TypeError, ValueError) as exc:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": f"geometry descriptor is invalid: {exc}"})
+            continue
+        if tuple(map(float, box)) != tuple(map(float, descriptor.box)):
+            findings.append({"label": record.get("label", "?"),
+                             "reason": "geometry descriptor box differs "
+                                       "from recorded output box"})
+            continue
+        if record.get("canvas_wh") and tuple(map(float, record["canvas_wh"])) \
+                != tuple(map(float, descriptor.canvas)):
+            findings.append({"label": record.get("label", "?"),
+                             "reason": "geometry descriptor canvas differs "
+                                       "from recorded asset canvas"})
+            continue
+        box = descriptor.box
+        x, y, right, bottom = map(int, box)
+        width, height = right - x, bottom - y
+        if width <= 0 or height <= 0:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "declared absolute box has no area"})
+            continue
+        start = int(record["timeline_start_frame"])
+        duration = int(record["duration_frames"])
+        sample = start + max(0, (duration - 1) // 2)
+        source_frame = int(record.get("source_start_frame", 0)) + sample - start
+        canvas_wh = record.get("canvas_wh")
+        if not canvas_wh or len(canvas_wh) != 2:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "no rendered asset canvas size"})
+            continue
+        alpha_path = os.path.join(output_dir,
+                                  f"{ordinal:03d}-asset-alpha.png")
+        alpha_box = asset_alpha_bounds(record, source_frame, alpha_path)
+        if alpha_box is None:
+            skipped.append({"label": record.get("label", "?"),
+                            "reason": "rendered asset alpha frame unavailable"})
+            continue
+        source_w, source_h = map(float, canvas_wh)
+        expected = (
+            round(x + alpha_box[0] / source_w * width),
+            round(y + alpha_box[1] / source_h * height),
+            round(x + alpha_box[2] / source_w * width),
+            round(y + alpha_box[3] / source_h * height),
+        )
+        # `track_index` is the Resolve API's one-based video lane index
+        # as recorded by the reel builder (V1 is 1).
+        item, track = find_overlay_item(record, sample)
+        if item is None:
+            findings.append({"label": record.get("label", "?"),
+                             "frame": sample,
+                             "reason": track})
+            continue
+        label = str(record.get("label", f"overlay-{ordinal}"))
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in label)
+        render_resolution = tuple(map(int, descriptor.frame))
+        enabled_path = os.path.join(output_dir, f"{ordinal:03d}-{safe}-enabled.png")
+        disabled_path = os.path.join(output_dir, f"{ordinal:03d}-{safe}-disabled.png")
+        diff_path = os.path.join(output_dir, f"{ordinal:03d}-{safe}-diff.png")
+        try:
+            item.SetClipEnabled(False)
+            if item.GetClipEnabled() is not False:
+                raise RuntimeError("overlay item did not read back disabled")
+            disabled = render_frame(
+                sample, f"{ordinal:03d}-disabled", render_resolution)
+            if not disabled:
+                raise RuntimeError(
+                    "disabled baseline frame was not extracted "
+                    f"for {label!r} at timeline frame {sample} "
+                    f"from {ordinal:03d}-disabled (Resolve segment "
+                    "rendered successfully but returned no extracted frame)")
+            Image.open(disabled).convert("RGB").save(disabled_path)
+            item.SetClipEnabled(True)
+            if item.GetClipEnabled() is not True:
+                raise RuntimeError("overlay item did not read back enabled")
+            enabled = render_frame(
+                sample, f"{ordinal:03d}-enabled", render_resolution)
+            if not enabled:
+                raise RuntimeError("enabled overlay frame was not extracted")
+            Image.open(enabled).convert("RGB").save(enabled_path)
+        finally:
+            item.SetClipEnabled(True)
+            if item.GetClipEnabled() is not True:
+                raise RuntimeError("failed to restore overlay enabled state")
+        with Image.open(enabled_path) as image:
+            actual = np.asarray(image.convert("RGB"), dtype=np.int16)
+        with Image.open(disabled_path) as image:
+            baseline = np.asarray(image.convert("RGB"), dtype=np.int16)
+        if descriptor is not None and tuple(map(int, descriptor.frame)) != (
+                actual.shape[1], actual.shape[0]):
+            findings.append({"label": label, "frame": sample,
+                             "reason": "rendered output dimensions differ "
+                                       "from geometry descriptor frame",
+                             "expected_frame": descriptor.frame,
+                             "rendered_frame": (actual.shape[1], actual.shape[0])})
+            continue
+        delta = np.max(np.abs(actual - baseline), axis=2)
+        # Other clips on the same frame may be moving, especially Fusion
+        # and Remotion graphics. The A/B render can then differ outside
+        # the item we toggled. Measure the item's rendered footprint in a
+        # neighborhood of its asset-derived box so unrelated picture
+        # changes cannot fail this placement check.
+        margin = max(RENDERED_BOX_MARGIN_PX, tolerance_px * 2)
+        left = max(0, expected[0] - margin)
+        top = max(0, expected[1] - margin)
+        right = min(actual.shape[1], expected[2] + margin)
+        bottom = min(actual.shape[0], expected[3] + margin)
+        mask = np.zeros(delta.shape, dtype=bool)
+        mask[top:bottom, left:right] = (
+            delta[top:bottom, left:right] >= RENDERED_BOX_INK_THRESHOLD)
+        ys, xs = np.nonzero(mask)
+        if not len(xs):
+            findings.append({"label": label, "frame": sample,
+                             "reason": "overlay contributes no visible pixels"})
+            continue
+        measured = (int(xs.min()), int(ys.min()), int(xs.max()) + 1,
+                    int(ys.max()) + 1)
+        Image.fromarray(np.where(mask[:, :, None], 255, 0).astype("uint8")
+                        .repeat(3, axis=2)).save(diff_path)
+        gaps = tuple(a - b for a, b in zip(measured, expected))
+        checked += 1
+        if max(abs(gap) for gap in gaps) > tolerance_px:
+            findings.append({"label": label, "frame": sample,
+                             "expected": expected, "measured": measured,
+                             "edge_gaps": gaps, "enabled": enabled_path,
+                             "disabled": disabled_path, "diff": diff_path})
+    return {"passed": not findings and not skipped, "checked": checked,
+            "findings": findings, "skipped": skipped,
+            "output_dir": output_dir}
 
 
 def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
@@ -276,11 +609,16 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
                           "transform or expectation to composite",
             })
             continue
+        expected_values = _numbers(expected)
+        if expected_values is None:
+            skipped.append({"label": label,
+                            "reason": "expected transform is unreadable"})
+            continue
         at_stored = composite_ink_centroid(
             frame_path, stored, tuple(canvas_wh), tuple(full_wh),
             draw_gain=draw_gain)
         at_expected = composite_ink_centroid(
-            frame_path, expected, tuple(canvas_wh), tuple(full_wh),
+            frame_path, expected_values, tuple(canvas_wh), tuple(full_wh),
             draw_gain=draw_gain)
         if at_stored is None or at_expected is None:
             skipped.append({
@@ -377,12 +715,15 @@ def _stored_transform(item, timeline,
             return None
         values = {prop: float(transform[prop])
                   for prop in ("Scaling", "Pan", "Tilt")}
+        values["ZoomX"] = float(transform.get("ZoomX", 1.0))
+        values["ZoomY"] = float(transform.get("ZoomY", 1.0))
     except (TypeError, ValueError):
         return None
     except Exception:  # noqa: BLE001 - unreadable, skipped below
         return None
     return {"scaling": values["Scaling"], "pan": values["Pan"],
-            "tilt": values["Tilt"]}
+            "tilt": values["Tilt"], "zoom_x": values["ZoomX"],
+            "zoom_y": values["ZoomY"]}
 
 
 def _asset_still(segment_files: dict) -> Optional[str]:
