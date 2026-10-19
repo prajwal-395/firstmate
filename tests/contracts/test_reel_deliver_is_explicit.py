@@ -398,4 +398,4 @@ def test_delivery_uses_recorded_live_timeline_id_not_staging_name(tmp_path):
     project.GetTimelineCount.return_value = 1
     project.GetTimelineByIndex.return_value = live
     assert reel_deliver._live_timeline_for_reel(
-        project, folder, 26, "stale staging alias", "Test") is live
+        project, folder, 26, plan_name, "Test") is live

@@ -12772,7 +12772,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             staged_to_final.get(final, ""))
         if candidate_key:
             expected_snapshot = (parent_snapshots_by_final or {}).get(final)
-            if not isinstance(expected_snapshot, dict):
+            if expected_snapshot is None:
                 raise PromotionFailure(
                     f"REFUSING to promote {final!r}: the approved timeline "
                     "was not snapshotted before candidate preparation; "
@@ -13308,6 +13308,18 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             _promotion_guard.full_timeline_snapshot(
                 row["original"], project, project_folder)
             if row["original"] is not None else None)
+        candidate_key = str((candidate_ids_by_staging or {}).get(
+            row["staging"]) or "")
+        if candidate_key and original_snapshot is not None:
+            # Recovery compares full editable-state snapshots. The earlier
+            # divergence survey is a TimelineSnapshot object, not this
+            # durable JSON schema. Record the guarded snapshot before any
+            # rename so the recovery reader can prove the parent is unchanged.
+            from library.tools import staging_holds as _candidate_store
+            _candidate_store.record_candidate(project_folder, {
+                "candidate_id": candidate_key,
+                "parent_snapshot": original_snapshot,
+            })
         history = _promotion_versions.versions_of(
             project_folder, row["final"])
         journal_rows.append({
@@ -15406,8 +15418,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "candidate_name": _staging,
             "parent_approved_revision": _parent_revision,
             "parent_approved_timeline_id": str(_parent or ""),
-            "parent_snapshot": live_snapshots.get(
-                promotion_target_by_name[_final]),
             "destination_timeline": promotion_target_by_name[_final],
             "owning_transaction": _candidate_transaction_id,
             "verified_snapshot": None,

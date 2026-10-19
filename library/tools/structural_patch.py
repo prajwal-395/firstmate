@@ -136,7 +136,8 @@ def plan_structural_patch(
               for track in tracks for clip in track.get("clips", ()))
     start = min(changed_frames)
     affected_end = end if shifted_rows else max(
-        int(item["new_start"]) + int(item["new_duration"])
+        int(item.get("new_start", item["old_start"]))
+        + int(item.get("new_duration", item["old_duration"]))
         for item in placements)
 
     dependencies = []

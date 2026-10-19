@@ -324,6 +324,7 @@ def _patched_build(resolve_project, project_dir, gate_result,
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
         resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        _retarget_report_stagings(project_dir, [name])
         # The placer returns its build record now (the track
         # plan the timeline was placed from); the container
         # the mock creates is the half these tests grade.
@@ -395,6 +396,35 @@ def _gate_failed_report(project_dir):
     }), encoding="utf-8")
 
 
+def _base_staging_name(name):
+    base = name[:-len(STAGING_SUFFIX)] if name.endswith(STAGING_SUFFIX) else name
+    if " [candidate-" in base:
+        base = base.rsplit(" [candidate-", 1)[0]
+    return base
+
+
+def _retarget_report_stagings(project_dir, staged_names):
+    """Match fixture report rows to this run's opaque candidate names."""
+    path = (project_dir / "pipeline_output" / "review"
+            / "conformance_report.json")
+    if not path.is_file():
+        return
+    report = json.loads(path.read_text(encoding="utf-8"))
+    by_base = {_base_staging_name(name): name for name in staged_names}
+    for row in report.get("reels", []):
+        name = row.get("reel_name", "")
+        if _base_staging_name(name) in by_base:
+            row["reel_name"] = by_base[_base_staging_name(name)]
+    path.write_text(json.dumps(report), encoding="utf-8")
+
+
+def _reported_staging_names(project_dir):
+    path = (project_dir / "pipeline_output" / "review"
+            / "conformance_report.json")
+    return [row["reel_name"] for row in
+            json.loads(path.read_text(encoding="utf-8")).get("reels", [])]
+
+
 @pytest.mark.usefixtures("mock_dvr")
 def test_a_gate_failing_build_leaves_the_approved_timeline_in_place(project):
     """The defect, stated as the survivors.
@@ -431,11 +461,12 @@ def test_a_gate_failing_build_grades_the_staging_not_the_approved_reel(project):
     resolve_project = FakeProject("Mock Project", [MASTER] + APPROVED)
     _gate_failed_report(project)
 
-    with _patched_build(resolve_project, project, 1) as (_, gate), \
+    with _patched_build(resolve_project, project, 1) as (placed, gate), \
             pytest.raises(RuntimeError, match="defective timeline"):
         rebuild_reels_in_project(str(project), organise=False, only=[3])
 
-    assert gate.call_args[1]["only_reels"] == [TARGET + STAGING_SUFFIX]
+    assert gate.call_args[1]["only_reels"] == [
+        placed.call_args.kwargs["timeline_name"]]
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -743,8 +774,9 @@ def test_refused_build_files_its_caption_imports(project_dir):
 
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
-        assert name == STAGING, f"expected staging, got {name!r}"
+        assert _base_staging_name(name) == TARGET_2
         pool.CreateEmptyTimeline(name)
+        _retarget_report_stagings(project_dir, [name])
         # The caption import the real placer does - lands in CURRENT.
         pool.ImportMedia([stray_path])
         return {"track_plan": {"video_tracks": [], "audio_tracks": [],
@@ -796,7 +828,9 @@ def test_refused_build_files_its_caption_imports(project_dir):
 
     names = resolve_project.names()
     assert TARGET_2 in names, "the approved reel must survive a refusal"
-    assert STAGING not in names, "the refused staging must be gone"
+    assert not any(name.endswith(STAGING_SUFFIX) for name in names), (
+        "the attributed refusal must discard its staging")
+    assert holds.held_names(str(project_dir)) == set()
     assert sorted(names) == sorted([MASTER, TARGET_2])
 
     # The debris is what this test is about: the imported caption clip
@@ -933,8 +967,9 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
     assert placed.call_count == 1
-    assert placed.call_args[1]["timeline_name"] == (
-        "Reel 03 - moment-3" + STAGING_SUFFIX)
+    assert placed.call_args[1]["timeline_name"].startswith(
+        "Reel 03 - moment-3 [candidate-")
+    assert placed.call_args[1]["timeline_name"].endswith(STAGING_SUFFIX)
 
 
 # ── The guard, both directions ───────────────────────────────────────
@@ -1076,12 +1111,14 @@ def _drive_build(resolve_project, project_dir, rows, **kwargs):
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
         resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        _retarget_report_stagings(project_dir, resolve_project.names())
         return {"track_plan": {"video_tracks": [],
                                "audio_tracks": [],
                                "material": {}}}
 
     def _gate(**_gate_kwargs):
         _write_gate_report(project_dir, rows)
+        _retarget_report_stagings(project_dir, resolve_project.names())
         return 1
 
     with patch("library.tools.reel_build.build_reel_timeline",
@@ -1117,25 +1154,30 @@ def test_one_refusing_reel_leaves_its_sibling_staged_and_held(project_dir):
                      [(STAGED_A, 3, 1), (STAGED_B, 4, 0)])
 
     message = str(refused.value)
-    assert STAGED_A in message, (
+    staged_names = _reported_staging_names(project_dir)
+    staged_a = next(name for name in staged_names
+                    if _base_staging_name(name) == TARGET_A)
+    staged_b = next(name for name in staged_names
+                    if _base_staging_name(name) == TARGET_B)
+    assert staged_a in message, (
         "the raise must name the reel that refused")
     assert "untouched by this refusal" in message
 
     # Asserted on EXISTING, not on a count: the sibling's staging is
     # still a timeline in the project and still under hold.
-    assert STAGED_B in resolve_project.names(), (
+    assert staged_b in resolve_project.names(), (
         "the clean sibling's staging was discarded with the refusal")
-    assert STAGED_A not in resolve_project.names(), (
+    assert staged_a not in resolve_project.names(), (
         "the refused staging must be gone")
     assert TARGET_A in resolve_project.names()
     assert TARGET_B in resolve_project.names(), (
         "the approved reels were never named and must all survive")
 
     held = holds.held_names(str(project_dir))
-    assert STAGED_B in held, (
+    assert staged_b in held, (
         "the clean sibling's hold went with the refusal - a future "
         "prune is now unprotected against a live staging")
-    assert STAGED_A not in held
+    assert staged_a not in held
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -1150,10 +1192,12 @@ def test_an_unattributed_refusal_discards_nothing(project_dir):
         _drive_build(resolve_project, project_dir,
                      [(STAGED_A, 3, 0), (STAGED_B, 4, 0)])
 
-    assert STAGED_A in resolve_project.names()
-    assert STAGED_B in resolve_project.names()
+    staged_names = [name for name in resolve_project.names()
+                    if name.endswith(STAGING_SUFFIX)]
+    assert {_base_staging_name(name) for name in staged_names} == {
+        TARGET_A, TARGET_B}
     held = holds.held_names(str(project_dir))
-    assert STAGED_A in held and STAGED_B in held
+    assert set(staged_names) <= held
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -1560,6 +1604,11 @@ def _staging(final):
     return final + STAGING_SUFFIX
 
 
+def _assert_candidate_staging(actual, final):
+    assert _base_staging_name(actual) == final
+    assert actual.endswith(STAGING_SUFFIX)
+
+
 def _run_build(resolve_project, project_dir, **kwargs):
     """Drive the ONE build path with Resolve, the placer and captions faked.
 
@@ -1614,8 +1663,9 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
     # Two verifications: the refusing gate and the informational sweep,
     # both scoped to this single-reel lane.
     assert gate.call_count == 2
-    assert gate.call_args_list[0][1]["only_reels"] == [
-        _staging("Reel 03 - moment-3")]
+    scoped = gate.call_args_list[0][1]["only_reels"]
+    assert len(scoped) == 1
+    _assert_candidate_staging(scoped[0], "Reel 03 - moment-3")
     assert gate.call_args_list[1][1]["only_reels"] == [
         "Reel 03 - moment-3"]
     # Promoted: the final name is back and no staging is left
@@ -1639,8 +1689,10 @@ def test_a_full_build_grades_everything_it_placed(project):
 
     assert record["timelines_built"] == APPROVED
     assert gate.call_count == 2
-    assert gate.call_args_list[0][1]["only_reels"] == [
-        _staging(name) for name in APPROVED]
+    scoped = gate.call_args_list[0][1]["only_reels"]
+    assert len(scoped) == len(APPROVED)
+    for actual, final in zip(scoped, APPROVED, strict=True):
+        _assert_candidate_staging(actual, final)
     assert gate.call_args_list[1][1]["only_reels"] is None
 
 
@@ -1654,8 +1706,10 @@ def test_a_suffixed_rebuild_grades_scratch_then_promotes_to_base(project):
 
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert gate.call_count == 2
-    assert gate.call_args_list[0][1]["only_reels"] == [
-        _staging("Reel 03 - moment-3 (whole-take rebuild)")]
+    scoped = gate.call_args_list[0][1]["only_reels"]
+    assert len(scoped) == 1
+    _assert_candidate_staging(
+        scoped[0], "Reel 03 - moment-3 (whole-take rebuild)")
     assert gate.call_args_list[1][1]["only_reels"] == [
         "Reel 03 - moment-3"]
     assert "Reel 03 - moment-3" in resolve_project.names()

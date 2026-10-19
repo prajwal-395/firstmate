@@ -153,13 +153,25 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
     revision_id = fields.pop("revision_id", None)
     parent_revision = next((entry.get("revision_id") for entry in reversed(history)
                             if entry.get("revision_id")), None)
+    existing_revision = (creative_revision.get(project_folder, revision_id)
+                         if revision_id else None)
+    # A round may have already created the canonical revision for this
+    # promotion. Enrich that same identity with its reel-version reference;
+    # do not reinterpret "promotion" as a different "build" operation.
     revision = creative_revision.create(
         project_folder, revision_id=revision_id,
-        parents=[parent_revision] if parent_revision else (),
-        author=fields.get("author"),
-        intent=str(fields.get("intent") or fields.get("summary") or kind),
-        operations=fields.get("operations") or [{"kind": kind}],
-        base_generation=fields.get("base_generation"),
+        parents=(existing_revision.get("parents", ()) if existing_revision
+                 else ([parent_revision] if parent_revision else ())),
+        author=(existing_revision.get("author") if existing_revision
+                else fields.get("author")),
+        intent=(existing_revision.get("intent") if existing_revision
+                else str(fields.get("intent") or fields.get("summary")
+                         or kind)),
+        operations=(existing_revision.get("operations") if existing_revision
+                    else fields.get("operations") or [{"kind": kind}]),
+        base_generation=(existing_revision.get("base_generation")
+                         if existing_revision
+                         else fields.get("base_generation")),
         result_generation=fields.get("result_generation"),
         project_model_revision=fields.get("project_model_revision"),
         git_revision=fields.get("git_revision"),

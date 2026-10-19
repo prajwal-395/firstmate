@@ -35,6 +35,22 @@ class _Timeline:
         return "Reel 01 - x"
 
 
+class _Project:
+    """Small live Resolve surface used by delivery's identity resolver."""
+
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def GetName(self):
+        return "Scratch"
+
+    def GetTimelineCount(self):
+        return 1
+
+    def GetTimelineByIndex(self, index):
+        return self.timeline if index == 1 else None
+
+
 def _project(tmp_path, pipeline_block):
     cfg = {"name": "T", "slug": "t",
            "resolve": {"project_name": "Scratch"},
@@ -63,7 +79,7 @@ def test_deliver_masters_to_the_named_platforms_targets(
     monkeypatch.setattr(reel_deliver, "timeline_name_for_reel",
                         lambda folder, reel: "Reel 01 - x")
     monkeypatch.setattr(reel_build, "_connect_resolve_project",
-                        lambda name: object())
+                        lambda name: _Project(_Timeline()))
     monkeypatch.setattr(resolve_render, "_find_timeline",
                         lambda project, name: _Timeline())
     monkeypatch.setattr(reel_deliver, "overlay_staleness", lambda p, n: [])
@@ -114,7 +130,7 @@ def test_mastering_targets_default_to_the_registry_default(
     monkeypatch.setattr(reel_deliver, "timeline_name_for_reel",
                         lambda folder, reel: "Reel 01 - x")
     monkeypatch.setattr(reel_build, "_connect_resolve_project",
-                        lambda name: object())
+                        lambda name: _Project(_Timeline()))
     monkeypatch.setattr(resolve_render, "_find_timeline",
                         lambda project, name: _Timeline())
     monkeypatch.setattr(reel_deliver, "overlay_staleness", lambda p, n: [])

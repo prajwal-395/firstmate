@@ -229,7 +229,7 @@ def _promote(
         )
         return promote_staged_reels(
             str(project_dir),
-            "Mock Project",
+            project.GetName(),
             MASTER,
             staged_to_final,
             organise=False,
@@ -334,12 +334,14 @@ LOSS_SHAPES = [
 
 @pytest.mark.usefixtures("mock_dvr")
 def test_an_undeclared_loss_refuses_before_any_rename(project_dir):
-    for shape, expected in LOSS_SHAPES:
+    for index, (shape, expected) in enumerate(LOSS_SHAPES):
+        case_dir = project_dir / f"loss-{index}"
+        (case_dir / "pipeline_output" / "review").mkdir(parents=True)
         retired, staging = shape()
         resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
 
         with pytest.raises(ReelBuildError) as refused:
-            _promote(resolve, project_dir, {FINAL: staging.GetName()})
+            _promote(resolve, case_dir, {FINAL: staging.GetName()})
 
         message = str(refused.value)
         for needle in expected:
@@ -1860,7 +1862,7 @@ class _RecordFailure:
 @pytest.mark.parametrize(
     "failure",
     [
-        pytest.param(_RecordFailure(None, "retirement failed",
+        pytest.param(_RecordFailure(None, "retiring old timelines failed",
                                     retirement=True),
                      id="declined-backup-retirement"),
         pytest.param(_RecordFailure(

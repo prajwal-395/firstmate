@@ -806,8 +806,10 @@ def test_placement_holds_one_continuous_exclusive_lease(built_with_spies):
     places = [e for e in built_with_spies["events"]
               if e[0] == "place-call"]
     assert len(places) == 1
-    assert _holds_open(places[0]) == [
-        ("place Reel 01 (rebuild staging)", True)]
+    purpose, exclusive = _holds_open(places[0])[0]
+    assert purpose.startswith("place Reel 01 [candidate-")
+    assert purpose.endswith("(rebuild staging)")
+    assert exclusive is True
 
 
 @pytest.mark.usefixtures("mock_dvr")
@@ -818,10 +820,17 @@ def test_placement_planning_runs_outside_the_per_reel_lease(
     prepares = [e for e in events if e[0] == "prepare-call"]
     assert len(prepares) == 1
     assert _holds_open(prepares[0]) == []
-    decision_release = (
-        "lease-exit", "decide Reel 01 (rebuild staging)", True)
+    decision_release = next(
+        entry for entry in events
+        if entry[0] == "lease-exit"
+        and entry[1].startswith("decide Reel 01 [candidate-")
+        and entry[2] is True)
     assert events.index(decision_release) < events.index(prepares[0])
-    place_lease = ("lease-held", "place Reel 01 (rebuild staging)", True)
+    place_lease = next(
+        entry for entry in events
+        if entry[0] == "lease-held"
+        and entry[1].startswith("place Reel 01 [candidate-")
+        and entry[2] is True)
     assert events.index(prepares[0]) < events.index(place_lease)
 
 
@@ -977,6 +986,9 @@ class FakeClip:
     def duration(self):
         return self.timeline_end - self.timeline_start
 
+    def __eq__(self, other):
+        return isinstance(other, FakeClip) and vars(self) == vars(other)
+
 
 class FakeSnapshot:
     def __init__(self, name, clips):
@@ -989,6 +1001,17 @@ class FakeSnapshot:
         self.height = 1920
         self.start_frame = 0
         self.end_frame = 100
+
+    def __eq__(self, other):
+        return (isinstance(other, FakeSnapshot)
+                and self.timeline_name == other.timeline_name
+                and self.project_name == other.project_name
+                and self.fps == other.fps
+                and self.reported_fps == other.reported_fps
+                and self.width == other.width and self.height == other.height
+                and self.start_frame == other.start_frame
+                and self.end_frame == other.end_frame
+                and self.clips == other.clips)
 
 
 class World:
@@ -1010,11 +1033,19 @@ class World:
 
     def snapshot(self, timeline, project_name):
         name = timeline.GetName()
+        current = (self.project.GetCurrentTimeline()
+                   if self.project is not None else None)
+        if self.project is not None and current is not timeline:
+            self.project.SetCurrentTimeline(timeline)
         pan = self.pan.get(_final_of(name), 0.0)
-        if self.project is not None:
-            current = self.project.GetCurrentTimeline()
-            if current is not None and current is not timeline:
-                pan += MISREAD_WHEN_NOT_CURRENT
+        try:
+            if self.project is not None:
+                observed = self.project.GetCurrentTimeline()
+                if observed is not timeline:
+                    pan += MISREAD_WHEN_NOT_CURRENT
+        finally:
+            if self.project is not None and current is not timeline:
+                self.project.SetCurrentTimeline(current)
         return FakeSnapshot(name, [FakeClip(pan)])
 
 
@@ -1024,9 +1055,8 @@ MISREAD_WHEN_NOT_CURRENT = 1.0
 
 def _final_of(name):
     """The approved name behind a container, staging suffix stripped."""
-    from library.tools.reel_build import STAGING_SUFFIX
-    return (name[: -len(STAGING_SUFFIX)]
-            if name.endswith(STAGING_SUFFIX) else name)
+    from library.tools.reel_build import STAGING_SUFFIX, destage
+    return destage(name) if name.endswith(STAGING_SUFFIX) else name
 
 
 @contextmanager
