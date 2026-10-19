@@ -20,11 +20,14 @@ from library.tools.reel_incremental import (
 )
 
 
-def test_existing_item_property_change_routes_to_direct_patch():
+def test_existing_item_property_change_needs_protected_experimental_policy():
     decision = route_compiled_edit([{
         "op": "clip.set_property", "unique_id": "item-1",
         "key": "ZoomX", "value": 1.25,
-    }])
+    }], context={"qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True})
 
     assert decision.backend == "edit_patch.property"
     assert "full_rebuild" in {
@@ -111,22 +114,36 @@ def test_router_reports_matrix_qualification_not_function_existence():
     assert decision.qualification_gaps == ()
 
 
-def test_router_records_unqualified_execution_gap_truthfully():
+def test_router_refuses_unqualified_production_route():
     entry = edit_algebra.status("clip.delete")
     if entry is None or entry.production_enabled:
         pytest.skip("matrix changed: clip.delete gained production status")
-    decision = route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}])
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}])
 
+
+def test_protected_experimental_route_requires_all_guarantees():
+    operation = [{"op": "clip.delete", "unique_id": "item-9"}]
+    with pytest.raises(RoutingRefused, match="requires explicit true guarantees"):
+        route_compiled_edit(operation, context={
+            "qualification_policy": "protected_experimental"})
+    decision = route_compiled_edit(operation, context={
+        "qualification_policy": "protected_experimental",
+        "protected_staging": True,
+        "preserve_approved_state": True,
+        "verify_after_write": True,
+    })
     assert decision.backend == "edit_patch"
     assert decision.qualification_gaps == (("clip.delete", (), ()),)
-    assert any("no live-qualified executor" in reason for reason in decision.reasons)
+    assert any("protected experimental policy" in reason
+               for reason in decision.reasons)
 
 
 def test_strict_policy_refuses_unqualified_route():
     entry = edit_algebra.status("clip.delete")
     if entry is None or entry.production_enabled:
         pytest.skip("matrix changed: clip.delete gained production status")
-    with pytest.raises(RoutingRefused, match="no production-enabled executor"):
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
         route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}],
                             context={"require_qualified": True})
 
@@ -137,7 +154,11 @@ def test_explicit_full_rebuild_never_tries_incremental():
           "key": "ZoomX", "value": 1.25}],
         context={"incremental_eligibility": True,
                  "requested_backend": "full_rebuild",
-                 "reason": "operator demanded a rebuild"},
+                 "reason": "operator demanded a rebuild",
+                 "qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True},
     )
 
     assert decision.backend == "full_rebuild"
@@ -161,7 +182,11 @@ def test_staged_context_names_staged_mode():
     decision = route_compiled_edit(
         [{"op": "clip.set_property", "unique_id": "item-1",
           "key": "ZoomX", "value": 1.25}],
-        context={"staged": True},
+        context={"staged": True,
+                 "qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True},
     )
 
     assert decision.backend == "edit_patch.property"
@@ -203,7 +228,11 @@ def test_observation_gates_keep_production_authoritative():
     try:
         gates = RoutingGates(name="probe", incremental_candidate_ops=("clip.delete",))
         outcome = observe_with_gates(
-            [{"op": "clip.delete", "unique_id": "item-9"}], gates=gates)
+            [{"op": "clip.delete", "unique_id": "item-9"}], gates=gates,
+            context={"qualification_policy": "protected_experimental",
+                     "protected_staging": True,
+                     "preserve_approved_state": True,
+                     "verify_after_write": True})
 
         assert outcome["production"].backend == "edit_patch"
         assert outcome["candidate"].backend == "incremental"
@@ -211,7 +240,11 @@ def test_observation_gates_keep_production_authoritative():
 
         second = observe_with_gates(
             [{"op": "clip.delete", "unique_id": "item-9"}],
-            gates=RoutingGates(name="empty"))
+            gates=RoutingGates(name="empty"),
+            context={"qualification_policy": "protected_experimental",
+                     "protected_staging": True,
+                     "preserve_approved_state": True,
+                     "verify_after_write": True})
         assert second["agree"] is True
         assert second["candidate"].backend == "edit_patch"
     finally:

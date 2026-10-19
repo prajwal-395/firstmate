@@ -47,13 +47,13 @@ def test_readback_separates_judged_writes_from_vacuous_passes():
     assert edit_algebra.has_independent_readback("audio.gain") is False
 
 
-def test_proven_marker_write_may_go_direct():
-    assert edit_algebra.direct_blockers(("marker.add",), "edit_patch") == ()
-    decision = route_compiled_edit([{
-        "op": "marker.add", "frame": 12, "color": "Blue", "name": "note",
-    }])
-    assert decision.backend == "edit_patch"
-    assert decision.mode == "direct"
+def test_legacy_marker_evidence_without_complete_qualification_does_not_enable_direct():
+    assert edit_algebra.direct_blockers(("marker.add",), "edit_patch")
+    assert edit_algebra.status("marker.add", "edit_patch").production_enabled is False
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit([{
+            "op": "marker.add", "frame": 12, "color": "Blue", "name": "note",
+        }])
 
 
 def test_small_but_unproven_property_write_stays_staged():
@@ -61,14 +61,23 @@ def test_small_but_unproven_property_write_stays_staged():
         ("clip.set_enabled",), "edit_patch.property") != ()
     decision = route_compiled_edit([{
         "op": "clip.set_enabled", "unique_id": "item-1", "enabled": False,
-    }])
+    }], context={"qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True})
     assert decision.backend == "edit_patch.property"
     assert decision.mode == "staged"
     assert any("direct withheld" in reason for reason in decision.reasons)
 
 
 def test_structural_write_never_goes_direct():
-    decision = route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}])
+    decision = route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}],
+                                   context={
+                                       "qualification_policy": "protected_experimental",
+                                       "protected_staging": True,
+                                       "preserve_approved_state": True,
+                                       "verify_after_write": True,
+                                   })
     assert decision.backend == "edit_patch"
     assert decision.mode == "staged"
     assert any("direct withheld" in reason for reason in decision.reasons)
@@ -77,7 +86,11 @@ def test_structural_write_never_goes_direct():
 def test_staged_flag_escalates_a_proven_write_but_never_widens():
     decision = route_compiled_edit(
         [{"op": "marker.add", "frame": 1, "color": "Blue", "name": "n"}],
-        context={"staged": True})
+        context={"staged": True,
+                 "qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True})
     assert decision.backend == "edit_patch"
     assert decision.mode == "staged"
 
@@ -88,7 +101,10 @@ def test_mixed_request_takes_the_most_restrictive_class():
     decision = route_compiled_edit([
         {"op": "marker.add", "frame": 1, "color": "Blue", "name": "n"},
         {"op": "clip.delete", "unique_id": "item-9"},
-    ])
+    ], context={"qualification_policy": "protected_experimental",
+                "protected_staging": True,
+                "preserve_approved_state": True,
+                "verify_after_write": True})
     assert decision.mode == "staged"
 
 

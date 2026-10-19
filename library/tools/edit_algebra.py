@@ -2794,6 +2794,7 @@ PLAN_OPS = (
     "music_selection", "audio_mix", "look", "visual_effect", "sound_effect",
     "subject_effect", "motion_graphic", "brand_asset", "end_card",
 )
+_PLANNING_OPERATION_IDS = frozenset((*PLAN_OPS, "angle_plan", "plan_change"))
 
 #: The touch-up's eleven ops, each resolving to an algebra id. `retime`,
 #: `set_properties`, `set_enabled` and `add_row` alias ops the other
@@ -2875,10 +2876,26 @@ class BackendStatus:
 
     backend: str
     compilable: bool
-    qualified: bool
-    production_enabled: bool
+    qualification_status: str
     limitations: tuple[str, ...] = ()
     qualification_evidence: tuple[str, ...] = ()
+    resolve_version: str | None = None
+    qualification_media_types: tuple[str, ...] = ()
+    qualification_timeline_conditions: tuple[str, ...] = ()
+    preservation_limits: tuple[str, ...] = ()
+    visual_verification: tuple[str, ...] = ()
+    audio_verification: tuple[str, ...] = ()
+    recovery_qualification: str = "not live-qualified"
+    implementation_status: str = "implemented_unqualified"
+    implementation_evidence: tuple[str, ...] = ()
+
+    @property
+    def qualified(self) -> bool:
+        return self.qualification_status in {"qualified", "production_enabled"}
+
+    @property
+    def production_enabled(self) -> bool:
+        return self.qualification_status == "production_enabled"
 
 
 @dataclass(frozen=True)
@@ -2903,13 +2920,22 @@ class OpStatus:
     inverse_recovery: dict
     defined: bool
     compilable: bool
-    qualified: bool
-    production_enabled: bool
+    qualification_status: str
     safety_class: str = ""
     minimal_safe_mechanism: str = ""
     unsupported_native_state: tuple[str, ...] = ()
     measured_cost: dict | None = None
     target_strategy: str = "not specified in VC-20"
+    implementation_status: str = "no_executor"
+    workflow_evidence: tuple[str, ...] = ()
+
+    @property
+    def qualified(self) -> bool:
+        return self.qualification_status in {"qualified", "production_enabled"}
+
+    @property
+    def production_enabled(self) -> bool:
+        return self.qualification_status == "production_enabled"
 
     def for_backend(self, backend: str) -> BackendStatus | None:
         return next((entry for entry in self.backends
@@ -2931,6 +2957,35 @@ _BACKEND_LIMITATIONS = {
         "Recorded full-build placement; not an existing-timeline patch.",),
     "reel_otio_placement": (
         "Recorded full-build placement; OTIO representability refusals apply.",),
+}
+
+# Qualification rows are deliberately not synthesized from old live test
+# paths. Those tests do not record all of Resolve version, media, timeline,
+# preservation, visual/audio verification and recovery evidence required by
+# the current production contract.
+_BACKEND_QUALIFICATIONS = {}
+
+_WORKFLOW_EVIDENCE = {
+    "clip.trim": (
+        "library/tools/composed_edit.py:plan_ripple (workflow-level timing composition; no standalone trim adapter)",),
+    "clip.ripple": (
+        "library/tools/composed_edit.py:plan_ripple (workflow-level ripple planning; no standalone ripple adapter)",),
+}
+
+_IMPLEMENTATION_EVIDENCE = {
+    ("overlay.add", "reel_touchup"): (
+        "library/tools/reel_touchup.py:_is_native_still",
+        "library/tools/reel_touchup.py:_place_still_insertions",
+        "library/tools/reel_touchup.py:_assert_still_insertions",
+        "PR #2718: native PNG stills use exact-duration placement",
+    ),
+}
+
+_BACKEND_OPERATION_LIMITATIONS = {
+    ("clip.move", "reel_touchup"):
+        ("same-row overlay items only; cross-row moves require remove plus add",),
+    ("overlay.add", "reel_touchup"):
+        ("native PNG stills use still_placement exact-duration routing; staging must re-read the requested span",),
 }
 
 # Live evidence is intentionally enumerated by exact op and executor. A
@@ -2955,7 +3010,13 @@ _LIVE_QUALIFICATION = {
 
 def _executor_coverage() -> dict[str, set[str]]:
     """Operation ids accepted by each existing production executor."""
-    touchup = set(TOUCHUP_VIEW.values())
+    # These are operation handlers in reel_touchup, not every name accepted
+    # by the caller-facing touch-up vocabulary.
+    touchup = {
+        "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
+        "clip.set_enabled", "retime", "overlay.resize", "clip.set_property",
+        "track.add", "overlay.entry_motion", "hold.repair_window",
+    }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but
     # are not directly implemented by this function.
@@ -3018,22 +3079,61 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
         if op.id not in operation_ids:
             continue
         evidence = _LIVE_QUALIFICATION.get((op.id, backend), ())
-        qualified = bool(evidence)
+        qualification = _BACKEND_QUALIFICATIONS.get((op.id, backend), {})
+        qualification_complete = bool(
+            evidence and qualification.get("resolve_version")
+            and qualification.get("media_types")
+            and qualification.get("timeline_conditions")
+            and qualification.get("preservation_limits")
+            and qualification.get("recovery")
+            and "visual_verification" in qualification
+            and "audio_verification" in qualification)
+        qualification_status = (
+            "production_enabled" if qualification_complete
+            and qualification.get("production_enabled") else
+            "qualified" if qualification_complete else
+            "evidence_incomplete" if evidence else "not_qualified")
         backends.append(BackendStatus(
             backend=backend,
             compilable=True,
-            qualified=qualified,
-            production_enabled=qualified,
+            qualification_status=qualification_status,
             limitations=(_BACKEND_LIMITATIONS[backend]
+                         + _BACKEND_OPERATION_LIMITATIONS.get((op.id, backend), ())
                          + ((op.note,) if op.note else ())),
             qualification_evidence=evidence,
+            resolve_version=qualification.get("resolve_version"),
+            qualification_media_types=qualification.get("media_types", ()),
+            qualification_timeline_conditions=qualification.get("timeline_conditions", ()),
+            preservation_limits=qualification.get("preservation_limits", ()),
+            visual_verification=qualification.get("visual_verification", ()),
+            audio_verification=qualification.get("audio_verification", ()),
+            recovery_qualification=qualification.get("recovery", "not live-qualified"),
+            implementation_status=("implemented_qualified"
+                                   if qualification_status in {"qualified", "production_enabled"}
+                                   else "implemented_unqualified"),
+            implementation_evidence=_IMPLEMENTATION_EVIDENCE.get((op.id, backend), ()),
         ))
+    workflow_evidence = _WORKFLOW_EVIDENCE.get(op.id, ())
+    if op.id in _PLANNING_OPERATION_IDS:
+        implementation_status = "planning_only"
+    elif backends:
+        implementation_status = ("implemented_qualified" if any(
+            row.qualified for row in backends) else "implemented_unqualified")
+    elif workflow_evidence:
+        implementation_status = "workflow_only"
+    else:
+        implementation_status = "no_executor"
     required = tuple(op.required)
     conditions = ["the exact Resolve timeline is open"]
     if "unique_id" in required:
         conditions.append("the target item resolves uniquely on that timeline")
     if "track_type" in required:
         conditions.append("the named track exists or can be created by the op")
+    operation_qualification_status = (
+        "production_enabled" if any(row.production_enabled for row in backends) else
+        "qualified" if any(row.qualified for row in backends) else
+        "evidence_incomplete" if any(row.qualification_status == "evidence_incomplete"
+                                     for row in backends) else "not_qualified")
     return OpStatus(
         id=op.id,
         param_schema={"type": "object",
@@ -3057,8 +3157,9 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
                           "irreversible_reason": op.inverse.reason},
         defined=True,
         compilable=bool(backends),
-        qualified=any(entry.qualified for entry in backends),
-        production_enabled=any(entry.production_enabled for entry in backends),
+        qualification_status=operation_qualification_status,
+        implementation_status=implementation_status,
+        workflow_evidence=workflow_evidence,
     )
 
 
@@ -3183,6 +3284,9 @@ def capability(op_id: str) -> dict | None:
         "implemented": entry.compilable,
         "live_qualified": entry.qualified,
         "production_enabled": entry.production_enabled,
+        "qualification_status": entry.qualification_status,
+        "implementation_status": entry.implementation_status,
+        "workflow_evidence": list(entry.workflow_evidence),
         "backends": [{
             "id": backend.backend,
             "implemented": backend.compilable,
@@ -3190,6 +3294,18 @@ def capability(op_id: str) -> dict | None:
             "production_enabled": backend.production_enabled,
             "qualification_evidence": list(backend.qualification_evidence),
             "limitations": list(backend.limitations),
+            "qualification": {
+                "resolve_version": backend.resolve_version,
+                "media_types": list(backend.qualification_media_types),
+                "timeline_conditions": list(backend.qualification_timeline_conditions),
+                "preservation_limits": list(backend.preservation_limits),
+                "visual_verification": list(backend.visual_verification),
+                "audio_verification": list(backend.audio_verification),
+                "recovery": backend.recovery_qualification,
+            },
+            "implementation_status": backend.implementation_status,
+            "qualification_status": backend.qualification_status,
+            "implementation_evidence": list(backend.implementation_evidence),
         } for backend in entry.backends],
         "supported_backend": [backend.backend for backend in entry.backends],
         # Fusion preservation is a measured property, not implied by a

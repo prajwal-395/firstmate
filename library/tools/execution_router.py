@@ -35,6 +35,7 @@ from dataclasses import asdict, dataclass, field
 #: VC-06: staging stays the production default. No router path promotes a
 #: direct-write default; gates may only observe candidates beside it.
 STAGING_IS_PRODUCTION_DEFAULT = True
+QUALIFICATION_POLICIES = frozenset({"production", "protected_experimental"})
 
 #: VC-11: no caller flag may select a direct write. A bypass flag that is
 #: set is refused outright - direct is proven per op, never requested.
@@ -182,18 +183,10 @@ def _ops(compiled_edit) -> list[dict]:
 
 
 def _qualification_level(entry) -> str:
-    """Strongest true qualification level for one OP_STATUS entry."""
+    """Canonical qualification state for one OP_STATUS entry."""
     if entry is None:
         return "unknown"
-    if entry.production_enabled:
-        return "production_enabled"
-    if entry.qualified:
-        return "qualified"
-    if entry.compilable:
-        return "compilable"
-    if entry.defined:
-        return "defined"
-    return "unknown"
+    return entry.qualification_status
 
 
 def _statuses(edit_algebra, ids: Sequence[str]) -> tuple[tuple[str, str], ...]:
@@ -253,9 +246,9 @@ def _qualification_gaps(edit_algebra, operations: Sequence[dict]
                         ) -> tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]:
     """Per op, which backends are qualified / production-enabled (VC-04).
 
-    A gap never silently passes: it is recorded on the decision and, under
-    ``require_qualified``, refuses. The production default records gaps and
-    executes under the caller's guarded path; nothing here invents evidence.
+    A gap never silently passes. Ordinary production routing refuses it;
+    protected experimental routing must separately provide all required
+    staging, preservation and verification guarantees.
     """
     gaps = []
     for op in operations:
@@ -277,14 +270,43 @@ def _gap_reasons(gaps) -> tuple[str, ...]:
         if qualified:
             reasons.append(
                 f"{op_id} has no production-enabled executor in this path; "
-                f"live-qualified: {', '.join(qualified)} - executing under "
-                "the caller's guarded path with read-back verification")
+                f"live-qualified: {', '.join(qualified)} - allowed only by "
+                "protected experimental policy")
         else:
             reasons.append(
                 f"{op_id} has no live-qualified executor on any backend - "
-                "executing under the caller's guarded path with read-back "
-                "verification; qualify it before trusting this route")
+                "allowed only by protected experimental policy")
     return tuple(reasons)
+
+
+def _enforce_qualification_policy(gaps, context: Mapping) -> None:
+    """Keep unqualified implementations out of ordinary production routes."""
+    if not gaps:
+        return
+    policy = str(context.get("qualification_policy", "production"))
+    if policy not in QUALIFICATION_POLICIES:
+        raise RoutingRefused(f"unknown qualification policy {policy!r}")
+    if policy == "production" or context.get("require_qualified"):
+        names = ", ".join(op_id for op_id, _qualified, _production in gaps)
+        raise RoutingRefused(
+            f"no production-qualified executor is available for: {names}; "
+            "production routing fails closed")
+    required_guards = (
+        "protected_staging", "preserve_approved_state", "verify_after_write",
+    )
+    missing = [name for name in required_guards if context.get(name) is not True]
+    if missing:
+        raise RoutingRefused(
+            "protected experimental routing requires explicit true guarantees: "
+            + ", ".join(missing))
+
+
+def _preflight_full_rebuild_operations(edit_algebra, operations, context) -> None:
+    """A rebuild cannot turn an unknown or unqualified semantic op into support."""
+    _refuse_unproven(edit_algebra, operations)
+    _check_op_conditions(edit_algebra, operations, context)
+    _enforce_qualification_policy(
+        _qualification_gaps(edit_algebra, operations), context)
 
 
 def _mode_for(backend: str, *, blockers: Sequence[str],
@@ -497,6 +519,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # VC-03: an explicit full rebuild never tries incremental, so it is
     # decided before eligibility or qualification can select another path.
     if context.get("requested_backend") == "full_rebuild":
+        _preflight_full_rebuild_operations(edit_algebra, operations, context)
         return route_full_rebuild(
             reason=str(context.get("reason") or "full build explicitly requested"),
             operations=operations, context=context)
@@ -513,12 +536,14 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # Qualification levels are still recorded truthfully beside the choice.
     if context.get("incremental_eligibility") is True:
         decision = route_incremental(operations=operations, context=context)
+        gaps = _qualification_gaps(edit_algebra, operations)
+        _enforce_qualification_policy(gaps, context)
         return ExecutionDecision(
             backend=decision.backend, reasons=decision.reasons,
             rejected_alternatives=decision.rejected_alternatives,
             verification=decision.verification,
             algebra_status=_statuses(edit_algebra, ids), mode=decision.mode,
-            qualification_gaps=_qualification_gaps(edit_algebra, operations),
+            qualification_gaps=gaps,
             selection=_selection_basis(operations, context, decision.backend),
         )
 
@@ -530,6 +555,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
         reason = str(context.get("ineligibility_reason") or "eligibility was not established")
         category = _normalize_category(context)
         if category == "unsupported" and context.get("allow_full_rebuild"):
+            _preflight_full_rebuild_operations(edit_algebra, operations, context)
             return route_full_rebuild(
                 reason="incremental eligibility rejected the plan",
                 ineligibility=f"unsupported: {reason}",
@@ -560,11 +586,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     _refuse_unproven(edit_algebra, operations)
     checked = _check_op_conditions(edit_algebra, operations, context)
     gaps = _qualification_gaps(edit_algebra, operations)
-    if context.get("require_qualified") and gaps:
-        names = ", ".join(op_id for op_id, _q, _p in gaps)
-        raise RoutingRefused(
-            f"no production-enabled executor is qualified for: {names} - "
-            "run under observation or qualify the route first")
+    _enforce_qualification_policy(gaps, context)
     statuses = _statuses(edit_algebra, ids)
     gap_reasons = _gap_reasons(gaps)
 

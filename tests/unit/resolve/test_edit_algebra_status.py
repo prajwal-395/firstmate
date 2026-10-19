@@ -24,22 +24,27 @@ def test_every_algebra_operation_has_complete_status_metadata():
             assert backend.compilable is True
             assert backend.production_enabled is backend.qualified
             assert backend.limitations
-            assert backend.qualified == bool(backend.qualification_evidence)
+            assert backend.qualified == bool(
+                backend.qualification_evidence and backend.resolve_version
+                and backend.qualification_media_types
+                and backend.qualification_timeline_conditions
+                and backend.preservation_limits
+                and backend.recovery_qualification != "not live-qualified")
         assert status.qualified == any(item.qualified for item in status.backends)
         assert status.production_enabled == any(
             item.production_enabled for item in status.backends)
 
 
-def test_live_qualification_is_narrow_and_backend_queryable():
+def test_legacy_live_evidence_does_not_fill_missing_qualification_fields():
     for op_id in ("marker.add", "marker.delete"):
-        assert edit_algebra.is_production_enabled(
-            op_id, "edit_patch")
-        assert edit_algebra.is_production_enabled(
-            op_id, "feedback_patch_apply")
-    assert edit_algebra.is_production_enabled(
-        "clip.set_property", "reel_touchup")
-    assert edit_algebra.is_production_enabled(
-        "clip.set_property", "composed_edit")
+        for backend in ("edit_patch", "feedback_patch_apply"):
+            row = edit_algebra.status(op_id, backend)
+            assert row.qualification_evidence
+            assert not row.production_enabled
+            assert row.qualification_status == "evidence_incomplete"
+            assert row.resolve_version is None
+    for backend in ("reel_touchup", "composed_edit"):
+        assert edit_algebra.status("clip.set_property", backend).production_enabled is False
 
     # Availability on a backend is not qualification on that backend.
     assert edit_algebra.status("clip.set_property", "edit_patch").compilable
@@ -49,6 +54,16 @@ def test_live_qualification_is_narrow_and_backend_queryable():
         "clip.trim", "edit_patch")
     assert edit_algebra.status("not.an.operation") is None
     assert edit_algebra.status("clip.move", "missing_backend") is None
+
+
+def test_all_77_operations_have_an_audited_implementation_classification():
+    assert len(edit_algebra.OP_STATUS) == 77
+    assert {row.implementation_status for row in edit_algebra.OP_STATUS.values()} <= {
+        "implemented_qualified", "implemented_unqualified", "workflow_only",
+        "no_executor", "planning_only",
+    }
+    assert sum(row.implementation_status == "workflow_only"
+               for row in edit_algebra.OP_STATUS.values()) == 2
 
 
 def test_executor_coverage_matches_the_current_dispatches():

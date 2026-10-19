@@ -2578,18 +2578,18 @@ def emit_resolve_axi_references() -> dict[str, str]:
             params = ", ".join(f"`{name}`" for name in
                                status.param_schema["required"]) or "none"
             rows.append(
-                f"| `{status.id}` | {params} | yes | "
+                f"| `{status.id}` | {status.implementation_status} | {params} | yes | "
                 f"{'yes' if status.compilable else 'no'} | "
                 f"{'yes' if status.qualified else 'no'} | "
                 f"{'yes' if status.production_enabled else 'no'} | "
                 f"{status.verification_contract} |")
         return rows
 
-    header = ("| operation | required parameters | defined | compilable | "
+    header = ("| operation | implementation status | required parameters | defined | compilable | "
               "qualified | production enabled | verification contract |\n"
-              "|---|---|---:|---:|---:|---:|---|")
+              "|---|---|---|---:|---:|---:|---:|---|")
     concepts = ["# Capability concepts", "", "Generated from `edit_algebra.OP_STATUS`.",
-                "", "Operation ids are editorial semantics. `defined` says the id is in the vocabulary; `compilable` says a listed backend can emit a write; `qualified` records exact live evidence; `production_enabled` is the production gate.",
+                "", "Operation ids are editorial semantics. `defined` says the id is in the vocabulary; `compilable` says a listed backend can emit a write; qualification status is one of not_qualified, evidence_incomplete, qualified or production_enabled. Evidence paths alone do not qualify a backend; production routing requires the full version, media, timeline, preservation, verification and recovery record.",
                 "", "## Operation vocabulary", "", header]
     concepts += operation_rows(lambda s: True)
 
@@ -2606,8 +2606,8 @@ def emit_resolve_axi_references() -> dict[str, str]:
          "Native state listed here lacks a preservation qualification for this operation."),
         ("Costs are live VC-02 measurements from the controlled Ren Qualification fixture; combined scenarios are labeled. "
          "Unmeasured means no operation-specific measurement is recorded."), "",
-        "| operation | defined | implemented | live-qualified | production-enabled | backend evidence | target strategy | safety class | minimal safe mechanism | inverse / recovery | unsupported native state | measured cost |",
-        "|---|---:|---:|---:|---:|---|---|---|---|---|---|---|",
+        "| operation | implementation status | defined | implemented | live-qualified | production-enabled | backend evidence | qualification limits | target strategy | safety class | minimal safe mechanism | inverse / recovery | unsupported native state | measured cost |",
+        "|---|---|---:|---:|---:|---:|---|---|---|---|---|---|---|---|",
     ]
     for status in statuses:
         inverse = status.inverse_recovery
@@ -2626,12 +2626,31 @@ def emit_resolve_axi_references() -> dict[str, str]:
                      f"lease={lease}; Resolve ops={resolve_ops}")
         backend_text = "; ".join(
             f"{backend.backend}: implemented={'yes' if backend.compilable else 'no'}, "
+            f"qualification_status={backend.qualification_status}, "
             f"qualified={'yes' if backend.qualified else 'no'}, "
-            f"enabled={'yes' if backend.production_enabled else 'no'}"
+            f"enabled={'yes' if backend.production_enabled else 'no'}, "
+            f"Resolve={backend.resolve_version or 'unrecorded'}, "
+            f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
+            f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
+            f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
+            f"visual={','.join(backend.visual_verification) or 'not specified'}, "
+            f"audio={','.join(backend.audio_verification) or 'not specified'}, "
+            f"recovery={backend.recovery_qualification}, "
+            f"evidence={','.join(backend.qualification_evidence) or 'none'}"
             for backend in status.backends) or "no executor advertised"
+        qualification_text = "; ".join(
+            f"{backend.backend}: Resolve={backend.resolve_version or 'unrecorded'}, "
+            f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
+            f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
+            f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
+            f"visual={','.join(backend.visual_verification) or 'not specified'}, "
+            f"audio={','.join(backend.audio_verification) or 'not specified'}, "
+            f"recovery={backend.recovery_qualification}"
+            for backend in status.backends) or "no backend qualification"
         matrix.append(
-            f"| `{status.id}` | yes | {'yes' if status.compilable else 'no'} | "
+            f"| `{status.id}` | {status.implementation_status} | yes | {'yes' if status.compilable else 'no'} | "
             f"{'yes' if status.qualified else 'no'} | {'yes' if status.production_enabled else 'no'} | {backend_text} | "
+            f"{qualification_text} | "
             f"{status.target_strategy} | {status.safety_class} | {status.minimal_safe_mechanism} | {inv} | "
             f"not preservation-qualified: {', '.join(status.unsupported_native_state)} | {cost_text} |")
 
