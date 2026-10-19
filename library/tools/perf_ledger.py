@@ -68,9 +68,9 @@ import resource
 import sys
 import threading
 import time
-from contextvars import ContextVar
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -92,7 +92,7 @@ SCHEDULE = "schedule"
 COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
                   "probes", "hashes", "subprocess_spawns", "cli_starts",
                   "media_decode_requests", "media_decode_cache_hits",
-                  "project_switches")
+                  "project_switches", "resolve_api_calls")
 GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
                    "graphics_render", "hyperframes-caption",
                    "ffframes-caption"}
@@ -106,7 +106,8 @@ EXTERNAL_LAYERS = {
     "semantic_inference_attempt": "model_inference",
     "model_load": "model_runtime", "model_cache": "model_runtime",
     "demux": "ffmpeg", "media_decode": "ffmpeg",
-    "resolve_render": "resolve_api", "resolve_wait": "resolve_lease_wait",
+    "resolve_render": "resolve_api", "resolve_api_call": "resolve_api",
+    "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
     "broker_request": "resolve_broker",
     "fframes_render": "graphics_engine",
@@ -122,6 +123,15 @@ EXTERNAL_LAYERS = {
 # seconds a capability waited for its turn, and the seconds it held it.
 RESOLVE_WAIT = "resolve_wait"
 RESOLVE_HOLD = "resolve_hold"
+
+# Stable phase vocabulary for a reproducible reel lifecycle profile. Existing
+# low-level spans remain authoritative: this list labels measurements for the
+# qualification harness without shadowing or re-timing those operations.
+REEL_LIFECYCLE_PHASES = (
+    "planning", "model_access", "cache", "staging", "resolve_ops",
+    "verification", "promotion", "version_commits", "cleanup",
+    "archive_export",
+)
 
 REEL_EDIT_METRICS = (
     "intent_to_plan_s", "state_resolution_s", "backend_selection_s",
@@ -338,6 +348,8 @@ def commit(project_folder, row: dict[str, Any]) -> None:
 _local = threading.local()
 _active_edit_ids: ContextVar[tuple[str, ...]] = ContextVar(
     "perf_ledger_active_edit_ids", default=())
+_active_lifecycle_phase: ContextVar[str | None] = ContextVar(
+    "perf_ledger_active_lifecycle_phase", default=None)
 
 
 def _env(key: str) -> str | None:
@@ -388,6 +400,9 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
     if stack is None:
         stack = _local.stack = []
     row: dict[str, Any] = dict(fields)
+    phase = _active_lifecycle_phase.get()
+    if phase is not None:
+        row.setdefault("phase", phase)
     frame = {"child_wall": 0.0, "child_cpu": 0.0, "children": []}
     stack.append(frame)
     started = time.time()
@@ -442,6 +457,25 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
             })
             _attach_backends(row)
             _append(path, row, required=_required_persistence())
+
+
+@contextmanager
+def lifecycle_phase(phase: str, **fields: Any) -> Iterator[dict[str, Any]]:
+    """Measure a named phase of a reel lifecycle in the existing ledger.
+
+    This is a thin, phase-tagged span: wall, thread CPU and peak RSS use the
+    established span implementation, while byte counts and operation counts
+    are supplied by the owning code when it has an honest measurement. The
+    helper is a no-op when no run ledger is attached, like ``span``.
+    """
+    if phase not in REEL_LIFECYCLE_PHASES:
+        raise ValueError(f"unknown reel lifecycle phase {phase!r}")
+    token = _active_lifecycle_phase.set(phase)
+    try:
+        with span("reel_lifecycle", phase=phase, **fields) as row:
+            yield row
+    finally:
+        _active_lifecycle_phase.reset(token)
 
 
 @contextmanager

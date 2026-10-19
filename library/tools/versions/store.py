@@ -343,10 +343,15 @@ def export_timeline_recovery_archive(
         with tempfile.TemporaryDirectory(
                 prefix="drt-recovery-", dir=scratch_dir) as temporary:
             staged = Path(temporary) / destination.name
-            exported = call_with_deadline(
-                f"DRT recovery export for {label or timeline_name}",
-                timeline.Export, str(staged), export_flag,
-                timeout_s=30.0)
+            from library.tools import perf_ledger
+            with perf_ledger.lifecycle_phase(
+                    "archive_export", timeline=timeline_name) as measure:
+                exported = call_with_deadline(
+                    f"DRT recovery export for {label or timeline_name}",
+                    timeline.Export, str(staged), export_flag,
+                    timeout_s=30.0)
+                if staged.is_file():
+                    measure["bytes_written"] = staged.stat().st_size
             if not exported or not staged.is_file():
                 raise RuntimeError(
                     f"Timeline.Export returned {exported!r} or left "

@@ -171,6 +171,14 @@ def call_with_deadline(call_label: str, func: Callable[..., Any], *args,
     timeout = (TIMELINE_SETTING_TIMEOUT_S if timeout_s is None
                else timeout_s)
     box: dict[str, Any] = {}
+    try:
+        from library.tools import perf_ledger
+        perf_ledger.count_call("resolve_api_calls", 1, api_call=call_label)
+        measurement = perf_ledger.span(
+            "resolve_api_call", calls=1, api_call=call_label)
+    except Exception:  # noqa: BLE001 - instrumentation must not affect Resolve
+        perf_ledger = None
+        measurement = None
 
     def _run() -> None:
         try:
@@ -181,8 +189,13 @@ def call_with_deadline(call_label: str, func: Callable[..., Any], *args,
     worker = threading.Thread(target=_run,
                               name=f"resolve-deadline:{call_label}",
                               daemon=True)
-    worker.start()
-    worker.join(timeout)
+    if measurement is not None:
+        with measurement:
+            worker.start()
+            worker.join(timeout)
+    else:
+        worker.start()
+        worker.join(timeout)
     if worker.is_alive():
         raise ResolveCallTimeout(
             f"{call_label} did not return within {timeout:g}s - Resolve is "
