@@ -194,7 +194,6 @@ from typing import Any
 
 from library.tools import composed_edit as _ce
 from library.tools import dirty_regions as _dirty_regions
-from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
 from library.tools.ren_refusal import RenRefusal
 
 _logger = logging.getLogger(__name__)
@@ -230,26 +229,41 @@ COMPOSED_STILL_RESIZE = "composed_still_resize"
 #: program sound.  Overlay rows are V3+ video by the SOP's layout
 #: order (`docs/TIMELINE_SOP.md`), sparse by nature, so a gap there
 #: is an ordinary state.
-CONTINUOUS_VIDEO_ROWS = ("V1", "V2")
-
-
-#: Rows the comp pass writes per-clip Fusion comps on. Read off the
-#: one enumeration (`execution/fusion_tracks.FUSION_COMP_TRACKS`) rather
-#: than restated, so the gate and the pass cannot disagree about which
-#: rows are treated. A manifest can additionally declare V3+ rows for a
-#: future multi-angle reel; `qualify` is pure over the track read and
-#: has no manifest, so the static rows are the refusal's boundary and
-#: that future is named in `_op_add_overlay` rather than guessed at.
-COMP_ROWS = {f"V{index}" for index in FUSION_COMP_TRACKS}
-
-
 def _is_audio_row(row: str) -> bool:
     return str(row).upper().startswith("A")
 
 
-def _is_continuous_row(row: str) -> bool:
+def _is_continuous_row(row: str, tracks: Sequence[Mapping]) -> bool:
+    """Infer picture continuity from live semantic names, never indices."""
     row = str(row).upper()
-    return row in CONTINUOUS_VIDEO_ROWS or _is_audio_row(row)
+    if _is_audio_row(row):
+        return True
+    from library.tools.timeline_layout import SINGLETON_NAMES
+    for track in tracks or ():
+        if _row_of(track["type"], int(track["index"])) == row:
+            name = str(track.get("name") or "").strip().casefold()
+            # Unknown/default names are conservatively treated as picture
+            # program: an uncertain role must never make deletion permissive.
+            return name not in {value.casefold() for value in SINGLETON_NAMES}
+    return False
+
+
+def _picture_rows(tracks: Sequence[Mapping]) -> list[str]:
+    from library.tools.timeline_layout import SINGLETON_NAMES
+    return [
+        _row_of(track["type"], int(track["index"]))
+        for track in tracks or ()
+        if str(track["type"]).lower().startswith("v")
+        and str(track.get("name") or "").strip().casefold()
+        not in {value.casefold() for value in SINGLETON_NAMES}]
+
+
+def _row_has_live_comps(row: str, tracks: Sequence[Mapping]) -> bool:
+    return any(
+        _row_of(track["type"], int(track["index"])) == str(row).upper()
+        and any(_ce.treatment_comps(clip)
+                for clip in (track.get("clips") or ()))
+        for track in tracks or ())
 
 
 def _row_of(track_type: str, track_index: int) -> str:
@@ -907,7 +921,7 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
             "a move to nowhere is unclassifiable",
             f"give edit {position} `row`, `item` and `to_record` in the "
             f"--edits JSON, then re-run `ren touch`")
-    if _is_continuous_row(row):
+    if _is_continuous_row(row, tracks):
         raise TouchupRefused(
             f"edit {position} moves {row}[{item_index}] "
             f"away, and {row} is continuous program",
@@ -1094,7 +1108,7 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
             "the source trim must be a whole frame",
             f"state an integer `left_offset` in edit {position}, then "
             f"re-run `ren touch`") from exc
-    if row in COMP_ROWS:
+    if _row_has_live_comps(row, tracks):
         raise TouchupRefused(
             f"edit {position} adds a new item on {row}, "
             f"and {row} is a comp-bearing row",
@@ -1131,7 +1145,7 @@ def _op_remove_overlay(edit, position, tracks, spans, changes,
             "a removal naming no item cannot be staged",
             f"give edit {position} `row` and `item` in the --edits JSON, "
             f"then re-run `ren touch`")
-    if _is_continuous_row(row):
+    if _is_continuous_row(row, tracks):
         raise TouchupRefused(
             f"edit {position} removes {row}[{item_index}], "
             f"and {row} is continuous program",
@@ -1277,8 +1291,8 @@ def _op_resize_still(edit, position, tracks, spans, changes, insertions,
             "frame duration",
             f"give edit {position} all three keys, then re-run `ren touch`")
     if (not row.startswith("V") or not row[1:].isdigit()
-            or int(row[1:]) < 3 or _is_continuous_row(row)
-            or row in COMP_ROWS):
+            or _is_continuous_row(row, tracks)
+            or _row_has_live_comps(row, tracks)):
         raise TouchupRefused(
             f"edit {position} (`resize_still`) targets {row}",
             "only an overlay on a non-comp-bearing V3+ row can be "
@@ -1454,7 +1468,7 @@ def _op_set_enabled(edit, position, tracks, spans, changes, insertions,
             "a switch naming no item or no state cannot be staged",
             f"give edit {position} `row`, `item` and `enabled`, then "
             f"re-run `ren touch`")
-    if _is_continuous_row(row) or _is_audio_row(row):
+    if _is_continuous_row(row, tracks) or _is_audio_row(row):
         raise TouchupRefused(
             f"edit {position} switches an item on {row}",
             "switching off continuous picture or program sound leaves "
@@ -1515,7 +1529,7 @@ def _op_entry_motion(edit, position, tracks, spans, changes,
             "entry motion is a Fusion video treatment - audio rows "
             "carry no Fusion comps",
             "put the motion on a video row, then re-run `ren touch`")
-    if row in COMP_ROWS:
+    if _row_has_live_comps(row, tracks):
         raise TouchupRefused(
             f"edit {position} animates an item on {row}, "
             f"and {row} is a comp-bearing row",
@@ -1832,9 +1846,7 @@ def _manifest_source_sequence(manifest: Mapping) -> dict:
 
 def _live_source_sequence(tracks: Sequence[Mapping]) -> dict:
     """`{row: [source_file, ...]}` off the live read, same shape."""
-    from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
-
-    rows = {f"V{i}" for i in FUSION_COMP_TRACKS}
+    rows = set()
     for track in tracks:
         if str(track.get("type", "")).lower().startswith("v"):
             rows.add(_row_of(track["type"], int(track["index"])))
@@ -3316,6 +3328,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         for edit in (spec.get("edits") or ())
         if str(edit.get("op") or "") in structural_ids
     ]
+    staged_tracks_before_edit = _read.read_tracks(staged)
     composed = _ce.apply_composed_edit(
         timeline=staged, media_pool=pool, changes=changes,
         insertions=insertions,
@@ -3324,7 +3337,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         rederiver=rederiver,
         grade_sources=grade_sources,
         link_rows={},
-        picture_row="V1",
+        picture_rows=_picture_rows(staged_tracks_before_edit),
         still_placer=still_placer,
         write_context={"project_folder": project_folder,
                        "structural_operations": structural_operations,

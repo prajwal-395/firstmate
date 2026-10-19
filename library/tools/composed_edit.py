@@ -1200,6 +1200,17 @@ def placement_order(captures: Sequence[ItemCapture],
                                insertion.track_index, insertion.record_frame,
                                1 if insertion.track_type == "video" else 2),
                      insertion))
+    for _record, _track, _media_type, info, owner in rows:
+        pool_item = info["mediaPoolItem"]
+        try:
+            frame_count = int(pool_item.GetClipProperty("Frames"))
+        except (AttributeError, TypeError, ValueError):
+            frame_count = None
+        if frame_count is not None and int(info["endFrame"]) > frame_count:
+            raise PlacementNotVerified(
+                f"REFUSING to place {getattr(owner, 'name', '')!r}: "
+                f"source span [{info['startFrame']}, {info['endFrame']}) "
+                f"exceeds media duration {frame_count} frames")
     return sorted(rows, key=lambda row: (row[0], row[1]))
 
 
@@ -1257,20 +1268,72 @@ def verify_placement(live_rows: Mapping[str, Sequence[Any]],
     landed, missing = {}, []
     for record_frame, track_index, media_type, _info, owner in ordered:
         row = row_label("video" if media_type == 1 else "audio", track_index)
-        from library.tools.resolve_temporal import source_span
-        wanted = source_span(_info["startFrame"],
-                             _info["endFrame"]).duration
-        hits = [item for item in (live_rows.get(row) or [])
+        from library.tools.resolve_temporal import record_span, source_span
+        wanted_source = source_span(_info["startFrame"], _info["endFrame"])
+        wanted_record = record_span(record_frame,
+                                    record_frame + wanted_source.duration)
+        source = _info["mediaPoolItem"]
+        try:
+            source_path = str(source.GetClipProperty("File Path") or "")
+            source_uid = str(source.GetUniqueId() or "")
+        except Exception:  # noqa: BLE001 - Resolve bridge reads may raise vendor exceptions
+            source_path, source_uid = "", ""
+        row_items = list(live_rows.get(row) or [])
+        matching_source = []
+        for item in row_items:
+            pool = _read(item, "GetMediaPoolItem", None)
+            if pool is None:
+                continue
+            try:
+                same_source = (str(pool.GetUniqueId() or "") == source_uid
+                               if source_uid else
+                               str(pool.GetClipProperty("File Path") or "")
+                               == source_path)
+                same_span = (source_span(item.GetSourceStartFrame(),
+                                         item.GetSourceEndFrame())
+                             == wanted_source)
+                same_record = (record_span(item.GetStart(), item.GetEnd())
+                               == wanted_record)
+            except Exception:  # noqa: BLE001 - an unreadable candidate cannot verify
+                same_source, same_span, same_record = False, False, False
+            if same_source and same_span and same_record:
+                matching_source.append(item)
+        hits = [item for item in row_items
                 if _read(item, "GetStart", None) == record_frame]
-        if len(hits) != 1 or _read(hits[0], "GetDuration", None) != wanted:
+        def exact(item, source_path=source_path, source_uid=source_uid,
+                  wanted_source=wanted_source, wanted_record=wanted_record):
+            try:
+                actual_record = record_span(item.GetStart(), item.GetEnd())
+                actual_source = source_span(item.GetSourceStartFrame(),
+                                            item.GetSourceEndFrame())
+                pool = item.GetMediaPoolItem()
+                actual_path = str(pool.GetClipProperty("File Path") or "")
+                actual_uid = str(pool.GetUniqueId() or "")
+                identity_ok = (actual_path == source_path
+                               and (not source_uid or actual_uid == source_uid))
+                return (identity_ok and actual_source == wanted_source
+                        and actual_record == wanted_record
+                        and _read(item, "GetDuration", None)
+                        == wanted_record.duration)
+            except Exception:  # noqa: BLE001 - failed read-back is a failed verification
+                return False
+        valid_hits = [item for item in hits if exact(item)]
+        duplicates = (isinstance(owner, Insertion)
+                      and len(matching_source) != 1)
+        if len(valid_hits) != 1 or len(hits) != 1 or duplicates:
             missing.append({
                 "row": row, "record_frame": record_frame,
-                "wanted_duration": wanted,
+                "wanted_source": [wanted_source.start, wanted_source.end],
+                "wanted_record": [wanted_record.start, wanted_record.end],
+                "duplicate_source_items": len(matching_source),
                 "found": [{"start": _read(h, "GetStart", None),
-                           "duration": _read(h, "GetDuration", None)}
-                          for h in hits]})
+                           "end": _read(h, "GetEnd", None),
+                           "duration": _read(h, "GetDuration", None),
+                           "source_start": _read(h, "GetSourceStartFrame", None),
+                           "source_end": _read(h, "GetSourceEndFrame", None)}
+                          for h in matching_source or hits]})
             continue
-        landed[(row, record_frame)] = hits[0]
+        landed[(row, record_frame)] = valid_hits[0]
     if missing:
         raise PlacementNotVerified(
             f"REFUSING to restore: {len(missing)} of {len(ordered)} placed "
@@ -1756,6 +1819,7 @@ def apply_composed_edit(*, timeline, media_pool,
                         grade_sources: Optional[Mapping] = None,
                         link_rows: Mapping[str, str] = None,
                         picture_row: str = "V1",
+                        picture_rows: Sequence[str] | None = None,
                         still_placer=None,
                         write_context: Mapping[str, Any] | None = None,
                         component_manifest: Mapping[str, Any] | None = None,
@@ -1823,10 +1887,28 @@ def apply_composed_edit(*, timeline, media_pool,
                     not receipt.rederivation_required.get("required")
                     or rederiver is not None),
             })
-    assert_every_frame_covered(tracks_before, changes, insertions,
-                               row=picture_row)
+    required_picture_rows = (list(picture_rows) if picture_rows is not None
+                             else [picture_row])
+    for required_row in required_picture_rows:
+        assert_every_frame_covered(tracks_before, changes, insertions,
+                                   row=required_row)
 
     rows_before = _rows_of(timeline)
+    from library.tools.timeline_addressing import timeline_address
+    timeline_identity = timeline_address(timeline)
+    replaced_ids = {str(_read(rows_before[c.row][c.item_index],
+                              "GetUniqueId", "") or "")
+                    for c in changes}
+    collateral_before = {}
+    for row, items in rows_before.items():
+        for item in items:
+            uid = str(_read(item, "GetUniqueId", "") or "")
+            if uid and uid not in replaced_ids:
+                collateral_before[uid] = (
+                    row, _read(item, "GetStart", None),
+                    _read(item, "GetEnd", None),
+                    _read(item, "GetSourceStartFrame", None),
+                    _read(item, "GetSourceEndFrame", None))
     captures = []
     for change in changes:
         items = rows_before.get(change.row) or []
@@ -1856,7 +1938,82 @@ def apply_composed_edit(*, timeline, media_pool,
                        "placed": len(ordered)}
 
     rows_after = _rows_of(timeline)
-    landed = verify_placement(rows_after, ordered)
+    try:
+        landed = verify_placement(rows_after, ordered)
+    except PlacementNotVerified:
+        # A misplaced insertion is the one item this operation owns and
+        # may compensate. Never delete by time alone: prove a single live
+        # item has the exact requested source identity and source span.
+        for insertion in insertions:
+            wanted_pool = insertion.media_pool_item
+            wanted_uid = str(_read(wanted_pool, "GetUniqueId", "") or "")
+            try:
+                wanted_path = str(wanted_pool.GetClipProperty("File Path") or "")
+            except Exception:
+                wanted_path = ""
+            wanted_source = (int(insertion.left_offset),
+                             int(insertion.left_offset + insertion.duration))
+            candidates = []
+            for candidate_row, candidates_on_row in rows_after.items():
+                for candidate in candidates_on_row:
+                    pool = _read(candidate, "GetMediaPoolItem", None)
+                    if pool is None:
+                        continue
+                    try:
+                        same_id = str(pool.GetUniqueId() or "") == wanted_uid
+                        same_path = (str(pool.GetClipProperty("File Path")
+                                          or "") == wanted_path)
+                        same_span = (int(candidate.GetSourceStartFrame()),
+                                     int(candidate.GetSourceEndFrame())) == wanted_source
+                    except Exception:
+                        continue
+                    if (same_id if wanted_uid else same_path) and same_span:
+                        candidates.append((candidate_row, candidate))
+            intended_row = insertion.row
+            unintended = [(row, item) for row, item in candidates
+                          if row != intended_row or
+                          _read(item, "GetStart", None)
+                          != insertion.record_frame or
+                          _read(item, "GetEnd", None)
+                          != insertion.record_frame + insertion.duration]
+            if len(unintended) == 1 and len(candidates) == 1:
+                try:
+                    timeline.DeleteClips([unintended[0][1]], False)
+                    remaining = _rows_of(timeline)
+                    still_live = any(
+                        str(_read(item, "GetUniqueId", "") or "")
+                        == str(_read(unintended[0][1], "GetUniqueId", "") or "")
+                        for items in remaining.values() for item in items)
+                    if still_live:
+                        raise PlacementNotVerified(
+                            "the uniquely identified unintended insertion "
+                            "could not be removed")
+                except PlacementNotVerified:
+                    raise
+                except Exception as cleanup_error:
+                    raise PlacementNotVerified(
+                        "the uniquely identified unintended insertion "
+                        f"could not be removed: {cleanup_error}") from cleanup_error
+        raise
+    if timeline_address(timeline) != timeline_identity:
+        raise PlacementNotVerified(
+            "REFUSING: placement read-back was taken from a different or "
+            "renamed timeline")
+    collateral_after = {}
+    for row, items in rows_after.items():
+        for item in items:
+            uid = str(_read(item, "GetUniqueId", "") or "")
+            if uid and uid in collateral_before:
+                collateral_after[uid] = (
+                    row, _read(item, "GetStart", None),
+                    _read(item, "GetEnd", None),
+                    _read(item, "GetSourceStartFrame", None),
+                    _read(item, "GetSourceEndFrame", None))
+    if collateral_after != collateral_before:
+        raise PlacementNotVerified(
+            "REFUSING: an item outside the requested changes moved or "
+            "changed during placement; before/after identities are "
+            f"{collateral_before!r} / {collateral_after!r}")
     receipt.verified = {"landed": len(landed), "asked": len(ordered)}
     receipt.verified = {**receipt.verified, "status": "verified"}
 

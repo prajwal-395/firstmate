@@ -427,6 +427,44 @@ def test_step6_the_return_value_is_not_the_verdict(tmp_path):
         ce.verify_placement(ce._rows_of(timeline), ordered)
 
 
+def test_placement_readback_requires_exact_nonzero_record_and_source_spans():
+    """A same-source item at frame zero cannot satisfy a frame-500 insert."""
+    timeline = reel_timeline("nonzero-placement", {"V1": []})
+    pool = media_pool(timeline)
+    mpi = pool_clip("/lab/nonzero.mov", frames=100)
+    insertion = ce.Insertion(
+        "video", 1, mpi, 17, 11, 500, name="nonzero", properties={})
+    ordered = ce.placement_order([], [insertion])
+    pool.AppendToTimeline([ordered[0][3]])
+
+    landed = ce.verify_placement(ce._rows_of(timeline), ordered)
+
+    item = landed[("V1", 500)]
+    assert (item.GetStart(), item.GetEnd()) == (500, 511)
+    assert (item.GetSourceStartFrame(), item.GetSourceEndFrame()) == (17, 28)
+
+
+def test_same_item_at_wrong_record_frame_fails_placement_readback():
+    timeline = reel_timeline("wrong-record", {"V1": []})
+    mpi = pool_clip("/lab/wrong-record.mov", frames=100)
+    insertion = ce.Insertion(
+        "video", 1, mpi, 17, 11, 500, name="wrong", properties={})
+    ordered = ce.placement_order([], [insertion])
+    timeline.rows["V1"].append(make_item(mpi, 0, 11, 17))
+
+    with pytest.raises(ce.PlacementNotVerified, match="not on the track"):
+        ce.verify_placement(ce._rows_of(timeline), ordered)
+
+
+def test_placement_refuses_source_span_past_media_duration():
+    mpi = pool_clip("/lab/short.mov", frames=100)
+    insertion = ce.Insertion(
+        "video", 1, mpi, 90, 20, 500, name="past-end", properties={})
+
+    with pytest.raises(ce.PlacementNotVerified, match="exceeds media duration"):
+        ce.placement_order([], [insertion])
+
+
 # ── Step 7: restore, then re-derive ─────────────────────────────────
 
 
