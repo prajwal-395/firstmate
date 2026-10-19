@@ -27,6 +27,8 @@ Two shapes of job, because Resolve's handles cannot cross a process:
   `resolve.ui_transaction`, `reel.promote_staged` (typed and restricted
   to the already-open `Ren Qualification` project), and
   `timeline.drt_export_probe` (typed, Qualification-only DRT export),
+  `timeline.drt_recovery_probe` (exclusive disposable-project DRT import,
+  verified and retired through the scratch-project lifecycle),
   and `reel.copy_tv_ending` (typed, exact-project reel ending copy with a
   target-specific freeze, verified Fusion splines and two-line logo).
 * GRANT (`lease`) - an in-process critical section the CALLER runs.

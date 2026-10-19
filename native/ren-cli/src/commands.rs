@@ -160,6 +160,7 @@ struct Verb {
 /// from here is unreachable even though Python knows it.
 const VERBS: &[Verb] = &[
     Verb { name: "doctor", group: "Setup", summary: "Check what this Mac can do with Ren (--for <capability>); changes nothing" },
+    Verb { name: "versions", group: "Reels", summary: "Inspect a project's version-control health without changing it" },
     Verb { name: "setup", group: "Setup", summary: "Install Ren's runtime and system prerequisites; optional verified packs with --with" },
     Verb { name: "uninstall", group: "Setup", summary: "Remove Ren's runtime and cache; customer data is kept" },
     Verb { name: "config", group: "Setup", summary: "Show where each setting comes from; --init writes a starter file" },

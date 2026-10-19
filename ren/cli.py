@@ -85,7 +85,7 @@ def main(argv=None) -> int:
     from ren import hosts
     hosts.ensure_harness_output_env()
     argv = list(sys.argv[1:] if argv is None else argv)
-    if os.environ.get("REN_PERF_LEDGER"):
+    if os.environ.get("REN_PERF_LEDGER") and not (argv and argv[0] == "versions"):
         from library.tools.perf_ledger import count_call
         count_call("cli_starts")
     # `--version` answers from the package itself: no engine needed,
@@ -131,6 +131,13 @@ def main(argv=None) -> int:
         print(f"ren: unknown verb {name!r}; `ren --help` lists them.",
               file=sys.stderr)
         return 2
+
+    # The version doctor is strictly read-only. Keep it ahead of the
+    # ordinary CLI lifecycle reconciliation, which may requeue maintenance
+    # work and start cleanup workers as a startup side effect.
+    if verb.builtin == "versions":
+        from library.tools.versions import doctor as versions_doctor
+        return versions_doctor.main(rest)
 
     if verb.builtin != "storage":
         # Reconcile durable ownership state independently of an editing run.

@@ -62,6 +62,9 @@ Kinds
                        Export one non-current timeline by UID to a DRT
                        recovery archive, for `Ren Qualification` only.
                        Typed and read-only with respect to Resolve state.
+`timeline.drt_recovery_probe`
+                       Restore one qualification DRT into a disposable,
+                       lifecycle-owned Ren Scratch project; verify and retire.
 `reel.copy_tv_ending`  Copy one verified TV-off freeze comp and the
                        two-line logo onto a named geo-podcast reel. The
                        target hold is rendered from its own final picture;
@@ -93,6 +96,7 @@ KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
           "resolve.qualification_session", "qualification.workflow",
           "resolve.activity_probe",
           "timeline.drt_export_probe",
+          "timeline.drt_recovery_probe",
           "reel.copy_tv_ending")
 
 # These qualification-only writes deliberately enter from the currently
@@ -122,6 +126,7 @@ INTERRUPT_POLICIES = {
     "reel.probe_qualification_marker_loss": "inverse:marker-restored-and-saved",
     "reel.copy_tv_ending": "backup:drt+inverse:inventory-verified",
     "qualification.workflow": "commit:timeline-exported-and-read-back",
+    "timeline.drt_recovery_probe": "commit:scratch-retired-after-recovery-verification",
 }
 MUTATING_KINDS = frozenset(INTERRUPT_POLICIES)
 MUTATING_KINDS = MUTATING_KINDS - {"resolve.activity_probe"}
@@ -269,6 +274,7 @@ def activity_description(kind: str, params: dict) -> str:
         "resolve.qualification_session": "Running the Resolve qualification",
         "qualification.workflow": "Running a qualification workflow",
         "timeline.drt_export_probe": "Exporting a timeline recovery archive",
+        "timeline.drt_recovery_probe": "Restoring and retiring a DRT qualification project",
         "reel.promote_staged": "Promoting staged reels",
         "reel.copy_tv_ending": "Copying approved reel endings",
         "lease": "Using DaVinci Resolve",
@@ -495,6 +501,10 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         # This is a qualification job even when the caller omits the
         # generic qualification flag. It must never reach a user project.
         qualification = True
+    elif kind == "timeline.drt_recovery_probe":
+        from library.tools.resolved import drt_recovery_probe
+        shape = drt_recovery_probe.prepare(params)
+        qualification = True
     elif kind == "reel.promote_staged":
         from library.tools.resolved import reel_promotion
         shape = reel_promotion.prepare(params)
@@ -706,6 +716,10 @@ def _run_impl(job: dict, resolve) -> dict | None:
         from library.tools.qualification_workflow import run_broker_job
         _start_checkpoint(job)
         return _commit_checkpoint(job, run_broker_job(job, resolve))
+    if kind == "timeline.drt_recovery_probe":
+        from library.tools.resolved import drt_recovery_probe
+        _start_checkpoint(job)
+        return _commit_checkpoint(job, drt_recovery_probe.run(job, resolve))
     if kind == "reel.probe_qualification_marker_loss":
         from library.tools.resolved import marker_loss_probe
         _start_checkpoint(job)
