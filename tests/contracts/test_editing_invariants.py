@@ -78,7 +78,17 @@ def test_failed_replacement_keeps_the_approved_timeline(edit_world):
 def test_qa01_reel09_unattributed_human_edit_is_not_silently_overwritten(
         edit_world, tmp_path):
     """Defect: a patch planned before a hand edit overwrites that edit."""
+    from library.tools import reel_edit_history
+    from library.tools.reel_read import rows_of
+    from library.tools.versions.rounds import digest_rows
+
     project, timeline, _item, store, base = edit_world
+    review_dir = tmp_path / "pipeline_output" / "review"
+    baseline_rows_digest = digest_rows(rows_of(store.snapshot(base)))
+    reel_edit_history.record_entry(
+        str(review_dir), "VC Reel", actor=reel_edit_history.ACTOR_REN,
+        act="build", summary="recorded base",
+        refs={"rows_digest_after": baseline_rows_digest})
     timeline.AddMarker(30, "Red", "captain's edit", "keep", 1)
     patch = _patch(base, [{
         "op": "marker.add", "frame": 5, "color": "Blue", "name": "Ren",
@@ -88,9 +98,18 @@ def test_qa01_reel09_unattributed_human_edit_is_not_silently_overwritten(
         _apply(patch, project, timeline, store, tmp_path)
 
     assert "changed since" in str(refused.value)
+    assert refused.value.manual_edit_recorded
+    assert "intent is unknown" in refused.value.user_message
     assert 30 in timeline.GetMarkers()
     assert 5 not in timeline.GetMarkers()
     assert store.head("VC Invariant Project", base.timeline_id).source == shadow.OBSERVED
+    edits = [entry for entry in reel_edit_history.recorded_history(
+        str(tmp_path / "pipeline_output" / "review"), "VC Reel")
+             if entry["act"] == reel_edit_history.ACT_MANUAL_EDIT]
+    assert len(edits) == 1
+    assert "intent unknown" in edits[0]["summary"]
+    assert store.head("VC Invariant Project", base.timeline_id).hash in \
+        edits[0]["summary"]
 
 
 def test_edit_context_names_exact_target_generation_and_effect(

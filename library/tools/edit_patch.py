@@ -77,11 +77,17 @@ can say what it meets.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import asdict, dataclass
 
-from library.tools import edit_algebra, edit_backend, protocol_conformance, resolve_lock
-from library.tools import transaction_receipt
+from library.tools import (
+    edit_algebra,
+    edit_backend,
+    protocol_conformance,
+    resolve_lock,
+    transaction_receipt,
+)
 from library.tools import timeline_shadow as shadow
 from library.tools.edit_algebra import (
     FLOAT_TOLERANCE,
@@ -135,12 +141,23 @@ class StalePatch(PatchRefused):
     RECOVERY_CLASS = "needs_question"
 
     def __init__(self, patch: EditPatch, head: int, *, observed: bool,
-                 rebase_possible: bool, reason: str) -> None:
+                 rebase_possible: bool, reason: str,
+                 manual_edit_recorded: bool = False) -> None:
         self.head = head
         self.observed = observed
         self.rebase_possible = rebase_possible
+        self.manual_edit_recorded = manual_edit_recorded
         self.recovery = transaction_receipt.recovery(
             "stale_generation", reason=reason)
+        user_message = (
+            "The timeline changed since I prepared this edit. Your recent "
+            "work is preserved, and I refreshed my read. Should I apply "
+            "this change to the updated cut?")
+        if manual_edit_recorded:
+            user_message = (
+                "I found an unrecorded Resolve edit and kept it intact. "
+                "Its intent is unknown, so tell me what you meant before "
+                "I rebase this change.")
         super().__init__(
             what=(f"patch {patch.id!r} was planned on generation "
                   f"{patch.base_generation} of {patch.timeline!r}, and the "
@@ -152,10 +169,7 @@ class StalePatch(PatchRefused):
                  f"(`python3 -m library.tools.timeline_shadow show "
                  f"--project {patch.project!r} --timeline "
                  f"{patch.timeline!r}`)"),
-            user_message=(
-                "The timeline changed since I prepared this edit. Your "
-                "recent work is preserved, and I refreshed my read. Should "
-                "I apply this change to the updated cut?"),
+            user_message=user_message,
             recovery_class="needs_question")
 
 
@@ -854,6 +868,46 @@ def apply_patch(patch, *, resolve, project, timeline,
             edit_algebra.insertion_sources():
         live = shadow.read_live(project, timeline)
         if shadow.snapshot_hash(live) != head.hash:
+            manual_edit_recorded = False
+            if project_folder:
+                try:
+                    from library.tools import reel_edit_history
+                    from library.tools.reel_read import rows_of
+                    from library.tools.versions.rounds import digest_rows
+
+                    review_dir = os.path.join(
+                        project_folder, "pipeline_output", "review")
+                    live_digest = shadow.snapshot_hash(live)
+                    rows_digest = digest_rows(rows_of(live))
+                    manual_edit = reel_edit_history.detect_manual_edit(
+                        review_dir, timeline_name, rows_digest,
+                        summary=("unattributed Resolve edit observed before "
+                                 f"transaction {patch.id}; intent unknown"))
+                    if manual_edit is None:
+                        manual_edit = reel_edit_history.record_manual_edit(
+                            review_dir, timeline_name,
+                            summary=("unattributed Resolve state change not "
+                                     "represented in clip rows; intent unknown; "
+                                     f"snapshot {head.hash} -> {live_digest}"),
+                            rows_digest_before=rows_digest,
+                            rows_digest_after=rows_digest)
+                    manual_edit_recorded = manual_edit is not None
+                except Exception as exc:
+                    raise PatchRefused(
+                        what=(f"patch {patch.id!r} found a live timeline "
+                              "change it could not record"),
+                        why=(f"the live timeline differs from recorded "
+                             f"generation {head.generation}, and manual-edit "
+                             f"history could not be updated: {exc}"),
+                        fix=("preserve the current Resolve timeline, repair "
+                             "the review history, and re-plan against the "
+                             "observed state"),
+                        user_message=(
+                            "I found a Resolve edit but couldn't record it, "
+                            "so I left the timeline untouched. Please keep "
+                            "the edit and repair its review history before "
+                            "trying again."),
+                        recovery_class="needs_question") from exc
             if project_folder:
                 from library.tools import event_log
 
@@ -874,7 +928,10 @@ def apply_patch(patch, *, resolve, project, timeline,
                 patch, seen.generation, observed=True, rebase_possible=False,
                 reason=("the live timeline no longer matches generation "
                         f"{head.generation}: a change nobody recorded, now "
-                        f"generation {seen.generation}"))
+                        f"generation {seen.generation}"
+                        + ("; its manual-edit history entry has unknown "
+                           "intent" if manual_edit_recorded else "")),
+                manual_edit_recorded=manual_edit_recorded)
         failures = _judge(patch.preconditions, live, base)
         if failures:
             _refuse(patch, "preconditions do not hold: " + "; ".join(failures),
