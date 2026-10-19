@@ -3087,6 +3087,148 @@ def undo_stack(project_folder, final: str = "") -> list:
                   reverse=True)
 
 
+def explain_undo(project_folder: str, *, final: str = "", act: str = "",
+                 accept_editor_changes=None) -> list[dict[str, Any]]:
+    """Describe the undo route and intervening history without writing.
+
+    This is deliberately ledger-only: the actual operation still checks the
+    live timeline under its normal guards immediately before changing it.
+    """
+    from library.tools.versions import reel_versions
+
+    if act:
+        kind, target, journal, name = resolve_act(project_folder, final, act)
+        if target.get("kind") == reel_versions.KIND_ROLLBACK:
+            raise UndoRefused(
+                f"version {target['version']} of {name!r} is a rollback "
+                "revision, not an act to undo",
+                "undoing that state by rebuilding would corrupt the act's "
+                "ancestry", "use `ren redo` with this rollback version to "
+                "re-apply the build it reversed")
+        targets = [(name, target, kind, journal)]
+    else:
+        stack = undo_stack(project_folder, final)
+        if not stack:
+            raise UndoRefused(
+                f"nothing recorded on {final or 'this project'!r} is left to undo",
+                "every recorded act was already undone, or none was ever recorded",
+                "there is nothing to undo - leave the reels as they are")
+        name, target = stack[0]
+        targets = [(name, target, target["kind"], None)]
+        if target["kind"] == reel_versions.KIND_TOUCH and target.get("batch"):
+            targets = [(other, item, item["kind"], None)
+                       for other, item in undo_stack(project_folder)
+                       if item.get("batch") == target["batch"]]
+
+    plans = []
+    for name, target, kind, journal in targets:
+        history = reel_versions.versions_of(project_folder, name)
+        later = [entry for entry in history
+                 if int(entry["version"]) > int(target["version"])]
+        intervening = [
+            {"version": int(entry["version"]), "kind": entry["kind"],
+             "status": ("already reversed" if entry.get("undone_by")
+                        else "recorded after target")}
+            for entry in later]
+        if kind == "touch":
+            mechanism = "verified inverse transaction from the touch journal"
+            outcome = ("preserves intervening editor changes only when they are "
+                       "outside the inverse projection; otherwise refuses")
+            entry_id = (journal or {}).get("id") or target.get("journal")
+        else:
+            prior = reel_versions.state_before(
+                project_folder, name, int(target["version"]))
+            mechanism = "semantic replay of the prior plan and later live touches"
+            if prior and isinstance(prior.get("recovery_archive"), Mapping):
+                mechanism += "; verified native archive is the fallback"
+            outcome = ("later touches are replayed and each read-back is verified; "
+                       "incompatible live changes refuse unless explicitly accepted")
+            entry_id = None
+        plans.append({
+            "reel": name, "version": int(target["version"]),
+            "kind": kind, "journal": entry_id,
+            "target_version": (int(reel_versions.state_before(
+                project_folder, name, int(target["version"]))["version"])
+                if kind != "touch" and reel_versions.state_before(
+                    project_folder, name, int(target["version"])) else None),
+            "mechanism": mechanism, "intervening": intervening,
+            "outcome": outcome,
+            "editor_changes_authorized": bool(accept_editor_changes),
+        })
+    return plans
+
+
+def render_undo_plan(plans: Sequence[Mapping]) -> str:
+    """Render the explanation shown before a mutating undo begins."""
+    lines = ["Undo plan:"]
+    for plan in plans:
+        lines.append(f"  {plan['reel']} v{plan['version']} ({plan['kind']})")
+        lines.append(f"    mechanism: {plan['mechanism']}")
+        if plan.get("target_version") is not None:
+            lines.append(f"    restores state from v{plan['target_version']}")
+        later = plan.get("intervening") or []
+        if later:
+            rendered = ", ".join(
+                f"v{item['version']} {item['kind']} ({item['status']})"
+                for item in later)
+            lines.append(f"    intervening revisions: {rendered}")
+        else:
+            lines.append("    intervening revisions: none recorded")
+        lines.append(f"    effect: {plan['outcome']}")
+    return "\n".join(lines)
+
+
+def explain_redo(project_folder: str, *, final: str = "", act: str = "") \
+        -> list[dict[str, Any]]:
+    """Describe a redo's source, route, and later recorded history."""
+    kind, target, journal, name = resolve_act(project_folder, final, act)
+    from library.tools.versions import reel_versions
+
+    history = reel_versions.versions_of(project_folder, name)
+    if kind == "touch":
+        mechanism = "semantic replay of the touch journal's recorded edit program"
+        source = journal["id"]
+    else:
+        source_act = target
+        if target.get("kind") == reel_versions.KIND_ROLLBACK:
+            source_act = next((entry for entry in history
+                               if int(entry["version"]) ==
+                               int(target.get("redoes") or 0)), None)
+        if source_act is None:
+            raise UndoRefused(
+                f"rollback {target['version']} of {name!r} names no rebuild "
+                "to re-apply", "the redo source cannot be identified",
+                "repair the rollback's version reference before retrying")
+        mechanism = (f"rebuild from version {source_act['version']}'s "
+                     "recorded plan moment")
+        source = int(source_act["version"])
+    after = [
+        {"version": int(entry["version"]), "kind": entry["kind"],
+         "status": "recorded after selected act"}
+        for entry in history
+        if int(entry["version"]) > int(target["version"])]
+    return [{"reel": name, "version": int(target["version"]),
+             "kind": kind, "source": source, "mechanism": mechanism,
+             "intervening": after,
+             "outcome": "read-back is verified; incompatible live changes refuse"}]
+
+
+def render_redo_plan(plans: Sequence[Mapping]) -> str:
+    """Render the explanation shown before a mutating redo begins."""
+    lines = ["Redo plan:"]
+    for plan in plans:
+        lines.append(f"  {plan['reel']} v{plan['version']} ({plan['kind']})")
+        lines.append(f"    mechanism: {plan['mechanism']}")
+        lines.append(f"    source: {plan['source']}")
+        later = plan.get("intervening") or []
+        rendered = (", ".join(f"v{item['version']} {item['kind']}"
+                               for item in later)
+                    if later else "none recorded")
+        lines.append(f"    intervening revisions: {rendered}")
+        lines.append(f"    effect: {plan['outcome']}")
+    return "\n".join(lines)
+
+
 def resolve_act(project_folder, final: str, act_id: str):
     """Resolve an act id to `(kind, act, entry, final_name)`.
 
@@ -3170,6 +3312,13 @@ def undo(project_folder: str, *, final: str = "", act: str = "",
             return [undo_touch(project_folder, entry["id"],
                                connect=connect,
                                accept_editor_changes=accept_editor_changes)]
+        if target.get("kind") == reel_versions.KIND_ROLLBACK:
+            raise UndoRefused(
+                f"version {target['version']} of {name!r} is a rollback "
+                "revision, not an act to undo",
+                "undoing that state by rebuilding would corrupt the act's "
+                "ancestry", "use `ren redo` with this rollback version to "
+                "re-apply the build it reversed")
         if target.get("undone_by"):
             raise UndoRefused(
                 f"version {target['version']} of {name!r} is "
@@ -3263,6 +3412,10 @@ __all__ = [
     "TimelineMovedSinceTouch",
     "UndoNotVerified",
     "UndoRefused",
+    "explain_redo",
+    "explain_undo",
+    "render_redo_plan",
+    "render_undo_plan",
     "close_entry",
     "fail_entry",
     "list_entries",

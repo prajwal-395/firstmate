@@ -48,6 +48,76 @@ from tests.resolve_double import FakeResolve  # noqa: E402
 FINAL = "Reel 01 - lab"
 
 
+def test_undo_plan_names_semantic_replay_archive_fallback_and_intervening_edits(
+        tmp_path):
+    folder = tmp_path / "project"
+    folder.mkdir()
+    rows = {"video:Semantic": [{"name": "first", "start": 0,
+                                "end": 10}]}
+    touched = {"video:Semantic": [{"name": "manual touch", "start": 0,
+                                   "end": 11}]}
+    rebuilt = {"video:Semantic": [{"name": "rebuilt", "start": 0,
+                                   "end": 10}]}
+    moment = {"number": 1, "start": 0, "end": 10}
+    reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
+                         rows=rows, plan_moment=moment)
+    touch = reel_versions.record(folder, FINAL, kind=reel_versions.KIND_TOUCH,
+                                  rows=touched, journal="touch-id")
+    reel_versions.attach_recovery_archive(
+        folder, FINAL, touch["version"], {"timeline_id": "archive-id"})
+    act = reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
+                               rows=rebuilt, plan_moment=moment)
+
+    plans = uj.explain_undo(folder, final=FINAL, act=str(act["version"]))
+    assert plans[0]["mechanism"] == (
+        "semantic replay of the prior plan and later live touches; "
+        "verified native archive is the fallback")
+    assert plans[0]["target_version"] == touch["version"]
+    assert plans[0]["intervening"] == [
+        {"version": touch["version"], "kind": "touch",
+         "status": "recorded after target"}]
+    rendered = uj.render_undo_plan(plans)
+    assert "semantic replay" in rendered
+    assert "v2 touch" in rendered
+
+
+def test_undo_plan_names_touch_inverse_and_refusal_for_incompatible_changes(
+        tmp_path):
+    folder = tmp_path / "project"
+    folder.mkdir()
+    rows = {"video:Semantic": [{"name": "first", "start": 0,
+                                "end": 10}]}
+    reel_versions.record(folder, FINAL, kind=reel_versions.KIND_BUILD,
+                         rows=rows, plan_moment={"number": 1})
+    reel_versions.record(folder, FINAL, kind=reel_versions.KIND_TOUCH,
+                         rows=rows, journal="touch-id")
+    plans = uj.explain_undo(folder, final=FINAL)
+    assert plans[0]["mechanism"] == (
+        "verified inverse transaction from the touch journal")
+    assert "otherwise refuses" in plans[0]["outcome"]
+
+
+def test_selected_rollback_redo_keeps_original_act_ancestry(tmp_path):
+    folder = tmp_path / "project"
+    folder.mkdir()
+    rows = {"video:Semantic": [{"name": "first", "start": 0,
+                                "end": 10}]}
+    build = reel_versions.record(
+        folder, FINAL, kind=reel_versions.KIND_BUILD, rows=rows,
+        plan_moment={"number": 1})
+    rollback = reel_versions.record(
+        folder, FINAL, kind=reel_versions.KIND_ROLLBACK, rows=rows,
+        undoes=build["version"], redoes=build["version"])
+    reel_versions.mark_undone(folder, FINAL, build["version"],
+                               rollback["version"])
+
+    plan = uj.explain_redo(folder, final=FINAL, act=str(rollback["version"]))
+    assert plan[0]["source"] == build["version"]
+    assert "recorded plan moment" in plan[0]["mechanism"]
+    with pytest.raises(uj.UndoRefused, match="rollback revision"):
+        uj.undo(str(folder), final=FINAL, act=str(rollback["version"]))
+
+
 def test_same_plan_rollback_restores_verified_archive_when_replay_is_not_exact(
         tmp_path):
     folder = tmp_path / "project"

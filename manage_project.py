@@ -4167,12 +4167,15 @@ def cmd_undo(args):
             f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run `ren undo`") \
             from None
+    accepted = args.accept_editor_changes or None
     try:
+        print(_undo.render_undo_plan(_undo.explain_undo(
+            project_folder, final=final, act=args.act,
+            accept_editor_changes=accepted)))
         receipts = _undo.undo(project_folder, final=final,
                               act=args.act,
                               supersede=args.supersede or (),
-                              accept_editor_changes=(
-                                  args.accept_editor_changes or None))
+                              accept_editor_changes=accepted)
     except _undo.UndoRefused as refused:
         print(refused.render(), file=sys.stderr)
         emit_refusal_result(refused)
@@ -4227,6 +4230,8 @@ def cmd_redo(args):
             "asked for it - check with them), then re-run `ren redo`") \
             from None
     try:
+        print(_undo.render_redo_plan(_undo.explain_redo(
+            project_folder, final=final, act=args.act)))
         receipts = _undo.redo(project_folder, final=final, act=args.act,
                               accept_editor_changes=(
                                   args.accept_editor_changes or None))
