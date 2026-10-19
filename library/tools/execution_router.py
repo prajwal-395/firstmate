@@ -17,16 +17,35 @@ the production decision stays authoritative, the candidate decision is
 compared and reported, per-op enablement lives on the gates object, dropping
 the gates rolls back instantly, and observations are process-local (stderr
 plus an in-memory ledger) - no persisted format changes.
+
+VC-11: execution safety classes (``edit_algebra.OP_SAFETY_CLASS``) decide
+direct vs staged vs refused. Direct is proven per op - reversible-mutation
+class, independent read-back, a production-enabled executor and a proven
+executable inverse on the chosen backend - never requested: any caller flag
+asking for direct (``DIRECT_BYPASS_FLAGS``) is refused outright, and the
+``staged`` flag can only escalate to staged, never widen to direct.
+Nothing goes direct merely because it is small or an inverse name exists.
 """
 from __future__ import annotations
 
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
-from typing import Mapping, Sequence
 
 #: VC-06: staging stays the production default. No router path promotes a
 #: direct-write default; gates may only observe candidates beside it.
 STAGING_IS_PRODUCTION_DEFAULT = True
+
+#: VC-11: no caller flag may select a direct write. A bypass flag that is
+#: set is refused outright - direct is proven per op, never requested.
+DIRECT_BYPASS_FLAGS: tuple[str, ...] = (
+    "direct",
+    "allow_direct",
+    "force_direct",
+    "allow_direct_edit",
+    "force_direct_edit",
+    "direct_edit",
+)
 
 #: VC-03: refusal categories that must stay distinct end to end. Stale bases,
 #: conflicting live edits and broken reads are not backend-selection hints;
@@ -219,14 +238,46 @@ def _gap_reasons(gaps) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def _mode_for(backend: str, context: Mapping) -> str:
+def _mode_for(backend: str, *, blockers: Sequence[str],
+                context: Mapping) -> str:
+    """The write mode the safety proof allows - never what a flag asks for."""
     if backend == "no_op":
         return "no_op"
     if backend == "incremental":
         return "staged"
     if backend == "full_rebuild":
         return "staged_full_rebuild"
-    return "staged" if context.get("staged") else "direct"
+    # VC-11: an EditPatch arm goes direct only when every op carries the
+    # full proof (reversible class, read-back, qualified executor, proven
+    # inverse). Anything else is staged; the caller's ``staged`` flag can
+    # escalate to staged but never widens to direct.
+    if blockers:
+        return "staged"
+    if context.get("staged"):
+        return "staged"
+    return "direct"
+
+
+def _proof_reasons(request_class: str | None,
+                   blockers: Sequence[str]) -> tuple[str, ...]:
+    """Name the VC-11 proof outcome beside the backend selection."""
+    if blockers:
+        return (
+            "direct withheld under VC-11 "
+            f"({request_class or 'unclassified'}): " + "; ".join(blockers),
+        )
+    return (
+        "direct proven under VC-11: reversible class, independent "
+        + "read-back, qualified executor and proven inverse",
+    )
+
+
+def _proof_verification(blockers: Sequence[str]) -> tuple[str, ...]:
+    """The recovery evidence the chosen mode still owes."""
+    if blockers:
+        return ("staged transaction; approved timeline untouched until promotion",
+                "verify unchanged rows and items")
+    return ("prior values captured before mutation for inverse recovery",)
 
 
 def _normalize_category(context: Mapping) -> str:
@@ -298,7 +349,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     """Choose a backend for an already compiled edit and explain every choice.
 
     Strategy selection lands before any Resolve write. Existing-item
-    property setters use EditPatch's direct native property executor and
+    property setters use EditPatch's targeted native property executor and
     must not reconstruct the timeline. Incremental is selected only on an
     affirmative eligibility result - eligibility evidence is that backend's
     own qualification basis, so it precedes the algebra proof checks; an
@@ -307,10 +358,19 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     even beside affirmative eligibility. Unknown or uncompilable operations
     are refused, and op-specific conditions (required params, item
     identity, media type) are checked before a targeted backend is named.
+    VC-11 safety classes decide direct vs staged vs refused after the
+    strategy arms: no caller flag can widen a class to direct, and nothing
+    goes direct without the per-op proof.
     """
     from library.tools import edit_algebra
 
     context = dict(context or {})
+    for flag in DIRECT_BYPASS_FLAGS:
+        if context.get(flag):
+            raise RoutingRefused(
+                f"direct execution is never selected by flag ({flag}): direct "
+                "needs the VC-11 per-op proof - reversible class, independent "
+                "read-back, qualified executor and proven inverse")
     operations = _ops(compiled_edit)
     ids = tuple(str(op.get("op", "")) for op in operations)
 
@@ -377,6 +437,25 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
                 operations=operations, context=context)
         raise IncrementalRoutingRefused(category, reason)
 
+    # VC-11: plan deliveries and unproven ops never reach a write backend.
+    # This precedes the proof checks so the refusal names the safety class;
+    # unknown ids keep the existing unproven refusal below.
+    read_only = [op_id for op_id in ids
+                 if edit_algebra.safety_class(op_id) == edit_algebra.SAFETY_READ_ONLY]
+    if read_only:
+        raise RoutingRefused(
+            "plan deliveries, not timeline writes: " + ", ".join(read_only) +
+            " - deliver them to their owning planners; the write router "
+            "takes no plan op")
+    unproven = [op_id for op_id in ids
+                if edit_algebra.safety_class(op_id) == edit_algebra.SAFETY_UNREPRESENTABLE]
+    if unproven:
+        raise RoutingRefused(
+            "no qualified executor proves: " + ", ".join(unproven) +
+            " - refused under VC-11 unrepresentable_or_unqualified; stage "
+            "nothing until new qualification evidence lands")
+    request_class = edit_algebra.request_safety_class(ids)
+
     # VC-04: refuse what no backend proves, and check op-specific
     # conditions, before any targeted backend is named.
     _refuse_unproven(edit_algebra, operations)
@@ -393,19 +472,22 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     if all(op_id in _PROPERTY_OPS for op_id in ids):
         if any(not op.get("unique_id") for op in operations):
             raise RoutingRefused("property patch requires an existing-item unique_id")
+        blockers = edit_algebra.direct_blockers(ids, "edit_patch.property")
         return ExecutionDecision(
             backend="edit_patch.property",
             reasons=("all operations set properties on identified existing items",
-                      "direct property patch preserves unrelated timeline items",
-                      *checked, *gap_reasons),
+                      "property patch preserves unrelated timeline items",
+                      *checked, *gap_reasons,
+                      *_proof_reasons(request_class, blockers)),
             rejected_alternatives=(
                 RejectedBackend("incremental", "incremental editor applies planned overlay diffs, not item property setters"),
                 RejectedBackend("full_rebuild", "existing-item property changes must not reconstruct the timeline"),
                 RejectedBackend("composed_edit", "re-placement is unnecessary for native property setters"),
             ),
-            verification=("read back each requested property", "compare timeline state outside declared targets"),
+            verification=("read back each requested property", "compare timeline state outside declared targets",
+                          *_proof_verification(blockers)),
             algebra_status=statuses,
-            mode=_mode_for("edit_patch.property", context),
+            mode=_mode_for("edit_patch.property", blockers=blockers, context=context),
             qualification_gaps=gaps,
         )
 
@@ -414,18 +496,21 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     if all((entry := edit_algebra.status(op_id)) is not None
            and (row := entry.for_backend("edit_patch")) is not None
            and row.compilable for op_id in ids):
+        blockers = edit_algebra.direct_blockers(ids, "edit_patch")
         return ExecutionDecision(
             backend="edit_patch",
             reasons=("all operations are listed compilable on the EditPatch matrix row",
                      "EditPatch provides the scoped transaction and read-back",
-                     *checked, *gap_reasons),
+                     *checked, *gap_reasons,
+                     *_proof_reasons(request_class, blockers)),
             rejected_alternatives=(
                 RejectedBackend("full_rebuild", "a targeted transaction can apply these operations"),
                 RejectedBackend("incremental", "incremental editor is reserved for eligible compiled build diffs"),
             ),
-            verification=("run algebra read-back verification", "check changes outside declared scope"),
+            verification=("run algebra read-back verification", "check changes outside declared scope",
+                          *_proof_verification(blockers)),
             algebra_status=statuses,
-            mode=_mode_for("edit_patch", context),
+            mode=_mode_for("edit_patch", blockers=blockers, context=context),
             qualification_gaps=gaps,
         )
     raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
@@ -439,6 +524,8 @@ def route_axi_dispatch(operations: Sequence[dict], *,
     boundary as build, incremental, touch-up and feedback paths, then
     attach the returned dict beside the patch receipt. A refusal
     propagates: the dispatch must not write what routing would not select.
+    VC-11 safety enforcement applies here unchanged: a direct bypass flag
+    is refused and an unproven op never authorizes a direct mode.
     """
     decision = route_compiled_edit({"operations": [dict(op) for op in operations]},
                                    context=dict(context or {}))

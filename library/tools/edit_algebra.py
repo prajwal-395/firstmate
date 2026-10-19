@@ -52,7 +52,7 @@ behind it; `resolve-axi` verbs are projections, not a second algebra.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 
@@ -3132,6 +3132,289 @@ def is_production_enabled(op_id: str, backend: str) -> bool:
     """Whether this op is live-qualified and enabled on ``backend``."""
     entry = status(op_id, backend)
     return bool(entry and entry.production_enabled)
+
+
+# ── VC-11 execution safety classes ────────────────────────────────
+#
+# Every algebra op carries exactly one of six classes. The class states the
+# execution policy; the scope of the change decides the work, the risk
+# decides the protection. Declared reversibility (``Inverse`` above) never
+# authorizes a direct write: only qualification evidence proves a recovery,
+# and only an independent read-back judges it. Uncertain work defaults to
+# protected staging or refusal. The merged execution router enforces this
+# table; no caller flag can widen a class to direct.
+
+SAFETY_READ_ONLY = "read_only"
+SAFETY_NO_OP = "no_op"
+SAFETY_REVERSIBLE_MUTATION = "reversible_mutation"
+SAFETY_COMPLEX_LOCALIZED = "complex_localized"
+SAFETY_STRUCTURAL = "structural"
+SAFETY_UNREPRESENTABLE = "unrepresentable_or_unqualified"
+
+SAFETY_CLASSES: tuple[str, ...] = (
+    SAFETY_READ_ONLY,
+    SAFETY_NO_OP,
+    SAFETY_REVERSIBLE_MUTATION,
+    SAFETY_COMPLEX_LOCALIZED,
+    SAFETY_STRUCTURAL,
+    SAFETY_UNREPRESENTABLE,
+)
+
+#: Most restrictive first. A mixed request is judged by its most
+#: restrictive member; ``no_op`` is a router outcome, never a member.
+_SAFETY_RESTRICTION: tuple[str, ...] = (
+    SAFETY_UNREPRESENTABLE,
+    SAFETY_STRUCTURAL,
+    SAFETY_COMPLEX_LOCALIZED,
+    SAFETY_REVERSIBLE_MUTATION,
+    SAFETY_READ_ONLY,
+    SAFETY_NO_OP,
+)
+
+
+@dataclass(frozen=True)
+class SafetyPolicy:
+    """What one safety class permits on the write path."""
+
+    direct_allowed: bool
+    staged_allowed: bool
+    requires_qualified_executor: bool
+    requires_readback: bool
+    note: str
+
+
+SAFETY_CLASS_POLICY: dict[str, SafetyPolicy] = {
+    SAFETY_READ_ONLY: SafetyPolicy(
+        direct_allowed=False, staged_allowed=False,
+        requires_qualified_executor=False, requires_readback=False,
+        note="a plan delivery to its owning planner, never a Resolve "
+             "write; the write router refuses it and names the planner"),
+    SAFETY_NO_OP: SafetyPolicy(
+        direct_allowed=False, staged_allowed=False,
+        requires_qualified_executor=False, requires_readback=False,
+        note="the request is already satisfied: no Resolve write is "
+             "issued and no revision is recorded"),
+    SAFETY_REVERSIBLE_MUTATION: SafetyPolicy(
+        direct_allowed=True, staged_allowed=True,
+        requires_qualified_executor=True, requires_readback=True,
+        note="direct only with proof on the chosen backend: a "
+             "production-enabled executor, an independent read-back, and "
+             "a proven executable inverse; anything less stays staged"),
+    SAFETY_COMPLEX_LOCALIZED: SafetyPolicy(
+        direct_allowed=False, staged_allowed=True,
+        requires_qualified_executor=True, requires_readback=True,
+        note="protected staged only: a candidate timeline, the requested "
+             "ops alone, and scoped verification of changed and unchanged "
+             "state; complex native state (Fusion, Color, audio lanes) is "
+             "never edited in place without proven preservation"),
+    SAFETY_STRUCTURAL: SafetyPolicy(
+        direct_allowed=False, staged_allowed=True,
+        requires_qualified_executor=True, requires_readback=True,
+        note="staged only with dependent-range verification: topology, "
+             "timing and identity effects past the edited item are "
+             "re-verified; an unqualified staged edit falls back to an "
+             "explicit full rebuild, never to direct"),
+    SAFETY_UNREPRESENTABLE: SafetyPolicy(
+        direct_allowed=False, staged_allowed=False,
+        requires_qualified_executor=True, requires_readback=True,
+        note="refuse, or an approved alternative: no executor proves "
+             "this operation, so no write path may take it until new "
+             "qualification evidence lands"),
+}
+
+#: One class per algebra op. Smallness never promotes an op: a one-field
+#: toggle without qualification evidence or read-back is staged or refused
+#: like any other unproven write.
+OP_SAFETY_CLASS: dict[str, str] = {
+    # Plan deliveries: read by planners, never written to Resolve.
+    "angle_plan": SAFETY_READ_ONLY,
+    "plan_change": SAFETY_READ_ONLY,
+    "transition": SAFETY_READ_ONLY,
+    "shot_selection": SAFETY_READ_ONLY,
+    "speech_selection": SAFETY_READ_ONLY,
+    "story_pacing": SAFETY_READ_ONLY,
+    "music_selection": SAFETY_READ_ONLY,
+    "audio_mix": SAFETY_READ_ONLY,
+    "look": SAFETY_READ_ONLY,
+    "visual_effect": SAFETY_READ_ONLY,
+    "sound_effect": SAFETY_READ_ONLY,
+    "subject_effect": SAFETY_READ_ONLY,
+    "motion_graphic": SAFETY_READ_ONLY,
+    "brand_asset": SAFETY_READ_ONLY,
+    "end_card": SAFETY_READ_ONLY,
+    # Single-scope writes with snapshot read-back; direct only when proven.
+    "marker.add": SAFETY_REVERSIBLE_MUTATION,
+    "marker.delete": SAFETY_REVERSIBLE_MUTATION,
+    "clip_marker.add": SAFETY_REVERSIBLE_MUTATION,
+    "clip_marker.delete": SAFETY_REVERSIBLE_MUTATION,
+    "clip.set_enabled": SAFETY_REVERSIBLE_MUTATION,
+    "clip.set_property": SAFETY_REVERSIBLE_MUTATION,
+    "track.rename": SAFETY_REVERSIBLE_MUTATION,
+    "grade.node_set": SAFETY_REVERSIBLE_MUTATION,
+    # Localized but complex: protected staged, never direct.
+    "clip.smart_reframe": SAFETY_COMPLEX_LOCALIZED,
+    "picture.keyframe": SAFETY_COMPLEX_LOCALIZED,
+    "clip.replace": SAFETY_COMPLEX_LOCALIZED,
+    "clip.link": SAFETY_COMPLEX_LOCALIZED,
+    "clip.unlink": SAFETY_COMPLEX_LOCALIZED,
+    "mask.create": SAFETY_COMPLEX_LOCALIZED,
+    "mask.delete": SAFETY_COMPLEX_LOCALIZED,
+    "mask.edit": SAFETY_COMPLEX_LOCALIZED,
+    "mask.track": SAFETY_COMPLEX_LOCALIZED,
+    "grade.node_add": SAFETY_COMPLEX_LOCALIZED,
+    "grade.node_remove": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.add": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.remove": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.swap_pixels": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.resize": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.entry_motion": SAFETY_COMPLEX_LOCALIZED,
+    "audio.gain": SAFETY_COMPLEX_LOCALIZED,
+    "audio.fade": SAFETY_COMPLEX_LOCALIZED,
+    "audio.automation": SAFETY_COMPLEX_LOCALIZED,
+    "voice_isolation": SAFETY_COMPLEX_LOCALIZED,
+    "clip_lut": SAFETY_COMPLEX_LOCALIZED,
+    "grade": SAFETY_COMPLEX_LOCALIZED,
+    "caption_fix": SAFETY_COMPLEX_LOCALIZED,
+    "transform_override": SAFETY_COMPLEX_LOCALIZED,
+    "clip.roll": SAFETY_COMPLEX_LOCALIZED,
+    "clip.slip": SAFETY_COMPLEX_LOCALIZED,
+    "redraw_closer": SAFETY_COMPLEX_LOCALIZED,
+    # Topology, timing or identity effects: staged with dependent ranges.
+    "clip.delete": SAFETY_STRUCTURAL,
+    "clip.insert": SAFETY_STRUCTURAL,
+    "clip.split": SAFETY_STRUCTURAL,
+    "clip.join": SAFETY_STRUCTURAL,
+    "clip.trim": SAFETY_STRUCTURAL,
+    "clip.ripple": SAFETY_STRUCTURAL,
+    "clip.slide": SAFETY_STRUCTURAL,
+    "clip.move": SAFETY_STRUCTURAL,
+    "retime": SAFETY_STRUCTURAL,
+    "retime.segments": SAFETY_STRUCTURAL,
+    "span_retime": SAFETY_STRUCTURAL,
+    "compound.create": SAFETY_STRUCTURAL,
+    "compound.flatten": SAFETY_STRUCTURAL,
+    "track.add": SAFETY_STRUCTURAL,
+    "track.delete": SAFETY_STRUCTURAL,
+    "track.reorder": SAFETY_STRUCTURAL,
+    "drop_fragment": SAFETY_STRUCTURAL,
+    # No executor proves these: refuse or an approved alternative.
+    "audio.pan": SAFETY_UNREPRESENTABLE,
+    "grade.node_reorder": SAFETY_UNREPRESENTABLE,
+    "color.window.create": SAFETY_UNREPRESENTABLE,
+    "color.window.delete": SAFETY_UNREPRESENTABLE,
+    "color.window.modify": SAFETY_UNREPRESENTABLE,
+    "color.window.track": SAFETY_UNREPRESENTABLE,
+    "color.qualifier.sample": SAFETY_UNREPRESENTABLE,
+    "color.qualifier.adjust": SAFETY_UNREPRESENTABLE,
+    "multicam.angle": SAFETY_UNREPRESENTABLE,
+}
+
+#: Ops whose verifier reads the after-snapshot and can fail. A vacuous
+#: ``lambda op, after: None`` always passes, so it is not read-back, and
+#: neither is a missing verifier. Only these ops satisfy the read-back
+#: half of a direct proof.
+_INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
+    "marker.add", "marker.delete", "clip_marker.add", "clip_marker.delete",
+    "clip.delete", "clip.insert", "clip.split", "clip.join", "clip.trim",
+    "clip.ripple", "clip.roll", "clip.slip", "clip.slide", "clip.move",
+    "clip.replace", "clip.set_enabled",
+    "clip.smart_reframe", "clip.set_property",
+    "retime", "retime.segments",
+    "picture.keyframe",
+    "grade.node_set",
+    "mask.create", "mask.delete", "mask.edit", "mask.track",
+    "compound.create", "compound.flatten",
+    "track.add", "track.delete", "track.rename", "track.reorder",
+    "overlay.remove",
+    "transform_override", "span_retime", "drop_fragment",
+})
+
+#: Router labels that name the matrix backend they prove against. The
+#: property arm reads ``edit_patch`` rows; the label is only a route name.
+_ROUTER_BACKEND_PROOF: dict[str, str] = {
+    "edit_patch": "edit_patch",
+    "edit_patch.property": "edit_patch",
+}
+
+
+def safety_class(op_id: str) -> str | None:
+    """The VC-11 safety class for an algebra op, or None when unknown."""
+    return OP_SAFETY_CLASS.get(op_id)
+
+
+def request_safety_class(op_ids: Sequence[str]) -> str | None:
+    """The most restrictive known class in a request, or None.
+
+    ``no_op`` is a router outcome, never a member: an empty or fully
+    unknown request has no class and keeps its existing refusal.
+    """
+    known = [OP_SAFETY_CLASS[op_id] for op_id in op_ids
+             if op_id in OP_SAFETY_CLASS]
+    if not known:
+        return None
+    return min(known, key=_SAFETY_RESTRICTION.index)
+
+
+def has_independent_readback(op_id: str) -> bool:
+    """Whether the op's verifier reads the after-snapshot and can fail."""
+    return op_id in _INDEPENDENT_READBACK_OPS
+
+
+def proven_inverse(op_id: str, backend: str | None = None) -> tuple[str, ...]:
+    """Qualification evidence proving the op's inverse executes.
+
+    The declared inverse (``inverse_recovery`` on the status) is only a
+    name; a name nobody qualified is not recovery. A self-inverse op is
+    proven by its own evidence; a paired op by its partner's evidence on
+    the same backend. An irreversible op proves nothing, ever.
+    """
+    spec = ALGEBRA.get(op_id)
+    if spec is None or spec.inverse.irreversible:
+        return ()
+    target = op_id if spec.inverse.self_inverse else spec.inverse.op
+    entry = OP_STATUS.get(target)
+    if entry is None:
+        return ()
+    if backend is not None:
+        proof_backend = _ROUTER_BACKEND_PROOF.get(backend, backend)
+        row = entry.for_backend(proof_backend)
+        return tuple(row.qualification_evidence) if row is not None else ()
+    return tuple(evidence for row in entry.backends
+                 for evidence in row.qualification_evidence)
+
+
+def direct_blockers(op_ids: Sequence[str], backend: str) -> tuple[str, ...]:
+    """Why each op must not go direct on ``backend``; empty means proven.
+
+    Direct needs all three at once: the reversible-mutation class, an
+    independent read-back, and qualification evidence for both the op and
+    its inverse on the chosen backend. Smallness and a named inverse prove
+    nothing and block nothing here.
+    """
+    proof_backend = _ROUTER_BACKEND_PROOF.get(backend, backend)
+    blockers: list[str] = []
+    for op_id in op_ids:
+        cls = OP_SAFETY_CLASS.get(op_id)
+        if cls != SAFETY_REVERSIBLE_MUTATION:
+            blockers.append(
+                f"{op_id} is {cls or 'unclassified'} - direct needs "
+                f"{SAFETY_REVERSIBLE_MUTATION}")
+            continue
+        if not has_independent_readback(op_id):
+            blockers.append(f"{op_id} has no independent read-back")
+        entry = status(op_id, proof_backend)
+        if entry is None or not entry.production_enabled:
+            blockers.append(
+                f"{op_id} has no production-enabled executor on "
+                f"{proof_backend}")
+        if not proven_inverse(op_id, proof_backend):
+            spec = ALGEBRA.get(op_id)
+            declared = (op_id if spec is not None and spec.inverse.self_inverse
+                        else (spec.inverse.op if spec is not None else None))
+            blockers.append(
+                f"{op_id} declares inverse {declared!r} but no "
+                f"qualification evidence proves it on {proof_backend}")
+    return tuple(blockers)
 
 
 def ops() -> list[AlgebraOp]:
