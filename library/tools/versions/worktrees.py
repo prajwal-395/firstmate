@@ -4,7 +4,8 @@ semantic state, merged back. Part of the version model
 
 Reached through `ren task start|finish` for automatic semantic work, and
 `ren worktree add|list|commit|merge|remove` for the underlying manual
-operations.
+operations. A manual Git declaration branch may name its creative parent
+with `--creative-branch`; the link is retained on that branch's record.
 
 Why
 ---
@@ -78,8 +79,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from library.tools.versions import store, variants
 from library.tools import event_log
+from library.tools.versions import store, variants
 
 ROOT_ENV = "REN_WORKTREES"
 BRANCH_PREFIX = "ren/"
@@ -129,7 +130,8 @@ def _no_repo(project_folder: str) -> str:
             "(library/tools/versions/store.py) first")
 
 
-def add(project_folder: str, task: str, base: str | None = None) -> dict:
+def add(project_folder: str, task: str, base: str | None = None,
+        creative_branch: str | None = None) -> dict:
     """Open a worktree for `task` on a new branch `ren/<task>` at `base`.
 
     `base` defaults to the project checkout's HEAD COMMIT. Uncommitted
@@ -139,6 +141,13 @@ def add(project_folder: str, task: str, base: str | None = None) -> dict:
     blocked = _no_repo(project_folder)
     if blocked:
         return {"added": False, "reason": blocked}
+    if creative_branch:
+        from library.tools import undo_journal
+        try:
+            undo_journal.read_branch(project_folder, creative_branch)
+        except undo_journal.BranchRefused as exc:
+            return {"added": False,
+                    "reason": f"creative branch {creative_branch!r} is not recorded: {exc}"}
     branch = task_branch(task)
     path = task_path(project_folder, task)
     if store.git(project_folder, "rev-parse", "--verify", "--quiet",
@@ -151,6 +160,15 @@ def add(project_folder: str, task: str, base: str | None = None) -> dict:
     if start.returncode != 0:
         return {"added": False,
                 "reason": f"base {base or 'HEAD'!r} is not a commit"}
+    if creative_branch:
+        branch_record = (
+            f"pipeline_output/review/branches/{creative_branch}/branch.json")
+        present = store.git(project_folder, "cat-file", "-e",
+                            f"{start.stdout.strip()}:{branch_record}")
+        if present.returncode != 0:
+            return {"added": False,
+                    "reason": f"base {start.stdout.strip()[:12]} does not contain "
+                              f"creative branch {creative_branch!r}"}
     path.parent.mkdir(parents=True, exist_ok=True)
     proc = store.git(project_folder, "worktree", "add", "-b", branch,
                      str(path), start.stdout.strip())
@@ -158,8 +176,13 @@ def add(project_folder: str, task: str, base: str | None = None) -> dict:
         return {"added": False,
                 "reason": f"git worktree add failed: "
                           f"{proc.stderr.strip()[-200:]}"}
+    if creative_branch:
+        from library.tools import undo_journal
+        undo_journal.link_branch_git(str(path), creative_branch, branch)
     result = {"added": True, "task": task_slug(task), "branch": branch,
               "path": str(path), "base": start.stdout.strip()[:12]}
+    if creative_branch:
+        result["creative_branch"] = creative_branch
     _emit_branch_event(project_folder, event_log.BRANCH_CREATED,
                        task=result["task"], branch=branch, base=result["base"])
     return result
@@ -477,7 +500,7 @@ def task_start(project_folder: str, task: str,
                 "target_branch": target_branch,
                 "base": head.stdout.strip(),
                 "claims": task_claims,
-                "started_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "started_at": dt.datetime.now(dt.UTC).isoformat(),
             }
             records[task_name] = record
             try:
@@ -596,6 +619,8 @@ def main(project_folder: str, argv: list[str]) -> int:
     p_add = sub.add_parser("add", help="Open a worktree for a task")
     p_add.add_argument("task")
     p_add.add_argument("--base", help="Commit to fork from (default HEAD)")
+    p_add.add_argument("--creative-branch",
+                       help="Creative branch this Git declaration branch belongs to")
     sub.add_parser("list", help="Every open task worktree")
     p_commit = sub.add_parser("commit", help="Commit a task's worktree")
     p_commit.add_argument("task")
@@ -606,7 +631,8 @@ def main(project_folder: str, argv: list[str]) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "add":
-            result, ok = add(project_folder, args.task, args.base), "added"
+            result, ok = add(project_folder, args.task, args.base,
+                             args.creative_branch), "added"
         elif args.command == "list":
             print(json.dumps(list_tasks(project_folder), indent=2))
             return 0

@@ -121,6 +121,7 @@ import os
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from library.tools import composed_edit as _ce
@@ -686,7 +687,139 @@ def branch_root(project_folder) -> str:
 
 
 def _branch_path(project_folder, name: str) -> str:
+    # A branch name is an identity, never a path supplied by a caller.
+    # Reject separators and dot components before joining it to the store.
+    if (not isinstance(name, str) or not name.strip() or "\\" in name
+            or any(part in {".", "..", ""}
+                   for part in name.replace("\\", "/").split("/"))):
+        raise BranchRefused(f"invalid creative branch name {name!r}")
     return os.path.join(branch_root(project_folder), name, BRANCH_FILENAME)
+
+
+def create_creative_branch(project_folder, *, name: str,
+                           base_revision: str,
+                           semantic_changes: Sequence[Mapping] = (),
+                           declarations: Mapping | None = None,
+                           git_branch: str = "", author: str = "ren",
+                           intent: str = "") -> dict:
+    """Create a semantic branch without creating a Resolve timeline.
+
+    The branch points at a canonical creative revision and stores only its
+    semantic delta and declaration references. Resolve materialization is an
+    optional, separately recorded projection; discarding it never removes the
+    branch or its history.
+    """
+    from library.tools import creative_revision
+
+    _branch_path(project_folder, name)  # validate before any store write
+    base = creative_revision.get(project_folder, str(base_revision))
+    if base is None:
+        raise BranchRefused(
+            f"base creative revision {base_revision!r} is not recorded")
+    semantic_changes = semantic_changes or ()
+    if not all(isinstance(change, Mapping) for change in semantic_changes):
+        raise BranchRefused("creative branch semantic changes must be objects")
+    if declarations is not None and not isinstance(declarations, Mapping):
+        raise BranchRefused("creative branch declarations must be a mapping")
+    changes = [dict(change) for change in semantic_changes]
+    path = _branch_path(project_folder, name)
+    if os.path.exists(path):
+        existing = read_branch(project_folder, name)
+        if any(existing.get(key) != value for key, value in (
+                ("base_revision", str(base_revision)),
+                ("semantic_changes", changes),
+                ("declarations", dict(declarations or {})))):
+            raise BranchRefused(
+                f"creative branch {name!r} already exists with different content")
+        return existing
+    branch_revision = creative_revision.create(
+        project_folder, parents=[str(base_revision)], author=author,
+        intent=intent or f"branch {name}", operations=changes,
+        affected_entities=(declarations or {}).get("affected_entities", ()),
+        refs={"creative_branch": {"name": name,
+                                  "base_revision": str(base_revision),
+                                  "git_branch": str(git_branch or "")}},
+        status="prepared")
+    branch = {
+        "format": BRANCH_FORMAT, "name": name,
+        "base_revision": str(base_revision),
+        "revision_id": branch_revision["revision_id"],
+        "semantic_changes": changes,
+        "declarations": dict(declarations or {}),
+        "git_branch": str(git_branch or ""),
+        "git_branches": [str(git_branch)] if git_branch else [],
+        "materialization": None,
+        "created_at": _now(),
+    }
+    from library.tools.versions import store
+    store.write_record(path, branch, prefix=".branch-")
+    return branch
+
+
+def link_branch_git(project_folder, name: str, git_branch: str) -> dict:
+    """Link a Git declaration branch to an existing creative branch."""
+    branch = read_branch(project_folder, name)
+    git_branches = list(branch.get("git_branches") or ())
+    if git_branch not in git_branches:
+        git_branches.append(str(git_branch))
+    branch["git_branches"] = git_branches
+    branch.setdefault("git_branch", str(git_branch))
+    from library.tools import creative_revision
+    revision_refs = {"git_declaration_branch": {
+        "creative_branch": name, "git_branch": str(git_branch)}}
+    if branch.get("revision_id"):
+        creative_revision.create(
+            project_folder, revision_id=str(branch["revision_id"]),
+            refs=revision_refs)
+    from library.tools.versions import store
+    store.write_record(_branch_path(project_folder, name), branch,
+                       prefix=".branch-")
+    return branch
+
+
+def record_branch_materialization(project_folder, name: str, *,
+                                 timeline: str, timeline_id: str = "",
+                                 revision_id: str = "") -> dict:
+    """Attach a live Resolve projection to the semantic branch."""
+    if not str(timeline or "").strip():
+        raise BranchRefused("branch materialization needs a timeline name")
+    branch = read_branch(project_folder, name)
+    branch["materialization"] = {
+        "status": "materialized", "timeline": str(timeline),
+        "timeline_id": str(timeline_id or ""),
+        "revision_id": str(revision_id or ""), "recorded_at": _now(),
+    }
+    from library.tools import creative_revision
+    recorded_revision = str(revision_id or branch["revision_id"])
+    creative_revision.create(
+        project_folder, revision_id=recorded_revision,
+        refs={"branch_materialization": {"branch": name,
+                                         "materialization": dict(branch["materialization"])}},
+        status="verified")
+    from library.tools.versions import store
+    store.write_record(_branch_path(project_folder, name), branch,
+                       prefix=".branch-")
+    return branch
+
+
+def discard_branch_materialization(project_folder, name: str) -> dict:
+    """Forget the live projection while retaining the semantic branch."""
+    branch = read_branch(project_folder, name)
+    materialization = dict(branch.get("materialization") or {})
+    if materialization:
+        materialization["status"] = "discarded"
+        materialization["discarded_at"] = _now()
+        branch["materialization"] = materialization
+        from library.tools import creative_revision
+        creative_revision.create(
+            project_folder,
+            revision_id=str(materialization.get("revision_id") or branch["revision_id"]),
+            refs={"branch_materialization": {"branch": name,
+                                             "materialization": dict(materialization)}})
+    from library.tools.versions import store
+    store.write_record(_branch_path(project_folder, name), branch,
+                       prefix=".branch-")
+    return branch
 
 
 def record_branch(project_folder, *, name: str, base: str,
@@ -764,10 +897,9 @@ def list_branches(project_folder) -> list:
     if not os.path.isdir(root):
         return []
     branches = []
-    for name in sorted(os.listdir(root)):
-        path = os.path.join(root, name, BRANCH_FILENAME)
-        if os.path.isfile(path):
-            branches.append(read_branch(project_folder, name))
+    for path in sorted(Path(root).rglob(BRANCH_FILENAME)):
+        name = path.parent.relative_to(root).as_posix()
+        branches.append(read_branch(project_folder, name))
     return branches
 
 
@@ -1684,7 +1816,7 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
                   "rows_digest_after": version.get("rows_digest"),
                   **({"batch": entry["batch"]} if entry.get("batch")
                      else {})})
-    except Exception:  # noqa: BLE001 - history never fails a touch
+    except Exception:  # noqa: BLE001, S110 - history never fails a touch
         pass
     return entry
 
@@ -2296,9 +2428,13 @@ def undo_touch(project_folder: str, entry_id: str, *, connect=None,
 def _undo_touch_connected(project_folder, entry, connect,
                           rederiver_override,
                           accept_editor_changes=None) -> dict:
-    from library.tools import reel_retirement, reel_touchup
+    from library.tools import (
+        plan_provenance,
+        reel_replace_guard,
+        reel_retirement,
+        reel_touchup,
+    )
     from library.tools.reel_build import backup_name, timelines_to_replace
-    from library.tools import plan_provenance, reel_replace_guard
     from library.tools.reel_replace_guard import snapshot_timeline
     from library.tools.resolve_lock import cursor_fence
     from library.tools.versions import reel_versions
@@ -2472,7 +2608,7 @@ def _undo_touch_connected(project_folder, entry, connect,
             operation="undo touch",
             ren_owned_ids={str(reference_id)} if reference_id else (),
             operation_id=inventory_operation)
-    except Exception as snapshot_failed:  # noqa: BLE001
+    except Exception as snapshot_failed:
         try:
             reference_id = reference.GetUniqueId()
         except Exception:  # noqa: BLE001
@@ -2527,7 +2663,7 @@ def _undo_touch_connected(project_folder, entry, connect,
                   "undoes": entry.get("version"),
                   "journal": entry["id"],
                   "rows_digest_after": version.get("rows_digest")})
-    except Exception:  # noqa: BLE001 - history never fails an undo
+    except Exception:  # noqa: BLE001, S110 - history never fails an undo
         pass
     entry["status"] = STATUS_UNDONE
     entry["undo"] = {**receipt, "at": _now()}
@@ -2618,7 +2754,6 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     """
     from library.tools.versions import reel_versions, rounds
 
-    history = reel_versions.versions_of(project_folder, final)
     live = dict(read_live_rows(final) or {})
     from library.tools.reel_replace_guard import accepts_editor_changes
     accepts_manual_edits = accepts_editor_changes(
@@ -2661,7 +2796,7 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
                                    accept_editor_changes)
         else:
             code = build(project_folder, reel)
-    except Exception:
+    except Exception:  # noqa: BLE001 - any rebuild failure triggers archive recovery
         reel_versions.take_pending_rollback(project_folder, final)
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
@@ -2682,7 +2817,7 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
             spec = dict(journal["spec"])
             (touch or _apply_touch)(project_folder, spec)
             replayed.append(entry["journal"])
-    except Exception:
+    except Exception:  # noqa: BLE001 - any replay failure triggers archive recovery
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
@@ -2721,11 +2856,11 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
     declared = reel_signoff.parse_supersede(supersede)
     signoff = reel_signoff.assert_declared(
         project_folder, final, declared, command="ren undo")
-    result = (restore_archive(project_folder, final, target, receipt)
-              if restore_archive else _restore_archive_by_resolve_id(
-                  project_folder, final, target, receipt,
-                  expected_current_id=(act.get("recovery_archive") or {}).get(
-                      "timeline_id")))
+    (restore_archive(project_folder, final, target, receipt)
+     if restore_archive else _restore_archive_by_resolve_id(
+         project_folder, final, target, receipt,
+         expected_current_id=(act.get("recovery_archive") or {}).get(
+             "timeline_id")))
     after = dict(read_live_rows(final) or {})
     if rounds.digest_rows(after) != target["rows_digest"]:
         raise UndoNotVerified(
@@ -2751,8 +2886,8 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
                                    expected_current_id: str | None) -> dict:
     """Import, verify, and swap a retained DRT under an exclusive lease."""
     import os
-    from pathlib import Path
     import uuid
+    from pathlib import Path
 
     from library.tools import reel_read
     from library.tools.resolve_archive import read_archive
@@ -3022,7 +3157,7 @@ def redo_touch(project_folder: str, entry_id: str, *, connect=None,
             refs={"version": version["version"], "redoes": undo_version,
                   "journal": entry["id"],
                   "rows_digest_after": version.get("rows_digest")})
-    except Exception:  # noqa: BLE001 - history never fails a redo
+    except Exception:  # noqa: BLE001, S110 - history never fails a redo
         pass
     return {"entry": entry["id"], "version": version["version"],
             "redo": True, "reapplied": undo_version}
@@ -3140,11 +3275,7 @@ def undo_stack(project_folder, final: str = "") -> list:
         patch = generation.patch or {}
         patch_id = str(patch.get("id") or "")
         timeline = generation.timeline_name
-        if (generation.source != "patch" or not patch_id
-                or (final and timeline != final)
-                or patch_id.startswith("creative-undo-")
-                or patch_id.startswith("creative-redo-")
-                or (generation.receipt or {}).get("status") != "committed"):
+        if (generation.source != "patch" or not patch_id or final and timeline != final or patch_id.startswith(("creative-undo-", "creative-redo-")) or (generation.receipt or {}).get("status") != "committed"):
             continue
         latest_action = _latest_patch_action(
             generations, generation.timeline_id, patch_id)
@@ -3300,7 +3431,7 @@ def _direct_transaction_action(project_folder: str, transaction_id: str,
 def _apply_patch_revision(project_folder: str, timeline_name: str, patch,
                           *, timeline_id: str, connect=None) -> dict:
     from library.tools import edit_patch, timeline_shadow
-    from library.tools.resolve_lock import resolve_lease, cursor_excursion
+    from library.tools.resolve_lock import cursor_excursion, resolve_lease
 
     project_name = _resolve_name(project_folder)
     with resolve_lease(f"{patch.id} on {timeline_name}"):
@@ -3926,21 +4057,25 @@ __all__ = [
     "TimelineMovedSinceTouch",
     "UndoNotVerified",
     "UndoRefused",
+    "close_entry",
+    "create_creative_branch",
+    "discard_branch_materialization",
     "explain_redo",
     "explain_undo",
-    "render_redo_plan",
-    "render_undo_plan",
-    "close_entry",
     "fail_entry",
+    "link_branch_git",
     "list_entries",
     "open_entry",
     "plan_inverse",
     "projection",
     "projection_diff",
     "read_entry",
+    "record_branch_materialization",
     "redo",
     "redo_rebuild",
     "redo_touch",
+    "render_redo_plan",
+    "render_undo_plan",
     "resolve_act",
     "restore_plan_moment",
     "rollback_rebuild",

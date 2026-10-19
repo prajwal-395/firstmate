@@ -28,8 +28,8 @@ REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from library.tools import timeline_diff  # noqa: E402
-from library.tools import undo_journal as uj  # noqa: E402
+from library.tools import timeline_diff
+from library.tools import undo_journal as uj
 
 
 def _project(tmp_path) -> str:
@@ -122,6 +122,35 @@ def test_a_branch_records_its_base_so_it_can_be_merged_back(tmp_path):
     assert branch["base"] == root["id"]
     branches = uj.list_branches(project)
     assert [b["name"] for b in branches] == ["staging"]
+
+
+def test_semantic_branch_starts_unmaterialized_and_keeps_history_after_discard(tmp_path):
+    """Branch declarations and a Resolve projection have separate lifetimes."""
+    project = _project(tmp_path)
+    root = _root(project)
+    branch = uj.create_creative_branch(
+        project, name="variant/alt-intro",
+        base_revision=root["revision_id"],
+        semantic_changes=[{"op": "retime_block", "node_id": "intro"}],
+        declarations={"path": "external/declarations/intro.json"},
+        git_branch="variant/alt-intro", intent="try a faster intro")
+
+    assert branch["base_revision"] == root["revision_id"]
+    assert branch["semantic_changes"] == [
+        {"op": "retime_block", "node_id": "intro"}]
+    assert branch["materialization"] is None
+    assert "timeline" not in branch
+    assert uj.read_branch(project, "variant/alt-intro")["git_branch"] == \
+        "variant/alt-intro"
+
+    uj.record_branch_materialization(
+        project, "variant/alt-intro", timeline="Reel 01 - alt",
+        timeline_id="resolve-id", revision_id=branch["revision_id"])
+    discarded = uj.discard_branch_materialization(project, "variant/alt-intro")
+    assert discarded["materialization"]["status"] == "discarded"
+    assert discarded["materialization"]["timeline_id"] == "resolve-id"
+    assert uj.read_branch(project, "variant/alt-intro")["revision_id"] == \
+        branch["revision_id"]
 
 
 # ── Merges ──────────────────────────────────────────────────────────

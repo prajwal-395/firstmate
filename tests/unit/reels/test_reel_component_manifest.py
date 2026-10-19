@@ -101,6 +101,17 @@ def test_assembly_without_this_reel_is_unkeyed_not_empty(tmp_path):
     assert manifest["components"]["timeline"]["status"] == manifests.RECORDED
 
 
+def test_unkeyed_components_are_unknown_even_when_their_digests_match(tmp_path):
+    _project_with_assembly(tmp_path, "Reel 03 - another-reel")
+    before = manifests.build_manifest(str(tmp_path), FINAL, ROWS)
+    after = manifests.build_manifest(str(tmp_path), FINAL, ROWS)
+
+    diff = manifests.diff_manifests(before, after)
+    assert diff["detail"]["aroll"]["changed"] == "unknown"
+    assert "aroll" in diff["changed"]
+    assert "aroll" not in diff["unchanged"]
+
+
 def test_diff_names_only_the_changed_component(tmp_path):
     _project_with_assembly(tmp_path)
     before = manifests.build_manifest(str(tmp_path), FINAL, ROWS)

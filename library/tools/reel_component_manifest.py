@@ -583,6 +583,15 @@ def diff_manifests(old: dict | None, new: dict | None) -> dict:
     for name in sorted(set(old_components) | set(new_components)):
         before = old_components.get(name) or {}
         after = new_components.get(name) or {}
+        if before.get("status") != RECORDED or after.get("status") != RECORDED:
+            changed.append(name)
+            detail[name] = {
+                "changed": "unknown",
+                "reason": "both revisions need recorded component inputs",
+                "before_status": before.get("status"),
+                "after_status": after.get("status"),
+            }
+            continue
         if before.get("digest") != after.get("digest"):
             changed.append(name)
             fields = sorted(

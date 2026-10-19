@@ -21,29 +21,29 @@ No Resolve, no renders, no pipeline runs: every merge here is git on
 fixture files with the production shapes.
 """
 from __future__ import annotations
+
+import ast
 import json
+import pathlib
 import subprocess
 import time
-import pytest
-from library.tools.versions import store as bvc
-from library.tools.versions import variants as tv
-import pathlib
-from library.tools import reel_replace_guard
-from library.tools import reel_retirement as retire
-from library.tools.versions import variants as choice
-from tests.promotion_test_helpers import record_ren_owned_inventory
-from tests.resolve_double import FakeProject, FakeTimeline
-import ast
 from pathlib import Path
 from unittest.mock import patch
-from library.tools import capability_outputs
-from library.tools import reel_hearing
-from library.tools.heard_speech import HeardSpeech, HeardWord
+
+import pytest
+
 from library.processes.edit_video.run_pipeline import (
     load_pipeline_state,
     run_pipeline,
 )
-
+from library.tools import capability_outputs, reel_hearing, reel_replace_guard
+from library.tools import reel_retirement as retire
+from library.tools.heard_speech import HeardSpeech, HeardWord
+from library.tools.versions import store as bvc
+from library.tools.versions import variants as choice
+from library.tools.versions import variants as tv
+from tests.promotion_test_helpers import record_ren_owned_inventory
+from tests.resolve_double import FakeProject, FakeTimeline
 
 BASE_TIMELINE = "Reel 09 - your-website-is-only-20-percent (final)"
 CUTAWAY_SUFFIX = " (reaction-cutaway)"
@@ -283,6 +283,13 @@ def test_create_variation_branches_records_commits(tmp_path):
                                  dict(CUTAWAY_SPEC))
     assert result["created"] is True, result
     assert result["branch"] == "variant/r09-reaction-cutaway"
+    assert result["base_revision"]
+    assert result["materialized"] is False
+    from library.tools import undo_journal
+    branch_record = undo_journal.read_branch(str(tmp_path), result["branch"])
+    assert branch_record["base_revision"] == result["base_revision"]
+    assert branch_record["semantic_changes"]
+    assert branch_record["materialization"] is None
     assert result["timeline_name"] == BASE_TIMELINE + CUTAWAY_SUFFIX
     assert _git(tmp_path, "rev-parse", "--abbrev-ref",
                 "HEAD").strip() == result["branch"]
@@ -627,6 +634,11 @@ def test_two_variants_are_compared_without_resolve(project_folder):
     diff = choice.compare(project_folder, 9, " (j-cut)", " (reaction-cutaway)")
     assert diff["earlier"] == JCUT and diff["later"] == CUTAWAY
     assert diff["changed"], "four items against two is a change"
+    assert "timeline" in diff["components"]["changed"]
+    assert diff["components"]["detail"]["captions"]["changed"] == "unknown"
+    assert diff["changed_regions"][0]["row"] == "video:V1"
+    assert diff["side_by_side"] == {
+        "earlier_timeline": JCUT, "later_timeline": CUTAWAY}
     text = choice.render_comparison(diff)
     assert "the join" in text and "SpeakerOne's reaction" in text
     # An empty side reads exactly like a version that contained nothing,
@@ -970,6 +982,8 @@ def _built(project_folder):
 
 
 def test_approval_names_the_exact_variant_revision(project_folder):
+    from library.tools import creative_revision
+
     original = choice.record_build(
         project_folder, 9, REEL, " (j-cut)", rows(2),
         resolve_timeline_id="timeline-jcut")
@@ -978,6 +992,21 @@ def test_approval_names_the_exact_variant_revision(project_folder):
     assert approval["revision_id"] == original["revision_id"]
     assert approval["resolve_timeline_id"] == "timeline-jcut"
     assert approval["decision"] == "approved"
+    assert creative_revision.get(
+        project_folder, original["revision_id"])["approval"]["why"] == \
+        "the opening lands cleanly"
+    rejection = choice.record_rejection(
+        project_folder, 9, " (j-cut)", "the transition feels abrupt")
+    canonical = creative_revision.get(project_folder, original["revision_id"])
+    assert rejection["decision"] == "rejected"
+    assert canonical["status"] == "rejected"
+    assert canonical["approval"]["why"] == "the transition feels abrupt"
+    choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)", rows(4))
+    comparison = choice.compare(
+        project_folder, 9, " (j-cut)", " (reaction-cutaway)")
+    rendered = choice.render_comparison(comparison)
+    assert "rejected - the transition feels abrupt" in rendered
+    assert "Side by side:" in rendered
     replacement = choice.record_build(
         project_folder, 9, REEL, " (j-cut)", rows(3),
         resolve_timeline_id="timeline-jcut")

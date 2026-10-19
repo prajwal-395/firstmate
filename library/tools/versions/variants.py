@@ -53,9 +53,12 @@ rebuild reads it from - so `branch_requirement` refuses, by name, a
 declaring variant built from any other branch.  A seam variant builds
 from anywhere.
 
-A variant is ONE object with two projections: its DECLARATIONS live on a
-branch (merged one at a time) and its PICTURE on a Resolve timeline
-(compared side by side).
+A variant is a semantic creative branch rooted at a canonical revision.
+Its DECLARATIONS live on a Git branch; its Resolve timeline is an optional
+materialization recorded only after a build. The branch remains in the
+canonical revision ledger when that timeline is discarded. Comparison reads
+the stored structural and component manifests, then names the two timelines
+for side-by-side review without reopening Resolve.
 
 Built, compared and chosen
 --------------------------
@@ -145,7 +148,7 @@ import hashlib
 import json
 import os
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools import reel_retirement as retire
@@ -164,7 +167,8 @@ VARIANTS_FILENAME = "reel_variants.json"
 `review/**`, captain-reviewable beside the proposals, written only by
 this module, never by a pipeline step."""
 
-SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "declares", "watch")
+SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "declares", "watch",
+             "base_revision", "semantic_changes")
 """The only keys a variant spec carries. `suffix` is required; at
 least one of `j_cut` / `cutaway` / `declares` must be present (a
 comparison with no difference is not a comparison); `cover` rides with
@@ -467,6 +471,15 @@ def validate_variant_spec(spec: dict) -> list[str]:
     watch = spec.get("watch")
     if watch is not None and not isinstance(watch, str):
         errors.append("watch must be text")
+    base_revision = spec.get("base_revision")
+    if base_revision is not None and (not isinstance(base_revision, str)
+                                      or not base_revision.strip()):
+        errors.append("base_revision must be a non-empty revision id")
+    semantic_changes = spec.get("semantic_changes")
+    if semantic_changes is not None and (
+            not isinstance(semantic_changes, (list, tuple))
+            or not all(isinstance(change, dict) for change in semantic_changes)):
+        errors.append("semantic_changes must be a list of semantic change objects")
     return errors
 
 
@@ -713,11 +726,59 @@ def create_variation(project_folder: str, reel_number: int,
     blocked = _repo_ok(project_folder)
     if blocked:
         return {"created": False, "reason": blocked}
+    from library.tools import creative_revision
+    from library.tools.versions import reel_versions
+
     branch = variant_branch_name(reel_number, spec["suffix"])
     exists = store.git(project_folder, "rev-parse", "--verify", branch)
     if exists.returncode == 0:
         return {"created": False,
                 "reason": f"branch {branch} already exists"}
+    current = store.git(project_folder, "rev-parse", "HEAD")
+    if current.returncode != 0:
+        return {"created": False,
+                "reason": f"could not resolve branch base: {current.stderr.strip()[-200:]}"}
+    base_git_revision = current.stdout.strip()
+    latest = next((revision for revision in reversed(
+        creative_revision.list_revisions(project_folder))
+        if str(base_timeline_name) in revision.get("affected_entities", ())), None)
+    if spec.get("base_revision"):
+        latest = creative_revision.get(project_folder,
+                                       str(spec["base_revision"]))
+        if latest is None:
+            return {"created": False,
+                    "reason": f"base creative revision {spec['base_revision']!r} is not recorded"}
+    if latest is None:
+        latest_version = next((entry for entry in reversed(
+            reel_versions.versions_of(project_folder, base_timeline_name))
+            if entry.get("revision_id")), None)
+        latest = creative_revision.get(
+            project_folder, latest_version["revision_id"]) if latest_version else None
+    if latest is None:
+        # A declaration-only project can precede its first Resolve build.
+        # Give the committed declaration tree a canonical base identity.
+        baseline_id = "declarations:" + hashlib.sha256(
+            base_git_revision.encode("utf-8")).hexdigest()
+        latest = creative_revision.create(
+            project_folder, revision_id=baseline_id,
+            author="ren", intent="recorded declaration base",
+            git_revision=base_git_revision, affected_entities=[base_timeline_name],
+            refs={"git_declaration": {"revision": base_git_revision}},
+            status="recorded")
+    spec = dict(spec)
+    spec["base_revision"] = str(spec.get("base_revision") or latest["revision_id"])
+    if spec["base_revision"] != latest["revision_id"]:
+        named_base = creative_revision.get(project_folder, spec["base_revision"])
+        if named_base is None:
+            return {"created": False,
+                    "reason": f"base creative revision {spec['base_revision']!r} is not recorded"}
+        latest = named_base
+    semantic_changes = spec.get("semantic_changes")
+    if semantic_changes is None:
+        semantic_changes = [{"kind": key, "value": spec[key]}
+                            for key in ("j_cut", "cutaway", "cover", "declares")
+                            if key in spec]
+        spec["semantic_changes"] = semantic_changes
     checkout = store.git(project_folder, "checkout", "-b", branch)
     if checkout.returncode != 0:
         return {"created": False,
@@ -732,12 +793,23 @@ def create_variation(project_folder: str, reel_number: int,
         reel_specs.append(dict(spec))
         variants[reel_key] = reel_specs
         write_variant_specs(project_folder, record)
+        from library.tools import undo_journal
+        branch_record = undo_journal.create_creative_branch(
+            project_folder, name=branch,
+            base_revision=str(spec["base_revision"]),
+            semantic_changes=semantic_changes,
+            declarations={"spec_path": "pipeline_output/review/" + VARIANTS_FILENAME,
+                          "reel": int(reel_number), "suffix": spec["suffix"],
+                          "affected_entities": [base_timeline_name]},
+            git_branch=branch, intent=f"variant {base_timeline_name}{spec['suffix']}")
     except ValueError as exc:
         store.git(project_folder, "checkout", "-")
         store.git(project_folder, "branch", "-D", branch)
         return {"created": False, "reason": str(exc)}
     add = store.git(project_folder, "add",
-               "pipeline_output/review/" + VARIANTS_FILENAME)
+               "pipeline_output/review/" + VARIANTS_FILENAME,
+               "pipeline_output/review/branches",
+               "pipeline_output/review/creative_revisions.json")
     if add.returncode != 0:
         return {"created": False,
                 "reason": f"git add failed: {add.stderr.strip()[-200:]}"}
@@ -758,7 +830,10 @@ def create_variation(project_folder: str, reel_number: int,
     rev = store.git(project_folder, "rev-parse", "--short", "HEAD")
     return {"created": True, "branch": branch,
             "timeline_name": timeline_name,
-            "commit": rev.stdout.strip()}
+            "commit": rev.stdout.strip(),
+            "base_revision": str(spec["base_revision"]),
+            "creative_branch_revision": branch_record["revision_id"],
+            "materialized": False}
 
 
 def _is_generated(rel_path: str) -> bool:
@@ -1104,20 +1179,49 @@ def record_build(project_folder, reel_number: int, base_final: str,
     """
     final = variant_timeline_name(str(base_final), str(suffix))
     document = read_builds(project_folder)
-    built_at = str(built_at or datetime.now(timezone.utc).isoformat())
+    built_at = str(built_at or datetime.now(UTC).isoformat())
     row_snapshot = dict(rows or {})
     revision_id = hashlib.sha256(json.dumps(
         {"reel": int(reel_number), "timeline": final,
          "built_at": built_at, "rows": row_snapshot},
         sort_keys=True, separators=(",", ":"), ensure_ascii=False,
     ).encode("utf-8")).hexdigest()
+    spec = spec_by_suffix(project_folder, reel_number, suffix) or {}
+    semantic_changes = list(spec.get("semantic_changes") or [
+        {"kind": key, "value": spec[key]}
+        for key in ("j_cut", "cutaway", "cover", "declares")
+        if key in spec])
+    from library.tools import creative_revision, reel_component_manifest
     from library.tools.versions import reel_versions
 
+    component_manifest = reel_component_manifest.build_manifest(
+        str(project_folder), final, row_snapshot)
+    from library.tools import undo_journal
+    branch_name = variant_branch_name(reel_number, suffix)
+    branch_record = next((branch for branch in
+                          undo_journal.list_branches(project_folder)
+                          if branch.get("name") == branch_name), None)
     reel_versions.record(
         project_folder, final, kind=reel_versions.KIND_VARIANT,
         rows=row_snapshot, at=built_at, revision_id=revision_id,
         variant=str(suffix), timeline_id=str(resolve_timeline_id or ""),
-        base_final=str(base_final))
+        base_final=str(base_final), base_revision=str(spec.get("base_revision") or ""),
+        creative_branch_revision=str(
+            (branch_record or {}).get("revision_id") or ""),
+        component_manifest=component_manifest, author="variant_build",
+        intent=f"build {final}", operations=semantic_changes,
+        git_revision=current_branch(str(project_folder)),
+        verification={"rows_recorded": True,
+                      "timeline_id": str(resolve_timeline_id or "")},
+        revision_status="verified")
+    creative_revision.create(
+        project_folder, revision_id=revision_id,
+        refs={"variant_build": {"timeline": final,
+                                "base_revision": str(spec.get("base_revision") or ""),
+                                "creative_branch_revision": str(
+                                    (branch_record or {}).get("revision_id") or ""),
+                                "manifest_digest": component_manifest.get("manifest_digest", "")}},
+        status="verified")
     document["builds"][final] = {
         "reel": int(reel_number),
         "base_final": str(base_final),
@@ -1127,6 +1231,12 @@ def record_build(project_folder, reel_number: int, base_final: str,
         "declares": sorted(str(name) for name in (declares or ())),
         "built_at": built_at,
         "revision_id": revision_id,
+        "base_revision": str(spec.get("base_revision") or ""),
+        "creative_branch_revision": str(
+            (branch_record or {}).get("revision_id") or ""),
+        "semantic_changes": semantic_changes,
+        "component_manifest": component_manifest,
+        "materialized": True,
         "resolve_timeline_id": str(resolve_timeline_id or ""),
         "rows_digest": rounds.digest_rows(row_snapshot),
         "row_count": len(row_snapshot),
@@ -1135,6 +1245,11 @@ def record_build(project_folder, reel_number: int, base_final: str,
     }
     document["format"] = BUILDS_FORMAT
     _write_builds(project_folder, document)
+    if branch_record:
+        undo_journal.record_branch_materialization(
+            project_folder, branch_name, timeline=final,
+            timeline_id=str(resolve_timeline_id or ""),
+            revision_id=revision_id)
     return document["builds"][final]
 
 
@@ -1184,11 +1299,15 @@ def record_approval(project_folder, reel_number: int, suffix: str,
         "decision": "approved",
         "why": reason,
         "by": str(approved_by or "captain"),
-        "at": str(approved_at or datetime.now(timezone.utc).isoformat()),
+        "at": str(approved_at or datetime.now(UTC).isoformat()),
     }
     document["builds"][str(entry["timeline"])] = {**entry,
                                                      "approval": approval}
     _write_builds(project_folder, document)
+    from library.tools import creative_revision
+    creative_revision.create(
+        project_folder, revision_id=str(entry["revision_id"]),
+        approval=approval, refs={"variant_review": approval}, status="approved")
     return approval
 
 
@@ -1221,12 +1340,16 @@ def record_rejection(project_folder, reel_number: int, suffix: str,
         "decision": "rejected",
         "why": reason,
         "by": str(rejected_by or "captain"),
-        "at": str(rejected_at or datetime.now(timezone.utc).isoformat()),
+        "at": str(rejected_at or datetime.now(UTC).isoformat()),
     }
     document = read_builds(project_folder)
     document["builds"][str(entry["timeline"])] = {**entry,
                                                      "approval": decision}
     _write_builds(project_folder, document)
+    from library.tools import creative_revision
+    creative_revision.create(
+        project_folder, revision_id=str(entry["revision_id"]),
+        approval=decision, refs={"variant_review": decision}, status="rejected")
     return decision
 
 
@@ -1300,6 +1423,38 @@ def compare(project_folder, reel_number: int, earlier_suffix: str,
     diff["later_watch"] = entries[later_suffix].get("watch", "")
     diff["earlier_revision"] = entries[earlier_suffix].get("revision_id", "")
     diff["later_revision"] = entries[later_suffix].get("revision_id", "")
+    from library.tools import reel_component_manifest
+    diff["components"] = reel_component_manifest.diff_manifests(
+        entries[earlier_suffix].get("component_manifest"),
+        entries[later_suffix].get("component_manifest"))
+    changed_regions = []
+    earlier_rows = entries[earlier_suffix].get("rows") or {}
+    for row in diff.get("changed", ()):
+        spans = [{"start": item.get("start"), "end": item.get("end"),
+                  "name": item.get("name"), "side": "later"}
+                 for item in row.get("gained", ())]
+        gone = set(row.get("gone", ()))
+        old_row = earlier_rows.get(row["key"], {})
+        spans.extend({"start": item.get("start"), "end": item.get("end"),
+                      "name": item.get("name"), "side": "earlier"}
+                     for item in old_row.get("items", ())
+                     if item.get("name") in gone)
+        spans = [span for span in spans
+                 if span.get("start") is not None and span.get("end") is not None]
+        changed_regions.append({"row": row["key"], "state": row["state"],
+                                "spans": spans})
+    diff["changed_regions"] = changed_regions
+    diff["reuse"] = {
+        "unchanged_components": list(diff["components"].get("unchanged", ())),
+        "requires_footage_intelligence": False,
+        "render_cache": "shared content-addressed cache; hits depend on asset and renderer identity",
+    }
+    diff["side_by_side"] = {
+        "earlier_timeline": entries[earlier_suffix]["timeline"],
+        "later_timeline": entries[later_suffix]["timeline"],
+    }
+    diff["earlier_review"] = dict(entries[earlier_suffix].get("approval") or {})
+    diff["later_review"] = dict(entries[later_suffix].get("approval") or {})
     return diff
 
 
@@ -1320,6 +1475,29 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
                 if diff.get("later_watch") else ""),
              f"  A revision: {diff.get('earlier_revision') or 'legacy/unrecorded'}",
              f"  B revision: {diff.get('later_revision') or 'legacy/unrecorded'}"]
+    component_diff = diff.get("components") or {}
+    if component_diff:
+        detail = component_diff.get("detail") or {}
+        changed_components = [name for name, item in detail.items()
+                             if item.get("changed") is True]
+        unknown_components = [name for name, item in detail.items()
+                              if item.get("changed") == "unknown"]
+        lines.append(
+            "  Components: changed "
+            + (", ".join(changed_components) or "none")
+            + "; unknown "
+            + (", ".join(unknown_components) or "none")
+            + "; confirmed reusable "
+            + (", ".join(component_diff.get("unchanged") or ()) or "none"))
+    for label, review in (("A", diff.get("earlier_review") or {}),
+                          ("B", diff.get("later_review") or {})):
+        if review:
+            lines.append(f"  {label} review: {review.get('decision', 'recorded')}"
+                         + (f" - {review['why']}" if review.get("why") else ""))
+    if diff.get("side_by_side"):
+        lines.append("  Side by side: "
+                     f"{diff['side_by_side']['earlier_timeline']} | "
+                     f"{diff['side_by_side']['later_timeline']}")
     rerendered = diff.get("rerendered") or []
     changed = diff.get("changed") or []
     if not changed:
@@ -1350,6 +1528,13 @@ def render_comparison(diff: Mapping, show_items: int = 3) -> str:
             lines.append(f"      ... and "
                           f"{len(row['gained']) - show_items} more only "
                           f"in B")
+    for region in diff.get("changed_regions") or ():
+        windows = [f"{span['side']} {span['name']} "
+                   f"{span['start']}..{span['end']}"
+                   for span in region.get("spans") or ()]
+        if windows:
+            lines.append(f"  Changed range for preview {region['row']}: "
+                         + "; ".join(windows))
     return "\n".join(lines)
 
 
@@ -1680,8 +1865,7 @@ def choose(project, pool, project_folder, reel_number: int,
             "Resolve timeline identity",
             "the approved revision is stale; no timeline was promoted",
             "rebuild and review the current variant before approving it")
-    from library.tools import plan_provenance
-    from library.tools import reel_replace_guard
+    from library.tools import plan_provenance, reel_replace_guard
     review_dir = os.path.join(str(project_folder), "pipeline_output", "review")
     inventory_before = reel_replace_guard.timeline_inventory(project)
     inventory_operation = plan_provenance.begin_timeline_inventory(

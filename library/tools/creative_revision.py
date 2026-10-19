@@ -69,9 +69,15 @@ def _write(project: os.PathLike | str, doc: Mapping[str, Any]) -> None:
                 set(incoming.get("affected_entities") or ()))
             old_status = existing.get("status", "prepared")
             new_status = incoming.get("status", "prepared")
+            new_rank = lifecycle_rank.get(new_status, 0)
+            old_rank = lifecycle_rank.get(old_status, 0)
+            # A later explicit approval/rejection is the current review
+            # decision when both statuses are terminal review outcomes.
             merged["status"] = (
-                new_status if lifecycle_rank.get(new_status, 0) >
-                lifecycle_rank.get(old_status, 0) else old_status)
+                new_status if new_rank > old_rank or
+                (new_rank == old_rank == 3 and
+                 str(incoming.get("updated_at") or "") >=
+                 str(existing.get("updated_at") or "")) else old_status)
             revisions[revision_id] = merged
         current["format"] = FORMAT
         from library.tools.versions import store
@@ -79,7 +85,9 @@ def _write(project: os.PathLike | str, doc: Mapping[str, Any]) -> None:
 
 
 def _stamp() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
+    # Review outcome updates can be close together, so preserve enough
+    # ordering precision for the canonical record's last-writer decision.
+    return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
 def create(project: os.PathLike | str, *, revision_id: str | None = None,
