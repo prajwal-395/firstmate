@@ -52,7 +52,7 @@ behind it; `resolve-axi` verbs are projections, not a second algebra.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
@@ -3213,6 +3213,7 @@ class BackendStatus:
     resolve_version: str | None = None
     qualification_media_types: tuple[str, ...] = ()
     qualification_timeline_conditions: tuple[str, ...] = ()
+    qualification_predicates: tuple[Mapping, ...] = ()
     preservation_limits: tuple[str, ...] = ()
     visual_verification: tuple[str, ...] = ()
     audio_verification: tuple[str, ...] = ()
@@ -3657,6 +3658,7 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
             and qualification.get("resolve_version")
             and qualification.get("media_types")
             and qualification.get("timeline_conditions")
+            and qualification.get("qualification_predicates")
             and qualification.get("expected_state")
             and qualification.get("actual_state")
             and qualification.get("preservation_limits")
@@ -3680,6 +3682,7 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
             resolve_version=qualification.get("resolve_version"),
             qualification_media_types=qualification.get("media_types", ()),
             qualification_timeline_conditions=qualification.get("timeline_conditions", ()),
+            qualification_predicates=qualification.get("qualification_predicates", ()),
             preservation_limits=qualification.get("preservation_limits", ()),
             visual_verification=qualification.get("visual_verification", ()),
             audio_verification=qualification.get("audio_verification", ()),

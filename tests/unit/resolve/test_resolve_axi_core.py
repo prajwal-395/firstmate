@@ -191,6 +191,11 @@ def test_registered_execution_uses_canonical_verified_receipt():
     assert receipt["actual_changes"] == [adapter_receipt]
     assert receipt["lifecycle"]["stage"] == "COMMITTED"
     assert receipt["execution_contract"]["verification"]["status"] == "verified"
+    assert receipt["execution_contract"]["verification"]["layers"] == {
+        "stored_state": {"status": "verified", "checks": 1},
+        "rendered_pixels": {"status": "not_measured", "evidence": {}},
+        "rendered_audio": {"status": "not_measured", "evidence": {}},
+    }
     assert receipt["promotion"]["status"] == "awaiting_promotion"
     assert receipt["delivered"]["status"] == "not_requested"
 
@@ -215,6 +220,8 @@ def test_registered_execution_missing_operation_evidence_is_not_verified():
     assert receipt["status"] == "verification_failed"
     assert receipt["lifecycle"]["stage"] == "APPLIED"
     assert receipt["execution_contract"]["verification"]["status"] == "failed"
+    assert receipt["execution_contract"]["verification"]["layers"][
+        "rendered_pixels"]["status"] == "not_measured"
     assert receipt["committed"]["status"] == "readback_persisted_unverified"
 
 

@@ -112,6 +112,7 @@ class VerificationResult:
     checks: tuple[Mapping, ...] = ()
     missing: tuple[str, ...] = ()
     evidence: Mapping = field(default_factory=dict)
+    layers: Mapping = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -335,6 +336,17 @@ def standardize_receipt(receipt: Mapping) -> dict:
     verified = (bool(checks)
                 and out.get("resolve_write_status", out.get("status")) == "committed"
                 and all(row.get("passed") is True for row in contracts))
+    rendered = out.get("rendered_verification") or {}
+    rendered_layers = {}
+    for name in ("pixels", "audio"):
+        claim = rendered.get(name) if isinstance(rendered, Mapping) else None
+        rendered_layers[name] = (
+            {"status": "verified", "evidence": dict(claim)}
+            if isinstance(claim, Mapping) and claim.get("status") == "verified"
+            and claim.get("evidence") else
+            {"status": "failed", "evidence": dict(claim)}
+            if isinstance(claim, Mapping) and claim.get("status") == "failed"
+            else {"status": "not_measured", "evidence": {}})
     recovery = out.get("recovery_result") or {}
     out["execution_contract"] = ExecutionResult(
         status=str(out.get("status") or "unknown"),
@@ -345,7 +357,13 @@ def standardize_receipt(receipt: Mapping) -> dict:
             checks=checks,
             missing=() if checks else ("operation acceptance evidence",),
             evidence={"acceptance_check_count": len(checks),
-                      "readback_present": out.get("readback") is not None}),
+                      "readback_present": out.get("readback") is not None},
+            layers={
+                "stored_state": {"status": "verified" if verified else "failed",
+                                 "checks": len(checks)},
+                "rendered_pixels": rendered_layers["pixels"],
+                "rendered_audio": rendered_layers["audio"],
+            }),
         recovery=RecoveryResult(
             status=str(recovery.get("status") or "not_attempted"),
             action=str((out.get("recovery") or {}).get("action") or "none"),

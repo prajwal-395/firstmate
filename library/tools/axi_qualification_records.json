@@ -33,6 +33,45 @@
       "preservation_limits": [
         "seed is the only item; V2/V3 setup tracks stay"
       ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "single_video_clip"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "single_seeded_clip_empty_baseline"
+        }
+      ],
       "recovery": "not_required",
       "resolve_version": "DaVinci Resolve 21.1.0.14",
       "result": "passed",
@@ -93,6 +132,45 @@
       "preservation_limits": [
         "seed is the only item; V2/V3 setup tracks stay"
       ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "single_video_clip"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "single_seeded_clip_empty_baseline"
+        }
+      ],
       "recovery": "not_required",
       "resolve_version": "DaVinci Resolve 21.1.0.14",
       "result": "passed",
@@ -144,6 +222,45 @@
       ],
       "preservation_limits": [
         "audio and subtitle rows must keep their counts and items"
+      ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "none"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "empty_fixture"
+        }
       ],
       "recovery": "not_required",
       "resolve_version": "DaVinci Resolve 21.1.0.14",

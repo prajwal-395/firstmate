@@ -17,6 +17,10 @@ def _passed_report(operation_id="transition", backend="reel_touchup"):
         "evidence": "tests/live/results/transition.json",
         "resolve_version": "21.1.0",
         "project_conditions": ["isolated qualification project"],
+        "qualification_predicates": [
+            {"field": "resolve_version", "operator": "equals",
+             "value": "21.1.0"},
+        ],
         "supported_media_types": ["video"],
         "expected_state": {"transition": "cross_dissolve"},
         "actual_state": {"transition": "cross_dissolve"},
@@ -72,7 +76,7 @@ def test_live_evidence_import_enables_only_its_exact_operation_backend(tmp_path)
     "resolve_version", "project_conditions", "supported_media_types",
     "expected_state", "actual_state", "preservation_checks",
     "preservation_limits", "visual_verification", "audio_verification",
-    "recovery_status",
+    "recovery_status", "qualification_predicates",
 ])
 def test_import_refuses_a_pass_missing_required_evidence(field):
     report = _passed_report()

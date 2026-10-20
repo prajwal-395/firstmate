@@ -115,6 +115,8 @@ class ExecutionDecision:
             "qualification": self.selection.get("qualification", "unknown"),
             "qualification_policy": self.selection.get(
                 "qualification_policy", "production"),
+            "qualification_state_inspected": self.selection.get(
+                "qualification_state_inspected", False),
             "media_type": self.selection.get("media_type", "unknown"),
             "timeline_state": self.selection.get("timeline_state", "unknown"),
             "preservation_constraints": list(
@@ -143,6 +145,10 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
         "qualification": tuple(_statuses(edit_algebra, ids)),
         "qualification_policy": context.get(
             "qualification_policy", "production"),
+        "qualification_state_inspected": bool(
+            isinstance(context.get("qualification_state"), Mapping)
+            and context["qualification_state"].get("inspected") is True
+            and isinstance(context["qualification_state"].get("state"), Mapping)),
         "media_type": context.get("media_type", "unknown"),
         "timeline_state": context.get("timeline_state", "unknown"),
         "preservation_constraints": context.get("preservation_constraints", ()),
@@ -246,7 +252,8 @@ def _check_op_conditions(edit_algebra, operations: Sequence[dict],
     return tuple(checked)
 
 
-def _qualification_gaps(edit_algebra, operations: Sequence[dict]
+def _qualification_gaps(edit_algebra, operations: Sequence[dict],
+                        context: Mapping | None = None
                         ) -> tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]:
     """Per op, which backends are qualified / production-enabled (VC-04).
 
@@ -254,6 +261,8 @@ def _qualification_gaps(edit_algebra, operations: Sequence[dict]
     protected experimental routing must separately provide all required
     staging, preservation and verification guarantees.
     """
+    context = context or {}
+    inspected = context.get("qualification_state")
     gaps = []
     for op in operations:
         op_id = str(op.get("op", ""))
@@ -261,11 +270,49 @@ def _qualification_gaps(edit_algebra, operations: Sequence[dict]
         if entry is None:
             continue
         qualified = tuple(backend.backend for backend in entry.backends if backend.qualified)
-        production = tuple(backend.backend for backend in entry.backends
-                           if backend.production_enabled)
+        production_rows = tuple(backend for backend in entry.backends
+                                if backend.production_enabled)
+        production = tuple(backend.backend for backend in production_rows
+                           if _qualification_matches(backend, inspected))
+        if production_rows and not production:
+            requirements = tuple(dict.fromkeys(
+                str(predicate.get("field", ""))
+                for backend in production_rows
+                for predicate in backend.qualification_predicates))
+            reason = ("runtime qualification state was not inspected" if not isinstance(
+                inspected, Mapping) or inspected.get("inspected") is not True else
+                "runtime state does not satisfy recorded qualification predicates")
+            gaps.append((op_id, qualified, ()))
+            # Keep the concrete predicate mismatch available to the caller's
+            # refusal and decision receipt without broadening support.
+            if isinstance(context, dict):
+                context.setdefault("qualification_refusals", {})[op_id] = {
+                    "reason": reason, "required_fields": requirements}
+            continue
         if not production:
             gaps.append((op_id, qualified, production))
     return tuple(gaps)
+
+
+def _qualification_matches(backend, inspected) -> bool:
+    """Match a live inspected state against the evidence's closed predicates."""
+    if not backend.qualification_predicates:
+        return False
+    if not isinstance(inspected, Mapping) or inspected.get("inspected") is not True:
+        return False
+    state = inspected.get("state")
+    if not isinstance(state, Mapping):
+        return False
+    for predicate in backend.qualification_predicates:
+        field = predicate["field"]
+        if field not in state:
+            return False
+        actual, expected = state[field], predicate["value"]
+        if predicate["operator"] == "equals" and actual != expected:
+            return False
+        if predicate["operator"] == "one_of" and actual not in expected:
+            return False
+    return True
 
 
 def _gap_reasons(gaps) -> tuple[str, ...]:
@@ -292,9 +339,14 @@ def _enforce_qualification_policy(gaps, context: Mapping) -> None:
         raise RoutingRefused(f"unknown qualification policy {policy!r}")
     if policy == "production" or context.get("require_qualified"):
         names = ", ".join(op_id for op_id, _qualified, _production in gaps)
+        refusals = context.get("qualification_refusals", {})
+        details = [f"{op_id}: {refusals[op_id]['reason']}"
+                   for op_id, _qualified, _production in gaps
+                   if op_id in refusals]
         raise RoutingRefused(
             f"no production-qualified executor is available for: {names}; "
-            "production routing fails closed")
+            "production routing fails closed"
+            + (" (" + "; ".join(details) + ")" if details else ""))
     required_guards = (
         "protected_staging", "preserve_approved_state", "verify_after_write",
     )
@@ -310,7 +362,7 @@ def _preflight_full_rebuild_operations(edit_algebra, operations, context) -> Non
     _refuse_unproven(edit_algebra, operations)
     _check_op_conditions(edit_algebra, operations, context)
     _enforce_qualification_policy(
-        _qualification_gaps(edit_algebra, operations), context)
+        _qualification_gaps(edit_algebra, operations, context), context)
 
 
 def _mode_for(backend: str, *, blockers: Sequence[str],
@@ -540,7 +592,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # Qualification levels are still recorded truthfully beside the choice.
     if context.get("incremental_eligibility") is True:
         decision = route_incremental(operations=operations, context=context)
-        gaps = _qualification_gaps(edit_algebra, operations)
+        gaps = _qualification_gaps(edit_algebra, operations, context)
         _enforce_qualification_policy(gaps, context)
         return ExecutionDecision(
             backend=decision.backend, reasons=decision.reasons,
@@ -589,7 +641,7 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # conditions, before any targeted backend is named.
     _refuse_unproven(edit_algebra, operations)
     checked = _check_op_conditions(edit_algebra, operations, context)
-    gaps = _qualification_gaps(edit_algebra, operations)
+    gaps = _qualification_gaps(edit_algebra, operations, context)
     _enforce_qualification_policy(gaps, context)
     statuses = _statuses(edit_algebra, ids)
     gap_reasons = _gap_reasons(gaps)

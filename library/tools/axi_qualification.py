@@ -15,6 +15,10 @@ from typing import Any
 REGISTRY_PATH = Path(__file__).resolve().with_name("axi_qualification_records.json")
 REPORT_SCHEMA = "ren-axi-qualification-result/v1"
 REGISTRY_SCHEMA = "ren-axi-qualification-registry/v1"
+PREDICATE_FIELDS = frozenset({
+    "resolve_version", "project_name", "timeline_name", "media_type", "clip_composition",
+    "linked_audio_configuration", "timeline_structure",
+})
 
 _IDENTITY_REQUIRED = ("operation_id", "backend", "result", "evidence")
 _REQUIRED = (
@@ -22,6 +26,7 @@ _REQUIRED = (
     "project_conditions", "supported_media_types", "expected_state",
     "actual_state", "preservation_checks", "visual_verification",
     "preservation_limits", "audio_verification", "recovery_status",
+    "qualification_predicates",
 )
 
 
@@ -74,6 +79,20 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
                 isinstance(value, str) and value.strip()
                 for value in report[key]):
             raise QualificationReportError(f"{key} must be a list of non-empty strings")
+    predicates = report["qualification_predicates"]
+    if not isinstance(predicates, list) or not predicates or any(
+            not isinstance(predicate, dict)
+            or set(predicate) != {"field", "operator", "value"}
+            or predicate["field"] not in PREDICATE_FIELDS
+            or predicate["operator"] not in {"equals", "one_of"}
+            or not _nonempty(predicate["value"])
+            or (predicate["operator"] == "one_of"
+                and (not isinstance(predicate["value"], list)
+                     or not all(isinstance(value, (str, int, float, bool))
+                                for value in predicate["value"])))
+            for predicate in predicates):
+        raise QualificationReportError(
+            "qualification_predicates must be non-empty machine-readable predicates")
     checks = report["preservation_checks"]
     if not isinstance(checks, list) or not checks or any(
             not isinstance(check, dict) or check.get("result") != "passed"
@@ -88,6 +107,7 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
         "resolve_version": report["resolve_version"],
         "media_types": report["supported_media_types"],
         "timeline_conditions": report["project_conditions"],
+        "qualification_predicates": predicates,
         "expected_state": report["expected_state"],
         "actual_state": report["actual_state"],
         "preservation_checks": report["preservation_checks"],
@@ -142,6 +162,7 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
             raise QualificationReportError(f"invalid operation/backend key {key!r}") from exc
         required = (
             "evidence", "resolve_version", "media_types", "timeline_conditions",
+            "qualification_predicates",
             "expected_state", "actual_state", "preservation_checks",
             "preservation_limits", "visual_verification", "audio_verification",
             "recovery",
@@ -157,6 +178,7 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
             "resolve_version": record["resolve_version"],
             "media_types": tuple(record["media_types"]),
             "timeline_conditions": tuple(record["timeline_conditions"]),
+            "qualification_predicates": tuple(record["qualification_predicates"]),
             "expected_state": record["expected_state"],
             "actual_state": record["actual_state"],
             "preservation_checks": record["preservation_checks"],

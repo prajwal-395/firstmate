@@ -122,6 +122,29 @@ def test_router_refuses_unqualified_production_route():
         route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}])
 
 
+def test_production_route_requires_inspected_state_matching_fixture_predicates():
+    operation = [{"op": "clip.set_property", "unique_id": "item-1",
+                  "key": "ZoomX", "value": 1.25}]
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit(operation)
+
+    state = {"resolve_version": "DaVinci Resolve 21.1.0.14",
+             "project_name": "Ren Qualification",
+             "timeline_name": "fm-scratch qualify",
+             "media_type": "video", "clip_composition": "single_video_clip",
+             "linked_audio_configuration": "no_linked_audio",
+             "timeline_structure": "single_seeded_clip_empty_baseline"}
+    decision = route_compiled_edit(operation, context={
+        "qualification_state": {"inspected": True, "state": state}})
+    assert decision.backend == "edit_patch.property"
+    assert decision.as_dict()["selection"]["qualification_state_inspected"] is True
+
+    state["linked_audio_configuration"] = "linked_audio_present"
+    with pytest.raises(RoutingRefused, match="production routing fails closed"):
+        route_compiled_edit(operation, context={
+            "qualification_state": {"inspected": True, "state": state}})
+
+
 def test_protected_experimental_route_requires_all_guarantees():
     operation = [{"op": "clip.delete", "unique_id": "item-9"}]
     with pytest.raises(RoutingRefused, match="requires explicit true guarantees"):
@@ -134,7 +157,7 @@ def test_protected_experimental_route_requires_all_guarantees():
         "verify_after_write": True,
     })
     assert decision.backend == "edit_patch"
-    assert decision.qualification_gaps == (("clip.delete", (), ()),)
+    assert decision.qualification_gaps == (("clip.delete", ("edit_patch",), ()),)
     assert any("protected experimental policy" in reason
                for reason in decision.reasons)
 
