@@ -38,6 +38,7 @@ connection a restart has invalidated.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 from typing import Optional
@@ -333,9 +334,17 @@ def main() -> int:
     a broker is serving, and a worker that does not mark itself would
     route every `resolve_axi` job back through the broker - a loop. With
     the mark, `serving()` is False and the command runs here.
+
+    STDOUT IS THE PROTOCOL. The daemon reads ONE LINE and parses it as
+    the answer, so a job that prints - the touch-up path says its gate
+    class and its cost out loud - put a non-JSON line where the answer
+    belonged and the job failed with "the worker's answer was not JSON".
+    A job's prints belong on stderr; the receipt already carries what
+    they said.
     """
     from library.tools.resolved import client
     client.mark_executor()
+    protocol_out = sys.stdout
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -346,9 +355,10 @@ def main() -> int:
             response = {"id": "", "ok": False,
                         "error": f"bad request: {exc}"}
         else:
-            response = execute(request)
-        sys.stdout.write(json.dumps(response) + "\n")
-        sys.stdout.flush()
+            with contextlib.redirect_stdout(sys.stderr):
+                response = execute(request)
+        protocol_out.write(json.dumps(response) + "\n")
+        protocol_out.flush()
     return 0
 
 

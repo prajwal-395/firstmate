@@ -565,7 +565,8 @@ def _diarize_ecapa(wav_path: str, num_speakers: int | None = None,
 
 
 def _license_provenance(implementation_ids: list[str]) -> list[dict]:
-    from library.tools import evidence_license, model_registry
+    from library.tools import evidence_license, model_evidence_provenance
+    from library.tools import model_registry
 
     registry = model_registry.load_registry()
     records = []
@@ -583,7 +584,11 @@ def _license_provenance(implementation_ids: list[str]) -> list[dict]:
             "license_status": verdict["approval_status"],
             "license_sources": [license_record.get("evidence_source")],
             "conditions": verdict["obligations"],
-            "output_reuse": model_registry.output_reuse_terms(
+            # `output_reuse_terms` lives in `model_evidence_provenance`,
+            # where the per-evidence reuse gate put it. Calling it on
+            # `model_registry` raised AttributeError and crashed every
+            # diarization run at its licence-provenance step.
+            "output_reuse": model_evidence_provenance.output_reuse_terms(
                 implementation_id, registry),
         })
     return records

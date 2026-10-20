@@ -9988,9 +9988,19 @@ def _through_broker(client, argv: list) -> int:
     if job["state"] != "done":
         return fail(f"ren-resolved {job['state']} job {job['id']}: "
                     f"{job['error']}", f"ren resolved result {job['id']}")
-    sys.stdout.write(job["result"]["stdout"])
-    sys.stderr.write(job["result"]["stderr"])
-    return job["result"]["exit_code"]
+    result = job.get("result")
+    # A job the broker refused carries its refusal, not the command's
+    # output. Reading `result["stdout"]` anyway raised KeyError and
+    # crashed the CLI, so the reason the command was refused never
+    # reached the operator.
+    if not isinstance(result, dict) or "stdout" not in result:
+        return fail(
+            f"ren-resolved job {job['id']} finished without command output: "
+            f"{job.get('error') or result}",
+            f"ren resolved result {job['id']}")
+    sys.stdout.write(result["stdout"])
+    sys.stderr.write(result.get("stderr", ""))
+    return result.get("exit_code", 1)
 
 
 def _submit_through_broker(client, argv: list) -> int:

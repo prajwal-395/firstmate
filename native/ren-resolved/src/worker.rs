@@ -22,12 +22,26 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 /// The worker's answer to one request.
 #[derive(Clone, Debug)]
 pub struct WorkerResponse {
+    /// The id of the request this answers. Empty when the worker did not
+    /// name one.
+    pub id: String,
     pub ok: bool,
     pub result: Option<Value>,
     pub error: String,
     pub refused: bool,
     pub cancelled: bool,
 }
+
+/// How many lines the daemon will skip before it gives up on finding the
+/// answer to ITS request.
+///
+/// The worker's stdout is a protocol channel and a job that prints puts a
+/// non-answer line on it. Reading one line per request then hands every
+/// later job the PREVIOUS job's answer - measured on 2026-10-20, where
+/// every `resolve-axi` command answered with the shadow watcher's
+/// snapshot. The answer names the request it belongs to, so a line that
+/// answers another request is skipped rather than believed.
+const MAX_ANSWER_LINES: usize = 16;
 
 impl WorkerResponse {
     /// The observation as a job outcome: `ok` carries the result, a refusal
@@ -129,22 +143,38 @@ impl Worker {
                     format!("the Resolve worker did not take the request: {exc}")
                 })?;
         }
-        let mut line = String::new();
-        let read = {
-            let stdout = self.stdout.as_mut().expect("worker stdout");
-            stdout.read_line(&mut line)
-        };
-        match read {
-            Ok(0) => {
-                self.restart();
-                Err("the Resolve worker closed its answer".to_string())
-            }
-            Ok(_) => decode_response(&line),
-            Err(exc) => {
-                self.restart();
-                Err(format!("the Resolve worker did not answer: {exc}"))
+        let wanted = request_id(request);
+        let mut last = String::new();
+        for _ in 0..MAX_ANSWER_LINES {
+            let mut line = String::new();
+            let read = {
+                let stdout = self.stdout.as_mut().expect("worker stdout");
+                stdout.read_line(&mut line)
+            };
+            match read {
+                Ok(0) => {
+                    self.restart();
+                    return Err("the Resolve worker closed its answer".to_string());
+                }
+                Ok(_) => match classify_line(&line, &wanted) {
+                    Line::Answer(response) => return Ok(response),
+                    Line::Skip => last = "another request's answer".to_string(),
+                    Line::Broken(exc) => {
+                        // A line that is not an answer at all: a job that
+                        // printed on the protocol channel. Skip it and
+                        // read on - the answer is still coming.
+                        last = exc;
+                    }
+                },
+                Err(exc) => {
+                    self.restart();
+                    return Err(format!("the Resolve worker did not answer: {exc}"));
+                }
             }
         }
+        Err(format!(
+            "the Resolve worker did not answer this request within {MAX_ANSWER_LINES} lines: {last}"
+        ))
     }
 
     /// Send one request, read one response, within `timeout`.
@@ -177,13 +207,40 @@ impl Worker {
         }
         let stdout = self.stdout.take().expect("worker stdout");
         let (tx, rx) = std::sync::mpsc::channel();
+        let wanted = request_id(request);
         std::thread::spawn(move || {
             let mut reader = stdout;
-            let mut line = String::new();
-            let read = reader.read_line(&mut line);
-            let _ = tx.send((read, line, reader));
+            let mut last = String::new();
+            for _ in 0..MAX_ANSWER_LINES {
+                let mut line = String::new();
+                let read = reader.read_line(&mut line);
+                match read {
+                    Ok(0) => {
+                        let _ = tx.send((Err("the Resolve worker closed its answer".to_string()), reader));
+                        return;
+                    }
+                    Ok(_) => match classify_line(&line, &wanted) {
+                        Line::Answer(response) => {
+                            let _ = tx.send((Ok(response), reader));
+                            return;
+                        }
+                        Line::Skip => last = "another request's answer".to_string(),
+                        Line::Broken(exc) => last = exc,
+                    },
+                    Err(exc) => {
+                        let _ = tx.send((Err(format!("the Resolve worker did not answer: {exc}")), reader));
+                        return;
+                    }
+                }
+            }
+            let _ = tx.send((
+                Err(format!(
+                    "the Resolve worker did not answer this request within {MAX_ANSWER_LINES} lines: {last}"
+                )),
+                reader,
+            ));
         });
-        let (read, line, reader) = rx.recv_timeout(timeout).map_err(|_| {
+        let (answer, reader) = rx.recv_timeout(timeout).map_err(|_| {
             // The reader still owns the old stdout handle; killing the
             // child closes the pipe, so its read ends and it exits.
             // `restart` resets the worker - the next request
@@ -195,17 +252,7 @@ impl Worker {
             )
         })?;
         self.stdout = Some(reader);
-        match read {
-            Ok(0) => {
-                self.restart();
-                Err("the Resolve worker closed its answer".to_string())
-            }
-            Ok(_) => decode_response(&line),
-            Err(exc) => {
-                self.restart();
-                Err(format!("the Resolve worker did not answer: {exc}"))
-            }
-        }
+        answer
     }
 
     fn restart(&mut self) {
@@ -227,11 +274,52 @@ impl Drop for Worker {
     }
 }
 
+/// One worker output line, read against the request that asked for it.
+#[derive(Debug)]
+enum Line {
+    /// The answer to the request that asked.
+    Answer(WorkerResponse),
+    /// A line that answers another request, or is not an answer at all.
+    Skip,
+    /// A line that could not be read as an answer, and why.
+    Broken(String),
+}
+
+/// Classify one worker output line against the request that asked.
+///
+/// A line whose answer names ANOTHER request is not this request's
+/// answer, and a line that is not an answer at all (a job that printed on
+/// the protocol channel) is not either. Both are skipped: the daemon
+/// reads on until it finds the answer to its own request.
+fn classify_line(line: &str, wanted: &str) -> Line {
+    match decode_response(line) {
+        Ok(response) if response.id.is_empty() || response.id == wanted => {
+            Line::Answer(response)
+        }
+        Ok(_) => Line::Skip,
+        Err(exc) => Line::Broken(exc),
+    }
+}
+
+/// The id a request names, or "" when it names none.
+fn request_id(request: &Value) -> String {
+    request
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 /// Decode one worker answer line into a response.
 fn decode_response(line: &str) -> Result<WorkerResponse, String> {
     let response: Value = serde_json::from_str(line.trim())
         .map_err(|exc| format!("the worker's answer was not JSON: {exc}"))?;
     Ok(WorkerResponse {
+        id: response
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         ok: response
             .get("ok")
             .and_then(|v| v.as_bool())
@@ -293,4 +381,55 @@ pub fn health_request(id: &str) -> Value {
 /// The worker request for the post-restart check.
 pub fn post_restart_check_request(id: &str) -> Value {
     serde_json::json!({"id": id, "kind": "post_restart_check"})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The defect, measured 2026-10-20: the worker's stdout is a
+    /// protocol channel, and a job that prints on it put a line where an
+    /// answer belonged. Reading one line per request then handed every
+    /// later job the PREVIOUS job's answer - every `resolve-axi` command
+    /// answered with the shadow watcher's snapshot.
+    #[test]
+    fn a_line_answering_another_request_is_not_this_requests_answer() {
+        let line = "{\"id\": \"other-job\", \"ok\": true, \"result\": {\"n\": 1}}";
+        match classify_line(line, "this-job") {
+            Line::Answer(_) => panic!("another request's answer was taken as this one's"),
+            other => assert!(matches!(other, Line::Skip)),
+        }
+    }
+
+    #[test]
+    fn a_line_that_is_not_an_answer_is_skipped() {
+        let line = "touch-reel Reel 01 - a: composed";
+        match classify_line(line, "this-job") {
+            Line::Answer(_) => panic!("a printed line was taken as an answer"),
+            Line::Broken(reason) => assert!(reason.contains("not JSON")),
+            Line::Skip => panic!("a printed line is not another request's answer"),
+        }
+    }
+
+    #[test]
+    fn the_answer_to_this_request_is_taken() {
+        let line = "{\"id\": \"this-job\", \"ok\": true, \"result\": {\"n\": 1}}";
+        match classify_line(line, "this-job") {
+            Line::Answer(response) => {
+                assert!(response.ok);
+                assert_eq!(response.id, "this-job");
+            }
+            _ => panic!("this request's own answer was not taken"),
+        }
+    }
+
+    /// The warmup asks with no id, so an answer with no id is taken.
+    #[test]
+    fn an_answer_with_no_id_is_taken() {
+        let line = "{\"id\": \"\", \"ok\": true, \"result\": {}}";
+        match classify_line(line, "") {
+            Line::Answer(response) => assert!(response.ok),
+            _ => panic!("an answer with no id was not taken"),
+        }
+    }
 }
