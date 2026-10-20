@@ -435,6 +435,76 @@ def _program_ops(spec: dict) -> list[dict]:
             for op in spec["program"]["ops"]]
 
 
+def _compile_revision_program(program: dict, *, project: str, reel: str,
+                              record: dict):
+    """Approve and compile this revision's atomic program with its provenance.
+
+    The editor's note is the evidence that authorizes the requested change.
+    A clip target, when present, scopes the read-back criterion to its subject.
+    Each operation gets a read-back criterion tied to its own target and
+    declared postconditions, so approval cannot erase the reason for the edit.
+    """
+    from library.tools import editorial_decisions
+
+    note_id = str(record.get("note_id") or "")
+    evidence_ids = ([f"revision-note:{note_id}"] if note_id else [])
+    criteria = []
+    approved_program = copy.deepcopy(program)
+    approved_ops = approved_program.get("ops") or []
+    for index, raw in enumerate(program.get("ops") or ()):
+        params = dict(raw.get("params") or {})
+        params.update({key: value for key, value in raw.items()
+                       if key not in {"op", "params", "text", "kind",
+                                      "depends_on", "preconditions",
+                                      "postconditions"}})
+        target = str(params.get("unique_id") or params.get("clip_id") or "")
+        postconditions = list(raw.get("postconditions") or ())
+        measure = ("AXI read-back satisfies declared postconditions: "
+                   + "; ".join(str(row) for row in postconditions)
+                   if postconditions else
+                   f"AXI verification passes for operation {raw.get('op')}"
+                   + (f" on timeline item {target}" if target else ""))
+        criteria.append({"criterion": f"operation[{index}] read-back",
+                         "measure": measure,
+                         "operation": str(raw.get("op") or "")})
+        op_evidence = ([f"revision-note:{note_id}"] if note_id else [])
+        approved_ops[index]["evidence_ids"] = op_evidence
+        approved_ops[index]["evaluation_criteria"] = [criteria[-1]]
+    evidence_ids = list(dict.fromkeys(evidence_ids))
+    intent_id = f"revise:{record.get('revise_id') or note_id or 'revision'}"
+    candidates = editorial_decisions.decisions_from_program(
+        approved_program, intent_id=intent_id, request_id=note_id,
+        evidence_ids=evidence_ids)
+    approved = editorial_decisions.approve(candidates, by="captain",
+                                            note=str(record.get("note") or ""))
+    graph = editorial_decisions.DecisionGraph(intent_id=intent_id,
+                                               decisions=approved)
+    request = editorial_decisions.compile_to_edit_request(
+        graph, project=project, timeline=reel,
+        request_id=str(program.get("id") or record.get("revise_id") or ""),
+        idempotency_key=str(program.get("idempotency_key")
+                            or program.get("id")
+                            or record.get("revise_id") or ""),
+        expected_base_generation=program.get("base_generation"),
+        originator={"kind": "human", "name": ORIGINATOR_NAME,
+                    "detail": str(record.get("note") or "")})
+    record["editorial_decisions"] = {
+        "intent_id": intent_id,
+        "evidence_ids": evidence_ids,
+        "evaluation_criteria": criteria,
+        "decisions": [decision.to_dict() for decision in approved],
+    }
+    record["approved_program"] = {
+        **approved_program,
+        "intent_id": intent_id,
+        "evidence_ids": evidence_ids,
+        "evaluation_criteria": criteria,
+        "decision_ids": [decision.decision_id for decision in approved],
+        "approval": {"by": "captain", "note": str(record.get("note") or "")},
+    }
+    return request
+
+
 def scope_for(operations: list[dict]) -> dict:
     """The declared dirty region: exactly the targets the ops name.
 
@@ -695,7 +765,7 @@ def _note_for(project: str, record: dict) -> dict:
 def _patch(project: str, record: dict, spec: dict, verdict: dict,
            options: dict) -> dict:
     from library.tools import assignment_spine as spine
-    from library.tools import edit_request, edit_spec, resolve_axi_core
+    from library.tools import edit_spec, resolve_axi_core
 
     program = spec["program"]
     reel = program.get("reel") or record["reel"]
@@ -742,10 +812,9 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
             "answer the translation again from the listed timeline items")
 
     change = region_summary(reel, snapshot, operations)
-    request = edit_request.from_edit_program(
-        program, project=_resolve_project_name(project), timeline=reel,
-        originator={"kind": "human", "name": ORIGINATOR_NAME,
-                    "detail": record.get("note", "")})
+    request = _compile_revision_program(
+        program, project=_resolve_project_name(project), reel=reel,
+        record=record)
     record["assignment_id"] = spine.attach_revision(
         project, reel, request=record["note"],
         assignment_id=record.get("requested_assignment_id", "")
@@ -1240,15 +1309,13 @@ def advance(project, revise_id: str, *, answer: str = "",
                                       project, record, spec,
                                       preview=preview)]
         elif classification["route"] == ROUTE_PATCH:
-            from library.tools import edit_request, resolve_axi_core
+            from library.tools import resolve_axi_core
 
             _reel = ((spec.get("program") or {}).get("reel")
                      or record["reel"])
-            _request = edit_request.from_edit_program(
+            _request = _compile_revision_program(
                 spec["program"], project=_resolve_project_name(project),
-                timeline=_reel,
-                originator={"kind": "human", "name": ORIGINATOR_NAME,
-                            "detail": record.get("note", "")})
+                reel=_reel, record=record)
             record["edit_request"] = _request.to_dict()
             record["preparation"] = resolve_axi_core.prepare_edit_request(
                 _request)

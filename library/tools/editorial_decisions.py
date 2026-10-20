@@ -748,6 +748,10 @@ def _flat_op(raw: Mapping[str, Any], index: int) -> dict:
         flat = merged
     kind = str(flat.pop("kind", "") or edit_request.DIRECT)
     effect = str(flat.pop("expected_effect", "") or flat.pop("text", "") or "")
+    # Evidence and criteria annotate the approved decision, not the
+    # physical algebra operation the backend receives.
+    flat.pop("evidence_ids", None)
+    flat.pop("evaluation_criteria", None)
     depends = tuple(int(value) for value in (flat.pop("depends_on", None) or ()))
     pre = tuple(dict(row) for row in (flat.pop("preconditions", None) or ()))
     post = tuple(dict(row) for row in (flat.pop("postconditions", None) or ()))
@@ -776,6 +780,8 @@ def decisions_from_program(program: Mapping[str, Any], *,
     decisions = []
     for index, raw in enumerate(ops):
         flat = _flat_op(raw, index)
+        operation_evidence = raw.get("evidence_ids")
+        operation_criteria = raw.get("evaluation_criteria")
         decisions.append(EditorialDecision(
             decision_id=f"{intent_id}:decision:{index}",
             intent_id=intent_id,
@@ -783,7 +789,11 @@ def decisions_from_program(program: Mapping[str, Any], *,
             statement=flat["effect"] or flat["op"],
             state=CANDIDATE,
             stated_by=stated_by,
-            evidence_ids=tuple(str(link) for link in (evidence_ids or ())),
+            evidence_ids=tuple(str(link) for link in
+                               (operation_evidence if operation_evidence is not None
+                                else evidence_ids or ())),
+            evaluation_criteria=tuple(dict(row) for row in
+                                      (operation_criteria or ())),
             intended_effect=flat["effect"],
             operations=(DecisionOperation(
                 op=flat["op"],

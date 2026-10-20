@@ -70,3 +70,58 @@ def test_partial_receipt_stays_open_and_resume_retranslates():
     })
     assert result["resume"].endswith("--retranslate")
     assert "remains unresolved" in result["reply"]
+
+
+def test_revise_atomic_program_links_note_and_target_evidence_and_criteria():
+    """Catches: revise bypasses EditorialIntent's evidence-grounded compiler."""
+    from library.tools import edit_request, revise
+
+    program = {"kind": "edit_program", "id": "program-1",
+               "base_generation": 12,
+               "ops": [{"op": "clip.trim", "text": "remove the repeated answer",
+                        "params": {"unique_id": "clip-7", "in_frame": 10,
+                                   "out_frame": 40},
+                        "postconditions": [{"property": "source_range",
+                                           "equals": [10, 40]}]},
+                        {"op": "clip.set_enabled", "text": "hide the duplicate",
+                         "params": {"unique_id": "clip-8", "enabled": False}}]}
+    record = {"revise_id": "revise-1", "note_id": "note-1",
+              "note": "remove the repeated answer"}
+
+    request = revise._compile_revision_program(
+        program, project="project", reel="reel", record=record)
+
+    decisions = record["editorial_decisions"]["decisions"]
+    assert len(decisions) == 2
+    assert all(decision["state"] == "approved" for decision in decisions)
+    assert all(decision["evidence_ids"] == ["revision-note:note-1"]
+               for decision in decisions)
+    assert [decision["intended_effect"] for decision in decisions] == [
+        "remove the repeated answer", "hide the duplicate"]
+    assert all(decision["evaluation_criteria"] for decision in decisions)
+    assert record["approved_program"]["ops"][0]["evidence_ids"] == [
+        "revision-note:note-1"]
+    assert (record["approved_program"]["ops"][0]["evaluation_criteria"]
+            == decisions[0]["evaluation_criteria"])
+    assert request.operations[0].op == "clip.trim"
+    assert request.operations[0].expected_effect == "remove the repeated answer"
+    original = edit_request.from_edit_program(
+        program, project="project", timeline="reel")
+    assert [op.to_dict() for op in request.operations] == [
+        op.to_dict() for op in original.operations]
+
+
+def test_revise_atomic_program_names_missing_evidence_instead_of_compiling():
+    """Catches: an approved revise program proceeds with no evidence link."""
+    import pytest
+
+    from library.tools import editorial_decisions, revise
+
+    program = {"kind": "edit_program", "id": "program-1",
+               "ops": [{"op": "clip.trim", "text": "remove the repeat",
+                        "params": {"unique_id": "clip-7"}}]}
+    record = {"revise_id": "revise-1", "note": "remove the repeat"}
+    with pytest.raises(editorial_decisions.EditorialDecisionError,
+                       match="rests on no evidence"):
+        revise._compile_revision_program(
+            program, project="project", reel="reel", record=record)
