@@ -85,6 +85,7 @@ CAPABILITY = "capability"
 SPAN = "span"
 COUNT = "count"
 SCHEDULE = "schedule"
+TASK = "task"
 
 # Counters are deliberately explicit: call sites that can measure a request
 # use ``count_call``; the report returns zero for an uninstrumented family
@@ -97,6 +98,101 @@ GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
                    "graphics_render", "hyperframes-caption",
                    "ffframes-caption"}
 
+# The seven stages of an edit, reported SEPARATELY (the profile's answer
+# to "where did the time go": one stage's seconds are never another
+# stage's). A span layer belongs to exactly one stage; a layer nobody
+# classified is unattributed time, never silently folded into a stage.
+#
+# The vocabulary is EXPLICIT on purpose: a layer added to the ledger
+# without a stage reads as "somewhere in the edit", and the report says
+# so rather than guessing. New layers join a stage by editing this map.
+STAGES = ("ingestion", "search", "evidence", "planning", "axi",
+          "rendering", "verification")
+
+STAGE_LAYERS = {
+    # Source ingestion: getting the raw material INTO the engine -
+    # scanning the folder, probing each file, cataloguing it.
+    "source_ingest": "ingestion",
+    "source_probe": "ingestion",
+    # Search: the footage index and the queries against it.
+    "footage_index_build": "search",
+    "footage_search": "search",
+    # Evidence acquisition: measuring the source to answer a question -
+    # decoding frames, running a producer, linking takes.
+    "media_decode": "evidence",
+    "evidence_acquisition": "evidence",
+    # Planning: deciding the edit - the model's own time and the model
+    # runtime that serves it.
+    "host_model": "planning",
+    "gemma_inference": "planning",
+    "semantic_inference_attempt": "planning",
+    "model_load": "planning",
+    "model_cache": "planning",
+    "mfa_align": "planning",
+    "transcribe": "planning",
+    "language_id": "planning",
+    "computer_use_decide": "planning",
+    # AXI execution: driving DaVinci Resolve through the broker.
+    "broker_request": "axi",
+    "resolve_wait": "axi",
+    "resolve_hold": "axi",
+    "resolve_api_call": "axi",
+    "resolve_snapshot_read": "axi",
+    "resolve_mutation_batch": "axi",
+    "resolve_connection_setup": "axi",
+    "resolve_switch_settle_wait": "axi",
+    "project_switch": "axi",
+    "project_switch_load": "axi",
+    "project_switch_settle": "axi",
+    "project_switch_readback": "axi",
+    "project_folder_capture": "axi",
+    "project_save_before_borrow": "axi",
+    "project_save_before_restore": "axi",
+    "project_folder_restore": "axi",
+    "project_timeline_restore": "axi",
+    "project_restore": "axi",
+    "qualification_broker_job": "axi",
+    "edit_core_rust": "axi",
+    # Rendering: producing pixels - Resolve's render, a graphics engine,
+    # an encode.
+    "resolve_render": "rendering",
+    "remotion_render": "rendering",
+    "hyperframes_render": "rendering",
+    "fframes_render": "rendering",
+    "graphics_render": "rendering",
+    "hyperframes-caption": "rendering",
+    "ffframes-caption": "rendering",
+    "ffmpeg_encode": "rendering",
+    # Verification: checking that what was built is what was planned.
+    "reel_build_verify": "verification",
+    "verification": "verification",
+    "render_qa": "verification",
+    # The reel build's own phases, which the profile reads as the
+    # stages they are.
+    "reel_build_survey": "planning",
+    "reel_build_plan": "planning",
+    "reel_build_prepare": "rendering",
+    "reel_build_place": "axi",
+    "reel_build_promote": "axi",
+    "version_store": "axi",
+    "archive_export": "axi",
+}
+
+#: Layers that SUMMARY other rows rather than measure a stage of their
+#: own. `reel_edit` is the reel build's own accounting of its cost, so
+#: counting it as a stage would charge the same seconds twice.
+SUMMARY_LAYERS = {"reel_edit"}
+
+
+def stage_of(layer: str) -> str | None:
+    """The stage a span layer belongs to, or None when it is unclassified.
+
+    None means "this layer has no stage yet", which the report prints as
+    unattributed time. It never means zero.
+    """
+    return STAGE_LAYERS.get(str(layer))
+
+
 # Time spent waiting for or executing a separately scheduled engine. All
 # other span and capability remainder time belongs to Ren. This list is kept
 # explicit so a newly added layer is not silently called external.
@@ -106,6 +202,7 @@ EXTERNAL_LAYERS = {
     "semantic_inference_attempt": "model_inference",
     "model_load": "model_runtime", "model_cache": "model_runtime",
     "demux": "ffmpeg", "media_decode": "ffmpeg",
+    "source_probe": "ffmpeg",
     "resolve_render": "resolve_api", "resolve_api_call": "resolve_api",
     "resolve_wait": "resolve_lease_wait",
     "resolve_hold": "resolve_api", "ffmpeg_encode": "ffmpeg",
@@ -151,8 +248,12 @@ REEL_EDIT_METRICS = (
     "lease_queue_wait_s", "lease_hold_s", "api_s", "cpu_s",
     "verification_s", "commit_promotion_s", "total_s", "attempts",
     "full_rebuilds", "items_touched", "model_records_touched",
-    "project_switch_s", "project_switches",
+    "project_switch_s", "project_switches", "verified",
 )
+"""What one reel edit cost. `verified` says the edit passed its
+verification gate and was promoted - the difference between a decision
+that was CHECKED and one that was merely placed, and the denominator
+of the cost per verified editorial decision."""
 
 # ru_maxrss is bytes on macOS and kilobytes on Linux.
 _RSS_TO_MB = 1 / (1024 * 1024) if sys.platform == "darwin" else 1 / 1024
@@ -201,6 +302,21 @@ def _cpu_s(who: int) -> float:
 
 def _maxrss_mb(who: int) -> float:
     return round(resource.getrusage(who).ru_maxrss * _RSS_TO_MB, 1)
+
+
+def _machine_sample(project_folder, previous: dict[str, Any] | None = None
+                    ) -> dict[str, Any]:
+    """The machine's own state, merged with an earlier reading.
+
+    Diagnostic evidence, never a gate: a reading that fails leaves the
+    fields absent rather than raising into a run.
+    """
+    try:
+        from library.tools import perf_resources
+        return perf_resources.worse(previous,
+                                    perf_resources.sample(project_folder))
+    except Exception:  # noqa: BLE001 - evidence never takes down a run
+        return dict(previous or {})
 
 
 def bytes_written(before: dict[str, Any], after: dict[str, Any]) -> int:
@@ -256,6 +372,8 @@ class OpenCapability:
                      + _cpu_s(resource.RUSAGE_CHILDREN))
         self._t0 = time.perf_counter()
         self._ended = False
+        self._project_folder = project_folder
+        self._resources = _machine_sample(project_folder)
 
     def end(self, persist: bool = True) -> dict[str, Any]:
         if self._ended:
@@ -276,6 +394,9 @@ class OpenCapability:
         if children_rss > self._children_rss:
             row["children_peak_rss_mb"] = children_rss
         row["self_peak_rss_mb"] = _maxrss_mb(resource.RUSAGE_SELF)
+        # The machine's own state while this capability worked: memory
+        # pressure, swap and disk. Sampled at both ends, worse kept.
+        row.update(_machine_sample(self._project_folder, self._resources))
         if persist:
             row["runtime_backends"] = self._runtime_backends
             _append(self.path, row, required=self.required)
@@ -451,6 +572,8 @@ def span(layer: str, **fields: Any) -> Iterator[dict[str, Any]]:
                     "source_changed_during_decode": row.get(
                         "source_changed_during_decode", False),
                 }
+                if row.get("edit_ids"):
+                    common["edit_ids"] = list(row["edit_ids"])
                 if int(row.get("calls") or 0) > 0:
                     count_call("media_decode_requests",
                                int(row["calls"]), **common)
@@ -525,6 +648,12 @@ def media_decode(source_path, *, purpose: str, media_kind: str,
         "calls": int(calls),
         "cache_hits": int(cache_hits),
     }
+    # Which edit the decode served, when one was in scope: the repeated
+    # work report reads it to say "this source was measured again for
+    # the NEXT edit", not merely "again".
+    edit_ids = current_edit_ids()
+    if edit_ids:
+        row_fields["edit_ids"] = list(edit_ids)
     if decoded_source_s is not None:
         row_fields["decoded_source_s"] = round(float(decoded_source_s), 3)
     with span("media_decode", **row_fields) as row:
@@ -567,6 +696,8 @@ def record(layer: str, wall_s: float, started_at: float | None = None,
             "source_changed_during_decode": fields.get(
                 "source_changed_during_decode", False),
         }
+        if fields.get("edit_ids"):
+            common["edit_ids"] = list(fields["edit_ids"])
         if calls > 0:
             count_call("media_decode_requests", calls, **common)
         if cache_hits > 0:
@@ -707,6 +838,127 @@ def _required_persistence() -> bool:
     return _env(REQUIRED_ENV) == "1"
 
 
+# ── The task the PERSON waits for ──────────────────────────────────
+
+class OpenTask:
+    """One user-visible task being timed: `begin` ... `end`.
+
+    A capability row answers "how long did this step take"; a task row
+    answers "how long did the person wait". The gap between them is the
+    point: a lease queue, a project switch, a model answer and the
+    minutes between two capabilities are all inside the wait and outside
+    every capability's own wall.
+
+    Two rows, not one: the request and the completion. They are written
+    by the same process but may be read much later, and a task that
+    never completed (a crash, a refusal that ended the process) leaves
+    its request row behind - which is exactly what a reader needs to
+    see.
+    """
+
+    def __init__(self, path: Path, task_id: str, task_class: str,
+                 run_id: str | None = None, required: bool = False,
+                 **fields: Any) -> None:
+        self.path = path
+        self.task_id = task_id
+        self.task_class = task_class
+        self.run_id = run_id
+        self.required = required
+        self.fields = dict(fields)
+        self.requested_at = time.time()
+        self._ended = False
+        _append(self.path, {
+            "kind": TASK, "state": "requested", "task_id": task_id,
+            "task_class": task_class, "run_id": run_id,
+            "requested_at": round(self.requested_at, 3),
+            **self.fields}, required=required)
+
+    def bind_run(self, run_id: str | None) -> None:
+        """Attach the run this task turned out to serve.
+
+        A task is opened before the run that serves it exists - the
+        person asked before the engine minted anything - so the run id
+        is bound afterwards, when there is one.
+        """
+        if run_id:
+            self.run_id = run_id
+
+    def end(self, outcome: str = "ok", **fields: Any) -> dict[str, Any]:
+        """Close the task. The row says how long the person waited."""
+        if self._ended:
+            return {}
+        self._ended = True
+        completed_at = time.time()
+        row = {
+            "kind": TASK, "state": "completed", "task_id": self.task_id,
+            "task_class": self.task_class, "run_id": self.run_id,
+            "requested_at": round(self.requested_at, 3),
+            "completed_at": round(completed_at, 3),
+            "latency_s": round(completed_at - self.requested_at, 3),
+            "outcome": outcome, **fields}
+        _append(self.path, row, required=self.required)
+        return row
+
+
+def begin_task(project_folder, task_class: str, *, task_id: str | None = None,
+               run_id: str | None = None, ledger_path_override: Path | None = None,
+               required: bool | None = None, **fields: Any) -> OpenTask | None:
+    """Open a user-visible task; None (and nothing recorded) on any error.
+
+    `task_id` identifies the task across the processes that serve it;
+    it defaults to the run id, because one run IS one task in this
+    engine. A caller that serves one request across two runs passes its
+    own id.
+    """
+    if not run_id:
+        try:
+            from library.tools import run_id as run_identity
+            run_id = run_identity.current() or ""
+        except Exception:  # noqa: BLE001 - the ledger never takes down a run
+            run_id = ""
+    if not task_id:
+        task_id = run_id or _mint_task_id()
+    if required is None:
+        required = _required_persistence()
+    try:
+        path = (Path(ledger_path_override) if ledger_path_override
+                else ledger_path(project_folder))
+        return OpenTask(path, task_id, task_class, run_id, required, **fields)
+    except Exception:  # a missing task row never fails a run
+        if required:
+            raise
+        return None
+
+
+def _mint_task_id() -> str:
+    """A task id for a run that minted no id of its own."""
+    import uuid
+    return (f"{time.strftime('%Y%m%dT%H%M%S', time.gmtime())}-"
+            f"{uuid.uuid4().hex[:6]}")
+
+
+@contextmanager
+def task(project_folder, task_class: str, *, task_id: str | None = None,
+         run_id: str | None = None, **fields: Any) -> Iterator[Any]:
+    """Time one user-visible task and record its latency.
+
+    Yields the open task, so a caller can read `requested_at` or close
+    it itself; the context manager closes it with outcome "ok" unless
+    the body raised, in which case the outcome names the failure.
+    """
+    open_task = begin_task(project_folder, task_class, task_id=task_id,
+                           run_id=run_id, **fields)
+    try:
+        yield open_task
+    except BaseException as exc:
+        if open_task:
+            open_task.end(outcome=f"failed: {type(exc).__name__}")
+        raise
+    else:
+        if open_task:
+            open_task.end(outcome="ok")
+
+
 def run(layer: str, *args: Any, fields: dict[str, Any] | None = None,
         **kwargs: Any):
     """`subprocess.run`, charged to `layer` - for a tool whose whole cost
@@ -715,6 +967,25 @@ def run(layer: str, *args: Any, fields: dict[str, Any] | None = None,
     check = kwargs.pop("check", False)
     with span(layer, subprocesses=1, **(fields or {})):
         return subprocess.run(*args, check=check, **kwargs)
+
+
+def measured(layer: str, **fields: Any):
+    """Time a whole function as one span in the ledger.
+
+    The span is SELF time: whatever the function measures itself is
+    subtracted, so a layer never charges its own children twice. Used
+    where the work is one call with no finer seam - a catalogue
+    extraction, an index build, a verification pass.
+    """
+    import functools
+
+    def decorate(function):
+        @functools.wraps(function)
+        def timed(*args, **kwargs):
+            with span(layer, **fields):
+                return function(*args, **kwargs)
+        return timed
+    return decorate
 
 
 # ── Reading it back ────────────────────────────────────────────────
@@ -776,6 +1047,19 @@ def union_s(intervals: list[tuple]) -> float:
     return total
 
 
+def span_intervals(span: dict[str, Any]) -> list[tuple]:
+    """The wall a span covered, as (start, end) intervals.
+
+    A span that nested others reports the gaps between them, so the
+    seconds it owns are its own; a span that nested none covers its
+    whole wall. Every reader of the ledger charges time the same way.
+    """
+    if span.get("self_intervals"):
+        return [(float(a), float(b)) for a, b in span["self_intervals"]]
+    begin = float(span.get("started_at") or 0.0)
+    return [(begin, begin + float(span.get("wall_s") or 0.0))]
+
+
 def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
     """Attribute one run's wall to named layers and capability remainders.
 
@@ -812,10 +1096,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
                                          "subprocesses": 0})
 
     def intervals_of(s: dict[str, Any]) -> list[tuple]:
-        if s.get("self_intervals"):
-            return [(float(a), float(b)) for a, b in s["self_intervals"]]
-        begin = float(s.get("started_at") or 0.0)
-        return [(begin, begin + float(s.get("wall_s") or 0.0))]
+        return span_intervals(s)
 
     by_cap_layer: dict[tuple, list[tuple]] = {}
     by_cap: dict[str, list[tuple]] = {}
@@ -904,7 +1185,30 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
                     "execution_s")} for r in scheduled_rows],
             },
             "resolve": resolve_kpis(spans, total, caps),
-            "spans_without_capability_row": sorted(set(by_cap) - cap_names)}
+            "spans_without_capability_row": sorted(set(by_cap) - cap_names),
+            **report_sections(rows, run_id)}
+
+
+def report_sections(rows: list[dict[str, Any]],
+                    run_id: str) -> dict[str, Any]:
+    """The questions the ledger's rows exist to answer.
+
+    Stage shares, the latency the PERSON waited, the cost of one
+    verified editorial decision, the machine's own state and the work
+    repeated across edits. `library/tools/perf_report.py` computes
+    them; this module keeps the ledger's own report shape in one place.
+    """
+    from library.tools import perf_report
+    return {
+        "stages": perf_report.stage_breakdown(rows, run_id),
+        "tasks": perf_report.task_latency(rows, run_id),
+        "cost_per_decision": perf_report.cost_per_verified_decision(
+            rows, run_id),
+        "resources": perf_report.resource_summary(rows, run_id),
+        "model_access": perf_report.model_access(rows, run_id),
+        "project_open": perf_report.project_open(rows, run_id),
+        "waits": perf_report.waits(rows, run_id),
+    }
 
 
 def quantile(values: list[float], q: float) -> float | None:
@@ -1103,8 +1407,14 @@ def render(report: dict[str, Any]) -> str:
             f"free-work concurrency {concurrency}")
     if report["overlap_s"] >= 0.05:
         out.append(f"{report['overlap_s']:.1f}s ran in two layers at once "
-                   f"and is counted in both, so the shares add past 100%.")
+                   "and is counted in both, so the shares add past 100%.")
+    from library.tools import perf_report
+    out.extend(perf_report.render_stages(report))
+    out.extend(perf_report.render_tasks(report))
+    out.extend(perf_report.render_cost(report))
+    out.extend(perf_report.render_resources(report))
     return "\n".join(out)
+
 
 
 def _seconds(value: float | None) -> str:
@@ -1154,6 +1464,27 @@ def _resolve_project(ref: str) -> str:
     return str(config._project_root)
 
 
+def render_repeated(report: dict[str, Any]) -> str:
+    """The source material this ledger measured more than once."""
+    sources = report.get("sources") or []
+    if not sources:
+        return ("No repeated source work in this ledger: every source was "
+                "measured once per purpose.")
+    out = [(f"Repeated source work: {report['repeated_sources']} source(s), "
+            f"{report['paid_repeats']} paid repeat(s), "
+            f"{report['cache_hits']} served from cache, "
+            f"{report['wall_s']:.1f}s of decode wall")]
+    for row in sources:
+        out.append(f"  {row['source_fingerprint'][:16]} "
+                   f"{row['decode_purpose']}: {row['requests']} request(s), "
+                   f"{row['paid_repeats']} paid again, "
+                   f"{row['cache_hits']} cached")
+        out.append(f"    runs: {', '.join(row['runs']) or 'unrecorded'}; "
+                   f"capabilities: "
+                   f"{', '.join(row['capabilities']) or 'unrecorded'}")
+    return "\n".join(out)
+
+
 def main(argv=None) -> int:
     # Same default as the front door, for direct `-m` use: under a
     # harness the host parses `REN_RESULT` instead of prose (LE-03).
@@ -1175,6 +1506,10 @@ def main(argv=None) -> int:
     parser.add_argument("--agent", action="store_true",
                         help="summarize privacy-safe agent-cost aggregates "
                              "by host and task class (read only)")
+    parser.add_argument("--repeated", action="store_true",
+                        help="report the source material measured AGAIN "
+                             "across edits and runs (read only, every run "
+                             "in the ledger)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if not args.project and not args.ledger:
@@ -1182,6 +1517,14 @@ def main(argv=None) -> int:
     project = (_resolve_project(args.project) if not args.ledger
                else args.project or "")
     rows = read_rows(project, args.ledger)
+    if args.repeated:
+        from library.tools import perf_report
+        report = perf_report.repeated_work(rows)
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(render_repeated(report))
+        return 0
     if args.agent:
         from library.tools import agent_cost
         summary = agent_cost.summarize(

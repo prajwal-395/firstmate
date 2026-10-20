@@ -25,6 +25,10 @@ _resident_counts: dict[str, int] = defaultdict(int)
 _active_users: dict[str, int] = defaultdict(int)
 _pending_eviction: set[str] = set()
 _stats: dict[str, dict[str, Any]] = {}
+#: Inferences served since the model was last loaded. The FIRST one
+#: after a load is COLD (it pays for the weights and the runtime
+#: warming up); every later one is WARM. The counter resets on a load.
+_inference_counts: dict[str, int] = {}
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
@@ -150,6 +154,8 @@ def _load_model(
             stats["peak_process_rss_mb"] = _peak_rss_mb()
             stats["loaded_at"] = time.time()
             stats["last_used_at"] = stats["loaded_at"]
+            # The first inference after this load is the cold one.
+            _inference_counts[name] = 0
             _loaded_models[name] = model
             if acquire:
                 _active_users[name] += 1
@@ -211,6 +217,31 @@ def unload_all():
             print(f"Unloading all models: {', '.join(names)}", file=sys.stderr)
         for name in names:
             _evict_locked(name)
+
+
+def note_inference(model: str) -> dict[str, Any]:
+    """One inference against `model`: was it COLD or WARM?
+
+    COLD means the model had not served an inference since it was
+    loaded, so the request paid for the weights and the runtime
+    warming up. WARM means it was already resident and answering.
+
+    This is a different reading from the `model_load` span, and the
+    punch list asks for both: the load's seconds are the load's, and
+    the first inference after it is a separate cost from every later
+    one. The counter resets on a load, so the first inference of a
+    session is the cold one.
+
+    The reading is per model NAME and per process: a model loaded in
+    one process and served in another has its cold inference in the
+    process that loaded it.
+    """
+    with _lock:
+        count = _inference_counts.get(model, 0)
+        _inference_counts[model] = count + 1
+        resident = model in _loaded_models
+    return {"cold_start": count == 0, "inference_index": count,
+            "resident": resident}
 
 
 def resource_accounting() -> dict[str, dict[str, Any]]:

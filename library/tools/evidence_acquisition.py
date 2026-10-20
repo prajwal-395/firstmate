@@ -38,12 +38,12 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from library.tools import evidence_query, requirement_graph
+    from library.tools import evidence_query, perf_ledger, requirement_graph
     from library.tools.query_directed_acquisition import (
         execute_query_acquisition,
     )
 except ImportError:  # imported as `tools.*` from inside library/
-    from tools import evidence_query, requirement_graph
+    from tools import evidence_query, perf_ledger, requirement_graph
     from tools.query_directed_acquisition import execute_query_acquisition
 
 SCHEMA_VERSION = 1
@@ -852,6 +852,7 @@ def ledger_key(source_digest: str, lane: str,
             f"{window['end_s']}:{producer_id}")
 
 
+@perf_ledger.measured("evidence_acquisition")
 def run_acquisition(acq_plan: Mapping[str, Any], *,
                     cached: Callable[..., Mapping[str, Any] | None],
                     producers: Mapping[str, Callable[..., Mapping[str, Any]]],

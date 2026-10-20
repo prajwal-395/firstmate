@@ -113,7 +113,7 @@ if TYPE_CHECKING:
     from mlx_vlm.prompt_utils import apply_chat_template
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from model_lifecycle import managed_model
+from model_lifecycle import managed_model, note_inference
 
 # Step 1.03 runs this file as a SCRIPT, so sys.path[0] is this directory
 # and the repo root has to be put on the path by hand.  `parents[3]` is
@@ -900,8 +900,14 @@ class VisionAnalyzer:
 
         t0 = time.time()
         with _semantic_inference_admission():
+            # COLD or WARM: the first inference since the weights were
+            # loaded pays for warming them up, and the profile has to
+            # say which one this was rather than charging every
+            # inference the same.
+            _access = note_inference(MODEL_ID)
             with perf_ledger.span("gemma_inference", backend="mlx_vlm",
-                                  model=MODEL_ID, calls=1) as cost:
+                                  model=MODEL_ID, calls=1,
+                                  cold_start=_access["cold_start"]) as cost:
                 r = _mlx_function("generate")(
                     self.model, self.proc,
                     prompt=formatted,
@@ -943,9 +949,11 @@ class VisionAnalyzer:
                 self.proc, self.model.config, prompt,
                 num_images=len(images))
             with _semantic_inference_admission():
+                _access = note_inference(MODEL_ID)
                 with perf_ledger.span(
                         "gemma_inference", backend="mlx_vlm",
-                        model=MODEL_ID, calls=1) as cost:
+                        model=MODEL_ID, calls=1,
+                        cold_start=_access["cold_start"]) as cost:
                     result = _mlx_function("generate")(
                         self.model, self.proc, prompt=formatted,
                         image=list(images), max_tokens=max_tokens,

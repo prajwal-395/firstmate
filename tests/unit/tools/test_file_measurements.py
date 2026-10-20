@@ -55,3 +55,66 @@ def test_ffprobe_cache_invalidation_and_query_separation(tmp_path, monkeypatch):
     source.write_bytes(b"changed size")
     file_measurements.cached_ffprobe(source, args)
     assert len(calls) == 3
+
+
+def test_a_probe_is_counted_once_and_a_reused_measurement_is_not(
+        tmp_path, monkeypatch):
+    """The probe counter counts real probes; a reused one is not a probe.
+
+    Defect caught: the ingestion cost reported as "unmeasured" while
+    the ingestion runs, and a measurement served from the cache counted
+    as a fresh probe - so the profile says the source was measured
+    twice when it was measured once.
+    """
+    from library.tools import perf_ledger, perf_report
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    source = tmp_path / "clip.mov"
+    source.write_bytes(b"first")
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, '{"value":1}', "")
+
+    monkeypatch.setattr(file_measurements.subprocess, "run", fake_run)
+    ledger = tmp_path / "perf.jsonl"
+    args = ["-v", "error", "-show_format", "-print_format", "json"]
+    with perf_ledger.recording(ledger, "r1", "footage.scan"):
+        file_measurements.cached_ffprobe(source, args)
+        file_measurements.cached_ffprobe(source, args)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    counts = {row["family"]: row["count"] for row in rows
+              if row.get("kind") == perf_ledger.COUNT}
+    assert counts.get("probes") == 1
+    probes = [row for row in rows if row.get("layer") == "source_probe"]
+    assert [row["calls"] for row in probes] == [1, 0]
+    assert probes[1]["cache_hits"] == 1
+
+    stages = perf_report.stage_breakdown(rows, "r1")
+    ingestion = next(s for s in stages["stages"] if s["stage"] == "ingestion")
+    assert ingestion["spans"] == 2
+
+
+def test_a_hash_is_counted_once_and_the_second_read_is_a_cache_hit(
+        tmp_path, monkeypatch):
+    """Hashing an unchanged file again costs nothing, and says so.
+
+    Defect caught: the hash cost counted on every call, so the
+    profile charges the same digest twice for two edits of one source.
+    """
+    from library.tools import perf_ledger
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    source = tmp_path / "media.bin"
+    source.write_bytes(b"contents")
+    ledger = tmp_path / "perf.jsonl"
+    with perf_ledger.recording(ledger, "r1", "footage.scan"):
+        file_measurements.cached_sha256(source)
+        file_measurements.cached_sha256(source)
+
+    rows = perf_ledger.read_rows(tmp_path, ledger)
+    counts = {row["family"]: row["count"] for row in rows
+              if row.get("kind") == perf_ledger.COUNT}
+    assert counts.get("hashes") == 1
+    hashes = [row for row in rows if row.get("layer") == "source_probe"]
+    assert [row["calls"] for row in hashes] == [1, 0]

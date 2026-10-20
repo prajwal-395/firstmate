@@ -58,9 +58,13 @@ def _server_chat(content_parts: list, max_tokens: int) -> str:
     ).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
+        # No `cold_start` here: the server holds the weights, so whether
+        # this request was the cold one is the server's reading and the
+        # client cannot honestly claim it. An absent field is
+        # "unmeasured", which is what it is.
         with perf_ledger.span("gemma_inference", backend="gemma_server",
                               model=SERVER_MODEL, calls=1) as cost, \
-                urllib.request.urlopen(req, timeout=SERVER_TIMEOUT_SECONDS) as resp:
+            urllib.request.urlopen(req, timeout=SERVER_TIMEOUT_SECONDS) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
             usage = payload.get("usage") if isinstance(payload, dict) else None
             if isinstance(usage, dict):
@@ -140,6 +144,7 @@ class VisionModel:
             cls._instance._model = None
             cls._instance._proc = None
             cls._instance._load_time = 0.0
+            cls._instance._cold = True
         return cls._instance
 
     def _ensure_loaded(self):
@@ -153,14 +158,22 @@ class VisionModel:
             t0 = time.time()
             self._model, self._proc = load(MODEL_ID)
             self._load_time = time.time() - t0
+            # The first inference against freshly loaded weights is the
+            # COLD one: it pays for warming them up. The profile says
+            # which an inference was instead of charging them all the
+            # same.
+            self._cold = True
             print(f"Model loaded in {self._load_time:.1f}s", file=sys.stderr)
 
     def _generate(self, *, inference_admission=None, **kwargs):
         admission = (inference_admission()
                      if inference_admission is not None else nullcontext())
+        cold_start = bool(self._cold)
+        self._cold = False
         with admission:
             with perf_ledger.span("gemma_inference", backend="mlx_vlm",
-                                  model=MODEL_ID, calls=1) as cost:
+                                  model=MODEL_ID, calls=1,
+                                  cold_start=cold_start) as cost:
                 r = generate(self._model, self._proc, **kwargs)
                 cost["input_tokens"] = getattr(r, "prompt_tokens", None)
                 cost["output_tokens"] = getattr(r, "generation_tokens", None)

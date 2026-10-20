@@ -51,6 +51,8 @@ def _connect() -> sqlite3.Connection:
 
 def cached_sha256(path: str | os.PathLike) -> str:
     """Return a whole-file SHA-256, reusing an unchanged file's digest."""
+    from library.tools import perf_ledger
+
     identity = _identity(path)
     key = ("sha256", *identity, "sha256")
     with _connect() as db:
@@ -60,12 +62,17 @@ def cached_sha256(path: str | os.PathLike) -> str:
             key,
         ).fetchone()
         if row:
-            return bytes(row[0]).decode("ascii")
+            with perf_ledger.span("source_probe", probe_kind="sha256",
+                                  calls=0, cache_hits=1):
+                return bytes(row[0]).decode("ascii")
     digest = hashlib.sha256()
-    with open(identity[0], "rb") as stream:
+    with (perf_ledger.span("source_probe", probe_kind="sha256", calls=1,
+                            bytes_read=identity[3]),
+          open(identity[0], "rb") as stream):
         for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
             digest.update(chunk)
     value = digest.hexdigest()
+    perf_ledger.count_call("hashes", 1)
     if _identity(identity[0]) != identity:
         raise OSError(f"file changed while hashing: {identity[0]}")
     with _connect() as db:
@@ -88,18 +95,22 @@ def cached_ffprobe(
     path. Query options are part of the key, so narrow and broad probes never
     alias one another.
     """
+    from library.tools import perf_ledger
+
     try:
         identity = _identity(path)
     except FileNotFoundError:
-        return subprocess.run(
-            ["ffprobe", *args, str(path)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
-        )
+        with perf_ledger.span("source_probe", probe_kind="ffprobe", calls=1,
+                              subprocesses=1):
+            return subprocess.run(
+                ["ffprobe", *args, str(path)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                check=False,
+            )
     signature = json.dumps(list(args), separators=(",", ":"))
     key = (*identity, signature)
     with _connect() as db:
@@ -110,18 +121,23 @@ def cached_ffprobe(
         ).fetchone()
         if row:
             stdout = bytes(row[0]).decode("utf-8")
-            return subprocess.CompletedProcess(
-                ["ffprobe", *args, identity[0]], 0, stdout, ""
-            )
-    result = subprocess.run(
-        ["ffprobe", *args, identity[0]],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-        check=False,
-    )
+            with perf_ledger.span("source_probe", probe_kind="ffprobe",
+                                  calls=0, cache_hits=1):
+                return subprocess.CompletedProcess(
+                    ["ffprobe", *args, identity[0]], 0, stdout, ""
+                )
+    with perf_ledger.span("source_probe", probe_kind="ffprobe", calls=1,
+                          subprocesses=1):
+        result = subprocess.run(
+            ["ffprobe", *args, identity[0]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+            check=False,
+        )
+    perf_ledger.count_call("probes", 1)
     if result.returncode == 0 and _identity(identity[0]) == identity:
         with _connect() as db:
             db.execute(

@@ -4946,6 +4946,13 @@ def main():
 
     from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
     summary = None
+    # The task the PERSON waits for, opened before the run starts and
+    # closed when it ends - on a refusal and on a crash as much as on a
+    # clean finish. The capability rows inside it are the tool
+    # durations; this is the latency they add up to, plus every wait
+    # between them that no capability owns.
+    _task = perf_ledger.begin_task(project_dir, "edit_video.run")
+    _task_outcome = "ok"
     try:        # The format gate, before anything reads project state: a
         # project outside the supported range refuses here (the
         # refusal below renders it), and an older supported one
@@ -4978,6 +4985,10 @@ def main():
             reels=args.reels,
             about=args.about,
         )
+        # The run's own account of how it ended is the task's outcome:
+        # a run that ended REFUSED was refused, whatever the exit code
+        # says afterwards.
+        _task_outcome = str((summary or {}).get("status") or "ok").lower()
     except RenRefusal as refused:
         # ONE place renders every refusal on `ren edit`'s path, in the
         # same shape the front door (`manage_project.py`) renders. An
@@ -4987,10 +4998,19 @@ def main():
         # With `REN_OUTPUT=json` the refusal ends with one final
         # `REN_RESULT` line (LE-03 leftovers).
         from library.tools.ren_refusal import emit_refusal_result
+        _task_outcome = "refused"
         print(refused.render(), file=sys.stderr)
         emit_refusal_result(refused)
         notify_run_end("REFUSED", project_dir or "")
         sys.exit(REFUSAL_EXIT_CODE)
+    except BaseException as exc:
+        _task_outcome = f"failed: {type(exc).__name__}"
+        raise
+    finally:
+        if _task:
+            from library.tools import run_id as run_identity
+            _task.bind_run(os.environ.get(run_identity.ENV_VAR))
+            _task.end(outcome=_task_outcome)
     # A refused selection never started, and must not look like a run.
     # Exit 4, the refusal code (`library/tools/ren_refusal.py`): the
     # reason already printed above, and with `REN_OUTPUT=json` one

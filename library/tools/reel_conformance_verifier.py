@@ -78,6 +78,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from library.tools import perf_ledger
 from library.tools import reel_clock as _reel_clock
 from library.tools.resolve_lock import under_lease
 
@@ -7045,6 +7046,7 @@ def _write_verification_report(json_path, report, project_folder, only_reels,
 
 
 @under_lease("verify reel conformance", exclusive=False)
+@perf_ledger.measured("verification")
 def run_verification(
     project_name: str,
     master_name: str,

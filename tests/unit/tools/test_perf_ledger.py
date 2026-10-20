@@ -168,6 +168,35 @@ def test_profile_cli_reads_a_standalone_ledger(tmp_path, capsys):
     assert "qualification_workflow" in output
 
 
+def test_the_repeated_work_report_names_the_source_measured_again(
+        tmp_path, capsys):
+    """`ren profile --repeated` says which source was measured twice.
+
+    Defect caught: the ledger carries each decode's source identity
+    and nothing ever reads it, so the same footage measured again for
+    every edit stays invisible.
+    """
+    path = tmp_path / "perf.jsonl"
+    rows = [
+        {"kind": perf_ledger.COUNT, "family": "media_decode_requests",
+         "count": 1, "run_id": "r1", "capability": "semantic_analysis",
+         "source_fingerprint": "abc123",
+         "decode_purpose": "semantic.coarse_frames"},
+        {"kind": perf_ledger.COUNT, "family": "media_decode_requests",
+         "count": 1, "run_id": "r2", "capability": "semantic_analysis",
+         "source_fingerprint": "abc123",
+         "decode_purpose": "semantic.coarse_frames"},
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows),
+                    encoding="utf-8")
+
+    assert perf_ledger.main(["--ledger", str(path), "--repeated"]) == 0
+    output = capsys.readouterr().out
+    assert "abc123" in output
+    assert "semantic.coarse_frames" in output
+    assert "1 paid repeat" in output
+
+
 def test_heavy_work_queue_and_execution_are_in_the_same_profile_ledger(
         tmp_path, monkeypatch, capsys):
     from library.tools import heavy_work_lock
@@ -289,3 +318,109 @@ def test_edit_lease_totals_include_only_linked_waits_and_holds():
                     "lease_hold_s": 0.0,
                     "project_switch_s": 0.0, "project_switches": 0},
     }
+
+
+def test_a_task_records_the_latency_the_person_waited(tmp_path):
+    """A task is a request and its completion, with the wait between them.
+
+    Defect caught: no row saying how long the person waited, so the
+    profile can only report tool durations and the gap between them -
+    the wait - reads as nothing.
+    """
+    path = tmp_path / "perf.jsonl"
+    task = perf_ledger.begin_task(tmp_path, "reels.build", run_id="r1",
+                                  ledger_path_override=path)
+    assert task is not None
+    task.end(outcome="ok")
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    kinds = [(row["kind"], row["state"]) for row in rows]
+    assert kinds == [(perf_ledger.TASK, "requested"),
+                     (perf_ledger.TASK, "completed")]
+    assert rows[1]["latency_s"] >= 0.0
+    assert rows[1]["task_class"] == "reels.build"
+
+
+def test_a_task_that_cannot_be_opened_never_raises(tmp_path, monkeypatch):
+    """A ledger that cannot be written leaves the run alone.
+
+    Defect caught: the task instrumentation refusing a build because
+    the profile could not be written - a missing measurement must
+    never cost the work.
+    """
+    monkeypatch.setattr(perf_ledger, "ledger_path",
+                        lambda _folder: (_ for _ in ()).throw(OSError("no")))
+    assert perf_ledger.begin_task(tmp_path, "reels.build", run_id="r1") is None
+
+
+def test_a_decode_row_names_the_edit_it_served(tmp_path):
+    """A decode carries the edit it was made for.
+
+    Defect caught: the repeated-work report unable to say WHICH edit
+    re-measured the source, so "measured again" has no addressee.
+    """
+    path = tmp_path / "perf.jsonl"
+    source = tmp_path / "source.mov"
+    source.write_bytes(b"the footage")
+    with (perf_ledger.recording(path, "r1", "semantic_analysis"),
+          perf_ledger.edit_scope(["Reel 07"]),
+          perf_ledger.media_decode(
+              source, purpose="semantic.coarse_frames",
+              media_kind="video", access_pattern="random_seek",
+              calls=1)):
+        pass
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    requests = [row for row in rows
+                if row.get("family") == "media_decode_requests"]
+    assert requests and requests[0]["edit_ids"] == ["Reel 07"]
+
+
+def test_a_layer_no_stage_claims_is_unclassified():
+    """An unknown layer belongs to no stage.
+
+    Defect caught: a layer with no stage silently counted as another
+    stage's time, so the stage table reports work a stage never did.
+    """
+    assert perf_ledger.stage_of("gemma_inference") == "planning"
+    assert perf_ledger.stage_of("a_layer_nobody_placed") is None
+
+
+def test_a_measured_function_is_charged_to_its_layer(tmp_path):
+    """A whole unit of work shows up in the profile.
+
+    Defect caught: a stage of an edit whose cost the profile never
+    saw, so the stage reads as free and the run's own wall is the
+    only number there is.
+    """
+    path = tmp_path / "perf.jsonl"
+
+    @perf_ledger.measured("footage_search")
+    def search():
+        return "answered"
+
+    with perf_ledger.recording(path, "r1", "footage.scan"):
+        assert search() == "answered"
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    spans = [row for row in rows if row.get("layer") == "footage_search"]
+    assert len(spans) == 1
+    assert spans[0]["run_id"] == "r1"
+    assert spans[0]["wall_s"] >= 0.0
+
+
+def test_a_capability_row_carries_the_machines_own_reading(tmp_path):
+    """The capability row says what the machine was doing.
+
+    Defect caught: a profile with no memory pressure, no swap and no
+    disk reading, so a run that stalled on a swapping machine looks
+    exactly like one that did not.
+    """
+    path = tmp_path / "perf.jsonl"
+    capability = perf_ledger.begin(tmp_path, "reel.build", "r1",
+                                   ledger_path_override=path)
+    assert capability is not None
+    capability.end()
+
+    rows = perf_ledger.read_rows(tmp_path, path)
+    assert rows and "memory_pressure" in rows[0]

@@ -435,7 +435,22 @@ def extract_metadata(filepath: str, program_stream=None,
     or unambiguous spatial layout applies, the footage itself is
     measured (uniquely loudest stream) and the levels recorded; an
     indecisive measurement refuses the same way.
+
+    The extraction is timed as the INGESTION stage of an edit: the
+    profile has to say how long getting the source into the engine
+    took, separately from planning and from Resolve. The ffprobe
+    process itself is charged to its own layer, so this span is the
+    catalogue's own work.
     """
+    from library.tools import perf_ledger
+
+    with perf_ledger.span("source_ingest", source=filepath):
+        return _extract_metadata(filepath, program_stream,
+                                 measure_program_stream)
+
+
+def _extract_metadata(filepath: str, program_stream=None,
+                      measure_program_stream: bool = False) -> dict:
     try:
         result = cached_ffprobe(
             filepath, ["-v", "quiet", "-print_format", "json",

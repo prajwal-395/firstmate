@@ -33,6 +33,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -145,15 +146,42 @@ def run(project_folder: str, args) -> int:
     own output the way the 50,863-byte log plus 4 JSON reads did.
     The digest never fails the build: a reader that refuses correct
     output is worse than no reader (AGENTS.md 10.4).
+
+    The run mints ONE run id and exports it, so every capability row
+    below, the task the person waits for and the profile that reads
+    them back name the same run. Without it each capability minted its
+    own, and a build was scattered across a dozen run ids that no
+    profile could join.
     """
-    code = _run(project_folder, args)
+    from library.tools import perf_ledger
+    from library.tools import run_id as run_identity
+
+    previous_run_id = os.environ.get(run_identity.ENV_VAR)
+    run_id = previous_run_id or run_identity.mint_run_id()
+    os.environ[run_identity.ENV_VAR] = run_id
+    task = perf_ledger.begin_task(project_folder, "reels.build", run_id=run_id)
+    outcome = "ok"
     try:
-        print_digest(project_folder, args, code)
-    except Exception as exc:  # noqa: BLE001 - the digest never fails a build
-        print(f"build digest unavailable ({exc!r}) - the reels this "
-              f"run touched are in `ren reels {project_folder}`",
-              file=sys.stderr)
-    return code
+        code = _run(project_folder, args)
+        if code:
+            outcome = f"exit {code}"
+        try:
+            print_digest(project_folder, args, code)
+        except Exception as exc:  # noqa: BLE001 - the digest never fails a build
+            print(f"build digest unavailable ({exc!r}) - the reels this "
+                  f"run touched are in `ren reels {project_folder}`",
+                  file=sys.stderr)
+        return code
+    except BaseException as exc:
+        outcome = f"failed: {type(exc).__name__}"
+        raise
+    finally:
+        if task:
+            task.end(outcome=outcome)
+        if previous_run_id is None:
+            os.environ.pop(run_identity.ENV_VAR, None)
+        else:
+            os.environ[run_identity.ENV_VAR] = previous_run_id
 
 
 def _run(project_folder: str, args) -> int:

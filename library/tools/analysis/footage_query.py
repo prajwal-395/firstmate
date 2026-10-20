@@ -94,7 +94,7 @@ from library.tools.analysis.footage_segments import (
     load_catalog,
 )
 from library.tools.analysis import footage_segments
-from library.tools import person_entity, source_memory
+from library.tools import person_entity, perf_ledger, source_memory
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 INDEX_SUBDIR = os.path.join("pipeline_output", "scratch", "footage_index")
@@ -853,6 +853,7 @@ def ocr_texts_for_project(project_folder) -> tuple:
     return texts_by_clip, methods
 
 
+@perf_ledger.measured("footage_index_build")
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
                 embedder="minilm", video_chunks=False,
                 unified_anchors=False) -> dict:
@@ -2138,6 +2139,7 @@ class FootageIndex:
             return [{"error": report["error"]}]
         return report["results"]
 
+    @perf_ledger.measured("footage_search")
     def search_report(self, query: str, top_k: int = 5, mode: str = "hybrid",
                       floor: float | None = None, filters: dict | None = None,
                       weak_k: int = WEAK_BAND_LIMIT,
@@ -4427,6 +4429,7 @@ def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
     return answer
 
 
+@perf_ledger.measured("footage_search")
 def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,

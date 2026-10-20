@@ -17910,6 +17910,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         "project_switch_s"],
                     "project_switches": _performance[
                         "project_switches"],
+                    # This row is written only for a reel that passed
+                    # its verification gate and was promoted, so the
+                    # decision it records is a VERIFIED one - the
+                    # denominator of the cost per verified decision.
+                    "verified": True,
                 })
             _file_reel_summary(
                 project_folder,
