@@ -1399,6 +1399,30 @@ def _main(argv=None) -> int:
     target.add_argument("--staging", action="store_true",
                         help="with --reel N, read the (rebuild staging) "
                              "sibling instead of the final")
+    state = subs.add_parser(
+        "state",
+        help="what the recorded generations say happened: the state before "
+             "the last write, the state after it, and whether they differ")
+    state.add_argument("project_ref", nargs="?",
+                       help="Ren project folder (or slug): with --reel N, "
+                            "resolve the reel's exact timeline name from "
+                            "the project's own records")
+    state.add_argument("--project", required=False, default="",
+                       help="the Resolve project's EXACT name "
+                            "(omit with --reel N)")
+    state.add_argument("--timeline", required=False, default="",
+                       help="the timeline's exact name, or its id "
+                            "(omit with --reel N)")
+    state.add_argument("--reel", default=None,
+                       help="the reel number (e.g. 7): read the reel's "
+                            "recorded exact final timeline - with "
+                            "--staging, its staging sibling. Needs the "
+                            "Ren project folder, never a prefix match.")
+    state.add_argument("--staging", action="store_true",
+                       help="with --reel N, read the (rebuild staging) "
+                            "sibling instead of the final")
+    state.add_argument("--generation", type=int, default=None,
+                       help="the generation to report on (default: the head)")
     args = parser.parse_args(argv)
     try:
         project, timeline = _resolve_scope(args, parser)
@@ -1407,6 +1431,16 @@ def _main(argv=None) -> int:
         emit_refusal_result(refused)
         return REFUSAL_EXIT_CODE
     store = ShadowStore(args.db)
+    if args.command == "state":
+        # The report resolves the timeline itself, so an unrecorded
+        # timeline is a VERDICT ("unreadable") rather than a usage
+        # error: the question was answered, and the answer is that the
+        # state cannot be established.
+        from library.tools import edit_state_report
+        out = edit_state_report.state_report(
+            project, timeline, generation=args.generation, store=store)
+        print(json.dumps(out, indent=2, sort_keys=True, default=str))
+        return 0
     try:
         timeline_id = store.resolve_timeline(project, timeline)
         if args.command == "log":

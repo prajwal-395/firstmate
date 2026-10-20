@@ -431,6 +431,12 @@ exited 0 is not a verified edit.
   missing when it is false.
 - `ren status <project>` - the run's own verdict (`SUCCESS` only when
   the whole DAG is complete and nothing failed).
+- `ren timeline state <project> --reel <n>` - what the recorded
+  generations say happened: the state before the last write, the state
+  after it, and whether they differ, with the diff. It is the ONE read
+  of "did my edit land, and what did it change?"; reach for
+  `verify_timeline` or a render only when the state alone cannot prove
+  it.
 - `ren drift <project>` and `bin/resolve-axi` reads - the live timeline
   holds what was planned.
 - `resolve-axi render inspect --out <dir> --apply` - render the OPEN

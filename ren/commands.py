@@ -617,10 +617,9 @@ VERBS = (
          effects=("read",),
          module_argv=("library.tools.timeline_shadow",),
          detail="log, show, clips, markers or diff a timeline's recorded generations (the shadow store). "
-                "`target \"row=V2 item=2\"` resolves a described target to the clip it names, and refuses "
-                "when the description does not name exactly one. Never reads Resolve. Pass the Ren project "
-                "folder with --reel N to read a reel's recorded exact final timeline (--staging for its "
-                "staging sibling) instead of --project/--timeline"),
+                "`state` says what the recorded generations show happened: the state before the last write, the state after it, and whether they differ. "
+                "`target \"row=V2 item=2\"` resolves a described target to the clip it names, and refuses when the description does not name exactly one. "
+                "Never reads Resolve. Pass the Ren project folder with --reel N to read a reel's recorded exact final timeline (--staging for its staging sibling) instead of --project/--timeline"),
     Verb("resolved", "Resolve", "Run or ask the broker that schedules the one Resolve (including explicit return-to-ren after a takeover)",
          effects=("read", "project_write", "resolve_read", "resolve_write"), json=True,
           module_argv=("library.tools.resolved",),
