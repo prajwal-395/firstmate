@@ -48,6 +48,15 @@ decides what the search was asked, what it could answer, and how sure
 it is.
 """
 
+from library.tools.retrieval.calibration import calibrate
+from library.tools.retrieval.consequence import edit_consequence
+from library.tools.retrieval.coverage import (
+    absence_verdict,
+    coverage_sufficiency,
+    requirement_coverage_flags,
+)
+from library.tools.retrieval.dedup import dedupe_windows
+from library.tools.retrieval.incumbent import compare
 from library.tools.retrieval.requirements import (
     MODALITIES,
     RetrievalPlan,
@@ -55,25 +64,24 @@ from library.tools.retrieval.requirements import (
     decompose,
     requirement_kinds,
 )
-from library.tools.retrieval.coverage import (
-    absence_verdict,
-    coverage_sufficiency,
-    requirement_coverage_flags,
-)
-from library.tools.retrieval.dedup import dedupe_windows
 from library.tools.retrieval.search import search_footage
 from library.tools.retrieval.support import supporting_evidence
+from library.tools.retrieval.verify import verify_candidates
 
 __all__ = [
     "MODALITIES",
     "RetrievalPlan",
     "RetrievalRequirement",
     "absence_verdict",
+    "calibrate",
+    "compare",
     "coverage_sufficiency",
-    "dedupe_windows",
     "decompose",
+    "dedupe_windows",
+    "edit_consequence",
     "requirement_coverage_flags",
     "requirement_kinds",
     "search_footage",
     "supporting_evidence",
+    "verify_candidates",
 ]

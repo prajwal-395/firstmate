@@ -1,0 +1,2094 @@
+{
+ "name": "editorial-retrieval-held-out-2026-10-20",
+ "schema_version": 1,
+ "registered": "2026-10-20",
+ "registered_before_measurement": true,
+ "protocol": "The held-out retrieval set for the five categories the punch list names: actions, object states, identities, locations and absent events. Every entry whose labels exist is CARRIED UNCHANGED from the set named in its provenance - nothing here is a new label. Every entry whose labels do not exist is declared with expect='unlabelled' and the annotation record the custodian owes; the harness REFUSES to score an unlabelled entry rather than counting it as a miss. Held-out sources and the annotation schema come from the corpus manifest; no label payload is in this repository.",
+ "source_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+ "corpus": {
+  "description": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources, 3.02 h",
+  "assets": {
+   "LC4930": "sha256:9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "LC4931": "sha256:c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+   "LC4932": "sha256:dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+   "LCATL0011": "sha256:d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+   "LCATL0012": "sha256:4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+   "LCATL0013": "sha256:157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+   "LCATL0014": "sha256:f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1"
+  },
+  "durations": {
+   "LCATL0012": 288.955,
+   "LC4930": 225.225,
+   "LCATL0014": 838.004,
+   "LCATL0013": 4099.596,
+   "LC4932": 4941.103,
+   "LCATL0011": 214.548,
+   "LC4931": 287.621
+  }
+ },
+ "ground_truth_mapping": {
+  "multicam_offsets_to_reference": {
+   "LC4930": 0.0,
+   "LCATL0011": 11.31,
+   "LCATL0012": 0.0,
+   "LC4931": -0.3,
+   "LC4932": 0.0,
+   "LCATL0013": 3.8,
+   "LCATL0014": 4103.39
+  },
+  "groups": {
+   "LC4930": "A",
+   "LCATL0011": "A",
+   "LC4931": "B",
+   "LCATL0012": "B",
+   "LC4932": "C",
+   "LCATL0013": "C",
+   "LCATL0014": "C"
+  },
+  "basis": "M6 conversation-clock offsets, cross-checked against the captain's Resolve timeline to 0.075 s (docs/SOURCE_MEMORY.md M6); used ONLY to copy a hand-marked moment onto the other angles of the same recording"
+ },
+ "categories": {
+  "action": {
+   "annotated": [
+    "H10"
+   ],
+   "not_created": [
+    "H11"
+   ],
+   "note": "the annotated action entry is a REFUSAL: a sampled frame cannot establish that a gesture happened"
+  },
+  "object_state": {
+   "annotated": [
+    "H02"
+   ],
+   "not_created": [
+    "H12"
+   ]
+  },
+  "identity": {
+   "annotated": [
+    "H03",
+    "H04"
+   ],
+   "not_created": [
+    "H13"
+   ]
+  },
+  "location": {
+   "annotated": [
+    "H05",
+    "H06"
+   ],
+   "not_created": [
+    "H14"
+   ]
+  },
+  "absent_event": {
+   "annotated": [
+    "H07",
+    "H08",
+    "H09"
+   ],
+   "not_created": [
+    "H15"
+   ]
+  }
+ },
+ "scoring": {
+  "editorial": {
+   "top_k": 5,
+   "overlap_tolerance_seconds": 1.0,
+   "hit": "a returned window on an asset overlapping any instance of a relevant moment, each padded by the tolerance",
+   "recall": "relevant moments with at least one instance hit / relevant moments",
+   "precision": "returned windows that hit / returned windows",
+   "abstention": "a query with no relevant moment is correct when nothing is retained above the floor",
+   "requirement_recall": "the declared modalities the requirement decomposition names / the declared modalities",
+   "selection_k": 1,
+   "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned",
+   "unlabelled": "an entry whose expect is 'unlabelled' is NOT scored: it has no ground truth, so it is reported as unlabelled and never as a miss"
+  }
+ },
+ "queries": [
+  {
+   "id": "H01",
+   "family": "editorial",
+   "category": "object",
+   "lane": "visual",
+   "expect": "present",
+   "query": "a shot of the open laptop on the desk",
+   "editorial_need": "the picture that goes under the pricing line",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V02",
+    "basis": "the held-out open-laptop frames, carried unchanged"
+   },
+   "note": "the condition holds across the whole held-out asset, so the ground truth is asset-granular"
+  },
+  {
+   "id": "H02",
+   "family": "editorial",
+   "category": "object_state",
+   "lane": "visual",
+   "expect": "present",
+   "query": "the laptop with its lid up",
+   "editorial_need": "the open state, not merely the object",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V02",
+    "basis": "the same frames: the lid is raised throughout the labelled span, so the STATE holds exactly where the OBJECT does"
+   },
+   "note": "an object state is a separate question from the object; this entry asks for the state"
+  },
+  {
+   "id": "H03",
+   "family": "editorial",
+   "category": "identity",
+   "lane": "visual",
+   "expect": "present",
+   "query": "the shot of the woman wearing glasses, the host",
+   "editorial_need": "the host's camera, for a two-shot edit",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V07",
+    "basis": "the held-out frames of the host's own camera; the person is identified by WHICH CAMERA frames them, which is why the identity ground truth is asset-granular"
+   },
+   "note": "an identity query resolves to a camera here; a per-moment identity label does not exist yet (see H10)"
+  },
+  {
+   "id": "H04",
+   "family": "editorial",
+   "category": "identity",
+   "lane": "visual",
+   "expect": "present",
+   "query": "the shot of the man behind the laptop in the studio",
+   "editorial_need": "the guest's camera, to cut against the host",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V06",
+    "basis": "the held-out frames of the guest's own camera"
+   },
+   "note": "the other half of the identity pair"
+  },
+  {
+   "id": "H05",
+   "family": "editorial",
+   "category": "location",
+   "lane": "visual",
+   "expect": "present",
+   "query": "the dark geometric studio set behind the speaker",
+   "editorial_need": "the location, for an establishing shot",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V06",
+    "basis": "the same frames; the set is what the scene observation describes throughout the asset"
+   },
+   "note": "a location is a place, and this corpus has one; the ground truth is asset-granular because the location never changes"
+  },
+  {
+   "id": "H06",
+   "family": "editorial",
+   "category": "location",
+   "lane": "visual",
+   "expect": "present",
+   "query": "the table with the plant behind it in the host's shot",
+   "editorial_need": "the other location, in the host's camera",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    }
+   ],
+   "granularity": "asset",
+   "provenance": {
+    "derived_from": "V07",
+    "basis": "the same frames"
+   }
+  },
+  {
+   "id": "H07",
+   "family": "editorial",
+   "category": "absent_event",
+   "lane": "visual",
+   "expect": "absent",
+   "query": "a shot of a dog lying on the floor",
+   "editorial_need": "a cutaway that this corpus does not contain",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "VX1",
+    "basis": "no cached frame of any source shows it"
+   },
+   "note": "an ABSENT event: the ground truth is a negative assertion over the whole corpus, not a gap"
+  },
+  {
+   "id": "H08",
+   "family": "editorial",
+   "category": "absent_event",
+   "lane": "visual",
+   "expect": "absent",
+   "query": "a shot of a whiteboard covered in handwriting",
+   "editorial_need": "a cutaway that this corpus does not contain",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "VX3",
+    "basis": "no cached frame of any source shows it"
+   }
+  },
+  {
+   "id": "H09",
+   "family": "editorial",
+   "category": "absent_event",
+   "lane": "text",
+   "expect": "absent",
+   "query": "the part where he explains how to train a puppy to sit",
+   "editorial_need": "a warm-up line this episode does not have",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "X01",
+    "basis": "no utterance of any source says this"
+   }
+  },
+  {
+   "id": "H10",
+   "family": "editorial",
+   "category": "action",
+   "lane": "visual",
+   "expect": "refused",
+   "query": "a person gesturing with both hands",
+   "editorial_need": "an action, which this lane answers by refusing",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "V05",
+    "basis": "the frame index refuses action queries BY DESIGN (footage_frames.ACTION_PATTERNS) and names the event pipeline that owns actions"
+   },
+   "note": "the action category is covered by a REFUSAL here, not by an action interval: a still frame cannot establish that a gesture happened"
+  },
+  {
+   "id": "H11",
+   "family": "editorial",
+   "category": "action",
+   "lane": "visual",
+   "expect": "unlabelled",
+   "labels": "not_created",
+   "query": "the moment she opens the box",
+   "editorial_need": "an action with a real interval, for a cutaway",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "label_requirement": {
+    "annotation_schema": "editorial-evidence-v1",
+    "annotation_state": "not_started",
+    "custodian": "corpus owner",
+    "tuning_access": false,
+    "label_payloads_in_repository": false,
+    "held_out_sources": [
+     "IMG_1812",
+     "IMG_1813",
+     "IMG_1817",
+     "IMG_1818",
+     "IMG_1819",
+     "IMG_1820",
+     "IMG_1821",
+     "IMG_1822"
+    ],
+    "record": {
+     "entity_id": "<entity id>",
+     "action": "opens",
+     "start_seconds": 0.0,
+     "end_seconds": 0.0,
+     "confidence": 0.0,
+     "provenance": {
+      "annotator_id": "<annotator>",
+      "review_status": "reviewed|adjudicated",
+      "evidence_ref": "<evidence reference>"
+     }
+    },
+    "reason": "an action's OCCURRENCE cannot be established from a sampled frame, and no annotation records action intervals yet"
+   },
+   "provenance": {
+    "derived_from": null,
+    "basis": "no label for this category exists yet"
+   }
+  },
+  {
+   "id": "H12",
+   "family": "editorial",
+   "category": "object_state",
+   "lane": "visual",
+   "expect": "unlabelled",
+   "labels": "not_created",
+   "query": "the cup that has been emptied",
+   "editorial_need": "a state change with a real interval",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "label_requirement": {
+    "annotation_schema": "editorial-evidence-v1",
+    "annotation_state": "not_started",
+    "custodian": "corpus owner",
+    "tuning_access": false,
+    "label_payloads_in_repository": false,
+    "held_out_sources": [
+     "IMG_1812",
+     "IMG_1813",
+     "IMG_1817",
+     "IMG_1818",
+     "IMG_1819",
+     "IMG_1820",
+     "IMG_1821",
+     "IMG_1822"
+    ],
+    "record": {
+     "entity_id": "<entity id>",
+     "label": "cup",
+     "state": "emptied",
+     "start_seconds": 0.0,
+     "end_seconds": 0.0,
+     "visibility": "visible",
+     "confidence": 0.0,
+     "provenance": {
+      "annotator_id": "<annotator>",
+      "review_status": "reviewed|adjudicated",
+      "evidence_ref": "<evidence reference>"
+     }
+    },
+    "reason": "no annotation records an object's STATE, only which objects were seen and whether they were visible"
+   },
+   "provenance": {
+    "derived_from": null,
+    "basis": "no label for this category exists yet"
+   }
+  },
+  {
+   "id": "H13",
+   "family": "editorial",
+   "category": "identity",
+   "lane": "visual",
+   "expect": "unlabelled",
+   "labels": "not_created",
+   "query": "the shot where Akshita is speaking and Craig is off camera",
+   "editorial_need": "a per-moment identity, not a per-asset one",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "label_requirement": {
+    "annotation_schema": "editorial-evidence-v1",
+    "annotation_state": "not_started",
+    "custodian": "corpus owner",
+    "tuning_access": false,
+    "label_payloads_in_repository": false,
+    "held_out_sources": [
+     "IMG_1812",
+     "IMG_1813",
+     "IMG_1817",
+     "IMG_1818",
+     "IMG_1819",
+     "IMG_1820",
+     "IMG_1821",
+     "IMG_1822"
+    ],
+    "record": {
+     "entity_id": "<entity id>",
+     "subject": "Akshita",
+     "start_seconds": 0.0,
+     "end_seconds": 0.0,
+     "confidence": 0.0,
+     "provenance": {
+      "annotator_id": "<annotator>",
+      "review_status": "reviewed|adjudicated",
+      "evidence_ref": "<evidence reference>"
+     }
+    },
+    "reason": "identity is currently resolvable only to a camera; no annotation records WHICH person is in frame at WHICH moment"
+   },
+   "provenance": {
+    "derived_from": null,
+    "basis": "no label for this category exists yet"
+   }
+  },
+  {
+   "id": "H14",
+   "family": "editorial",
+   "category": "location",
+   "lane": "visual",
+   "expect": "unlabelled",
+   "labels": "not_created",
+   "query": "the moment the scene changes to a different room",
+   "editorial_need": "a location CHANGE, with intervals",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "label_requirement": {
+    "annotation_schema": "editorial-evidence-v1",
+    "annotation_state": "not_started",
+    "custodian": "corpus owner",
+    "tuning_access": false,
+    "label_payloads_in_repository": false,
+    "held_out_sources": [
+     "IMG_1812",
+     "IMG_1813",
+     "IMG_1817",
+     "IMG_1818",
+     "IMG_1819",
+     "IMG_1820",
+     "IMG_1821",
+     "IMG_1822"
+    ],
+    "record": {
+     "entity_id": "<entity id>",
+     "setting": "<new setting>",
+     "start_seconds": 0.0,
+     "end_seconds": 0.0,
+     "confidence": 0.0,
+     "provenance": {
+      "annotator_id": "<annotator>",
+      "review_status": "reviewed|adjudicated",
+      "evidence_ref": "<evidence reference>"
+     }
+    },
+    "reason": "the scene observation records one setting per asset; it does not record a location change with an interval"
+   },
+   "provenance": {
+    "derived_from": null,
+    "basis": "no label for this category exists yet"
+   }
+  },
+  {
+   "id": "H15",
+   "family": "editorial",
+   "category": "absent_event",
+   "lane": "text",
+   "expect": "unlabelled",
+   "labels": "not_created",
+   "query": "the moment where nobody speaks for a full minute",
+   "editorial_need": "an absent event with an explicit negative assertion",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [],
+   "label_requirement": {
+    "annotation_schema": "editorial-evidence-v1",
+    "annotation_state": "not_started",
+    "custodian": "corpus owner",
+    "tuning_access": false,
+    "label_payloads_in_repository": false,
+    "held_out_sources": [
+     "IMG_1812",
+     "IMG_1813",
+     "IMG_1817",
+     "IMG_1818",
+     "IMG_1819",
+     "IMG_1820",
+     "IMG_1821",
+     "IMG_1822"
+    ],
+    "record": {
+     "event_class": "silence",
+     "scope": {
+      "asset": "<asset>",
+      "start_seconds": 0.0,
+      "end_seconds": 0.0
+     },
+     "reason": "<why it is absent>",
+     "provenance": {
+      "annotator_id": "<annotator>",
+      "review_status": "reviewed|adjudicated",
+      "evidence_ref": "<evidence reference>"
+     }
+    },
+    "reason": "an ABSENT event needs an explicit negative assertion over a declared scope; nothing records one, so 'not found' and 'confirmed absent' cannot yet be told apart for this category"
+   },
+   "provenance": {
+    "derived_from": null,
+    "basis": "no label for this category exists yet"
+   }
+  }
+ ]
+}

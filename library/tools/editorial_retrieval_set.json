@@ -1,0 +1,1361 @@
+{
+ "name": "editorial-retrieval-v1",
+ "schema_version": 1,
+ "registered": "2026-10-20",
+ "registered_before_measurement": true,
+ "protocol": "Real EDITORIAL searches against the same corpus the speech and visual sets use. The difference from those sets is the QUESTION: an editor names a moment by what it is FOR and what it contains, not by a transcription of its words. Ground-truth intervals are carried over unchanged from the sets named in each record's provenance - nothing here is a new label. The set was written before any of its queries was run against the search.",
+ "source_manifest": "docs/benchmarks/2026-10-15-editorial-eval-corpus.json",
+ "corpus": {
+  "description": "GEO vs SEO podcast, two speakers (Craig, Akshita), two fixed cameras, 7 MXF sources, 3.02 h",
+  "assets": {
+   "LC4930": "sha256:9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+   "LC4931": "sha256:c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+   "LC4932": "sha256:dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+   "LCATL0011": "sha256:d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+   "LCATL0012": "sha256:4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+   "LCATL0013": "sha256:157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+   "LCATL0014": "sha256:f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1"
+  },
+  "durations": {
+   "LCATL0012": 288.955,
+   "LC4930": 225.225,
+   "LCATL0014": 838.004,
+   "LCATL0013": 4099.596,
+   "LC4932": 4941.103,
+   "LCATL0011": 214.548,
+   "LC4931": 287.621
+  }
+ },
+ "ground_truth_mapping": {
+  "multicam_offsets_to_reference": {
+   "LC4930": 0.0,
+   "LCATL0011": 11.31,
+   "LCATL0012": 0.0,
+   "LC4931": -0.3,
+   "LC4932": 0.0,
+   "LCATL0013": 3.8,
+   "LCATL0014": 4103.39
+  },
+  "groups": {
+   "LC4930": "A",
+   "LCATL0011": "A",
+   "LC4931": "B",
+   "LCATL0012": "B",
+   "LC4932": "C",
+   "LCATL0013": "C",
+   "LCATL0014": "C"
+  },
+  "basis": "M6 conversation-clock offsets, cross-checked against the captain's Resolve timeline to 0.075 s (docs/SOURCE_MEMORY.md M6); used ONLY to copy a hand-marked moment onto the other angles of the same recording"
+ },
+ "scoring": {
+  "editorial": {
+   "top_k": 5,
+   "overlap_tolerance_seconds": 1.0,
+   "hit": "a returned window on an asset overlapping any instance of a relevant moment, each padded by the tolerance",
+   "recall": "relevant moments with at least one instance hit / relevant moments",
+   "precision": "returned windows that hit / returned windows",
+   "abstention": "a query with no relevant moment is correct when nothing is retained above the floor",
+   "requirement_recall": "the declared modalities the requirement decomposition names / the declared modalities; a declared modality the decomposition misses is a requirement the search will not look for",
+   "selection_k": 1,
+   "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take"
+  }
+ },
+ "queries": [
+  {
+   "id": "E01",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the twenty percent line, where he says a beautiful website is only twenty percent of what AI looks at",
+   "editorial_need": "the hook for the opening cut",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3562.1,
+       "end": 3610.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3558.3,
+       "end": 3607.1
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S10",
+    "basis": "the same hand-marked moment, asked the way an editor asks for it"
+   },
+   "note": "an editor names the moment by its CONTENT and its use, not by a transcription of the words"
+  },
+  {
+   "id": "E02",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the nail salon example, the one about the place that specialises in 3D nail art",
+   "editorial_need": "a concrete example for the middle of the piece",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2752.5,
+       "end": 2765.1
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2748.7,
+       "end": 2761.3
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2776.8,
+       "end": 2779.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2773.0,
+       "end": 2775.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 2800.2,
+       "end": 2813.2
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 2796.4,
+       "end": 2809.4
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S06"
+   },
+   "note": "three separate moments; the editor wants whichever is usable"
+  },
+  {
+   "id": "E03",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the client story about the SEO team stuffing keywords into the H1 tags",
+   "editorial_need": "a war story for the credibility section",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 158.4,
+       "end": 166.1
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 158.1,
+       "end": 165.8
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 190.2,
+       "end": 196.3
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 189.9,
+       "end": 196.0
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S14"
+   }
+  },
+  {
+   "id": "E04",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the bit about why AI treats YouTube as a source it can trust",
+   "editorial_need": "the answer to the objection in the brief",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 4015.5,
+       "end": 4045.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 4011.7,
+       "end": 4041.7
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S11"
+   }
+  },
+  {
+   "id": "E05",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the press credibility mention, the one where being in the Atlanta Journal-Constitution builds trust",
+   "editorial_need": "a proof point for the trust section",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3016.6,
+       "end": 3047.6
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3012.8,
+       "end": 3043.8
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S07"
+   }
+  },
+  {
+   "id": "E06",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the comparison of a ten person agency against a company fifty times its size",
+   "editorial_need": "the scale argument",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 832.4,
+       "end": 841.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 828.6,
+       "end": 837.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 856.9,
+       "end": 885.4
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 853.1,
+       "end": 881.6
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S03"
+   }
+  },
+  {
+   "id": "E07",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the question about which CRM to use for a ten person law firm",
+   "editorial_need": "the example that shows the decision being made",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 36.7,
+       "end": 47.0
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 32.9,
+       "end": 43.2
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 60.5,
+       "end": 70.5
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 56.7,
+       "end": 66.7
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 160.0,
+       "end": 177.7
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 156.2,
+       "end": 173.9
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S13"
+   }
+  },
+  {
+   "id": "E08",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the pushback from the marketing directors, the one calling GEO just SEO two point oh",
+   "editorial_need": "the objection, for the section that answers it",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 66.0,
+       "end": 72.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 54.69,
+       "end": 61.39
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 110.0,
+       "end": 119.7
+      },
+      {
+       "asset": "LCATL0011",
+       "start": 98.69,
+       "end": 108.39
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 16.3,
+       "end": 24.6
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 16.0,
+       "end": 24.3
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4931",
+       "start": 47.3,
+       "end": 58.0
+      },
+      {
+       "asset": "LCATL0012",
+       "start": 47.0,
+       "end": 57.7
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S15"
+   },
+   "note": "four moments across two camera groups"
+  },
+  {
+   "id": "E09",
+   "family": "editorial",
+   "lane": "visual",
+   "expect": "present",
+   "query": "a shot of the open laptop on the desk, to sit under the pricing point",
+   "editorial_need": "picture for the pricing line",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "V02",
+    "basis": "the held-out open-laptop frames; the condition holds across the whole held-out asset, so the ground truth is asset-granular"
+   },
+   "granularity": "asset"
+  },
+  {
+   "id": "E10",
+   "family": "editorial",
+   "lane": "visual",
+   "expect": "present",
+   "query": "a shot of the studio, the dark geometric set behind the speaker",
+   "editorial_need": "establishing picture for the cold open",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LCATL0011",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "V06",
+    "basis": "the held-out studio frames; asset-granular"
+   },
+   "granularity": "asset"
+  },
+  {
+   "id": "E11",
+   "family": "editorial",
+   "lane": "visual",
+   "expect": "present",
+   "query": "a shot of the blue laptop screen at the edge of the frame",
+   "editorial_need": "the screen read from the other camera",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": -4.917,
+       "end": 5.083
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 5.093,
+       "end": 15.093
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 15.103,
+       "end": 25.103
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 25.113,
+       "end": 35.113
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 35.123,
+       "end": 45.123
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 45.133,
+       "end": 55.133
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 55.143,
+       "end": 65.143
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 65.153,
+       "end": 75.153
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 75.163,
+       "end": 85.163
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 85.173,
+       "end": 95.173
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 95.183,
+       "end": 105.183
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 105.193,
+       "end": 115.193
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 115.203,
+       "end": 125.203
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 125.213,
+       "end": 135.213
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 135.223,
+       "end": 145.223
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 145.233,
+       "end": 155.233
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 155.243,
+       "end": 174.753
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 174.763,
+       "end": 184.763
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 184.773,
+       "end": 194.773
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 194.783,
+       "end": 204.783
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 204.793,
+       "end": 214.793
+      }
+     ]
+    },
+    {
+     "instances": [
+      {
+       "asset": "LC4930",
+       "start": 214.803,
+       "end": 224.803
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "V03",
+    "basis": "the held-out blue-screen frames; asset-granular"
+   },
+   "granularity": "asset"
+  },
+  {
+   "id": "E12",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "absent",
+   "query": "the part where he explains how to train a puppy to sit",
+   "editorial_need": "a warm-up line that is not in this episode",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "X01",
+    "basis": "no utterance of any source says this"
+   },
+   "note": "an editor asks for a line that this episode does not contain"
+  },
+  {
+   "id": "E13",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "absent",
+   "query": "the chocolate chip cookie recipe he reads out",
+   "editorial_need": "a recipe read-out that is not in this episode",
+   "requirements": [
+    "textual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "X03",
+    "basis": "no utterance of any source says this"
+   }
+  },
+  {
+   "id": "E14",
+   "family": "editorial",
+   "lane": "visual",
+   "expect": "absent",
+   "query": "a shot of a dog lying on the floor",
+   "editorial_need": "a cutaway of a dog, for warmth",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "VX1",
+    "basis": "no cached frame of any source shows it"
+   }
+  },
+  {
+   "id": "E15",
+   "family": "editorial",
+   "lane": "visual",
+   "expect": "absent",
+   "query": "a shot of a busy city street full of cars",
+   "editorial_need": "a city cutaway, for the b-roll bed",
+   "requirements": [
+    "visual"
+   ],
+   "moments": [],
+   "provenance": {
+    "derived_from": "VX2",
+    "basis": "no cached frame of any source shows it"
+   }
+  },
+  {
+   "id": "E16",
+   "family": "editorial",
+   "lane": "text",
+   "expect": "present",
+   "query": "the twenty percent line while the laptop is open on the desk",
+   "editorial_need": "the spoken line AND the picture that goes with it",
+   "requirements": [
+    "textual",
+    "visual"
+   ],
+   "moments": [
+    {
+     "instances": [
+      {
+       "asset": "LC4932",
+       "start": 3562.1,
+       "end": 3610.9
+      },
+      {
+       "asset": "LCATL0013",
+       "start": 3558.3,
+       "end": 3607.1
+      }
+     ]
+    }
+   ],
+   "provenance": {
+    "derived_from": "S10",
+    "basis": "the spoken moment; the picture requirement is asset-granular and is not separately scored"
+   },
+   "note": "a compound editorial search: the answer must carry BOTH the words and the picture, and the requirement decomposition is measured against the two modalities this record declares"
+  }
+ ]
+}

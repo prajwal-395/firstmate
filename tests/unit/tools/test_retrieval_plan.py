@@ -27,12 +27,11 @@ from library.tools.retrieval import coverage as retrieval_coverage
 from library.tools.retrieval import dedup, support
 from library.tools.retrieval.requirements import (
     MODALITIES,
-    UnknownRequirement,
     RetrievalRequirement,
+    UnknownRequirement,
     decompose,
     requirement_kinds,
 )
-
 
 # ─── VI-001: the plan names what was asked ────────────────────────
 

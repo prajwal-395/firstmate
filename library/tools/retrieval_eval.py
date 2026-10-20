@@ -13,12 +13,22 @@ pre-registration).
 It asks the SHIPPED search paths, never a copy of them:
 
 * speech   - `FootageIndex.search_report` (the text index `ren search`
-             reads), top-k ranges, floor and abstain as shipped;
+              reads), top-k ranges, floor and abstain as shipped;
 * visual   - `FrameIndex.search_ranges` (`ren search --visual`), which has
-             no floor and refuses action queries by design;
+              no floor and refuses action queries by design;
 * person   - `event_spans.query` (`ren search --person --predicate`);
 * verified - `event_spans.verified_query` (`--verify`), whose new VLM
-             verdicts take the heavy-work lock themselves.
+              verdicts take the heavy-work lock themselves;
+* editorial - real editor searches, over the same lanes, scored against
+              ground-truth INTERVALS.  An editorial query names a moment
+              by what it is FOR and what it contains, so the set
+              (`editorial_retrieval_set.json`) asks the way an editor
+              asks rather than the way a caption is written.  Its
+              scoring also prices the FALSE POSITIVES - the windows the
+              search returned that hold nothing the editor asked for - in
+              the edit they would cause (`library.tools.retrieval.
+              consequence`), and measures the requirement decomposition
+              against the requirement the set declares.
 
 A person in the set is named by sight (`identified_by_asset`: the camera
 that frames them), and resolved to the measured roster as the person whose
@@ -46,7 +56,16 @@ from library.tools import footage_analysis
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 DEFAULT_SET = Path(__file__).with_name("retrieval_eval_set.json")
-FAMILIES = ("speech", "visual", "person", "verified_predicate")
+FAMILIES = ("speech", "visual", "person", "verified_predicate", "editorial")
+
+EDITORIAL_RULES = {
+    "top_k": 5,
+    "overlap_tolerance_seconds": 1.0,
+    "selection_k": 1,
+}
+"""The rules an editorial query is scored under when the set does not
+carry its own.  The committed editorial set declares them; this is the
+fallback for a set that does not."""
 
 Interval = Tuple[float, float]
 
@@ -128,6 +147,32 @@ class Corpus:
 # ── Speech ──────────────────────────────────────────────────────────
 
 
+def _calibration_samples(query_id: str, family: str, lane: str,
+                         rows: Sequence[dict]) -> list:
+    """The labelled outcomes a calibration curve needs.
+
+    Each returned window is either a hit - it overlaps a ground-truth
+    interval - or it is not, and that is the population a reliability
+    curve wants.  The score carried is the RAW signal the floor judged
+    on, and it is NAMED, because a number cannot tell a probability from
+    a fused rank: the text lane's dense cosine and the frame lane's CLIP
+    cosine are calibratable, and the fused rank is not.
+    """
+    signal = "frame_cosine" if lane == "visual" else "dense"
+    samples = []
+    for row in rows:
+        score = row.get("dense") if lane == "text" else row.get("score")
+        samples.append({
+            "query_id": query_id,
+            "family": family,
+            "lane": lane,
+            "signal": signal,
+            "score": score,
+            "hit": bool(row.get("hit")),
+        })
+    return samples
+
+
 def score_speech(query: dict, report: dict, corpus: Corpus, rules: dict) -> dict:
     tol = rules["overlap_tolerance_seconds"]
     rows = []
@@ -159,6 +204,8 @@ def score_speech(query: dict, report: dict, corpus: Corpus, rules: dict) -> dict
                                         if r["hit"]), None))
     else:
         out.update(kind="absent", abstained=not rows)
+    out["calibration_samples"] = _calibration_samples(
+        query["id"], "speech", "text", rows)
     return out
 
 
@@ -349,6 +396,160 @@ def score_verified(query: dict, answer: dict, corpus: Corpus, rules: dict) -> di
             "yes_spans": [{"asset": n, "start": a, "end": b} for n, a, b in yes]}
 
 
+# ── Editorial ─────────────────────────────────────────────────────────
+
+
+def _requirement_agreement(query: dict) -> dict:
+    """Does the plan name the requirement this query actually makes?
+
+    The set declares the modalities the answer must draw evidence from.
+    The decomposition (`library.tools.retrieval.requirements`) says which
+    ones the engine will look for.  A DECLARED modality the decomposition
+    misses is a requirement the search will not look for, and that is
+    the failure this measures.
+
+    A decomposed modality the set did not declare is a weaker signal: it
+    may be an AMBIGUOUS reading (a bare noun with no framing word could
+    be the words about a thing or the thing itself, and the plan keeps
+    both and says so) or a CONSTRAINT (a temporal relation is a
+    condition on the answer, not evidence for it).  Those are reported
+    separately from the extras that are neither.
+    """
+    from library.tools.retrieval.requirements import decompose
+
+    declared = set(query.get("requirements") or ())
+    if not declared:
+        return {"declared": [], "decomposed": [], "missing": [],
+                "extra": [], "unambiguous_extra": [], "ambiguous_requirements": 0,
+                "requirement_recall": None, "agrees": None}
+    plan = decompose(query["query"])
+    decomposed = set(plan.modalities)
+    missing = sorted(declared - decomposed)
+    extra = sorted(decomposed - declared)
+    ambiguous = [r for r in plan.requirements if r.ambiguous]
+    ambiguous_modalities = {r.modality for r in ambiguous}
+    constraint_modalities = {"temporal", "relational"}
+    unambiguous_extra = sorted(
+        modality for modality in extra
+        if modality not in ambiguous_modalities
+        and modality not in constraint_modalities
+        and not any(r.modality == modality and not r.ambiguous
+                    for r in plan.requirements))
+    return {
+        "declared": sorted(declared),
+        "decomposed": sorted(decomposed),
+        "missing": missing,
+        "extra": extra,
+        "unambiguous_extra": unambiguous_extra,
+        "ambiguous_requirements": len(ambiguous),
+        "requirement_recall": round(
+            len(declared & decomposed) / len(declared), 4),
+        "agrees": not missing and not unambiguous_extra,
+    }
+
+
+def score_editorial(query: dict, report: dict, corpus: Corpus,
+                    rules: dict) -> dict:
+    """Score one editorial query.
+
+    The rows are whatever windows the lane returned, ranked.  A row HITS
+    when it is on an asset and overlaps an instance of a wanted moment,
+    padded by the tolerance.  The consequence of the wrong rows is
+    priced as well, because a window that holds nothing the editor asked
+    for is not free.
+    """
+    if query.get("expect") == "unlabelled":
+        return {
+            "id": query["id"], "family": "editorial",
+            "query": query["query"],
+            "editorial_need": query.get("editorial_need"),
+            "lane": query.get("lane"),
+            "category": query.get("category"),
+            "kind": "unlabelled", "scored": False, "abstained": None,
+            "returned": 0, "rows": [],
+            "requirements": _requirement_agreement(query),
+            "reason": ("no ground truth exists for this category yet; the "
+                       "entry is reported and NOT scored, because an "
+                       "unscored query must never be counted as a miss"),
+        }
+    if query.get("expect") == "refused":
+        refused = report.get("refused")
+        return {
+            "id": query["id"], "family": "editorial",
+            "query": query["query"],
+            "editorial_need": query.get("editorial_need"),
+            "lane": query.get("lane"),
+            "category": query.get("category"),
+            "kind": "refusal", "refused": bool(refused),
+            "abstained": bool(refused),
+            "returned": 0, "rows": [],
+            "requirements": _requirement_agreement(query),
+            "reason": (refused or {}).get("reason"),
+        }
+    tol = rules["overlap_tolerance_seconds"]
+    rows = []
+    for hit in report.get("results") or ():
+        rows.append({
+            "asset": corpus.name_of_clip.get(hit.get("clip_id")),
+            "start": hit.get("start"), "end": hit.get("end"),
+            "score": hit.get("score"), "dense": hit.get("dense_score"),
+            "text": (hit.get("text") or "")[:120],
+        })
+    moments = query.get("moments") or []
+    found = set()
+    for row in rows:
+        row["hit"] = False
+        for index, moment in enumerate(moments):
+            for instance in moment["instances"]:
+                if instance["asset"] == row["asset"] and overlaps(
+                        (row["start"], row["end"]),
+                        (instance["start"] - tol, instance["end"] + tol)):
+                    row["hit"] = True
+                    found.add(index)
+    out = {"id": query["id"], "family": "editorial",
+           "query": query["query"],
+           "editorial_need": query.get("editorial_need"),
+           "lane": query.get("lane"),
+           "category": query.get("category"),
+           "returned": len(rows), "rows": rows,
+           "requirements": _requirement_agreement(query),
+           "error": report.get("error"), "degraded": report.get("degraded")}
+    if moments:
+        out.update(kind="present", moments=len(moments),
+                   moments_found=len(found),
+                   recall=_ratio(len(found), len(moments)),
+                   precision=_ratio(sum(r["hit"] for r in rows), len(rows)),
+                   first_hit_rank=next((i + 1 for i, r in enumerate(rows)
+                                        if r["hit"]), None))
+    else:
+        out.update(kind="absent", abstained=not rows)
+    from library.tools.retrieval.consequence import edit_consequence
+    out["consequence"] = edit_consequence(
+        moments, rows,
+        selection_k=rules.get("selection_k", 1),
+        tolerance_seconds=tol)
+    out["calibration_samples"] = _calibration_samples(
+        query["id"], "editorial", query.get("lane") or "text", rows)
+    return out
+
+
+def _editorial_rows(report: dict) -> list:
+    """The frame lane's RANGES as the window rows the scorer reads.
+
+    The text lane returns `results`; the frame lane returns `ranges`,
+    because a frame search returns an interval rather than a still.
+    Both are windows, so both are scored the same way.
+    """
+    if report.get("results"):
+        return report["results"]
+    return [{"clip_id": entry.get("clip_id"),
+             "start": entry.get("start"),
+             "end": entry.get("end"),
+             "score": entry.get("best_score"),
+             "text": ""}
+            for entry in report.get("ranges") or ()]
+
+
 # ── Coverage and time ───────────────────────────────────────────────
 
 
@@ -437,6 +638,28 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
             report = frame_index.search_ranges(query["query"],
                                                top_ranges=rules["visual"]["top_k"])
             scored = score_visual(query, report, corpus, rules["visual"])
+        elif family == "editorial":
+            editorial_rules = rules.get("editorial", EDITORIAL_RULES)
+            if query.get("lane") == "visual":
+                if frame_index is None:
+                    from library.tools.analysis.footage_frames import FrameIndex
+                    frame_index = FrameIndex(project)
+                visual_report = frame_index.search_ranges(
+                    query["query"],
+                    top_ranges=editorial_rules["top_k"])
+                report = {
+                    "results": _editorial_rows(visual_report),
+                    "refused": visual_report.get("refused"),
+                    "error": visual_report.get("error"),
+                    "degraded": None,
+                }
+            else:
+                if text_index is None:
+                    from library.tools.analysis.footage_query import FootageIndex
+                    text_index = FootageIndex(project)
+                report = text_index.search_report(
+                    query["query"], top_k=editorial_rules["top_k"])
+            scored = score_editorial(query, report, corpus, editorial_rules)
         else:
             from library.tools import event_spans
             key = query["person"]["identified_by_asset"]
@@ -530,6 +753,48 @@ def summarise(results: List[dict], latency: Dict[str, list]) -> dict:
         out["verified_predicate"] = {r["id"]: {
             "recall": r["recall"], "precision_strict": r["precision_strict"],
             "precision_lenient": r["precision_lenient"]} for r in verified}
+    editorial = [r for r in results if r["family"] == "editorial"]
+    if editorial:
+        from library.tools.retrieval.consequence import summarise as summarise_consequence
+        present = [r for r in editorial if r.get("kind") == "present"]
+        absent = [r for r in editorial if r.get("kind") == "absent"]
+        agreements = [r["requirements"] for r in editorial
+                      if r.get("requirements")]
+        out["editorial"] = {
+            "queries_present": len(present),
+            "queries_absent": len(absent),
+            "queries_unlabelled": sum(1 for r in editorial
+                                      if r.get("kind") == "unlabelled"),
+            "queries_refused": sum(1 for r in editorial
+                                   if r.get("kind") == "refusal"),
+            "refusals_correct": sum(1 for r in editorial
+                                    if r.get("kind") == "refusal"
+                                    and r.get("refused")),
+            "macro_recall": mean(r["recall"] for r in present),
+            "macro_precision": mean(r["precision"] for r in present),
+            "absent_abstained": sum(1 for r in absent if r.get("abstained")),
+            "requirement_recall": mean(a["requirement_recall"]
+                                       for a in agreements
+                                       if a.get("requirement_recall")
+                                       is not None),
+            "requirement_agreement": sum(1 for a in agreements
+                                          if a.get("agrees")),
+            "requirement_queries": len(agreements),
+            "declared_modalities_missed": sorted({
+                modality for a in agreements for modality in a["missing"]}),
+            # VI-010: the other half of retrieval, priced in the edit it
+            # would cause.  A vector, never a single score.
+            "false_positive_consequence": summarise_consequence(
+                r["consequence"] for r in editorial if r.get("consequence")),
+        }
+    # VI-004: the score reads as a probability, or it says it does not.
+    # Per lane, because the text lane's dense cosine and the frame
+    # lane's CLIP cosine are different spaces.
+    samples = [sample for r in results
+               for sample in (r.get("calibration_samples") or ())]
+    if samples:
+        from library.tools.retrieval.calibration import by_lane
+        out["calibration"] = by_lane(samples)
     out["latency_seconds"] = {f: {"median": round(sorted(v)[len(v) // 2], 3),
                                   "max": round(max(v), 3), "n": len(v)}
                               for f, v in latency.items()}

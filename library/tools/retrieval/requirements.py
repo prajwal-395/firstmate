@@ -52,8 +52,8 @@ rather than matching nothing.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Sequence
 
 MODALITIES = ("textual", "visual", "acoustic", "temporal", "relational")
 """The five modalities a retrieval question can be made of.
@@ -100,8 +100,8 @@ SPEECH_CUES = (
 ON_SCREEN_TEXT_CUES = (
     "on screen", "title card", "lower third", "lower-third", "caption",
     "captions", "subtitle", "subtitles", "sign", "signs", "signage",
-    "banner", "headline", "text reads", "written", "chiron", "chyrons",
-    "graphic", "graphics",
+    "banner", "headline", "text reads", "written text", "written on screen",
+    "chiron", "chyrons", "graphic", "graphics",
 )
 """Text that is WRITTEN rather than said.  It lives in the OCR lane, which
 is a different measurement from the transcript lane."""
@@ -159,12 +159,17 @@ OBJECT_CUES = (
     "blackboard", "plant", "tree", "flower", "window", "door", "wall",
     "floor", "ceiling", "food", "meal", "plate", "microphone", "headphones",
     "glasses", "shirt", "jacket", "hat", "clock", "car", "vehicle", "bus",
-    "train", "boat", "road", "sky", "cloud", "mountain", "beach", "dog",
-    "cat", "bird", "logo", "overlay", "lid", "notebook", "box", "button",
-    "phone", "remote", "bottle", "glass", "napkin", "stick", "card",
+    "road", "sky", "cloud", "mountain", "beach", "dog", "cat", "bird",
+    "logo", "overlay", "lid", "box", "button", "remote", "glass", "napkin",
+    "stick", "card",
 )
 """A concrete thing in frame.  The index carries an object label for
-these; whether one was measured is a coverage question, not a guess."""
+these; whether one was measured is a coverage question, not a guess.
+
+"train" is deliberately NOT here.  It is a vehicle in a shot and a verb
+in a sentence, and an editorial query says "train" far more often as a
+verb.  A cue that fires on the wrong half of the word is worse than no
+cue: it routes the search to the frame lane for a line about training."""
 
 SOUND_EVENT_CUES = (
     "laugh", "laughs", "laughing", "laughter", "giggle", "giggles",
@@ -228,7 +233,7 @@ ORDINAL_WORDS = {"first": 1, "second": 2, "third": 3, "fourth": 4,
 
 _CLAUSE_SPLIT = re.compile(
     r"\s*(,|;|\band\b|\bwhile\b|\bas\b|\bwhen\b|\bwith\b|\bduring\b|"
-    r"\bafter\b|\bbefore\b|\bbut\b|\bwhere\b|\bplus\b|\balso\b|"
+    r"\bafter\b|\bbefore\b|\bbut\b|\bplus\b|\balso\b|"
     r"\bthen\b|\bfinally\b)\s*",
     re.IGNORECASE,
 )
@@ -240,16 +245,36 @@ ORDERING_CONNECTIVES = {"before": "before", "after": "after",
 INTERVAL_CONNECTIVES = {"while", "during", "throughout"}
 """Connectives that say two claims hold at the SAME time."""
 
+PRESENCE_CUES = ("on camera", "in frame", "visible", "appears", "shows")
+"""Words that say something is IN THE PICTURE, as against being talked
+about."""
+
+FRAMING_CUES = frozenset(COMPOSITION_CUES) | frozenset(PRESENCE_CUES)
+"""The words that make a clause a claim about PICTURE.
+
+A bare noun does not.  "the comparison of a ten person agency against a
+company fifty times its size" names two things, and the request is for
+the CONTENT about them; "a shot of a ten person agency" asks for the
+PICTURE.  The difference is a framing word, and without one the noun is
+a subject matter, not a thing to look at.
+
+That is why the visual noun cues are gated on a framing cue, and why a
+clause whose nouns have no framing cue is AMBIGUOUS rather than simply
+visual: it may be the words about the laptop or the laptop itself, and
+the honest answer is to look in both lanes and say which guess was made."""
+
 _WORD = re.compile(r"[a-z0-9']+")
 
-_STOPWORDS = frozenset("""
-a an the and or of to in on at is are was were be been being am it its this
-that these those there here with for from as by he she they we you i his her
-their our your my me him them but so if then than into over under out up down
-about what when where who whom how why which does do did doing done has have
-had can could will would should shall may might must not no nor too very just
-also more most other some such only own same s t don now
-""".split())
+_STOPWORD_TEXT = (
+    "a an the and or of to in on at is are was were be been being am it its "
+    "this that these those there here with for from as by he she they we you "
+    "i his her their our your my me him them but so if then than into over "
+    "under out up down about what when where who whom how why which does do "
+    "did doing done has have had can could will would should shall may might "
+    "must not no nor too very just also more most other some such only own "
+    "same s t don now"
+)
+_STOPWORDS = frozenset(_STOPWORD_TEXT.split())
 
 _WORD_SETS = {
     "textual:speech_content": frozenset(SPEECH_CUES),
@@ -330,6 +355,7 @@ class RetrievalRequirement:
     relation: str | None = None
     clause: str = ""
     clauses: tuple[str, ...] = ()
+    ambiguous: bool = False
 
     def __post_init__(self) -> None:
         if self.modality not in REQUIREMENT_KINDS:
@@ -360,6 +386,7 @@ class RetrievalRequirement:
             "terms": list(self.terms),
             "cues": list(self.cues),
             "mandatory": self.mandatory,
+            "ambiguous": self.ambiguous,
         }
         if self.ordinal is not None:
             out["ordinal"] = self.ordinal
@@ -490,21 +517,41 @@ def _requirements_for_clause(clause: str) -> list[RetrievalRequirement]:
     open laptop with its lid raised" asks about the state once, not
     twice.  The cues are merged onto the one requirement, so a reader
     sees that both "open" and "raised" were asked about.
+
+    A visual noun only claims the PICTURE when the clause carries a
+    framing cue.  Without one it is ambiguous - the words about the
+    laptop, or the laptop - and both readings are kept: the visual
+    requirement is marked ambiguous, and a textual one is added beside
+    it.  The plan then searches both lanes and says it guessed.
     """
     merged: dict[str, RetrievalRequirement] = {}
+    framing = bool(_cues_in(clause, FRAMING_CUES))
+    ambiguous_nouns = False
     for key, cues in _WORD_SETS.items():
         modality, kind = key.split(":", 1)
         fired = _cues_in(clause, cues)
         if not fired:
             continue
-        requirement = RetrievalRequirement(
-            modality=modality,
-            kind=kind,
-            description=clause,
-            terms=_content_tokens(clause),
-            cues=fired,
-            clause=clause,
-        )
+        if modality == "visual" and not framing:
+            ambiguous_nouns = True
+            requirement = RetrievalRequirement(
+                modality=modality,
+                kind=kind,
+                description=clause,
+                terms=_content_tokens(clause),
+                cues=fired,
+                clause=clause,
+                ambiguous=True,
+            )
+        else:
+            requirement = RetrievalRequirement(
+                modality=modality,
+                kind=kind,
+                description=clause,
+                terms=_content_tokens(clause),
+                cues=fired,
+                clause=clause,
+            )
         if kind == "repetition":
             ordinal = _ordinal_of(clause)
             if ordinal is not None:
@@ -516,7 +563,18 @@ def _requirements_for_clause(clause: str) -> list[RetrievalRequirement]:
         merged[key] = replace(
             existing,
             cues=tuple(sorted(set(existing.cues) | set(fired),
-                              key=lambda c: (-len(c), c))))
+                              key=lambda c: (-len(c), c))),
+            ambiguous=existing.ambiguous and requirement.ambiguous)
+    if ambiguous_nouns and "textual:speech_content" not in merged:
+        merged["textual:speech_content"] = RetrievalRequirement(
+            modality="textual",
+            kind="speech_content",
+            description=clause,
+            terms=_content_tokens(clause),
+            cues=(),
+            clause=clause,
+            ambiguous=True,
+        )
     return list(merged.values())
 
 
@@ -579,6 +637,7 @@ def _merge_requirements(requirements: Sequence[RetrievalRequirement]
             terms=tuple(terms),
             cues=cues,
             clauses=tuple(clauses),
+            ambiguous=existing.ambiguous and requirement.ambiguous,
             ordinal=existing.ordinal if existing.ordinal is not None
             else requirement.ordinal,
             relation=existing.relation or requirement.relation)

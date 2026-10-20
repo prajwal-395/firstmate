@@ -30,7 +30,7 @@ carrying an empty list that reads like "there are none".
 
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 
 def _num(value):

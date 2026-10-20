@@ -29,7 +29,7 @@ claim, and the caller has to say so.
 
 from __future__ import annotations
 
-from typing import Iterable, Sequence
+from collections.abc import Iterable, Sequence
 
 REDUNDANT_OVERLAP_FRACTION = 0.5
 """A window is redundant with another when the shorter is at least this
@@ -157,8 +157,8 @@ def dedupe_windows(hits: Iterable[dict], *,
 
     merged_rows: list[tuple[int, dict]] = []
     redundant_pairs: list[dict] = []
-    for clip_id in by_clip:
-        entries = sorted(by_clip[clip_id], key=lambda e: (e[2][1], e[2][2]))
+    for clip_id, clip_entries in by_clip.items():
+        entries = sorted(clip_entries, key=lambda e: (e[2][1], e[2][2]))
         group: list[tuple[int, dict, tuple[str, float, float]]] = []
         span: tuple[float, float] | None = None
         for entry in entries:

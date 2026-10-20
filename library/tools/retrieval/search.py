@@ -33,7 +33,7 @@ uses, so a caller that already reads one reads this one the same way.
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from collections.abc import Mapping
 
 from library.tools.retrieval.coverage import (
     absence_verdict,
