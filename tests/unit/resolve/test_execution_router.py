@@ -416,3 +416,50 @@ def test_observation_gates_keep_production_authoritative():
         assert second["candidate"].backend == "edit_patch"
     finally:
         assert reset_gate_observations() == 2
+
+
+# ── The decision records its basis (PERF-017, PERF-020) ─────────────
+#
+# The routing record claimed dimensions it never read: `cost` was always
+# "unmeasured" and `preservation_constraints` was always empty, however
+# many domains the edit touched. A choice between a targeted mutation and
+# a bulk rebuild is a preservation promise and a cost claim; the record
+# has to carry both or it carries neither.
+
+
+def test_the_decision_records_the_domains_the_edit_writes():
+    """Defect: every routing decision recorded an EMPTY preservation
+    constraint, so the record never said what the edit wrote."""
+    decision = route_compiled_edit([{
+        "op": "clip.set_property", "unique_id": "item-1",
+        "key": "ZoomX", "value": 1.25,
+    }], context={"qualification_policy": "protected_experimental",
+                 "protected_staging": True,
+                 "preserve_approved_state": True,
+                 "verify_after_write": True})
+
+    assert decision.selection["preservation_constraints"] == (
+        "picture_transform",)
+
+
+def test_the_decision_records_the_measured_cost_it_was_given():
+    decision = route_full_rebuild(
+        reason="incremental eligibility rejected the plan",
+        context={"measured_costs": {
+            "targeted": {"edits": 4, "total_s_p50": 12.5},
+            "full_rebuild": {"edits": 2, "total_s_p50": 44.0}}})
+
+    assert decision.selection["cost"] == {
+        "targeted": {"edits": 4, "total_s_p50": 12.5},
+        "full_rebuild": {"edits": 2, "total_s_p50": 44.0}}
+    assert decision.as_dict()["selection"]["cost"]["full_rebuild"][
+        "total_s_p50"] == 44.0
+
+
+def test_an_unmeasured_cost_is_never_a_number_from_elsewhere():
+    """A cost nobody measured reads as "unmeasured": a table of another
+    project's numbers would be a floor, not a measurement."""
+    decision = route_full_rebuild(reason="explicit full rebuild")
+
+    assert decision.selection["cost"] == "unmeasured"
+    assert decision.as_dict()["selection"]["cost"] == "unmeasured"

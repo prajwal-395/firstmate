@@ -4396,7 +4396,10 @@ def span(op, base):
     if rust is not None:
         from library.tools.perf_ledger import count_call, span
         count_call("edit_core_calls")
-        with span("edit_core_rust", backend="rust", calls=1):
+        with span("edit_core_rust", backend="rust", calls=1,
+                  **edit_backend.boundary_shape(
+                      base, [op],
+                      projection=edit_backend.projection_of([op]))):
             return rust.span(op, base)
     spec = ALGEBRA.get(op.get("op"))
     if spec is None:
@@ -4412,7 +4415,11 @@ def spans(operations, base):
         from library.tools.perf_ledger import count_call
         from library.tools.perf_ledger import span as ledger_span
         count_call("edit_core_calls")
-        with ledger_span("edit_core_rust", backend="rust", calls=1):
+        with ledger_span("edit_core_rust", backend="rust", calls=1,
+                         **edit_backend.boundary_shape(
+                             base, operations,
+                             projection=edit_backend.projection_of(
+                                 operations))):
             return rust.span_many(operations, base_handle)
     with indexed_snapshot(base):
         return [span(op, base) for op in operations]
@@ -4454,7 +4461,10 @@ def verify(op, after):
     if rust is not None:
         from library.tools.perf_ledger import count_call, span
         count_call("edit_core_calls")
-        with span("edit_core_rust", backend="rust", calls=1):
+        with span("edit_core_rust", backend="rust", calls=1,
+                  **edit_backend.boundary_shape(
+                      after, [op],
+                      projection=edit_backend.projection_of([op]))):
             return rust.verify(op, after)
     spec = ALGEBRA.get(op.get("op"))
     if spec is None:
@@ -4472,7 +4482,10 @@ def verifies(operations, after):
             after, operations, include_transform=True)
         from library.tools.perf_ledger import count_call, span
         count_call("edit_core_calls")
-        with span("edit_core_rust", backend="rust", calls=1):
+        with span("edit_core_rust", backend="rust", calls=1,
+                  **edit_backend.boundary_shape(
+                      after, operations,
+                      projection=edit_backend.projection_of(operations))):
             return rust.verify_many(operations, after_handle)
     with indexed_snapshot(after):
         return [verify(op, after) for op in operations]

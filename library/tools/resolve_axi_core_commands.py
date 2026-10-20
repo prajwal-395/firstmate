@@ -1467,6 +1467,140 @@ def cmd_markers_snapshot(args) -> int:
     return 0
 
 
+def _marker_add_operation(row: dict) -> dict:
+    """One snapshot note as the algebra op that restores it."""
+    return {
+        "op": "marker.add",
+        "frame": int(row["frame_in_timeline_space"]),
+        "color": row.get("color") or "",
+        "name": row.get("name") or "",
+        "note": row.get("note") or "",
+        "duration": int(row.get("duration_frames") or 1),
+        "custom_data": row.get("custom_data_raw") or "",
+    }
+
+
+def _restore_missing_markers(resolve, project, timeline, missing, *,
+                             route_axi_dispatch, apply_live_patch):
+    """Restore every missing marker, in ONE transaction where it can.
+
+    A restore used to commit one EditPatch per marker: N transactions,
+    N live reads, N read-backs and N recorded generations for one
+    restore of one timeline's own words. The markers are compatible by
+    construction - each is a `marker.add` at its own frame - so they
+    belong in ONE transaction with one precondition per frame.
+
+    The group is refused as a whole when one frame's precondition does
+    not hold. Then, and only then, the per-marker path runs: it is the
+    path that restores the other markers when one frame is contested.
+    It runs only when the group wrote NOTHING, which is read back from
+    the timeline rather than assumed - a group that wrote some markers
+    is reported as refused, never re-run on top of its own writes.
+    """
+    refused: list = []
+    rows: list = []
+    operations: list = []
+    for row in missing:
+        try:
+            operations.append(_marker_add_operation(row))
+        except (KeyError, TypeError, ValueError) as exc:
+            refused.append((row, f"the snapshot row names no usable "
+                                 f"frame: {exc}"))
+            continue
+        rows.append(row)
+    if not operations:
+        return 0, refused
+    before = _live_marker_keys(timeline)
+    routing = None
+    try:
+        # VC-09: AXI dispatches share the routing contract - a refusal
+        # lands in the refused list below, never a write.
+        routing = route_axi_dispatch(
+            operations,
+            context=_qualification_context(
+                resolve, project, timeline, operations))
+        receipt = apply_live_patch(
+            project=project, timeline=timeline,
+            capability="reel.touchup",
+            operations=operations,
+            conflict_domains=("markers",),
+            idempotency_key=f"markers.restore:{uuid.uuid4().hex}",
+            preconditions=[{"kind": "marker_absent",
+                            "frame": operation["frame"]}
+                           for operation in operations],
+            postconditions=[{"kind": "duration_unchanged"}])
+    except Exception as exc:
+        if _live_marker_keys(timeline) != before:
+            return 0, refused + [
+                (row, f"the restore wrote before it was refused: {exc}")
+                for row in rows]
+        restored, per_row = _restore_markers_one_by_one(
+            resolve, project, timeline, rows,
+            route_axi_dispatch=route_axi_dispatch,
+            apply_live_patch=apply_live_patch)
+        return restored, refused + per_row
+    if receipt.get("status") == "committed":
+        receipt["execution_routing"] = routing
+        return len(rows), refused
+    if _live_marker_keys(timeline) != before:
+        return 0, refused + [
+            (row, f"the restore wrote before it was refused: {receipt}")
+            for row in rows]
+    restored, per_row = _restore_markers_one_by_one(
+        resolve, project, timeline, rows,
+        route_axi_dispatch=route_axi_dispatch,
+        apply_live_patch=apply_live_patch)
+    return restored, refused + per_row
+
+
+def _restore_markers_one_by_one(resolve, project, timeline, rows, *,
+                                 route_axi_dispatch, apply_live_patch):
+    """The per-marker restore: one transaction each, as before.
+
+    This is the fallback for a group that was refused before it wrote
+    anything. One contested frame must not cost the captain the other
+    markers, and each marker still lands in its own verified
+    transaction.
+    """
+    restored = 0
+    refused: list = []
+    for row in rows:
+        try:
+            operations = [_marker_add_operation(row)]
+            routing = route_axi_dispatch(
+                operations,
+                context=_qualification_context(
+                    resolve, project, timeline, operations))
+            receipt = apply_live_patch(
+                project=project, timeline=timeline,
+                capability="reel.touchup",
+                operations=operations,
+                conflict_domains=("markers",),
+                idempotency_key=f"markers.restore:{uuid.uuid4().hex}",
+                preconditions=[{"kind": "marker_absent",
+                                "frame": operations[0]["frame"]}],
+                postconditions=[{"kind": "duration_unchanged"}])
+        except Exception as exc:
+            refused.append((row, str(exc)))
+            continue
+        receipt["execution_routing"] = routing
+        if receipt["status"] == "committed":
+            restored += 1
+        else:
+            refused.append((row, str(receipt)))
+    return restored, refused
+
+
+def _live_marker_keys(timeline) -> set:
+    """The live timeline's marker identities: what a write would change."""
+    live = timeline.GetMarkers() or {}
+    return {(key, (marker.get("color") or ""),
+             (marker.get("name") or ""), (marker.get("note") or ""),
+             int(marker.get("duration") or 1),
+             (marker.get("customData") or ""))
+            for key, marker in live.items() if isinstance(marker, dict)}
+
+
 def _skipped_planes(notes: list) -> dict:
     """Count of snapshot notes restore cannot write, by plane.
 
@@ -1610,41 +1744,10 @@ def cmd_markers_restore(args) -> int:
             return 0
         from library.tools import edit_patch
         from library.tools.execution_router import route_axi_dispatch
-        restored, refused = 0, []
-        for row in missing:
-            try:
-                frame = int(row["frame_in_timeline_space"])
-                axi_operations = [{
-                    "op": "marker.add", "frame": frame,
-                    "color": row.get("color") or "",
-                    "name": row.get("name") or "",
-                    "note": row.get("note") or "",
-                    "duration": int(row.get("duration_frames") or 1),
-                    "custom_data": row.get("custom_data_raw") or "",
-                }]
-                # VC-09: AXI dispatches share the routing contract - a
-                # refusal lands in the refused list below, never a write.
-                axi_routing = route_axi_dispatch(
-                    axi_operations,
-                    context=_qualification_context(
-                        resolve, project, timeline, axi_operations))
-                receipt = edit_patch.apply_live_patch(
-                    project=project, timeline=timeline,
-                    capability="reel.touchup",
-                    operations=axi_operations,
-                    conflict_domains=("markers",),
-                    idempotency_key=f"markers.restore:{uuid.uuid4().hex}",
-                    preconditions=[{"kind": "marker_absent",
-                                    "frame": frame}],
-                    postconditions=[{"kind": "duration_unchanged"}])
-            except Exception as exc:
-                refused.append((row, str(exc)))
-                continue
-            receipt["execution_routing"] = axi_routing
-            if receipt["status"] == "committed":
-                restored += 1
-            else:
-                refused.append((row, str(receipt)))
+        restored, refused = _restore_missing_markers(
+            resolve, project, timeline, missing,
+            route_axi_dispatch=route_axi_dispatch,
+            apply_live_patch=edit_patch.apply_live_patch)
     summary = {
         "timeline": timeline.GetName(),
         "restored": restored,

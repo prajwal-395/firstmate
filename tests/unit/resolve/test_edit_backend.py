@@ -129,3 +129,54 @@ def test_the_switch_off_never_imports(backend, monkeypatch):
     monkeypatch.setenv(edit_backend.BACKEND_ENV, edit_backend.PYTHON)
     monkeypatch.setitem(sys.modules, "ren_native", _FakeModule("a" * 64))
     assert backend.rust() is None
+
+
+# ── The boundary is profiled before it is migrated (PERF-019) ────────
+#
+# The Python/Rust boundary's cost depends on its SHAPE: a projected
+# property batch reads the clips it names, a full crossing encodes the
+# whole timeline into JSON and decodes it again. The ledger recorded
+# one opaque `edit_core_rust` span, so a slow boundary could not say
+# which half of it was slow - and PERF-019 asks for the boundary to be
+# profiled BEFORE implementation code is migrated across it.
+
+
+def test_the_boundary_says_which_shape_it_crossed():
+    """A property batch crosses projected; anything else crosses whole."""
+    property_ops = [{"op": "clip.set_property", "unique_id": "uid-1",
+                     "key": "Zoom", "value": 2}]
+    mixed_ops = [{"op": "clip.set_property", "unique_id": "uid-1",
+                  "key": "Zoom", "value": 2},
+                 {"op": "clip.trim", "unique_id": "uid-2"}]
+
+    assert edit_backend.projection_of(property_ops) == "property"
+    assert edit_backend.projection_of(mixed_ops) == "full"
+    assert edit_backend.projection_of([]) == "empty"
+
+
+def test_the_boundary_says_how_much_crossed():
+    snapshot = {"start_frame": 0, "end_frame": 100,
+                "tracks": [
+                    {"type": "video", "index": 1, "name": "V1",
+                     "clips": [{"unique_id": "a"}, {"unique_id": "b"}]},
+                    {"type": "audio", "index": 1, "name": "A1",
+                     "clips": [{"unique_id": "c"}]},
+                ]}
+
+    shape = edit_backend.boundary_shape(
+        snapshot, [{"op": "clip.set_property"}],
+        projection="property")
+
+    assert shape["snapshot_clips"] == 3
+    assert shape["snapshot_tracks"] == 2
+    assert shape["operations"] == 1
+    assert shape["projection"] == "property"
+
+
+def test_an_unknown_projection_is_not_reported_as_measured():
+    """A shape nobody measured is `None`, never a default that reads as
+    a measured one."""
+    shape = edit_backend.boundary_shape(None, [])
+
+    assert "projection" not in shape
+    assert shape["snapshot_clips"] == 0

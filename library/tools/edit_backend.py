@@ -119,6 +119,59 @@ def rust():
     return _ren_native
 
 
+def snapshot_size(snapshot) -> tuple[int, int]:
+    """(clips, tracks) in a timeline snapshot: how much would cross.
+
+    The Python/Rust boundary's COST depends on its SHAPE. A projected
+    property batch reads the clips it names; a full crossing encodes
+    the whole timeline into JSON and decodes it again. The ledger
+    recorded neither, so a slow boundary could not say which half of it
+    was slow - and a migration decision cannot be made from a number
+    that does not say what the number was.
+    """
+    tracks = (snapshot or {}).get("tracks") or ()
+    clips = 0
+    for track in tracks:
+        if isinstance(track, dict):
+            clips += len(track.get("clips") or ())
+    return clips, len(tuple(tracks))
+
+
+def boundary_shape(snapshot=None, operations=(), *, projection=None) -> dict:
+    """What crossed the Python/Rust boundary, for the ledger.
+
+    `projection` is the crossing's SHAPE: "property" when the crossing
+    read only the clips it names, "full" when the whole timeline was
+    encoded. It is `None` where the shape is not known, never a
+    default that reads as measured.
+    """
+    clips, tracks = snapshot_size(snapshot)
+    shape = {
+        "projection": projection,
+        "snapshot_clips": clips,
+        "snapshot_tracks": tracks,
+        "operations": len(tuple(operations or ())),
+    }
+    return {key: value for key, value in shape.items()
+            if value is not None}
+
+
+def projection_of(operations) -> str:
+    """The crossing's shape, from the operations that cross it.
+
+    The Rust side projects a crossing when every operation is a
+    property write; anything else encodes the whole timeline.
+    """
+    ops = []
+    for operation in operations or ():
+        getter = getattr(operation, "get", None)
+        ops.append(str((getter("op") if getter else None) or ""))
+    if not ops:
+        return "empty"
+    return "property" if all(op == "clip.set_property" for op in ops) \
+        else "full"
+
+
 def snapshot_handle(snapshot, operations, *, include_transform=False):
     """Prepare or reuse a Rust-resident timeline snapshot for a batch.
 
@@ -137,7 +190,10 @@ def snapshot_handle(snapshot, operations, *, include_transform=False):
     )
     from library.tools.perf_ledger import count_call, span
     count_call("edit_core_calls")
-    with span("edit_core_rust", backend="rust", calls=1):
+    with span("edit_core_rust", backend="rust", calls=1,
+              **boundary_shape(
+                  snapshot, operations,
+                  projection="property" if property_projection else "full")):
         return native.snapshot_handle(
             snapshot,
             operations,

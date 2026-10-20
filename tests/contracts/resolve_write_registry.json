@@ -486,6 +486,84 @@
     1
   ],
   [
+    "library/tools/axi_qualification_configurations.py",
+    "_delete_existing",
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_ensure_rows",
+    "AddTrack",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_place",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_effects",
+    "SetCDL",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_effects",
+    "SetProperty",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_effects",
+    "SetSpeed",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_transition",
+    "AddTransition",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_fusion",
+    "AddFusionComp",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "_seed_fusion",
+    "AddTool",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "build",
+    "CreateEmptyTimeline",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "build",
+    "SetSetting",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "build",
+    "SetCurrentTimeline",
+    1
+  ],
+  [
+    "library/tools/axi_qualification_configurations.py",
+    "build",
+    "SetTrackName",
+    1
+  ],
+  [
     "library/tools/builtin_effect_loader.py",
     "import_effect_to_clip",
     "ImportFusionComp",
@@ -925,7 +1003,7 @@
   ],
   [
     "library/tools/edit_algebra.py",
-    "<module>",
+    "_apply_track_delete",
     "DeleteTrack",
     1
   ],

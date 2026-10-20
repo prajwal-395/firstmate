@@ -144,7 +144,13 @@ def compose(earlier, later, base: dict) -> Composition:
         snapshot = edit_backend.snapshot_handle(
             base, later["operations"] if isinstance(later, dict)
             else later.operations)
-        with span("edit_core_rust", backend="rust", calls=1):
+        with span("edit_core_rust", backend="rust", calls=1,
+                  **edit_backend.boundary_shape(
+                      base, later["operations"] if isinstance(later, dict)
+                      else later.operations,
+                      projection=edit_backend.projection_of(
+                          later["operations"] if isinstance(later, dict)
+                          else later.operations))):
             result = rust.compose(_as_dict(earlier), _as_dict(later),
                                   snapshot, a_sem, b_sem)
         return Composition(result["verdict"], result["reason"])
@@ -293,7 +299,11 @@ def carry(patch: edit_patch.EditPatch, store: shadow.ShadowStore,
         try:
             from library.tools.perf_ledger import count_call, span
             count_call("edit_core_calls")
-            with span("edit_core_rust", backend="rust", calls=1):
+            with span("edit_core_rust", backend="rust", calls=1,
+                      **edit_backend.boundary_shape(
+                          None, patch.operations,
+                          projection=edit_backend.projection_of(
+                              patch.operations))):
                 moved_dict = rust.carry(
                     _as_dict(edit_patch.EditPatch.from_dict(patch)),
                     row_dicts, semantics)

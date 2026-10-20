@@ -1235,6 +1235,119 @@ def test_restore_allow_partial_apply_refuses_unqualified_timeline_plane(
     assert "re-apply them by hand" in out
 
 
+# ── The restore is ONE transaction (PERF-016) ─────────────────────────
+#
+# A restore used to commit one EditPatch per marker: N transactions, N
+# live reads, N read-backs and N recorded generations for one restore
+# of one timeline's own words. The markers are compatible by
+# construction - each a `marker.add` at its own frame.
+
+
+class _MarkerTimeline:
+    """A timeline whose markers the test controls."""
+
+    def __init__(self):
+        self.markers = {}
+
+    def GetMarkers(self):
+        return dict(self.markers)
+
+    def GetName(self):
+        return "Reel 29 - salvage"
+
+
+def _missing_rows(count):
+    return [{"source": "timeline_marker",
+             "frame": 10 * index,
+             "frame_in_timeline_space": 10 * index,
+             "timecode": None, "color": "Green", "name": f"note-{index}",
+             "note": "good", "duration_frames": 1, "custom_data_raw": ""}
+            for index in range(count)]
+
+
+def _restore_with(fake_apply, monkeypatch):
+    from library.tools import resolve_axi_core_commands as commands
+    monkeypatch.setattr(commands, "_qualification_context",
+                        lambda resolve, project, timeline, operations: {})
+    return commands._restore_missing_markers(
+        None, None, _MarkerTimeline(), _missing_rows(3),
+        route_axi_dispatch=lambda operations, context=None: {
+            "backend": "edit_patch"},
+        apply_live_patch=fake_apply)
+
+
+def test_a_restore_of_many_markers_commits_one_transaction(monkeypatch):
+    """Defect: the restore committed one EditPatch per marker, so a
+    40-marker restore paid 40 transactions, 40 live reads and 40
+    read-backs on one timeline."""
+    calls = []
+
+    def apply(**kwargs):
+        calls.append(kwargs)
+        return {"status": "committed"}
+
+    restored, refused = _restore_with(apply, monkeypatch)
+
+    assert refused == []
+    assert restored == 3
+    assert len(calls) == 1, "the restore committed more than one transaction"
+    operations = calls[0]["operations"]
+    assert [operation["op"] for operation in operations] == [
+        "marker.add"] * 3
+    assert [operation["frame"] for operation in operations] == [0, 10, 20]
+    # One precondition per frame: the preservation guard stays per
+    # marker even though the transaction is one.
+    assert calls[0]["preconditions"] == [
+        {"kind": "marker_absent", "frame": 0},
+        {"kind": "marker_absent", "frame": 10},
+        {"kind": "marker_absent", "frame": 20}]
+
+
+def test_a_refused_group_falls_back_to_one_transaction_per_marker(monkeypatch):
+    """One contested frame must not cost the captain the other markers:
+    when the group is refused before it wrote anything, each marker
+    still lands in its own transaction."""
+    calls = []
+
+    def apply(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("preconditions do not hold")
+
+    restored, refused = _restore_with(apply, monkeypatch)
+
+    assert restored == 0
+    assert len(refused) == 3
+    assert len(calls) == 3
+    assert all(len(call["operations"]) == 1 for call in calls)
+
+
+def test_a_group_that_wrote_before_it_was_refused_is_not_run_again(monkeypatch):
+    """A group that wrote some markers and then failed is reported, not
+    replayed: the fallback would write the same markers twice."""
+    from library.tools import resolve_axi_core_commands as commands
+    monkeypatch.setattr(commands, "_qualification_context",
+                        lambda resolve, project, timeline, operations: {})
+    timeline = _MarkerTimeline()
+    calls = []
+
+    def apply(**kwargs):
+        calls.append(kwargs)
+        timeline.markers[0] = {"color": "Green", "name": "note-0",
+                               "note": "good", "duration": 1,
+                               "customData": ""}
+        raise RuntimeError("the first post-write read-back failed")
+
+    restored, refused = commands._restore_missing_markers(
+        None, None, timeline, _missing_rows(3),
+        route_axi_dispatch=lambda operations, context=None: {
+            "backend": "edit_patch"},
+        apply_live_patch=apply)
+
+    assert restored == 0
+    assert len(calls) == 1, "a group that wrote was run again"
+    assert "wrote before it was refused" in refused[0][1]
+
+
 # ── Marker replies ───────────────────────────────────────────────────
 
 

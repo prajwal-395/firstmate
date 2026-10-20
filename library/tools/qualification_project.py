@@ -576,31 +576,52 @@ def _open_project_folder_path(manager, path: tuple[str, ...]) -> None:
 
 
 def switch_project(manager, name: str, *, settle: float | None = None):
-    """The ONE in-repo LoadProject path: live-check, switch, settle.
+    """The ONE in-repo LoadProject path: already-open, live-check, settle.
 
-    Checks the manager handle is live before the switch, issues the
-    single `LoadProject`, sleeps the switch settle
-    (`resolve_switch_guard.SETTLE_SECONDS`), stamps the guard so the
-    broker/worker keep their connections through the window, then reads
-    the manager and the opened name back. A dead handle before or
-    after, or a name that does not read back, raises instead of
-    proceeding - on 2026-10-06 a dead handle (`GetProjectManager` ->
-    None) preceded the scripting-thread-shutdown crash by seconds.
+    A project that is ALREADY the open one is not loaded again. The
+    reload would cost a `LoadProject` and a settle window
+    (`resolve_switch_guard.SETTLE_SECONDS`) to arrive at the state the
+    caller already holds - and it churns the very scripting handles the
+    crash-hardening discipline protects. The avoidance is counted
+    (`project_switches_avoided`), so a run says how many switches it
+    did NOT pay for.
+
+    Otherwise: checks the manager handle is live before the switch,
+    issues the single `LoadProject`, sleeps the switch settle, stamps
+    the guard so the broker/worker keep their connections through the
+    window, then reads the manager and the opened name back. A dead
+    handle before or after, or a name that does not read back, raises
+    instead of proceeding - on 2026-10-06 a dead handle
+    (`GetProjectManager` -> None) preceded the scripting-thread-shutdown
+    crash by seconds.
     """
     from library.tools import resolve_switch_guard
     _require_live_manager(manager, f"opening {name!r}")
-    with _phase("project_switch_load"):
-        project = manager.LoadProject(name)
-    resolve_switch_guard.note_project_switch()
-    with _phase("project_switch_settle"):
-        time.sleep(resolve_switch_guard.SETTLE_SECONDS
-                   if settle is None else settle)
-    live = None
-    with _phase("project_switch_readback"):
-        try:
-            live = manager.GetCurrentProject()
-        except Exception:  # noqa: BLE001 - a handle Resolve invalidated
-            live = None
+    current = manager.GetCurrentProject()
+    current_name = (current.GetName() or "") if current else ""
+    if current is not None and current_name == name:
+        from library.tools import perf_ledger
+        perf_ledger.count_call(
+            "project_switches_avoided", 1, from_project=current_name,
+            to_project=name,
+            edit_ids=list(perf_ledger.current_edit_ids()))
+        return current
+    started_at = time.time()
+    try:
+        with _phase("project_switch_load"):
+            project = manager.LoadProject(name)
+        resolve_switch_guard.note_project_switch()
+        with _phase("project_switch_settle"):
+            time.sleep(resolve_switch_guard.SETTLE_SECONDS
+                       if settle is None else settle)
+        live = None
+        with _phase("project_switch_readback"):
+            try:
+                live = manager.GetCurrentProject()
+            except Exception:  # noqa: BLE001 - a handle Resolve invalidated
+                live = None
+    finally:
+        _record_project_switch(current_name, name, started_at)
     if live is None:
         raise QualificationError(
             f"refusing after opening {name!r}: the project manager reads "
@@ -611,6 +632,27 @@ def switch_project(manager, name: str, *, settle: float | None = None):
             f"{name!r} did not read back after the switch "
             f"(have {(live.GetName() or '')!r}); reopen it by hand")
     return project
+
+
+def _record_project_switch(from_project: str, to_project: str,
+                           started_at: float) -> None:
+    """Record a switch that really happened, and how long it took.
+
+    The count is of LOADED switches only: an avoided switch is recorded
+    by `switch_project` itself as `project_switches_avoided`, so the
+    ledger never claims a project was loaded when it was not.
+    """
+    from library.tools import perf_ledger
+
+    perf_ledger.count_call(
+        "project_switches", 1, from_project=from_project,
+        to_project=to_project)
+    perf_ledger.record(
+        "project_switch", time.time() - started_at,
+        started_at=started_at, from_project=from_project,
+        to_project=to_project, switches=1,
+        qualification_isolation=_BORROWED_ISOLATION.get(),
+        edit_ids=list(perf_ledger.current_edit_ids()))
 
 
 def restore(resolve, found: dict) -> None:
@@ -1185,37 +1227,6 @@ def main(argv=None) -> int:
         report = qualify(pin_failure=args.pin_failure)
     print(json.dumps(report, indent=2, default=str))
     return 0 if args.verb != "qualify" or report["passed"] else 1
-
-
-def _measure_project_switch(function):
-    """Record each guarded LoadProject interval as run and edit cost."""
-    from functools import wraps
-
-    @wraps(function)
-    def measured(manager, name, *args, **kwargs):
-        from library.tools import perf_ledger
-
-        if manager is None:
-            return function(manager, name, *args, **kwargs)
-        before = manager.GetCurrentProject()
-        before_name = before.GetName() if before else ""
-        started_at = time.time()
-        try:
-            return function(manager, name, *args, **kwargs)
-        finally:
-            perf_ledger.count_call(
-                "project_switches", 1, from_project=before_name,
-                to_project=name)
-            perf_ledger.record(
-                "project_switch", time.time() - started_at,
-                started_at=started_at, from_project=before_name,
-                to_project=name, switches=1,
-                qualification_isolation=_BORROWED_ISOLATION.get(),
-                edit_ids=list(perf_ledger.current_edit_ids()))
-    return measured
-
-
-switch_project = _measure_project_switch(switch_project)
 
 
 if __name__ == "__main__":

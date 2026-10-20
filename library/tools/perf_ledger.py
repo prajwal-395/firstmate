@@ -93,7 +93,8 @@ TASK = "task"
 COUNT_FAMILIES = ("broker_requests", "edit_core_calls", "graphics_renders",
                   "probes", "hashes", "subprocess_spawns", "cli_starts",
                   "media_decode_requests", "media_decode_cache_hits",
-                  "project_switches", "resolve_api_calls")
+                  "project_switches", "project_switches_avoided",
+                  "resolve_api_calls")
 GRAPHICS_LAYERS = {"remotion_render", "hyperframes_render", "fframes_render",
                    "graphics_render", "hyperframes-caption",
                    "ffframes-caption"}
@@ -248,7 +249,8 @@ REEL_EDIT_METRICS = (
     "lease_queue_wait_s", "lease_hold_s", "api_s", "cpu_s",
     "verification_s", "commit_promotion_s", "total_s", "attempts",
     "full_rebuilds", "items_touched", "model_records_touched",
-    "project_switch_s", "project_switches", "verified",
+    "project_switch_s", "project_switches",
+    "project_switches_avoided", "verified",
 )
 """What one reel edit cost. `verified` says the edit passed its
 verification gate and was promoted - the difference between a decision
@@ -744,6 +746,20 @@ def edit_lease_totals(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
     totals: dict[str, dict[str, float]] = {}
     for row in rows:
         layer = row.get("layer")
+        if (row.get("kind") == COUNT
+                and row.get("family") == "project_switches_avoided"):
+            edit_ids = row.get("edit_ids") or ()
+            if isinstance(edit_ids, str):
+                edit_ids = (edit_ids,)
+            if not isinstance(edit_ids, (list, tuple, set)):
+                continue
+            for edit_id in edit_ids:
+                slot = totals.setdefault(str(edit_id), {
+                    "lease_queue_wait_s": 0.0, "lease_hold_s": 0.0,
+                    "project_switch_s": 0.0, "project_switches": 0,
+                    "project_switches_avoided": 0})
+                slot["project_switches_avoided"] += int(row.get("count") or 0)
+            continue
         if layer not in (RESOLVE_WAIT, RESOLVE_HOLD, "project_switch"):
             continue
         edit_ids = row.get("edit_ids") or ()
@@ -764,7 +780,8 @@ def edit_lease_totals(rows: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         for edit_id in edit_ids:
             slot = totals.setdefault(str(edit_id), {
                 "lease_queue_wait_s": 0.0, "lease_hold_s": 0.0,
-                "project_switch_s": 0.0, "project_switches": 0})
+                "project_switch_s": 0.0, "project_switches": 0,
+                "project_switches_avoided": 0})
             slot[field] += seconds
             if layer == "project_switch":
                 slot["project_switches"] += int(row.get("switches", 1))
@@ -1184,7 +1201,7 @@ def profile(rows: list[dict[str, Any]], run_id: str) -> dict[str, Any]:
                     "owner", "profile", "capability", "queue_wait_s",
                     "execution_s")} for r in scheduled_rows],
             },
-            "resolve": resolve_kpis(spans, total, caps),
+            "resolve": resolve_kpis(spans, total, caps, counts=counts),
             "spans_without_capability_row": sorted(set(by_cap) - cap_names),
             **report_sections(rows, run_id)}
 
@@ -1219,8 +1236,58 @@ def quantile(values: list[float], q: float) -> float | None:
     return round(ordered[max(0, math.ceil(q * len(ordered)) - 1)], 3)
 
 
+def measured_strategy_costs(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """What a targeted edit and a full rebuild have MEASURED to cost.
+
+    Read from the recorded `reel_edit` rows: the edits that placed a
+    reel without rebuilding it, and the ones that had to rebuild it.
+    These are measurements of THIS project's own work, so a choice
+    between a targeted mutation and a bulk rebuild can rest on what
+    was measured here rather than on a table of somebody else's
+    numbers.
+
+    `None` where nothing was measured - never a zero, and never a
+    number from anywhere else.
+    """
+    targeted: list[float] = []
+    rebuilt: list[float] = []
+    for row in rows:
+        if row.get("layer") != "reel_edit":
+            continue
+        measurements = row.get("measurements") or {}
+        total = measurements.get("total_s")
+        if not isinstance(total, (int, float)):
+            continue
+        if int(measurements.get("full_rebuilds") or 0) > 0:
+            rebuilt.append(float(total))
+        else:
+            targeted.append(float(total))
+    if not targeted and not rebuilt:
+        return None
+    return {
+        "targeted": {"edits": len(targeted),
+                     "total_s_p50": quantile(targeted, 0.5)},
+        "full_rebuild": {"edits": len(rebuilt),
+                         "total_s_p50": quantile(rebuilt, 0.5)},
+    }
+
+
+def _measured_count(counts: dict[str, Any] | None, family: str) -> int | None:
+    """One count family, or None where the family was never instrumented.
+
+    `None` means no measurement exists; `0` means the measurement
+    exists and found nothing. They are different answers and the
+    difference is what makes a KPI honest.
+    """
+    if not isinstance(counts, dict) or family not in counts:
+        return None
+    value = counts.get(family)
+    return None if value is None else int(value)
+
+
 def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
-                 caps: list[dict[str, Any]]) -> dict[str, Any]:
+                 caps: list[dict[str, Any]],
+                 counts: dict[str, Any] | None = None) -> dict[str, Any]:
     """What one run paid for the one Resolve.
 
     `blocked_s` is the time the run's capabilities spent waiting for a
@@ -1231,7 +1298,11 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
     has nothing left to win from one Resolve instance. `held_s` is the
     time the run held Resolve and `exclusive_held_s` the part no other
     lease could share, and `timeline_switches` the cursor moves made
-    under those holds. The hold percentiles are per lease; utilization
+    under those holds. `project_switches` is how many Resolve PROJECTS
+    the run loaded and `project_switches_avoided` how many it did not
+    have to load because the project was already open - the
+    single-instance cost of reaching for the wrong project, and of not
+    reaching for it. The hold percentiles are per lease; utilization
     is the union of hold intervals over the run's elapsed capability
     window, from the earliest capability start to the latest end.
     `concurrency` is how many capabilities ran at
@@ -1315,6 +1386,9 @@ def resolve_kpis(spans: list[dict[str, Any]], total_wall_s: float,
                               for s in renders), 3),
         "timeline_switches": sum(int(s.get("timeline_switches") or 0)
                                  for s in holds),
+        "project_switches": _measured_count(counts, "project_switches"),
+        "project_switches_avoided": _measured_count(
+            counts, "project_switches_avoided"),
         "concurrency": round(free_s / clock, 2) if clock else None,
     }
 
@@ -1403,7 +1477,9 @@ def render(report: dict[str, Any]) -> str:
             f"({kpi['exclusive_held_s']:.1f}s exclusive); render "
             f"{kpi['render_s']:.1f}s; API {kpi['api_s']:.1f}s across "
             f"{kpi['api_calls']} calls; {kpi['timeline_switches']} timeline "
-            f"switch(es); Resolve utilization {utilization}; "
+            f"switch(es); {_count_text(kpi['project_switches'])} project "
+            f"load(s), {_count_text(kpi['project_switches_avoided'])} "
+            f"avoided; Resolve utilization {utilization}; "
             f"free-work concurrency {concurrency}")
     if report["overlap_s"] >= 0.05:
         out.append(f"{report['overlap_s']:.1f}s ran in two layers at once "
@@ -1419,6 +1495,11 @@ def render(report: dict[str, Any]) -> str:
 
 def _seconds(value: float | None) -> str:
     return "-" if value is None else f"{value:.2f}s"
+
+
+def _count_text(value: int | None) -> str:
+    """A count, or the word that says it was never measured."""
+    return "unmeasured" if value is None else str(value)
 
 
 def _agent_field(value) -> str:

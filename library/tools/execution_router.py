@@ -281,6 +281,45 @@ def _ownership_for(backend: str) -> dict:
         return _ownership("", lease="unknown", writes=False) | {
             "writes": None}
     return dict(entry)
+def _preservation_constraints(operations: Sequence[Mapping],
+                              context: Mapping) -> tuple:
+    """What this edit writes, and therefore what must survive it.
+
+    A backend choice is a preservation promise: the chosen backend
+    promises that everything OUTSIDE the domains the operations write
+    stays where it is. The record used to say `()` - no constraint at
+    all - however many domains the edit touched. These are the
+    operations' own declared domains, read off the algebra, not a
+    summary written beside the decision.
+    """
+    declared = context.get("preservation_constraints")
+    if declared:
+        return tuple(str(value) for value in declared)
+    from library.tools import edit_algebra
+
+    domains = set()
+    for op in operations:
+        spec = edit_algebra.get(str(op.get("op", "")))
+        if spec is not None and spec.domain:
+            domains.add(str(spec.domain))
+    return tuple(sorted(domains))
+
+
+def _cost_basis(context: Mapping):
+    """The measured cost of this choice, or "unmeasured".
+
+    PERF-017: the choice between a targeted mutation and a bulk
+    rebuild is made from MEASURED cost and preservation guarantees.
+    The preservation half is the domains above; the cost half is what
+    this project has measured for the strategies it has run - read
+    from the recorded ledger, never from a table of somebody else's
+    numbers. Where nothing was measured, the record says so.
+    """
+    measured = context.get("measured_costs")
+    if isinstance(measured, Mapping) and measured:
+        return dict(measured)
+    estimated = context.get("estimated_cost")
+    return estimated if estimated else "unmeasured"
 
 
 def _selection_basis(operations: Sequence[Mapping], context: Mapping,
@@ -305,9 +344,10 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
             and isinstance(context["qualification_state"].get("state"), Mapping)),
         "media_type": context.get("media_type", "unknown"),
         "timeline_state": context.get("timeline_state", "unknown"),
-        "preservation_constraints": context.get("preservation_constraints", ()),
+        "preservation_constraints": _preservation_constraints(
+            operations, context),
         "safety_class": safety[0] if len(safety) == 1 else safety or "unknown",
-        "cost": context.get("estimated_cost", "unmeasured"),
+        "cost": _cost_basis(context),
         "minimum_mutation": context.get("minimum_mutation", backend),
         "limitations": tuple(limitations) + tuple(context.get("limitations", ())),
         # AXI-39: what this route does to the timeline - touches only

@@ -277,6 +277,60 @@ These are the planner's own cost model over measured per-window costs, not a
 live run. A live run over the captain's footage is the live lane's evidence
 (`vep-axc-live2`), and this lane names that as the live measurement it still
 needs.
+## Profile before migrating across the Python/Rust boundary
+
+The boundary between Python and `native/ren-core` has TWO shapes, and they do
+not cost the same. A crossing whose operations are all `clip.set_property` is
+PROJECTED: the Rust side reads the clips it names, their record bounds and
+(for a read-back) their transforms. Any other crossing is FULL: the whole
+timeline is JSON-encoded on the Python side and decoded again on the Rust
+side. The 10,000-item `verify_many` case above is the measured difference
+between an indexed and an unindexed crossing over the same input.
+
+Until 2026-10-20 the ledger recorded ONE opaque `edit_core_rust` span per
+crossing: its seconds, and nothing about what crossed. A slow boundary could
+not say which half of it was slow, so a decision to migrate implementation
+code across it had no measurement to rest on.
+
+Every crossing now records its shape on the same row:
+
+| Field | What it says |
+| --- | --- |
+| `projection` | `property`, `full` or `empty` - which crossing shape ran |
+| `snapshot_clips` | how many clips the crossing could have read |
+| `snapshot_tracks` | how many tracks the snapshot carried |
+| `operations` | how many operations crossed |
+
+The rule that follows from this: **profile the boundary before moving
+implementation code across it.** The profile is the `edit_core_rust` rows in
+the ledger (`ren profile`); a migration proposal that cannot point at those
+rows has not measured the thing it proposes to move. `docs/benchmarks/
+2026-10-08-edit-core-rust.md` is the worked example - a `cargo flamegraph`
+profile of the 600-clip/64-op compose workload, which found 43.27% of the
+time in the SNAPSHOT CONVERSION rather than in the edit computation, and so
+changed what was worth porting.
+
+## What the execution-efficiency lane connected (2026-10-20)
+
+Section 7 of the captain's capability punch list, items PERF-015 to PERF-021.
+Most of the work was already in place; what was missing was the CONNECTING -
+the place where the machinery was measured, recorded or refused.
+
+| Item | Already in place | Connected |
+| --- | --- | --- |
+| PERF-015 | one in-repo `LoadProject` call site, a declared-folder resolver that refuses to open without consent, a broker that never switches | `switch_project` short-circuits when the project is ALREADY open: no reload, no settle window. `project_switches_avoided` counts the avoidance; `project_switches` now counts only real loads. |
+| PERF-016 | `EditPatch.operations` is one commit with one read-back; `commit_footage_placements` batches picture in one patch and speech in overlap layers; `patch_algebra` proves compatibility | `resolve-axi markers restore --apply` committed ONE EditPatch PER MARKER - N transactions, N live reads, N read-backs, N generations for one restore. It is now one transaction with a precondition per frame, falling back to the per-marker path only when the group wrote nothing. |
+| PERF-017 | the router prefers a targeted backend whenever one is proven; `reel_incremental` refuses a patch it cannot guarantee; `reel_rebuild_need` is a fail-closed measured skip | the routing record's `cost` and `preservation_constraints` were DEAD slots - always `"unmeasured"`, always empty. The cost is now read from this project's own recorded ledger (`measured_strategy_costs`), never from a table of another project's numbers, and the preservation basis is the operations' own domains. |
+| PERF-018 | `timeline_shadow.diff`, `reel_replace_guard.snapshot_diff`, `reel_incremental.OverlayDiff`, `versions.rounds.diff_reel`; the projected Rust snapshot; `project_model_revision` | `plan_provenance.record_timeline_snapshot` appended a FULL COPY of every snapshot to a history NOTHING read - the head entry's snapshot is what the guard and the preview read. The history now carries the precise change. |
+| PERF-019 | `perf_ledger`, `scripts/benchmark_edit_backend.py`, `scripts/measure_media_infrastructure.py`, `docs/benchmarks/2026-10-08-edit-core-rust.md` | every Python/Rust crossing recorded ONE opaque span. Each crossing now records its SHAPE (see above), so the boundary is profiled before implementation code is migrated across it. |
+| PERF-020 | the `edit_patch.property` fast path, the `no_op` route decided before any asset is generated, `model_revision` pinning (measured 2026-10-17: ~10 s per model load, twice per patch) | the targeted revision's own routing record now carries this project's measured cost, so a cheap targeted revision reads as cheap. |
+| PERF-021 | the OS flock, the broker's admission and cursor fencing, the qualification fence, `tests/resolve_double.py` (a measured double that names its own divergences), `tests/qualification/`, `tests/live/` | the single-instance KPI reports the Resolve PROJECTS a run loaded and the ones it did not have to load, so the constraint's cost is visible where the one Resolve is measured. |
+
+The live revalidation these changes need belongs to the live lane
+(`vep-axc-live2`): a grouped marker restore landing as ONE EditPatch on a live
+timeline; a switch against the already-open project issuing no `LoadProject`;
+and one reel build re-timed with the grouped restore against the recorded
+single-marker path.
 
 ## Resource lifecycle and per-project consumption
 

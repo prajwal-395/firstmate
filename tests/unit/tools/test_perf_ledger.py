@@ -66,6 +66,42 @@ def test_resolve_kpis_report_api_time_separately_from_wait_and_hold():
     assert resolve["api_calls"] == 2
 
 
+def test_the_resolve_kpi_separates_project_loads_from_avoided_loads():
+    """Defect: the single-instance KPI said how many TIMELINE switches a
+    run made and nothing about the PROJECTS it loaded - so a run that
+    reloaded an already-open project read as a clean run."""
+    rows = [
+        {"kind": "capability", "run_id": "r1", "capability": "edit",
+         "started_at": 10.0, "wall_s": 5.0},
+        {"kind": "span", "run_id": "r1", "capability": "edit",
+         "layer": perf_ledger.RESOLVE_HOLD, "started_at": 10.0,
+         "wall_s": 1.5, "held_s": 1.5, "exclusive": True},
+        {"kind": "count", "run_id": "r1", "family": "project_switches",
+         "count": 2},
+        {"kind": "count", "run_id": "r1",
+         "family": "project_switches_avoided", "count": 5},
+    ]
+
+    resolve = perf_ledger.profile(rows, "r1")["resolve"]
+
+    assert resolve["project_switches"] == 2
+    assert resolve["project_switches_avoided"] == 5
+
+
+def test_an_uninstrumented_project_switch_family_reads_as_unmeasured():
+    """A count family nobody wrote a row for is `None`, never `0`: the
+    difference is what keeps the KPI honest."""
+    rows = [
+        {"kind": "capability", "run_id": "r1", "capability": "edit",
+         "started_at": 10.0, "wall_s": 5.0},
+    ]
+
+    resolve = perf_ledger.profile(rows, "r1")["resolve"]
+
+    assert resolve["project_switches"] is None
+    assert resolve["project_switches_avoided"] is None
+
+
 def test_recording_is_thread_local_and_counts_calls(tmp_path):
     path = tmp_path / "perf.jsonl"
     rows_before = perf_ledger.read_rows(tmp_path, path)
@@ -310,13 +346,16 @@ def test_edit_lease_totals_include_only_linked_waits_and_holds():
     assert totals == {
         "Reel 07": {"lease_queue_wait_s": 0.25,
                     "lease_hold_s": 7.75,
-                    "project_switch_s": 2.25, "project_switches": 1},
+                    "project_switch_s": 2.25, "project_switches": 1,
+                    "project_switches_avoided": 0},
         "Reel 08": {"lease_queue_wait_s": 0.0,
                     "lease_hold_s": 7.75,
-                    "project_switch_s": 0.0, "project_switches": 0},
+                    "project_switch_s": 0.0, "project_switches": 0,
+                    "project_switches_avoided": 0},
         "Reel 09": {"lease_queue_wait_s": 9.0,
                     "lease_hold_s": 0.0,
-                    "project_switch_s": 0.0, "project_switches": 0},
+                    "project_switch_s": 0.0, "project_switches": 0,
+                    "project_switches_avoided": 0},
     }
 
 
@@ -424,3 +463,42 @@ def test_a_capability_row_carries_the_machines_own_reading(tmp_path):
 
     rows = perf_ledger.read_rows(tmp_path, path)
     assert rows and "memory_pressure" in rows[0]
+def test_edit_lease_totals_count_the_project_switches_an_edit_avoided():
+    """The avoidance is an edit's own saving, so it is attributed to the
+    edit the way the switches it did pay for are."""
+    totals = perf_ledger.edit_lease_totals([
+        {"kind": perf_ledger.COUNT, "family": "project_switches_avoided",
+         "count": 3, "edit_ids": ["Reel 07"]},
+        {"kind": perf_ledger.COUNT, "family": "project_switches_avoided",
+         "count": 2, "edit_ids": ["Reel 08"]},
+    ])
+
+    assert totals["Reel 07"]["project_switches_avoided"] == 3
+    assert totals["Reel 08"]["project_switches_avoided"] == 2
+    assert totals["Reel 07"]["project_switches"] == 0
+
+
+def test_measured_strategy_costs_separate_a_targeted_edit_from_a_rebuild():
+    """PERF-017: the choice between a targeted mutation and a bulk
+    rebuild rests on what THIS project measured for both."""
+    rows = [
+        {"layer": "reel_edit", "reel": "Reel 01",
+         "measurements": {"total_s": 10.0, "full_rebuilds": 0}},
+        {"layer": "reel_edit", "reel": "Reel 02",
+         "measurements": {"total_s": 14.0, "full_rebuilds": 0}},
+        {"layer": "reel_edit", "reel": "Reel 03",
+         "measurements": {"total_s": 50.0, "full_rebuilds": 1}},
+    ]
+
+    costs = perf_ledger.measured_strategy_costs(rows)
+
+    assert costs["targeted"] == {"edits": 2, "total_s_p50": 10.0}
+    assert costs["full_rebuild"] == {"edits": 1, "total_s_p50": 50.0}
+
+
+def test_measured_strategy_costs_read_as_unmeasured_where_nothing_ran():
+    """A cost nobody measured is None, never a zero and never a number
+    from another project."""
+    assert perf_ledger.measured_strategy_costs([]) is None
+    assert perf_ledger.measured_strategy_costs(
+        [{"layer": "reel_edit", "measurements": {}}]) is None

@@ -296,3 +296,35 @@ def test_check_cli_clean_and_dirty(tmp_path, before):
     assert apply_mod.main(["check", "--before", str(before_path),
                            "--after", str(after_path),
                            "--scope", str(scope_path)]) == 1
+
+
+# ── A targeted revision records what it costs (PERF-020) ─────────────
+#
+# A straightforward property change is the low-latency route, and the
+# routing record is where its cheapness is visible. The record used to
+# carry no cost at all, so a targeted revision read as an unmeasured
+# one - indistinguishable from a rebuild.
+
+
+def test_a_targeted_revision_records_the_cost_this_project_measured(
+        tmp_path, monkeypatch):
+    """Defect: the guarded targeted revision recorded no cost, so the
+    cheap route read like the expensive one."""
+    from library.tools import perf_ledger
+
+    ledger = tmp_path / "perf.jsonl"
+    ledger.write_text(
+        json.dumps({"layer": "reel_edit", "reel": "Reel 01",
+                    "measurements": {"total_s": 8.0, "full_rebuilds": 0}})
+        + "\n", encoding="utf-8")
+    monkeypatch.setattr(perf_ledger, "ledger_path",
+                        lambda project_folder: ledger)
+
+    assert apply_mod._measured_costs(str(tmp_path)) == {
+        "targeted": {"edits": 1, "total_s_p50": 8.0},
+        "full_rebuild": {"edits": 0, "total_s_p50": None}}
+
+
+def test_a_project_with_no_ledger_measures_nothing():
+    """No ledger is no measurement, never a zero cost."""
+    assert apply_mod._measured_costs(None) is None

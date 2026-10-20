@@ -368,6 +368,20 @@ def _conflict_domains(operations, declared=None) -> tuple[str, ...]:
     return tuple(sorted(domains))
 
 
+def _measured_costs(project_folder):
+    """What THIS project has measured for a targeted edit and a rebuild.
+
+    Read from the project's own performance ledger. A targeted
+    revision is cheap beside a rebuild, and the record of the choice
+    says so from a measurement rather than from an assumption.
+    """
+    if not project_folder:
+        return None
+    from library.tools import perf_ledger
+    return perf_ledger.measured_strategy_costs(
+        perf_ledger.read_rows(project_folder))
+
+
 def guarded_apply(*, project, timeline, operations, scope: dict,
                   idempotency_key: str, capability: str = CAPABILITY,
                   conflict_domains=None, preconditions=(),
@@ -397,7 +411,10 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
         raise PatchRefused("a feedback patch needs a non-empty "
                            "idempotency key")
     try:
-        routing = route_compiled_edit({"operations": operations}).as_dict()
+        routing = route_compiled_edit(
+            {"operations": operations},
+            context={"measured_costs": _measured_costs(project_folder)}
+        ).as_dict()
     except RoutingRefused as exc:
         raise PatchRefused(
             f"the shared execution planner refused the edit: {exc}") from exc

@@ -9705,7 +9705,7 @@ def _create_sized_reel_timeline(project, pool, name, track_plan, width, height, 
     return timeline
 
 
-def strategy_after_incremental_refusal(refused) -> dict:
+def strategy_after_incremental_refusal(refused, *, project_folder: str = "") -> dict:
     """The route the ROUTER selects after an incremental refusal.
 
     AXI-35 / AXI-40: the router chooses the strategy, from the
@@ -9720,6 +9720,10 @@ def strategy_after_incremental_refusal(refused) -> dict:
     the router refuses it and the refusal leaves with its category, so a
     stale base, a conflicting live edit and an unreadable timeline stay
     three different facts.
+
+    `project_folder`, where it is known, adds the project's own measured
+    costs to the routing record, so the decision states what it costs
+    HERE rather than what it costs in general.
     """
     from library.tools.execution_router import (
         STRATEGY_FULL_BUILD_ID,
@@ -9734,6 +9738,11 @@ def strategy_after_incremental_refusal(refused) -> dict:
                 "request_incremental": True,
                 "allow_full_rebuild": True,
                 "ineligibility_category": refused.category,
+                # PERF-017: the choice between this rebuild and a
+                # targeted patch is recorded with what THIS project has
+                # measured for both, read from its own ledger - never
+                # from a table of another project's numbers.
+                "measured_costs": measured_strategy_costs(project_folder),
                 # The refusal's own WHY, not its rendered shape: the
                 # receipt records the reason, not the whole refusal.
                 "ineligibility_reason": (str(getattr(refused, "why", "") or "")
@@ -9746,6 +9755,22 @@ def strategy_after_incremental_refusal(refused) -> dict:
         # it was not rebuilt over.
         raise refused from router_refused
     return decision.as_dict()
+
+
+def measured_strategy_costs(project_folder: str):
+    """What THIS project has measured for a targeted edit and a rebuild.
+
+    Read from the project's own performance ledger. Where nothing was
+    measured, the answer is `None` and the routing record says
+    "unmeasured" - never a number from anywhere else.
+    """
+    if not project_folder:
+        return None
+    from library.tools import perf_ledger as _perf
+    return _perf.measured_strategy_costs(
+        _perf.read_rows(
+            project_folder,
+            ledger_override=os.environ.get(_perf.LEDGER_ENV)))
 
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
@@ -15901,6 +15926,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     "model_records_touched": 0,
                     "project_switch_s": 0.0,
                     "project_switches": 0,
+                    "project_switches_avoided": 0,
                 },
             }
             # Filed before anything can skip, for the same reason as
@@ -16995,7 +17021,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         # over; its refusal leaves here and the build
                         # stops with the reason named.
                         _full_rebuild_routing = strategy_after_incremental_refusal(
-                            _refused)
+                            _refused, project_folder=project_folder)
                         print(f"  {name}: incremental refused "
                               f"({getattr(_refused, 'why', '') or _refused}) "
                               f"- full rebuild", flush=True)
@@ -17971,6 +17997,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         "project_switch_s"],
                     "project_switches": _performance[
                         "project_switches"],
+                    "project_switches_avoided": _performance[
+                        "project_switches_avoided"],
                     # This row is written only for a reel that passed
                     # its verification gate and was promoted, so the
                     # decision it records is a VERIFIED one - the

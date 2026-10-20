@@ -1276,11 +1276,62 @@ def _mutate_preservation(review_dir: str, mutation) -> None:
                         encoding="utf-8")
 
 
+def state_change(before: dict | None, after: dict, *, differ=None) -> list:
+    """What changed between two recorded states of one timeline.
+
+    `reel_replace_guard.snapshot_diff` is the differ the promotion
+    guard already uses: item-level, identity-aware, and exact about
+    what moved. The RECORD keeps the identities and the changed
+    fields, not the whole records - the newest state is kept ONCE, in
+    the head entry, and the history says what changed to reach it.
+
+    A first record has no earlier state to compare with, so every item
+    reads as added: the state is the change from nothing.
+    """
+    if differ is None:
+        from library.tools import reel_replace_guard
+        differ = reel_replace_guard.snapshot_diff
+    if before is None:
+        # A FIRST record has no earlier state: the timeline's identity
+        # did not change, it began. Comparing against an empty state
+        # that keeps the same identity says what the state HOLDS
+        # rather than what it changed from.
+        before = {"timeline": dict((after or {}).get("timeline") or {})}
+    changes = []
+    for change in differ(before, after):
+        kind = str(change.get("kind") or "")
+        if kind == "item_changed":
+            changes.append({"kind": kind,
+                            "identity": change.get("identity"),
+                            "changed": change.get("changed") or {}})
+        elif kind in ("item_added", "item_removed"):
+            record = change.get("after") or change.get("before") or {}
+            changes.append({"kind": kind,
+                            "identity": change.get("identity"),
+                            "name": record.get("name") or ""})
+        elif kind in ("timeline_identity", "timeline_setting"):
+            changes.append({"kind": kind, "field": change.get("field"),
+                            "before": change.get("before"),
+                            "after": change.get("after")})
+        else:
+            changes.append({"kind": kind,
+                            "identity": change.get("identity")})
+    return changes
+
+
 def record_timeline_snapshot(review_dir: str, timeline_name: str,
                              snapshot: dict, *, action: str,
                              action_journal: str | None = None,
                              last_known: bool = True) -> dict:
-    """Persist a full first-contact or verified Ren snapshot."""
+    """Persist a full first-contact or verified Ren snapshot.
+
+    The HEAD entry carries the whole snapshot - that is the state the
+    promotion guard and the preview read. The HISTORY entries carry the
+    PRECISE CHANGE since the state already recorded, not a second copy
+    of the snapshot: the history answered "what happened, and when",
+    and a copy of every snapshot in it grew the project file by a
+    whole timeline per record for a copy nothing read.
+    """
     digest = hashlib.sha256(json.dumps(
         snapshot, sort_keys=True, separators=(",", ":"),
         default=str).encode("utf-8")).hexdigest()
@@ -1293,14 +1344,21 @@ def record_timeline_snapshot(review_dir: str, timeline_name: str,
     }
     if action_journal:
         entry["action_journal"] = str(action_journal)
+    # Imported BEFORE the file lock: the differ is pure, but its module
+    # is not, and a first import under the lock would hold it.
+    from library.tools import reel_replace_guard
 
     def update(doc):
         table = dict(doc.get(REN_TIMELINE_SNAPSHOTS_KEY) or {})
         name = str(timeline_name)
         previous = table.get(name) or {}
         history = list(previous.get("history") or [])
-        history.append({key: value for key, value in entry.items()
-                        if key != "history"})
+        recorded = {
+            key: value for key, value in entry.items() if key != "history"}
+        recorded["state_change"] = state_change(
+            previous.get("snapshot"), snapshot,
+            differ=reel_replace_guard.snapshot_diff)
+        history.append(recorded)
         if last_known:
             entry["history"] = history
             table[name] = entry

@@ -235,6 +235,54 @@ def test_project_switch_records_wall_time_and_edit_attribution(
         "project_switches"] == 1
 
 
+def test_switching_to_the_open_project_does_not_reload_it(
+        tmp_path, monkeypatch):
+    """Defect: the ONE in-repo LoadProject path reloaded a project that
+    was ALREADY open - paying a LoadProject and a settle window to
+    arrive at the state the caller already held."""
+    from library.tools import perf_ledger
+
+    path = tmp_path / "perf.jsonl"
+    monkeypatch.setenv(perf_ledger.LEDGER_ENV, str(path))
+    monkeypatch.setenv(perf_ledger.RUN_ENV, "switch-run")
+    monkeypatch.setenv(perf_ledger.CAPABILITY_ENV, "reel.build")
+    resolve, podcast = _captain()
+    loads = []
+    resolve.LoadProject = lambda name: loads.append(name)
+
+    opened = qp.switch_project(resolve, podcast.GetName(), settle=0)
+
+    assert opened is podcast
+    assert loads == [], "an open project was loaded again"
+    rows = perf_ledger.read_rows(tmp_path, path)
+    assert not [row for row in rows if row.get("layer") == "project_switch"], (
+        "an avoided switch was recorded as a switch")
+    assert any(row.get("family") == "project_switches_avoided"
+               and row.get("count") == 1 for row in rows)
+    assert not [row for row in rows if row.get("family") == "project_switches"]
+
+
+def test_a_switch_to_another_project_still_loads_it(tmp_path, monkeypatch):
+    """The avoidance is narrow: a project that is NOT open is loaded,
+    settled and read back exactly as before."""
+    from library.tools import perf_ledger
+
+    path = tmp_path / "perf.jsonl"
+    monkeypatch.setenv(perf_ledger.LEDGER_ENV, str(path))
+    monkeypatch.setenv(perf_ledger.RUN_ENV, "switch-run")
+    monkeypatch.setenv(perf_ledger.CAPABILITY_ENV, "reel.build")
+    resolve, _ = _captain()
+
+    qp.switch_project(resolve, qp.QUALIFICATION_PROJECT, settle=0)
+
+    assert resolve.GetCurrentProject().GetName() == qp.QUALIFICATION_PROJECT
+    rows = perf_ledger.read_rows(tmp_path, path)
+    assert any(row.get("family") == "project_switches"
+               and row.get("count") == 1 for row in rows)
+    assert not [row for row in rows
+                if row.get("family") == "project_switches_avoided"]
+
+
 def test_borrowing_from_the_qualification_project_is_refused():
     resolve, _ = _captain()
     resolve.LoadProject(qp.QUALIFICATION_PROJECT)

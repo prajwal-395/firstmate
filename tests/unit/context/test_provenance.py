@@ -338,6 +338,70 @@ class TestTimelinePreservation:
         assert [item["action"] for item in entry["history"]] == [
             "build_promotion", "before_variant_choice"]
 
+    def test_ren_snapshot_history_records_the_change_not_another_copy(
+            self, tmp_path):
+        """Defect: every recorded state was copied into the history, so
+        the project file grew by a whole timeline per record for a copy
+        nothing read. The history now carries the precise change."""
+        review = tmp_path / "review"
+        review.mkdir()
+        first = {
+            "timeline": {"name": "Reel 01", "unique_id": "uid-1",
+                         "settings": {"timelineFrameRate": 24}},
+            "items": [{"track_type": "video", "track_index": 1,
+                       "track_name": "V1", "source_identity": "clip-a",
+                       "source_in_frame": 0, "source_out_frame": 48,
+                       "name": "A roll", "transform": {"Zoom": 1.0}}],
+            "markers": [],
+        }
+        second = {
+            "timeline": {"name": "Reel 01", "unique_id": "uid-1",
+                         "settings": {"timelineFrameRate": 24}},
+            "items": [{"track_type": "video", "track_index": 1,
+                       "track_name": "V1", "source_identity": "clip-a",
+                       "source_in_frame": 0, "source_out_frame": 48,
+                       "name": "A roll", "transform": {"Zoom": 2.0}}],
+            "markers": [],
+        }
+        record_timeline_snapshot(str(review), "Reel 01", first,
+                                 action="build_promotion")
+        record_timeline_snapshot(str(review), "Reel 01", second,
+                                 action="touchup")
+
+        entry = read_provenance(str(review))["ren_timeline_snapshots"][
+            "Reel 01"]
+        # The newest state is kept once, in the head.
+        assert entry["snapshot"] == second
+        # The history keeps the CHANGE, not a second copy of the state.
+        for recorded in entry["history"]:
+            assert "snapshot" not in recorded
+        change = entry["history"][-1]["state_change"]
+        assert [row["kind"] for row in change] == ["item_changed"]
+        assert change[0]["changed"]["transform"] == {
+            "before": {"Zoom": 1.0}, "after": {"Zoom": 2.0}}
+
+    def test_ren_snapshot_history_says_what_a_first_record_adds(self,
+                                                                tmp_path):
+        review = tmp_path / "review"
+        review.mkdir()
+        first = {
+            "timeline": {"name": "Reel 01", "unique_id": "uid-1",
+                         "settings": {}},
+            "items": [{"track_type": "video", "track_index": 1,
+                       "track_name": "V1", "source_identity": "clip-a",
+                       "source_in_frame": 0, "source_out_frame": 48,
+                       "name": "A roll", "transform": {}}],
+            "markers": [],
+        }
+        record_timeline_snapshot(str(review), "Reel 01", first,
+                                 action="build_promotion")
+
+        entry = read_provenance(str(review))["ren_timeline_snapshots"][
+            "Reel 01"]
+        change = entry["history"][0]["state_change"]
+        assert [row["kind"] for row in change] == ["item_added"]
+        assert change[0]["name"] == "A roll"
+
     def test_plan_write_preserves_editor_timeline_ownership(self, tmp_path):
         review = tmp_path / "review"
         review.mkdir()
