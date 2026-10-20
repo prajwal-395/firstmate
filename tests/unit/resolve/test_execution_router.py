@@ -115,11 +115,12 @@ def test_router_reports_matrix_qualification_not_function_existence():
 
 
 def test_router_refuses_unqualified_production_route():
-    entry = edit_algebra.status("clip.delete")
-    if entry is None or entry.production_enabled:
-        pytest.skip("matrix changed: clip.delete gained production status")
+    entry = edit_algebra.status("marker.add")
+    assert entry is not None
+    assert not entry.production_enabled
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
-        route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}])
+        route_compiled_edit([{"op": "marker.add", "frame": 12,
+                              "color": "Blue", "name": "note"}])
 
 
 def test_production_route_requires_inspected_state_matching_fixture_predicates():
@@ -236,11 +237,12 @@ def test_transition_adapter_uses_protected_route_when_registered():
 
 
 def test_strict_policy_refuses_unqualified_route():
-    entry = edit_algebra.status("clip.delete")
-    if entry is None or entry.production_enabled:
-        pytest.skip("matrix changed: clip.delete gained production status")
+    entry = edit_algebra.status("marker.add")
+    assert entry is not None
+    assert not entry.production_enabled
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
-        route_compiled_edit([{"op": "clip.delete", "unique_id": "item-9"}],
+        route_compiled_edit([{"op": "marker.add", "frame": 12,
+                              "color": "Blue", "name": "note"}],
                             context={"require_qualified": True})
 
 
