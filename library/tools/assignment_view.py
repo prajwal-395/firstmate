@@ -15,6 +15,13 @@ receipt.
     verified       what it proved, and what it did not             (AGENT-022)
     corrections    the focused corrections that update this task  (AGENT-023)
 
+and it answers two more that a host cannot get from the six:
+
+    completed      whether the task is DONE - not planned, not
+                   applied, not rendered, but done
+    blocking       the SMALLEST thing standing in the way, not the
+                   whole unfinished workflow
+
 This is a VIEW, not a store. `project_work_state` is the precedent and the
 rule is the same one: asking what Ren understood must not change what
 Ren understands. Nothing here writes, nothing here decides, and nothing
@@ -47,7 +54,14 @@ SECTIONS = ("understood", "proposed", "applied", "uncertainties",
             "verified", "corrections")
 """The six questions this projection answers, in the order a reader needs
 them. One enumeration: a section with no name in this tuple does not
-exist."""
+exist.
+
+Two MORE answers sit beside them, at the top level rather than in this
+tuple, because they are verdicts rather than sections: `completed` (is
+the task done) and `blocking` (the smallest thing in the way). A
+verdict is one answer about the whole task, not a list of things, and
+`resume_point` is already a top-level answer of the same kind.
+"""
 
 #: A revision's status is read from `revise`, the module that owns the
 #: vocabulary. This module does not restate it: two vocabularies for one
@@ -488,7 +502,7 @@ def _verified(project: str, record: dict,
                             or revision.get("failed_command") or "")
                         or "the requested outcome has no request-specific "
                            "verification")})
-    for receipt in _delivery_receipts(project, record):
+    for receipt in delivery_receipts(project, record):
         failed = receipt.get("failed_outputs") or []
         row = {"id": receipt.get("assignment_id"), "kind": "delivery",
                "what": "the delivered file's own checks",
@@ -507,8 +521,14 @@ def _verified(project: str, record: dict,
                        "unverified": len(unverified)}}
 
 
-def _delivery_receipts(project: str, record: dict) -> list[dict]:
-    """The delivery receipts written for this assignment."""
+def delivery_receipts(project: str, record: dict) -> list[dict]:
+    """The delivery receipts written for this assignment.
+
+    The receipts are the TRUTH about what was delivered, so every
+    reader of a delivery - the verification section here and the
+    completion gate in `assignment_contract` - reads them from here
+    rather than from a copy somebody kept.
+    """
     from library.tools.project_layout import Area, ProjectLayout
 
     directory = ProjectLayout(project).read_path(Area.EXPORTS, "assignments")
@@ -518,7 +538,7 @@ def _delivery_receipts(project: str, record: dict) -> list[dict]:
     for path in sorted(directory.glob("*.json")):
         receipt = _read_json(path)
         if receipt and receipt.get("assignment_id") == record.get("assignment_id"):
-            rows.append(receipt)
+            rows.append({**receipt, "receipt_path": str(path)})
     return rows
 
 
@@ -568,6 +588,8 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
             "version": VERSION, "assignment_id": None, "kind": None,
             "state": None, "stage": "understand",
             **{section: _empty(section) for section in SECTIONS},
+            "completed": _no_task_completed(),
+            "blocking": _no_task_blocking(),
             "resume_point": None,
             "note": "No assignment is recorded yet; a proposal or an edit "
                     "run opens one.",
@@ -589,8 +611,45 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
         "uncertainties": _uncertainties(root, record, revisions, intent),
         "verified": _verified(root, record, revisions),
         "corrections": _corrections(root, record, revisions),
+        "completed": _completed(root, record),
+        "blocking": _blocking(root, record),
         "resume_point": assignment_spine.resume_point(root, record),
     }
+
+
+def _completed(project: str, record: dict) -> dict:
+    """Whether the task is DONE.
+
+    The verdict is `assignment_contract`'s, because the acceptance
+    contract is what says what done means; this is where the host reads
+    it. A task that planned, or applied, or rendered is not done: only a
+    DELIVERED task whose criteria are evidenced and whose receipt is
+    clean is.
+    """
+    from library.tools import assignment_contract
+
+    return assignment_contract.completion(project, record["assignment_id"])
+
+
+def _blocking(project: str, record: dict) -> dict:
+    """The smallest thing standing in this task's way."""
+    from library.tools import assignment_task
+
+    return assignment_task.blocker(project, record["assignment_id"])
+
+
+def _no_task_completed() -> dict:
+    """The completion verdict for a project with no task."""
+    return {"complete": False, "stage": "BRIEF", "assignment_state": None,
+            "reason": "no task is recorded for this project",
+            "criteria": {}, "delivery": None,
+            "blockers": ["no task is recorded"]}
+
+
+def _no_task_blocking() -> dict:
+    """The blocker for a project with no task."""
+    return {"kind": "none", "action": "none", "command": None,
+            "why": "no task is recorded for this project", "needs": []}
 
 
 def _empty(section: str) -> dict:

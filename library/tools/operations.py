@@ -290,6 +290,18 @@ class OperationResult:
     before this field existed; `as_refusal` then falls back to the
     prose, which always names the way out."""
 
+    refusal_kind: str = ""
+    """WHICH kind of refusal this is, in `assignment_refusal`'s vocabulary.
+
+    A refusal is not one thing. A capability that IS a prompt refused
+    because a judgement nobody has made yet is a different thing from a
+    requirement the machine cannot satisfy, and a host that cannot tell
+    them apart either gives up on a question it could have asked or
+    keeps asking about a capability that does not exist. The kind is
+    structural - it says which site refused - never inferred from the
+    prose. Empty only for a result built before this field existed.
+    """
+
     def __post_init__(self):
         if self.status not in STATUSES:
             raise OperationError(
@@ -379,10 +391,23 @@ class OperationResult:
             "produced_nothing": self.produced_nothing,
             "unsatisfied": [getattr(r, "name", repr(r))
                             for r in self.unsatisfied],
+            "refusal_kind": self.refusal_kind,
             "hollow": list(self.hollow),
             "artifacts": list(self.artifacts),
             "error": self.error,
         }
+
+
+def _requirement_kind(missing: list) -> str:
+    """The refusal kind for unmet requirements.
+
+    An `environment` requirement is the MACHINE's gap: no amount of
+    editorial information satisfies it, and the way out is to make the
+    capability available. Anything else is a prerequisite the pipeline
+    has not produced, which the run can.
+    """
+    kinds = {str(getattr(entry.requirement, "kind", "")) for entry in missing}
+    return "environment" if "environment" in kinds else "missing_prerequisite"
 
 
 def announce_result(result: OperationResult, project_folder: str,
@@ -813,7 +838,8 @@ class Operation:
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
                 unsatisfied=tuple(entry.requirement for entry in missing),
-                error=message, fix=fix)
+                error=message, fix=fix,
+                refusal_kind=_requirement_kind(missing))
             announce_result(refused, project_folder)
             return refused
 
@@ -830,7 +856,8 @@ class Operation:
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
-                error=message, fix=fix)
+                error=message, fix=fix,
+                refusal_kind="missing_editorial_information")
             announce_result(refused, project_folder)
             return refused
 
@@ -851,6 +878,7 @@ class Operation:
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
+                refusal_kind="missing_editorial_information",
                 error=(
                     f"{self.name} is the POST-BRIDGE of {self.legacy_node}: "
                     f"the dict it takes is the step's inputs PLUS its "
@@ -877,7 +905,8 @@ class Operation:
             refused = OperationResult(
                 operation=self.name, legacy_node=self.legacy_node,
                 scope=where, status=REFUSED,
-                error=message, fix=fix)
+                error=message, fix=fix,
+                refusal_kind="missing_prerequisite")
             announce_result(refused, project_folder)
             return refused
 

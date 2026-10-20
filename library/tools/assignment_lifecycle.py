@@ -7,24 +7,51 @@ same assignment identity and operation checkpoint regardless of host.
 
 from __future__ import annotations
 
+import copy
 import fcntl
 import hashlib
 import json
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-STATES = ("brief", "draft", "review", "approved", "delivered")
+_LOCK_STATE = threading.local()
+"""Which assignment locks this thread holds, so the lock re-enters."""
+
+STATES = ("brief", "draft", "review", "approved", "delivered", "cancelled")
 TRANSITIONS = {
-    "brief": {"draft"},
-    "draft": {"review", "brief"},
-    "review": {"draft", "approved"},
-    "approved": {"delivered", "review"},
-    "delivered": {"review"},
+    "brief": {"draft", "cancelled"},
+    "draft": {"review", "brief", "cancelled"},
+    "review": {"draft", "approved", "cancelled"},
+    "approved": {"delivered", "review", "cancelled"},
+    "delivered": {"review", "cancelled"},
+    "cancelled": {"brief"},
 }
+
+TASK_SECTIONS = {
+    "project_state": None,
+    "evidence": [],
+    "decisions": [],
+    "plan": {"operations": {}},
+    "acceptance": {"criteria": [], "evidence": {}},
+    "delivery": None,
+    "pause": None,
+    "last_refusal": None,
+}
+"""The sections a task object is made of.
+
+The record IS the task: the request, the project state it acts on, the
+evidence it rests on, the decisions it made, the plan it will run, the
+operations it ran, the acceptance contract it must satisfy and what it
+delivered. A section a record written before this shape existed does not
+have is EMPTY, never invented - `with_task_sections` fills the gap and
+the reader sees the same keys either way.
+"""
+
 SAFE_OPERATION_EFFECTS = {
     "footage.scan": "index",
     "footage.catalog": "index",
@@ -64,6 +91,22 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def with_task_sections(record: dict) -> dict:
+    """A record with every task section present, defaulted.
+
+    A record written before the task sections existed is still a valid
+    assignment. The sections it lacks are empty - an absent acceptance
+    contract is NO contract, and an absent delivery is NO delivery -
+    never a value this module made up. The filled record is returned so
+    a caller can read `record["acceptance"]` without asking whether the
+    record predates the shape.
+    """
+    for key, default in TASK_SECTIONS.items():
+        if key not in record or (record[key] is None and default is not None):
+            record[key] = copy.deepcopy(default)
+    return record
+
+
 def _directory(project: str) -> Path:
     return (
         Path(project).expanduser().resolve()
@@ -80,16 +123,38 @@ def _path(project: str, assignment_id: str) -> Path:
 
 @contextmanager
 def assignment_lock(project: str, assignment_id: str):
-    """Serialize duplicate host calls for one assignment across processes."""
+    """Serialize duplicate host calls for one assignment across processes.
+
+    Re-entrant WITHIN one process: a caller that already holds this
+    assignment's lock may take it again, which is what lets a locked
+    section call a helper that locks the same assignment. A second
+    PROCESS still waits, which is what the lock is for.
+    """
+    key = (str(Path(project).expanduser().resolve()), str(assignment_id))
+    held = _held_locks()
+    if key in held:
+        yield
+        return
     checkpoint = _path(project, assignment_id)
     checkpoint.parent.mkdir(parents=True, exist_ok=True)
     lock_path = checkpoint.with_suffix(".lock")
     with lock_path.open("a", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        held.add(key)
         try:
             yield
         finally:
+            held.discard(key)
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _held_locks() -> set:
+    """The assignment locks THIS THREAD holds, so the lock re-enters."""
+    locks = getattr(_LOCK_STATE, "held", None)
+    if locks is None:
+        locks = set()
+        _LOCK_STATE.held = locks
+    return locks
 
 
 def _write(path: Path, value: dict) -> None:
@@ -121,7 +186,7 @@ def load(project: str, assignment_id: str) -> dict | None:
         return None
     if record.get("assignment_id") != assignment_id:
         raise ValueError("assignment checkpoint identity mismatch")
-    return record
+    return with_task_sections(record)
 
 
 def list_records(project: str) -> list[dict]:
@@ -135,7 +200,7 @@ def list_records(project: str) -> list[dict]:
             continue
         if isinstance(record, dict) and record.get("version") == 1 \
                 and record.get("assignment_id"):
-            records.append(record)
+            records.append(with_task_sections(record))
     return sorted(records, key=lambda r: (r.get("created_at") or "",
                                           r["assignment_id"]))
 
@@ -181,10 +246,11 @@ def create(project: str, assignment_id: str, brief=None, **fields) -> dict:
         "history": [],
         "created_at": now,
         "updated_at": now,
+        **copy.deepcopy(TASK_SECTIONS),
         **fields,
     }
     _write(_path(project, assignment_id), record)
-    return record
+    return with_task_sections(record)
 
 
 def save(project: str, record: dict) -> dict:

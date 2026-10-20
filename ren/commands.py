@@ -297,7 +297,7 @@ VERBS = (
     Verb("assignment", "Projects", "Read a request's assignment: state, history and the verb it waits on",
          effects=("read", "project_write"),
          module_argv=("library.tools.assignment_interaction",),
-         detail="Print the assignment contract's envelope for the project's open request: its state (brief, draft, review, approved, delivered), the history of verbs that moved it and the resume point. `--authorize-replacement --id <id>` records the creator's yes to replacing that assignment's approved work. No model call or Resolve access.",
+         detail="Print the assignment contract's envelope for the project's open request: its state (brief, draft, review, approved, delivered), the history of verbs that moved it and the resume point, plus the TASK - the record itself (the request, the project state, the evidence, the decisions, the plan, the operations, the acceptance contract, the delivery) and `task_state` (what Ren understood, proposed, applied, could not determine and verified, the smallest thing blocking it, and whether it is complete). `--pause <reason>`, `--resume`, `--replan <reason>`, `--cancel <reason>` and `--reopen` act on that assignment; `--authorize-replacement --id <id>` records the creator's yes to replacing that assignment's approved work. No model call or Resolve access.",
          params=(MCP_PROJECT,)),
     Verb("assignment-state", "Projects", "Read what Ren understood, proposed, applied, blocked and verified (read only)",
          effects=("read",), json=True,

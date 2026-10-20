@@ -11,11 +11,18 @@ import json
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools.project_layout import Area, ProjectLayout
 
 ARTIFACT_VERSION = 1
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
 ONBOARDING = {
     "version": 1,
     "title": "Direct this assignment",
@@ -155,7 +162,35 @@ def publish_delivery_receipt(project: str, *, assignment_id: str,
     path = ProjectLayout(project).write_path(Area.EXPORTS, "assignments",
                                              f"{_safe_id(assignment_id)}-delivery.json")
     _atomic_json(path, receipt)
+    _record_delivery(project, assignment_id, path, receipt)
     return path, receipt
+
+
+def _record_delivery(project: str, assignment_id: str, path: Path,
+                     receipt: Mapping) -> None:
+    """Link the delivery to the task, so the task object carries it.
+
+    The receipt is the truth about the files; this is the link. A task
+    with no delivery linked cannot be complete, which is the point: a
+    rendered file that nobody recorded is not a delivery anybody can
+    verify.
+    """
+    from library.tools import assignment_lifecycle
+
+    with assignment_lifecycle.assignment_lock(project, assignment_id):
+        record = assignment_lifecycle.load(project, assignment_id)
+        if record is None:
+            return
+        record["delivery"] = {
+            "receipt_path": str(path),
+            "status": receipt.get("status", ""),
+            "files": [row.get("name") for row in receipt.get("files", ())],
+            "missing_outputs": list(receipt.get("missing_outputs", ())),
+            "failed_outputs": list(receipt.get("failed_outputs", ())),
+            "qc": dict(receipt.get("qc") or {}),
+            "at": _now(),
+        }
+        assignment_lifecycle.save(project, record)
 
 
 def _safe_id(value: str) -> str:

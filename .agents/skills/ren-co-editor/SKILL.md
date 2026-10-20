@@ -173,6 +173,21 @@ one of theirs.
 - `ren now <project>` - state plus ranked next actions in one read;
   `ren reels <project>` - every reel's approval, build, sign-off and
   delivery.
+- `ren assignment <project>` - the TASK for the project's open request,
+  in one read. `result` is the task record: the request, the project
+  state, the evidence it rests on, the decisions it made, the plan, the
+  operations, the acceptance contract and the delivery. `result.task_state`
+  answers what Ren understood, proposed, applied, could not determine
+  and verified, plus the two verdicts: `task_state.blocking` is the
+  SMALLEST thing in the way - one dependency, one criterion or one
+  question, never the whole unfinished workflow - and
+  `task_state.completed.complete` is the ONLY claim of done-ness. It
+  is true only when the task was delivered, every acceptance criterion
+  is evidenced and the delivery receipt is clean: a compiled plan, a
+  submitted mutation and a written timeline are stages on the way, never
+  completion. `--pause <reason>`, `--resume`, `--replan <reason>`,
+  `--cancel <reason>` and `--reopen` act on that task; each names
+  `--id <assignment id>`.
 - `ren projects` / `ren status <project>` / `ren info <project>` - which
   projects exist, which pipeline steps have run or failed, the project's
   configuration.
@@ -402,6 +417,13 @@ planning step that declares `creative_brief`.
 Read back what the capability changed, against the goal - a command that
 exited 0 is not a verified edit.
 
+- `ren assignment <project>` - the task's own verdict:
+  `task_state.completed` says whether the task is COMPLETE and which
+  criterion is missing when it is not, and `task_state.blocking` says
+  the one thing still in the way. Never report a task complete because a
+  plan compiled, a mutation was submitted or a file was rendered; report
+  `task_state.completed.complete`, and quote the criterion that is
+  missing when it is false.
 - `ren status <project>` - the run's own verdict (`SUCCESS` only when
   the whole DAG is complete and nothing failed).
 - `ren drift <project>` and `bin/resolve-axi` reads - the live timeline

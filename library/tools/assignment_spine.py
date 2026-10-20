@@ -171,9 +171,14 @@ def _key(record: dict) -> tuple:
 
 
 def current(project, kind: str | None = None) -> dict | None:
-    """The newest assignment of `kind` that is not yet delivered."""
+    """The newest assignment of `kind` that is not yet delivered.
+
+    A CANCELLED assignment is not open: the task is over, and reading
+    the newest open one is how a caller finds the work that is still
+    live.
+    """
     open_records = [r for r in lifecycle.list_records(_root(project))
-                    if r["state"] != "delivered"
+                    if r["state"] not in ("delivered", "cancelled")
                     and (kind is None or r.get("kind") == kind)]
     return max(open_records, key=_key) if open_records else None
 
@@ -214,6 +219,30 @@ def _reel_entry(moment) -> dict:
 # ── Where an assignment is created ──────────────────────────────────
 
 
+def _capture_state(root: str, record: dict) -> None:
+    """Record the project state the task acts on, once it exists.
+
+    The task object links the request to the project state it acts on,
+    and a link that is only there when somebody remembers to add it is
+    not a link. The capture is a READING, and a reading that cannot be
+    taken must not fail the act that was reading: a failure is recorded
+    on the task, where a reader will see it, and the act carries on.
+    """
+    from library.tools import assignment_task
+
+    try:
+        assignment_task.capture_project_state(root, record["assignment_id"])
+    except Exception as exc:  # noqa: BLE001 - a reading never fails the act
+        with lifecycle.assignment_lock(root, record["assignment_id"]):
+            stored = lifecycle.load(root, record["assignment_id"])
+            if stored is None:
+                return
+            stored.setdefault("history", []).append(
+                {"event": "project_state_capture_failed", "at": _now(),
+                 "detail": f"{type(exc).__name__}: {exc}"})
+            lifecycle.save(root, stored)
+
+
 def open_request(project, kind: str, *, event: str,
                  request: str | None = None) -> dict:
     """Attach to the open assignment still being planned, or open one."""
@@ -236,12 +265,15 @@ def open_request(project, kind: str, *, event: str,
                     entry = {**prior, **entry, "status": prior["status"]}
                 reels[moment.moment_id] = entry
             record["reels"] = reels
-            return _settle(root, record, event,
-                           {"reels": sorted(r["number"] for r in
-                                            record["reels"].values())})
-        target = "draft" if record["state"] == "brief" else record["state"]
-        return lifecycle.transition(root, record["assignment_id"], target,
-                                    event=event)
+            settled = _settle(root, record, event,
+                              {"reels": sorted(r["number"] for r in
+                                               record["reels"].values())})
+        else:
+            target = "draft" if record["state"] == "brief" else record["state"]
+            settled = lifecycle.transition(root, record["assignment_id"], target,
+                                           event=event)
+    _capture_state(root, settled)
+    return settled
 
 
 def on_propose(project) -> dict:
@@ -330,12 +362,29 @@ def _refuse_concurrent(record: dict) -> None:
 
 def _begin(root: str, record: dict, verb: str, operation_id: str,
            numbers: list) -> str:
+    _refuse_paused(root, record)
     request = {"verb": verb, "reels": numbers, "pid": os.getpid(),
                "act": secrets.token_hex(6), "pre_state": record["state"],
                "started_at": _now()}
     lifecycle.begin_operation(root, record["assignment_id"], operation_id,
                               request)
     return lifecycle.load(root, record["assignment_id"])["checkpoint"]
+
+
+def _refuse_paused(root: str, record: dict) -> None:
+    """A paused task accepts no act, and says how to release it."""
+    pause = record.get("pause")
+    if not pause:
+        return
+    from library.tools import assignment_actions
+
+    raise RenRefusal(
+        what=(f"assignment {record['assignment_id']} is paused: "
+              f"{pause.get('reason', 'no reason recorded')}"),
+        why="a paused task accepts no act until it is resumed",
+        fix=(f"resume it and repeat this command: "
+             f"`{assignment_actions.resume_command(root, record['assignment_id'])}`"),
+        code="REN_ASSIGNMENT_PAUSED", recovery_class="needs_question")
 
 
 def _finish_checkpoint(record: dict, key: str, status: str, detail: str):
@@ -377,7 +426,8 @@ def begin_build(project, only_reels=None) -> Act | None:
     wanted = {int(n) for n in only_reels} if only_reels else None
     moments = [m for m in _moments(root) if m.approval.value == "approved"
                and (wanted is None or int(m.number) in wanted)]
-    records = lifecycle.list_records(root)
+    records = [r for r in lifecycle.list_records(root)
+               if r["state"] != "cancelled"]
     for record in records:
         replaced = [m for m in moments
                     if (record.get("reels") or {}).get(m.moment_id, {})
@@ -399,6 +449,7 @@ def begin_build(project, only_reels=None) -> Act | None:
     with lifecycle.assignment_lock(root, _SPINE_LOCK):
         owners = [lifecycle.load(root, aid) for aid in by_owner]
         for record in owners:
+            _refuse_paused(root, record)
             _refuse_concurrent(record)
         for record in owners:
             owned = by_owner[record["assignment_id"]]
@@ -512,7 +563,8 @@ def begin_deliver(project, reel_number: int) -> Act | None:
                    if int(m.number) == int(reel_number)), None)
     if moment is None:
         return None
-    owner = _owner(lifecycle.list_records(root), moment.moment_id)
+    owner = _owner([r for r in lifecycle.list_records(root)
+                    if r["state"] != "cancelled"], moment.moment_id)
     if owner is None:
         return None
     reel = owner["reels"][moment.moment_id]
@@ -525,6 +577,7 @@ def begin_deliver(project, reel_number: int) -> Act | None:
             f"delivery and has not been signed off again. Deliver the "
             f"new version anyway?",
             {"replace_approved_work": True})
+    _refuse_paused(root, owner)
     _refuse_concurrent(owner)
     key = _begin(root, owner, "deliver", "reel.deliver", [int(moment.number)])
     act = Act(root, "deliver", "reel.deliver")
@@ -575,6 +628,8 @@ def begin_edit(project, request: str | None = None) -> Act:
     recover_interrupted(root)
     with lifecycle.assignment_lock(root, _SPINE_LOCK):
         record = current(root, KIND_EDIT)
+        if record is not None:
+            _refuse_paused(root, record)
         if record is not None and record["state"] == "approved":
             _require_decision(
                 root, record, "render.build",
@@ -591,6 +646,7 @@ def begin_edit(project, request: str | None = None) -> Act:
         act = Act(root, "edit", "render.build")
         key = _begin(root, record, "edit", act.operation_id, [])
         act.checkpoints.append((record["assignment_id"], key, []))
+    _capture_state(root, record)
     return act
 
 
@@ -685,6 +741,7 @@ def begin_revision(project, assignment_id: str, reel: str = "") -> Act:
             f"assignment {assignment_id} has no record",
             "a revision is checkpointed on the assignment it revises",
             "run `ren revise` again so it attaches the note first")
+    _refuse_paused(root, record)
     moment = _moment_for_timeline(root, reel) if reel else None
     entry = ((record.get("reels") or {}).get(moment.moment_id)
              if moment is not None else None)
@@ -717,6 +774,21 @@ def resume_point(project, record: dict) -> dict:
     """The next act this assignment is waiting on, as a runnable verb."""
     root = _root(project)
     quoted = shlex.quote(root)
+    if record.get("state") == "cancelled":
+        return {"action": "reopen",
+                "command": (f"ren assignment {quoted} --id "
+                            f"{shlex.quote(record['assignment_id'])} "
+                            f"--reopen"),
+                "why": "the task was cancelled; reopening starts a new "
+                       "request rather than resuming this one"}
+    if record.get("pause"):
+        from library.tools import assignment_actions
+
+        return {"action": "resume",
+                "command": assignment_actions.resume_command(
+                    root, record["assignment_id"]),
+                "why": f"the task is paused: "
+                       f"{(record.get('pause') or {}).get('reason', '')}"}
     key = record.get("checkpoint")
     checkpoint = (record.get("operations") or {}).get(key) if key else None
     if checkpoint and checkpoint.get("status") in ("running", "interrupted"):

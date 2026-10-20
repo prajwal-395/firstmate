@@ -11,7 +11,7 @@ import json
 import re
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,21 @@ class AssignmentRequest:
     inputs: Mapping[str, Any]
     stage: str = "execute"
     version: int = ENVELOPE_VERSION
+    node_id: str = ""
+    """The plan node this request runs, when the task planned one.
+
+    The node is how the operation finds the evidence and the decisions it
+    rests on. A request that names none is stamped from the task's only
+    planned node for that operation, and from nothing at all when the
+    operation appears on more than one node.
+    """
+    provenance: Mapping[str, Any] = field(default_factory=dict)
+    """The evidence and decisions this request carries into execution.
+
+    Filled from the task's own ledger when the caller supplies none, so
+    the chain from source to choice to edit survives the run that made
+    it without the model having to restate it.
+    """
 
     def __post_init__(self):
         if self.version != ENVELOPE_VERSION:
@@ -54,12 +69,15 @@ class AssignmentRequest:
         return cls(assignment_id=value["assignment_id"],
                    operation_id=value["operation_id"], project=value["project"],
                    inputs=value["inputs"], stage=value.get("stage", "execute"),
-                   version=value.get("version", ENVELOPE_VERSION))
+                   version=value.get("version", ENVELOPE_VERSION),
+                   node_id=str(value.get("node_id") or ""),
+                   provenance=dict(value.get("provenance") or {}))
 
     def to_dict(self) -> dict:
         return {"version": self.version, "assignment_id": self.assignment_id,
                 "operation_id": self.operation_id, "project": self.project,
-                "inputs": dict(self.inputs), "stage": self.stage}
+                "inputs": dict(self.inputs), "stage": self.stage,
+                "node_id": self.node_id, "provenance": dict(self.provenance)}
 
 
 def _json_value(value: Any) -> Any:
@@ -80,11 +98,67 @@ def _json_value(value: Any) -> Any:
         return str(value)
 
 
+def _stamp(request: AssignmentRequest) -> AssignmentRequest:
+    """Carry the task's own provenance into the request, if it has none.
+
+    The point of the stamp is that the MODEL never has to restate where
+    an edit came from. A request that already carries a provenance keeps
+    it: the caller who named it knew something the ledger does not.
+    """
+    if request.provenance:
+        return request
+    from library.tools import assignment_provenance
+
+    try:
+        provenance = assignment_provenance.stamp(
+            request.project, request.assignment_id,
+            node_id=request.node_id, operation_id=request.operation_id)
+    except (FileNotFoundError, ValueError):
+        return request
+    if not provenance.get("evidence") and not provenance.get("decisions"):
+        return request
+    return replace(request, provenance=provenance)
+
+
 def execute(request: AssignmentRequest | Mapping[str, Any]) -> dict:
     """Execute one registry operation and return the common typed envelope."""
     req = request if isinstance(request, AssignmentRequest) else AssignmentRequest.from_dict(request)
+    req = _stamp(req)
     with lifecycle.assignment_lock(req.project, req.assignment_id):
         return _execute_locked(req)
+
+
+def _refusal_envelope(req: AssignmentRequest, refusal: dict, *,
+                       effect: dict | None = None,
+                       message: str = "") -> dict:
+    """The envelope a refusal returns: nothing ran, and the way out is named."""
+    return {
+        "version": ENVELOPE_VERSION, "assignment_id": req.assignment_id,
+        "operation_id": req.operation_id, "stage": req.stage,
+        "status": "refused",
+        "progress": {"status": "refused", "fraction": 1.0,
+                     "message": message or "Operation refused; nothing ran."},
+        "inputs": dict(req.inputs), "effect": effect, "result": None,
+        "refusal": refusal,
+        "recovery": {"resumable": True, "resume_with": req.to_dict()},
+    }
+
+
+def _record_refusal(project: str, assignment_id: str, refusal: dict) -> None:
+    """Keep the last refusal on the task, so the blocker can name it."""
+    with lifecycle.assignment_lock(project, assignment_id):
+        record = lifecycle.load(project, assignment_id)
+        if record is None:
+            return
+        record["last_refusal"] = {
+            "kind": refusal.get("kind", "unknown"),
+            "code": refusal.get("code", ""),
+            "what": refusal.get("what", ""),
+            "fix": refusal.get("fix", ""),
+            "operation_id": refusal.get("operation_id", ""),
+            "at": refusal.get("at", ""),
+        }
+        lifecycle.save(project, record)
 
 
 def _execute_locked(req: AssignmentRequest) -> dict:
@@ -97,21 +171,31 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             f"the operation effect {effect['effect']!r} requires a human decision",
             "resolve the decision for this assignment, then resubmit",
             code="REN_ASSIGNMENT_DECISION_REQUIRED", recovery_class="needs_question").to_dict()
-        return {
-            "version": ENVELOPE_VERSION, "assignment_id": req.assignment_id,
-            "operation_id": req.operation_id, "stage": req.stage,
-            "status": "refused",
-            "progress": {"status": "refused", "fraction": 1.0,
-                         "message": "Operation paused for a human decision."},
-            "inputs": dict(req.inputs), "effect": effect, "result": None,
-            "refusal": refusal,
-            "recovery": {"resumable": True, "resume_with": req.to_dict()},
-        }
+        from library.tools import assignment_refusal
+
+        refusal["kind"] = assignment_refusal.classify(refusal)["kind"]
+        refusal["operation_id"] = req.operation_id
+        _record_refusal(req.project, req.assignment_id, refusal)
+        return _refusal_envelope(req, refusal, effect=effect,
+                                  message="Operation paused for a human decision.")
     checkpoint = lifecycle.begin_operation(req.project, req.assignment_id,
                                            req.operation_id, req.to_dict())
     if checkpoint.get("status") == "completed":
         return checkpoint["envelope"]
-    result = operations.get(req.operation_id).execute(req.project, **dict(req.inputs))
+    try:
+        result = operations.get(req.operation_id).execute(req.project, **dict(req.inputs))
+    except RenRefusal as refused:
+        # The step's own code refused: nothing ran, and the refusal says
+        # which KIND of refusal it is. It is the task's last refusal, and
+        # the blocker names it.
+        from library.tools import assignment_refusal
+
+        detail = refused.to_dict()
+        detail["kind"] = assignment_refusal.classify(detail)["kind"]
+        detail["operation_id"] = req.operation_id
+        _record_refusal(req.project, req.assignment_id, detail)
+        return _refusal_envelope(req, detail, effect=effect,
+                                  message=refused.user_message)
     refused = result.refused
     refusal = None
     if refused:
@@ -126,6 +210,13 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             refusal["unsatisfied"] = [
                 {"name": item.name, "produced_by": item.produced_by}
                 for item in result.unsatisfied]
+        from library.tools import assignment_refusal
+
+        classified = assignment_refusal.classify(result)
+        refusal["kind"] = classified["kind"]
+        refusal["recovery_class"] = classified["recovery_class"]
+        refusal["operation_id"] = req.operation_id
+        _record_refusal(req.project, req.assignment_id, refusal)
     payload = None if refused else _json_value(result.payload)
     if not refused and req.operation_id == "footage.catalog":
         from library.tools import assignment_artifacts
@@ -149,10 +240,20 @@ def _execute_locked(req: AssignmentRequest) -> dict:
         "effect": effect,
         "result": payload,
         "refusal": refusal,
+        "provenance": dict(req.provenance),
         "recovery": {"resumable": True, "resume_with": req.to_dict()},
     }
     lifecycle.finish_operation(req.project, req.assignment_id,
                                req.operation_id, envelope)
+    if not refused:
+        from library.tools import assignment_plan
+
+        node = assignment_plan.find_node(
+            req.project, req.assignment_id, node_id=req.node_id,
+            operation_id=req.operation_id)
+        if node is not None:
+            assignment_plan.mark(req.project, req.assignment_id,
+                                 node["node_id"], "completed")
     return envelope
 
 
@@ -175,6 +276,7 @@ def file_transport(request: Mapping[str, Any]) -> dict:
     assignment/operation returns it without executing the operation again.
     """
     req = request if isinstance(request, AssignmentRequest) else AssignmentRequest.from_dict(request)
+    req = _stamp(req)
     from library.tools import llm_handshake
     root = Path(req.project).expanduser().resolve()
     request_path = Path(llm_handshake.request_path(str(root), _file_stem(req)))
@@ -339,7 +441,7 @@ def authorize(project: str, assignment_id: str) -> dict:
 
 
 def main(argv=None) -> int:
-    """`ren assignment <project>`: read (or authorize) an assignment."""
+    """`ren assignment <project>`: read (or act on) an assignment."""
     import argparse
     import sys
 
@@ -360,6 +462,18 @@ def main(argv=None) -> int:
     parser.add_argument("--authorize-replacement", action="store_true",
                         help="record the creator's yes to replacing this "
                              "assignment's approved work (decision D2)")
+    parser.add_argument("--pause", metavar="REASON", default=None,
+                        help="hold this assignment's acts until it is "
+                             "resumed")
+    parser.add_argument("--resume", action="store_true",
+                        help="release a paused assignment")
+    parser.add_argument("--replan", metavar="REASON", default=None,
+                        help="replace the part of the plan that has not run")
+    parser.add_argument("--cancel", metavar="REASON", default=None,
+                        help="end this assignment; delivered work is kept")
+    parser.add_argument("--reopen", action="store_true",
+                        help="bring a cancelled assignment back as a new "
+                             "request")
     args = parser.parse_args(argv)
     root = Path(args.project).expanduser()
     if not root.is_dir():
@@ -368,19 +482,59 @@ def main(argv=None) -> int:
             root = Path(get_project(args.project).project_root)
         except FileNotFoundError as exc:
             parser.error(str(exc))
+    acts = [name for name, value in (
+        ("--authorize-replacement", args.authorize_replacement),
+        ("--pause", args.pause),
+        ("--resume", args.resume),
+        ("--replan", args.replan),
+        ("--cancel", args.cancel),
+        ("--reopen", args.reopen)) if value]
+    if len(acts) > 1:
+        parser.error("one act at a time: " + ", ".join(acts))
     try:
-        if args.authorize_replacement:
-            if not args.assignment_id:
-                parser.error("--authorize-replacement needs --id: the yes "
-                             "is given to one assignment")
-            envelope = authorize(str(root), args.assignment_id)
-        else:
-            envelope = state(str(root), args.assignment_id)
+        envelope = _act(str(root), args)
     except FileNotFoundError as exc:
         print(f"ren assignment: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(envelope, indent=2, ensure_ascii=False))
     return 0
+
+
+def _act(root: str, args) -> dict:
+    """The one act the verb was asked for, or the plain read."""
+    from library.tools import assignment_actions
+
+    if args.pause is not None:
+        _require_id(args)
+        assignment_actions.pause(root, args.assignment_id,
+                                 reason=args.pause)
+        return state(root, args.assignment_id)
+    if args.resume:
+        _require_id(args)
+        assignment_actions.resume(root, args.assignment_id)
+        return state(root, args.assignment_id)
+    if args.replan is not None:
+        _require_id(args)
+        assignment_actions.replan(root, args.assignment_id, reason=args.replan)
+        return state(root, args.assignment_id)
+    if args.cancel is not None:
+        _require_id(args)
+        assignment_actions.cancel(root, args.assignment_id, reason=args.cancel)
+        return state(root, args.assignment_id)
+    if args.reopen:
+        _require_id(args)
+        assignment_actions.reopen(root, args.assignment_id)
+        return state(root, args.assignment_id)
+    if args.authorize_replacement:
+        _require_id(args)
+        return authorize(root, args.assignment_id)
+    return state(root, args.assignment_id)
+
+
+def _require_id(args) -> None:
+    if not args.assignment_id:
+        raise FileNotFoundError(
+            "this act names one assignment: pass --id <assignment id>")
 
 
 if __name__ == "__main__":
