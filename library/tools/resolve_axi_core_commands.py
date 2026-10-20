@@ -7724,12 +7724,13 @@ def cmd_edit_transform(args) -> int:
         try:
             raw_resolution = str(
                 pool_item.GetClipProperty("Resolution") or "")
-            if "x" not in raw_resolution.lower():
+            dimensions = _re.findall(
+                r"(\d{2,5})\s*x\s*(\d{2,5})", raw_resolution.lower())
+            if not dimensions:
                 raise ValueError(
                     f"media source has no measured Resolution: "
                     f"{raw_resolution!r}")
-            clip_w, clip_h = (int(part.strip()) for part in
-                              raw_resolution.lower().split("x", 1))
+            clip_w, clip_h = (int(part) for part in dimensions[-1])
             frame_w = int(timeline.GetSetting("timelineResolutionWidth"))
             frame_h = int(timeline.GetSetting("timelineResolutionHeight"))
             before = item.GetProperty() or {}

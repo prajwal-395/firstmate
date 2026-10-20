@@ -408,9 +408,10 @@ def live_state():
             properties = item.GetProperty() or {{}}
             resolution = str(pool_item.GetClipProperty("Resolution") or "")
             source_size = None
-            if "x" in resolution.lower():
-                source_size = tuple(int(part.strip()) for part in
-                                    resolution.lower().split("x", 1))
+            dimensions = re.findall(
+                r"(\\d{{2,5}})\\s*x\\s*(\\d{{2,5}})", resolution.lower())
+            if dimensions:
+                source_size = tuple(int(part) for part in dimensions[-1])
             bbox = None
             if source_size and (properties.get("Scaling") in
                                 (1, "1", True) or behavior == "scaleToFit"):
