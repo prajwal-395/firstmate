@@ -235,6 +235,18 @@ def test_registered_execution_claims_recovery_only_with_actionable_reference():
     assert receipt["recovery"]["operations"] == [
         adapter_receipt["execution_contract"]["recovery"]]
 
+    adapter_receipt["execution_contract"]["recovery"]["reference"] = {
+        "kind": "unknown_recovery_handler", "entry_id": "entry-1"}
+    unsupported = _registered_execution_receipt(
+        backend="resolve_axi", plan={},
+        request=SimpleNamespace(
+            id="request-unrecoverable", idempotency_key="request-unrecoverable",
+            project="Project", timeline="Timeline"),
+        operations=[operation], receipts=[adapter_receipt],
+        base_generation=4, committed_generation=5,
+    )
+    assert unsupported["recovery"]["status"] == "unavailable"
+
 
 def test_registered_execution_missing_operation_evidence_is_not_verified():
     from types import SimpleNamespace

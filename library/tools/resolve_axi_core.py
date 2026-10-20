@@ -782,9 +782,7 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         for result in receipts
     ]
     recovery_available = bool(recovery_rows) and all(
-        row.get("status") in {"available", "recorded"}
-        and isinstance(row.get("reference"), Mapping)
-        and bool(row["reference"].get("kind"))
+        _registered_recovery_reference_is_actionable(row)
         for row in recovery_rows
     )
 
@@ -837,6 +835,25 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "delivered": {"status": "not_requested"},
     }
     return standardize_receipt(aggregate)
+
+
+def _registered_recovery_reference_is_actionable(recovery: Mapping) -> bool:
+    """Accept only recovery references handled by registered compensation."""
+    if recovery.get("status") not in {"available", "recorded"}:
+        return False
+    reference = recovery.get("reference")
+    if not isinstance(reference, Mapping):
+        return False
+    kind = reference.get("kind")
+    if kind == "undo_journal_entry":
+        return bool(reference.get("project_folder")
+                    and reference.get("entry_id"))
+    if kind == "caption_swap_back":
+        return bool(reference.get("project_folder")
+                    and reference.get("current_file")
+                    and reference.get("previous_file")
+                    and isinstance(reference.get("previous_props"), Mapping))
+    return False
 
 
 def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
