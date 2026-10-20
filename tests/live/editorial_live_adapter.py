@@ -708,16 +708,13 @@ def _run_store() -> str:
 #: Tasks whose fixture does not carry the required evidence. Each names
 #: the category and exact blocker, so a refusal stays explicit.
 _REFUSAL_NOTES = {
-    "restyle_captions":
-        ("missing_fixture_content",
-         ("caption.style re-renders caption cards carrying render props; "
-          "the fixture carries PNG caption overlays, not writeable text "
-          "cards, so the executor would refuse for lack of props.")),
     "right_speaker_camera":
-        ("missing_assignment_evidence",
-         "the fixture does not declare which camera belongs to the marked "
-         "speaker or carry a measured sync range for that camera; the "
-         "camera switch refuses until both are known."),
+        ("unexecutable_operation",
+         ("multicam.select_angle has no executor: Resolve exposes no "
+          "guarded set-angle verb and the staged replacement needs the "
+          "assigned camera's synced source range, which preparation "
+          "does not supply. The adapter refuses by design; nothing "
+          "was written.")),
     "improve_opening":
         ("missing_brief",
          ("reel.opening carries the supplied brief and the model's "
@@ -744,6 +741,10 @@ def execute_instruction(instruction: str, task) -> dict:
             "bypassed)")
     evidence = _evidence()
     phases["live_execution_s"] = perf_counter() - started
+    if task.id == "restyle_captions":
+        return _restyle_captions_evidence(
+            evidence.get("restyle_captions"), started, instruction,
+            discovery, phases)
     if task.id == "resize_logo":
         return _resize_logo_evidence(evidence["resize_logo"], started,
                                      instruction, discovery, phases)
@@ -773,6 +774,58 @@ def execute_instruction(instruction: str, task) -> dict:
         "missing_operation",
         f"{task.operation}: the adapter implements no production path "
         f"for this task | discovery: {discovery}; router: {route}")
+
+
+def _restyle_captions_evidence(case: dict | None, started: float,
+                               instruction: str, discovery: dict,
+                               phases: dict) -> dict:
+    """Judge the caption render-and-swap receipt for every Ren caption.
+
+    The live fixture supplies this measured row once it contains real Ren
+    caption cards and their render-props sidecars. Synthetic PNG overlay
+    plates are not writable captions, so absence remains a categorized
+    missing-fixture refusal rather than an executor refusal.
+    """
+    if not isinstance(case, dict):
+        raise _refuse(
+            "missing_fixture_content",
+            "caption.style needs Ren-rendered caption items with readable "
+            "render props; the current fixture contains no such cards")
+    cards = list(case.get("per_caption") or [])
+    operations = list(case.get("operations") or [])
+    receipt = dict(case.get("receipt") or {})
+    collateral = list(case.get("collateral_changes") or [])
+    card_ids = [str(card.get("unique_id") or "") for card in cards]
+    operation_ids = [str(operation.get("unique_id") or "")
+                     for operation in operations]
+    checks = {
+        "every_caption_verified": bool(cards)
+        and len(set(card_ids)) == len(card_ids)
+        and set(card_ids) == set(operation_ids)
+        and all(
+            card.get("verified") is True
+            and card.get("text_preserved") is True
+            and card.get("timing_preserved") is True
+            and card.get("style_applied") is True
+            for card in cards),
+        "one_caption_operation_per_card": (
+            bool(cards) and len(operations) == len(cards)
+            and len(set(operation_ids)) == len(operation_ids)
+            and all(operation.get("op") == "caption.style"
+                    for operation in operations)),
+        "committed_receipt": receipt.get("status") in {
+            "committed", "verified"},
+        "no_collateral_changes": not collateral,
+    }
+    backend = _route_executing(
+        operations, entry="resolve_axi_core.execute_semantic_edit_job",
+        basis=("each caption.style card is rendered by the existing "+
+               "subtitles.rerender_swap path and independently verified"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend, {"per_caption": cards}))
+    row["receipt"] = receipt
+    row["collateral_changes"] = collateral
+    return row
 
 
 def _common(instruction: str, discovery: dict, started: float,

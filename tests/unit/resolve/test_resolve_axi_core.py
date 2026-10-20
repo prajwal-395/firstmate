@@ -264,6 +264,71 @@ def test_registered_batch_compensates_successes_in_reverse_order(monkeypatch):
     assert [action["operation_index"] for action in recovery["actions"]] == [1, 0]
 
 
+def test_caption_style_batch_restores_rendered_caption_generation_on_failure(
+        monkeypatch):
+    """Defect: restyle_captions could never recover a completed card after
+    a later card failed; each prior render must swap back its prior pixels."""
+    from types import SimpleNamespace
+
+    from library.tools import operations
+    from library.tools.resolve_axi_core import _compensate_registered_operations
+
+    calls = []
+
+    def rerender(project_folder, pairs, swap):
+        calls.append((project_folder, pairs, swap))
+        pair = pairs[0]
+        return {"ok": True, "map": {pair["old_mov"]:
+                                      "/project/old-caption.mov"},
+                "swapped": [pair["old_mov"]]}
+
+    monkeypatch.setattr(operations, "get", lambda _name: SimpleNamespace(
+        run=rerender))
+    receipts = [{
+        "operation_index": 0,
+        "receipt": {"execution_contract": {"recovery": {
+            "reference": {
+                "kind": "caption_swap_back",
+                "project_folder": "/project",
+                "previous_file": "/project/old-caption.mov",
+                "current_file": "/project/new-caption.mov",
+                "previous_props": {"text": "Keep these words"},
+            }}}},
+    }]
+
+    recovery = _compensate_registered_operations(
+        receipts, timeline="Reel 01")
+
+    assert calls == [(
+        "/project", [{"old_mov": "/project/new-caption.mov",
+                       "timeline_label": "Reel 01",
+                       "props": {"text": "Keep these words"}}], True)]
+    assert recovery["status"] == "restored_original_verified"
+    assert recovery["actions"][0]["kind"] == "caption_swap_back"
+
+
+def test_restyle_captions_preflights_every_rendered_caption_before_mutation():
+    """Defect: restyle_captions refused a batch by design instead of
+    validating and executing each Ren-rendered caption with one style."""
+    import pytest
+
+    from library.tools.resolve_axi_core import _validate_caption_style_batch
+
+    operations = [
+        {"op": "caption.style", "unique_id": "cap-1", "style": "minimal"},
+        {"op": "caption.style", "unique_id": "cap-2", "style": "minimal"},
+    ]
+    snapshot = {"tracks": [{"name": "Subtitles", "clips": [
+        {"unique_id": "cap-1", "source_file": "/rendered/cap-1.mov"},
+        {"unique_id": "cap-2", "source_file": "/rendered/cap-2.mov"},
+    ]}]}
+
+    assert _validate_caption_style_batch(operations, snapshot) is None
+    with pytest.raises(ValueError, match="one supplied style"):
+        _validate_caption_style_batch(
+            [operations[0], {**operations[1], "style": "bold"}], snapshot)
+
+
 def test_registered_batch_keeps_recovery_required_for_unknown_failed_write(
         monkeypatch):
     from library.tools import undo_journal
@@ -292,9 +357,13 @@ def test_compatible_delete_batch_uses_one_editpatch_commit(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
 
-    from library.tools import edit_patch, project_registry, resolve_axi_core
+    from library.tools import (
+        edit_patch,
+        project_registry,
+        resolve_axi_core,
+        timeline_addressing,
+    )
     from library.tools import resolve_axi_core_commands as commands
-    from library.tools import timeline_addressing
 
     project = object()
     timeline = SimpleNamespace(GetName=lambda: "Reel 01")

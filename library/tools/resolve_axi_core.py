@@ -180,6 +180,49 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
         recovery = (row["receipt"].get("execution_contract", {})
                     .get("recovery", {}))
         reference = recovery.get("reference") or {}
+        if reference.get("kind") == "caption_swap_back":
+            try:
+                from library.tools import operations
+
+                operation = operations.get("subtitles.rerender_swap")
+                result = operation.run(
+                    reference["project_folder"],
+                    [{"old_mov": reference["current_file"],
+                      "timeline_label": timeline,
+                      "props": reference["previous_props"]}],
+                    swap=True)
+                restored = (result.get("ok") and
+                            (result.get("map") or {}).get(
+                                reference["current_file"])
+                            == reference["previous_file"])
+                if not restored:
+                    raise RuntimeError(
+                        f"caption swap-back did not render and map the "
+                        f"previous generation: {result}")
+                # The render-and-swap operation performs per-placement
+                # read-back and refuses while any current file remains.
+                actions.append({
+                    "operation_index": row["operation_index"],
+                    "verified": True,
+                    "kind": "caption_swap_back",
+                    "current_file": reference["current_file"],
+                    "previous_file": reference["previous_file"],
+                })
+                continue
+            except Exception as exc:  # noqa: BLE001 - retain partial recovery
+                completed = {action["operation_index"] for action in actions}
+                return {
+                    "status": "recovery_required",
+                    "reason": (f"caption swap-back for operation "
+                               f"{row['operation_index']} failed: "
+                               f"{type(exc).__name__}: {exc}"),
+                    "actions": actions,
+                    "failed_operation_index": row["operation_index"],
+                    "remaining_operations": [item["operation_index"]
+                                             for item in receipts
+                                             if item["operation_index"]
+                                             not in completed],
+                }
         if reference.get("kind") != "undo_journal_entry":
             completed = {action["operation_index"] for action in actions}
             return {
@@ -233,7 +276,7 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
 def _execute_registered_delete_batch(*, request, compiled, generation,
                                      snapshot, decision, owner: str) -> dict:
     """Commit compatible local deletes as one verified EditPatch."""
-    from library.tools import edit_patch, project_registry
+    from library.tools import edit_patch, project_registry, timeline_addressing
     from library.tools.resolve_axi_core_commands import (
         _assert_cursor_on,
         _connect,
@@ -241,7 +284,6 @@ def _execute_registered_delete_batch(*, request, compiled, generation,
         _project,
         _target_timeline,
     )
-    from library.tools import timeline_addressing
 
     try:
         resolve = _connect()
@@ -292,7 +334,7 @@ def _execute_registered_delete_batch(*, request, compiled, generation,
             project_folder = str(config.project_root)
         else:
             project_folder = str(project_path.parent)
-    except Exception as exc:  # noqa: BLE001 - this section is read-only
+    except Exception as exc:
         raise RegisteredBatchPreflightRefused(str(exc)) from exc
     receipt = edit_patch.apply_live_patch(
         project=project, timeline=timeline,
@@ -336,7 +378,10 @@ def _revalidate_registered_targets(*, request, operations, snapshot) -> list[dic
     """Check each stable item and media identity before a batch starts."""
     from library.tools import timeline_addressing
     from library.tools.resolve_axi_core_commands import (
-        _connect, _item_span, _project, _target_timeline,
+        _connect,
+        _item_span,
+        _project,
+        _target_timeline,
     )
 
     resolve = _connect()
@@ -376,6 +421,49 @@ def _revalidate_registered_targets(*, request, operations, snapshot) -> list[dic
         evidence.append({**selector, "record_in": actual[0],
                          "record_out": actual[1]})
     return evidence
+
+
+def _validate_caption_style_batch(operations: Sequence[Mapping],
+                                 snapshot: Mapping) -> None:
+    """Preflight every card in one consistent, non-aliasing restyle batch."""
+    if len(operations) < 2 or any(
+            str(operation["op"]) != "caption.style"
+            for operation in operations):
+        return
+    styles = {str(operation["style"]) for operation in operations}
+    if len(styles) != 1:
+        raise ValueError(
+            "caption.style batch must apply one supplied style to every "
+            "caption")
+    target_ids = [str(operation["unique_id"]) for operation in operations]
+    if len(set(target_ids)) != len(target_ids):
+        raise ValueError(
+            "caption.style batch repeats a caption identity; each caption "
+            "must be addressed once")
+    targets = {}
+    for track in snapshot["tracks"]:
+        for clip in track["clips"]:
+            if str(clip["unique_id"]) in target_ids:
+                targets.setdefault(str(clip["unique_id"]), []).append(
+                    (track, clip))
+    for unique_id in target_ids:
+        matches = targets.get(unique_id, [])
+        if len(matches) != 1:
+            raise ValueError(
+                f"caption.style target {unique_id!r} resolves to "
+                f"{len(matches)} prepared items; no captions were changed")
+        track, clip = matches[0]
+        if track.get("name") != "Subtitles" or not clip.get("source_file"):
+            raise ValueError(
+                f"caption.style target {unique_id!r} is not a rendered "
+                "Ren caption on the Subtitles row; no captions were changed")
+    source_files = [str(targets[unique_id][0][1]["source_file"])
+                    for unique_id in target_ids]
+    if len(set(source_files)) != len(source_files):
+        raise ValueError(
+            "caption.style batch contains multiple placements of one "
+            "rendered caption file; one pool-item swap would affect them "
+            "together, so no captions were changed")
 
 
 def _execute_registered_backend(*, backend: str, plan: Mapping,
@@ -435,13 +523,15 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     if not executors:
         raise ValueError("routed semantic request contains no executable operations")
+    operation_ids = {str(operation["op"]) for operation in operations}
+    supported_batch = (operation_ids <= {"clip.trim", "clip.delete"}
+                       or operation_ids == {"caption.style"})
     if len(operations) > 1 and (
-            backend_id != "resolve_axi"
-            or any(str(operation["op"]) not in {"clip.trim", "clip.delete"}
-                   for operation in operations)):
+            backend_id != "resolve_axi" or not supported_batch):
         raise ValueError(
             f"{backend_id} has no verified batch recovery strategy for this "
             "multi-operation request; no operation was applied")
+    _validate_caption_style_batch(operations, snapshot)
 
     execution = ExecutionInput(
         intent=request.to_dict(), decision=decision,

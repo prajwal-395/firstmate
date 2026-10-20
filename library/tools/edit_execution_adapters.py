@@ -221,11 +221,14 @@ def _verified_command(context, command: list[str], operation: dict,
 
 
 def _unrelated_changes(before: Mapping, after: Mapping, target_id: str,
-                       *, affected_spans=(), id_map=None) -> list:
+                       *, affected_spans=(), id_map=None,
+                       allowed_target_ids=()) -> list:
     from library.tools.transaction_orchestration import unrelated_clip_changes
 
+    target_ids = list(dict.fromkeys(
+        ([target_id] if target_id else []) + list(allowed_target_ids)))
     return unrelated_clip_changes(
-        operations=([{"unique_id": target_id}] if target_id else ()),
+        operations=[{"unique_id": unique_id} for unique_id in target_ids],
         affected_spans=affected_spans, id_map=id_map, before=before,
         after=after)
 
@@ -776,6 +779,25 @@ def _caption_style(context) -> dict:
     _caption_style_revalidate_live(context, dict(clip))
     project_folder = _project_folder(context)
     old_file = str(clip["source_file"])
+    compiled = getattr(context, "compiled", None)
+    prior_operations = (compiled.operations[:int(
+        getattr(context, "operation_index", 0))]
+                        if compiled is not None else ())
+    prior_caption_ids = [
+        str(prior["unique_id"])
+        for prior in prior_operations
+        if prior["op"] == operation_id]
+    prior_caption_files = {
+        str(candidate["source_file"])
+        for track in context.snapshot["tracks"]
+        for candidate in track["clips"]
+        if str(candidate["unique_id"]) in prior_caption_ids}
+    if old_file in prior_caption_files:
+        raise RuntimeError(
+            f"caption.style batch addresses multiple placements of the "
+            f"same rendered caption file {os.path.basename(old_file)!r}; "
+            "one pool-item swap already covers them, so duplicate writes "
+            "are refused")
     old_props = _caption_style_props(old_file)
     old_style = (old_props.get("style")
                  if isinstance(old_props.get("style"), dict) else {})
@@ -840,7 +862,9 @@ def _caption_style(context) -> dict:
             and str(live_hits[0].get("source_file")) == str(new_file)),
     }
     operation_matches = all(evidence.values())
-    unrelated = _unrelated_changes(context.snapshot, after, unique_id)
+    unrelated = _unrelated_changes(
+        context.snapshot, after, unique_id,
+        allowed_target_ids=prior_caption_ids)
     evidence["unrelated_items_unchanged"] = not unrelated
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},
@@ -902,6 +926,7 @@ def _caption_style(context) -> dict:
                     "unique_id": unique_id,
                     "previous_file": old_file,
                     "current_file": new_file,
+                    "previous_props": old_props,
                 },
             },
         },
