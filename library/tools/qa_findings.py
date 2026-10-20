@@ -787,8 +787,33 @@ def load_findings(project_folder: str = "",
     rows = capability_outputs.value(state or {}, "validation.resolve",
                                     "qa_report")
     if isinstance(rows, list) and rows:
-        return read_qa_report(rows, SOURCE_STATE,
-                              "this run's validate step (6.02)")
+        # A hearing happens after a reel has been delivered, outside the
+        # validation step that produced `rows`. Its rows are appended to
+        # the shared report on disk; include those even when this run has
+        # a validation payload in state, without duplicating an already
+        # merged hearing row.
+        path = _report_path(project_folder)
+        hearing_rows = []
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    disk_rows = json.load(handle)
+                if isinstance(disk_rows, list):
+                    hearing_rows = [row for row in disk_rows
+                                    if isinstance(row, Mapping)
+                                    and row.get("_hearing_id")]
+            except (OSError, ValueError):
+                hearing_rows = []
+        existing = {(row.get("_hearing_id"), row.get("metric"))
+                    for row in rows if isinstance(row, Mapping)
+                    and row.get("_hearing_id")}
+        additions = [row for row in hearing_rows
+                     if (row.get("_hearing_id"), row.get("metric"))
+                     not in existing]
+        detail = "this run's validate step (6.02)"
+        if additions:
+            detail += ", plus heard reel findings from exports/qa_report.json"
+        return read_qa_report(list(rows) + additions, SOURCE_STATE, detail)
 
     path = _report_path(project_folder)
     if path and os.path.exists(path):

@@ -1295,6 +1295,46 @@ def write_record(hearing: Hearing) -> str:
     return path
 
 
+def append_qa_report(project_folder: str, hearing: Hearing) -> str:
+    """Persist this hearing's measured rows in the project's QA report.
+
+    Validation owns the report's render-wide rows; a hearing owns these
+    reel-specific rows. Re-hearing the same render replaces its rows so
+    the report stays useful without accumulating duplicates.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    path = ProjectLayout(project_folder).write_path(
+        Area.EXPORTS, "qa_report.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            rows = json.load(handle)
+        if not isinstance(rows, list):
+            raise ValueError(f"{path} must contain a JSON array")
+    except FileNotFoundError:
+        rows = []
+
+    render_id = hearing_id(hearing)
+    timeline_name = hearing.timeline_name or hearing.video_path
+    rows = [row for row in rows
+            if not (isinstance(row, dict)
+                    and row.get("_hearing_timeline") == timeline_name)]
+    for finding in hearing.findings:
+        row = finding.as_row()
+        row["_hearing_id"] = render_id
+        row["_hearing_timeline"] = timeline_name
+        row["detail"] = (f"[{timeline_name}] "
+                         f"{finding.detail}")
+        rows.append(row)
+
+    temporary = path.with_name(f".{path.name}.{render_id}.tmp")
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(rows, handle, indent=2)
+        handle.write("\n")
+    os.replace(temporary, path)
+    return str(path)
+
+
 def hearing_id(hearing: Hearing) -> str:
     """This render, heard against this plan - stable across re-runs.
 

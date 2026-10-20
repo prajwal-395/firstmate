@@ -244,6 +244,7 @@ def run(project_folder: str,
         return refuse(str(refused))
 
     record = reel_hearing.write_record(hearing)
+    qa_report_path = reel_hearing.append_qa_report(project_folder, hearing)
     read = reel_hearing.read_findings(hearing)
     observation: Dict[str, Any] = {
         "skill": SKILL_NAME,
@@ -253,6 +254,7 @@ def run(project_folder: str,
         "video_path": hearing.video_path,
         "timeline_path": hearing.timeline_path,
         "record": record,
+        "qa_report": qa_report_path,
         "heard_by": hearing.engine,
         "counts": read.counts(),
         "findings": qa_findings.findings_for_review(read)["findings"],

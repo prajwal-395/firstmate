@@ -213,6 +213,36 @@ def test_every_finding_carries_an_honest_verdict_and_one_owner(hearing):
     assert read.counts()[qa_findings.FAILING] == 4
 
 
+def test_heard_vs_planned_rows_reach_exports_qa_report(hearing, project):
+    """The run summary reads hearing rows from the shared QA report."""
+    report = project / "exports" / "qa_report.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    original = {"metric": "resolution", "passed": True, "value": "1080x1920",
+                "threshold": "1080x1920", "severity": "info",
+                "detail": "Resolution is 1080x1920"}
+    report.write_text(json.dumps([original]), encoding="utf-8")
+
+    reel_hearing.append_qa_report(str(project), hearing)
+    first_write = json.loads(report.read_text(encoding="utf-8"))
+    reel_hearing.append_qa_report(str(project), hearing)
+    rows = json.loads(report.read_text(encoding="utf-8"))
+
+    assert rows[0] == original
+    hearing_rows = [row for row in rows if row.get("_hearing_id")]
+    assert len(hearing_rows) == len(hearing.findings)
+    assert len(first_write) == len(rows)
+    assert {row["metric"] for row in hearing_rows} == set(reel_hearing.METRICS)
+    assert all(row["_hearing_timeline"] == hearing.timeline_name
+               for row in hearing_rows)
+
+    state = {"step_outputs": {"validate": {"qa_report": [original]}}}
+    findings = qa_findings.load_findings(str(project), state)
+    assert {finding.metric for finding in findings.findings} == (
+        {"resolution"} | set(reel_hearing.METRICS))
+    summary = "\n".join(qa_findings.summary_lines(findings))
+    assert reel_hearing.DRIFT_METRIC in summary
+
+
 # ── 4. The gate: script divergence and caption coverage refuse ────────
 
 def test_a_diverged_render_is_refused_with_the_words_and_timecodes(hearing):
