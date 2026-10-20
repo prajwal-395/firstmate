@@ -26,6 +26,7 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from library.tools import git_guard as _git_guard
 from library.tools import journal_naming, qualification_project, source_memory
 from library.tools.shared_environment import vep_home
 
@@ -281,10 +282,18 @@ def plan() -> dict:
                   if entry.path not in referenced]
 
     unique = {entry.path: entry for entry in candidates}
+    collectable, refused = _git_guard.partition(
+        sorted(unique), owned_roots=[str(home)])
+    refused_git = [
+        {"path": hit.path, "resolved_path": hit.resolved_path,
+         "reason": hit.reason, "work_tree": hit.work_tree,
+         "detail": _git_guard.describe(hit)}
+        for hit in refused]
     return {"format": "ren-workspace-gc/2", "home": str(home), "mode": mode,
             "created_at": datetime.now(UTC).isoformat(),
             "kept_workflow_runs": [str(path) for path in retained],
-            "candidates": [asdict(unique[path]) for path in sorted(unique)]}
+            "candidates": [asdict(unique[path]) for path in collectable],
+            "refused_git": refused_git}
 
 
 def write_plan(document: dict) -> Path:
@@ -404,6 +413,9 @@ def apply_plan(manifest: str | Path) -> dict:
         _write_manifest(path, before)
         for item in before["candidates"]:
             target = Path(item["path"])
+            hit = _git_guard.check(target, owned_roots=[str(home)])
+            if hit is not None:
+                raise WorkspaceGcRefused(_git_guard.describe(hit))
             if not target.is_absolute() or not _inside_home(target, home):
                 raise WorkspaceGcRefused(
                     f"candidate escaped Ren's data home: {target}")
@@ -500,6 +512,9 @@ def expire_plan(manifest: str | Path) -> dict:
             if os.path.lexists(target):
                 raise WorkspaceGcRefused(
                     f"original path was recreated before expiry: {target}")
+            hit = _git_guard.check(source, owned_roots=[str(home)])
+            if hit is not None:
+                raise WorkspaceGcRefused(_git_guard.describe(hit))
             if not _same_identity(source, item):
                 raise WorkspaceGcRefused(f"quarantined identity changed: {source}")
             source.unlink()

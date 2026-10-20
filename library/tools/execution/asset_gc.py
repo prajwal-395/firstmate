@@ -137,7 +137,8 @@ def collect_now(project, survey_result: dict, project_folder: str,
     referenced = current_referenced_paths(project, project_folder)
     _gc.assert_gc_safe(survey_result["plan"], referenced, project_folder)
     trash = _gc.move_to_trash(files_to_delete(survey_result["plan"]),
-                              referenced, trash_dir)
+                              referenced, trash_dir,
+                              owned_roots=[project_folder])
     journal["trash"] = {"trash_dir": trash_dir,
                         "moved": trash["moved"],
                         "already_gone": trash["already_gone"],

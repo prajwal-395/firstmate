@@ -37,6 +37,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 
+from library.tools import git_guard as _git_guard
 from library.tools import journal_naming
 from library.tools.orphan_removal import (
     Removal,
@@ -84,6 +85,10 @@ def assert_gc_safe(plan: list, referenced: set,
         if removal.file_state != "delete":
             continue
         path = removal.file_path
+        hit = _git_guard.check(
+            path, owned_roots=[os.path.abspath(project_root)])
+        if hit is not None:
+            raise GcRefused(_git_guard.describe(hit) + " Nothing was moved.")
         if path in referenced:
             raise GcRefused(
                 f"{path!r} is played by a timeline right now. Moving it "
@@ -171,7 +176,7 @@ def render_gc_report(plan: list, counts: dict,
 
 
 def move_to_trash(paths: list, referenced: set,
-                  trash_dir: str) -> dict:
+                   trash_dir: str, *, owned_roots=()) -> dict:
     """Move the files into `trash_dir` and write the manifest.
 
     Re-proves per file, at the moment of the move, that no timeline
@@ -185,6 +190,9 @@ def move_to_trash(paths: list, referenced: set,
     moved, freed, absent = [], 0, []
     entries = []
     for path in sorted(set(paths)):
+        hit = _git_guard.check(path, owned_roots=list(owned_roots))
+        if hit is not None:
+            raise GcRefused(_git_guard.describe(hit) + " Nothing was moved.")
         assert_file_unreferenced(path, referenced)
         try:
             size = os.path.getsize(path)

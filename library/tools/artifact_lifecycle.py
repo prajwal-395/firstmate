@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import event_log, resource_leases, run_control
+from library.tools import git_guard as _git_guard
 from library.tools.resource_leases import LeaseDeclaration, ResourceRef
 
 CREATED = "created"
@@ -439,6 +440,7 @@ def recover_interrupted_cleanup_jobs(project_folder: str) -> int:
 
 def _assert_cleanup_path(path: Path, cleanup_root: Path) -> None:
     root = cleanup_root.resolve(strict=True)
+
     if Path(os.path.abspath(cleanup_root)) != root:
         raise LifecycleRefused(f"cleanup root traverses a symlink: {cleanup_root}")
     candidate = Path(os.path.abspath(path))
@@ -451,6 +453,20 @@ def _assert_cleanup_path(path: Path, cleanup_root: Path) -> None:
         cursor = cursor / part
         if cursor.is_symlink():
             raise LifecycleRefused(f"symlink traversal is protected: {cursor}")
+
+
+def _assert_git_safe(path: Path, cleanup_root: Path,
+                     project_folder: str) -> None:
+    """Refuse a cleanup path git tracks or a foreign work tree holds.
+
+    The work tree whose top equals the cleanup root or the project
+    folder is Ren-owned (a lifecycle record names it); any other work
+    tree is foreign, and a git-tracked path refuses even when owned.
+    """
+    hit = _git_guard.check(
+        path, owned_roots=[str(cleanup_root), str(project_folder)])
+    if hit is not None:
+        raise LifecycleRefused(_git_guard.describe(hit))
 
 
 def quarantine_file(project_folder: str, record: ArtifactRecord,
@@ -470,6 +486,7 @@ def quarantine_file(project_folder: str, record: ArtifactRecord,
             declaration, purpose=f"artifact-quarantine:{record.artifact_id}",
             project=project_folder, wait=False):
         _assert_cleanup_path(source, root)
+        _assert_git_safe(source, root, project_folder)
         latest = _latest_artifacts(project_folder).get(record.artifact_id)
         if latest is None or latest.get("state") != DISPOSABLE:
             raise LifecycleRefused("artifact is no longer disposable")
@@ -488,6 +505,7 @@ def quarantine_file(project_folder: str, record: ArtifactRecord,
         if os.path.lexists(destination):
             raise LifecycleRefused(
                 f"quarantine destination already exists: {destination}")
+        _assert_git_safe(source, root, project_folder)
         os.replace(source, destination)
         try:
             moved_identity = FileIdentity.capture(destination)
@@ -570,6 +588,7 @@ def purge_file(project_folder: str, record: ArtifactRecord,
             declaration, purpose=f"artifact-purge:{record.artifact_id}",
             project=project_folder, wait=False):
         _assert_cleanup_path(path, root)
+        _assert_git_safe(path, root, project_folder)
         registered = _latest_artifacts(project_folder).get(record.artifact_id)
         if registered is None:
             raise LifecycleRefused("artifact ownership is unknown")
@@ -596,6 +615,7 @@ def purge_file(project_folder: str, record: ArtifactRecord,
             transition_artifact(project_folder, record.artifact_id, DISPOSABLE,
                                 reason="hardlink guard refused deletion")
             raise LifecycleRefused(f"hardlinked artifact is protected: {path}")
+        _assert_git_safe(path, root, project_folder)
         path.unlink()
         transition_artifact(project_folder, record.artifact_id, PURGED,
                             reason="identity rechecked and file removed")

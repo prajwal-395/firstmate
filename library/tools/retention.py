@@ -104,6 +104,7 @@ from pathlib import Path
 
 from library.tools import build_sweep, journal_naming
 from library.tools import caption_asset_gc as gc
+from library.tools import git_guard as _git_guard
 from library.tools.project_layout import (
     Area,
     ProjectLayout,
@@ -730,6 +731,16 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
                  "why": ("timeline interchange or recovery archive "
                          "(.drt/.drp/.otio): never purged, in any class")})
             continue
+        git_hit = _git_guard.check(
+            path, owned_roots=[str(Path(project_folder).resolve())])
+        if git_hit is not None:
+            plan.kept.append(
+                {"path": path, "category": category,
+                 "why": _git_guard.describe(git_hit),
+                 "git_reason": git_hit.reason,
+                 "git_work_tree": git_hit.work_tree,
+                 "git_resolved_path": git_hit.resolved_path})
+            continue
         try:
             layout.assert_writable(path)
         except ProjectLayoutViolation as outside:
@@ -946,6 +957,13 @@ def apply_purge(manifest_path: str, db_paths,
     now = {c.path: c for c in fresh.candidates}
     recovered = []
     for path in actionable:
+        git_hit = _git_guard.check(
+            path, owned_roots=[str(Path(planned.project_folder).resolve())])
+        if git_hit is not None:
+            raise PurgeRefused(
+                _git_guard.describe(git_hit),
+                "the re-proof before removal failed. Nothing was removed",
+                "re-plan the purge and apply the fresh manifest")
         was, current = by_path[path], now.get(path)
         if current is None:
             if path in deleting and not os.path.lexists(path):
@@ -1049,6 +1067,13 @@ def apply_purge(manifest_path: str, db_paths,
             raise PurgeRefused(
                 f"{path} was replaced at delete time",
                 "device/inode identity moved under the plan. Nothing further was removed",
+                "re-plan the purge and apply the fresh manifest")
+        git_hit = _git_guard.check(
+            path, owned_roots=[str(Path(planned.project_folder).resolve())])
+        if git_hit is not None:
+            raise PurgeRefused(
+                _git_guard.describe(git_hit),
+                "the delete-time re-proof failed. Nothing further was removed",
                 "re-plan the purge and apply the fresh manifest")
         if path not in deleting:
             progress["deleting"].append(path)

@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import artifact_lifecycle as lifecycle
+from library.tools import git_guard as _git_guard
 from library.tools import project_registry
 
 DEFAULT_FREE_RESERVE_BYTES = 10 * 1024**3
@@ -1294,9 +1295,23 @@ def plan_document(projects: list[str]) -> dict:
         pressure_state=report["disk_pressure"],
         cache_bytes=report["cache_bytes"],
     )
+    owned = [str(Path(project).resolve()) for project in projects]
+    _collectable, refused = _git_guard.partition(
+        [row["path"] for row in candidates], owned_roots=owned)
+    refused_by_path = {hit.path: hit for hit in refused}
+    refused_git = [
+        {"artifact_id": row["artifact_id"], "path": row["path"],
+         "resolved_path": refused_by_path[row["path"]].resolved_path,
+         "reason": refused_by_path[row["path"]].reason,
+         "work_tree": refused_by_path[row["path"]].work_tree,
+         "detail": _git_guard.describe(refused_by_path[row["path"]])}
+        for row in candidates if row["path"] in refused_by_path]
+    candidates = [row for row in candidates
+                  if row["path"] not in refused_by_path]
     document = {
         "format": "ren-storage-plan/1",
         "candidates": candidates,
+        "refused_git": refused_git,
         "cache_evictions": cache_evictions,
         "logical_bytes": sum(row["identity"]["size_bytes"] for row in candidates),
     }

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import artifact_lifecycle, event_log, resource_leases
+from library.tools import git_guard as _git_guard
 from library.tools.resource_leases import LeaseDeclaration, ResourceRef
 
 CACHE_KIND_COST = {
@@ -455,7 +456,25 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
             "class_high_watermark_bytes": class_high,
             "cacheable_bytes": valid_bytes,
             "selected": selected,
-            "estimated_reclaimed_bytes": reclaimed}
+            "estimated_reclaimed_bytes": reclaimed,
+            "refused_git": []}
+    _collectable, _refused = _git_guard.partition(
+        [row["path"] for row in selected],
+        owned_roots=[str(Path(project_folder).resolve())])
+    if _refused:
+        _refused_by_path = {hit.path: hit for hit in _refused}
+        plan["refused_git"] = [
+            {"artifact_id": row["artifact_id"], "path": row["path"],
+             "resolved_path": _refused_by_path[row["path"]].resolved_path,
+             "reason": _refused_by_path[row["path"]].reason,
+             "work_tree": _refused_by_path[row["path"]].work_tree,
+             "detail": _git_guard.describe(_refused_by_path[row["path"]])}
+            for row in selected if row["path"] in _refused_by_path]
+        plan["selected"] = [
+            row for row in selected if row["path"] not in _refused_by_path]
+        plan["estimated_reclaimed_bytes"] = sum(
+            int(row["size_bytes"]) for row in plan["selected"]
+            if row.get("reason") != "incompatible")
     plan["plan_id"] = hashlib.sha256(json.dumps(
         plan, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     event_log.emit(project_folder, POLICY_EVENT, task="cache-policy",
@@ -503,6 +522,11 @@ def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
                 or record.identity.__dict__ != current.get("identity")):
             raise CachePolicyRefused(
                 f"cache identity changed since plan: {artifact_id}")
+        hit = _git_guard.check(
+            record.path, owned_roots=[str(Path(project_folder).resolve()),
+                                      str(Path(cleanup_root).resolve())])
+        if hit is not None:
+            raise CachePolicyRefused(_git_guard.describe(hit))
         lease_path = (Path(record.path).parent
                       if record.kind == "native_extension" else record.path)
         with cache_file_lease(lease_path, exclusive=True):

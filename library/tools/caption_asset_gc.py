@@ -78,6 +78,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import git_guard as _git_guard
 from library.tools.project_layout import Area, ProjectLayout
 
 LIVE = "live"
@@ -1002,6 +1003,7 @@ class MarkResult:
     assets: list[AssetVerdict]
     fingerprint: dict = field(default_factory=dict)
     root_versions: dict = field(default_factory=dict)
+    refused_git: list[dict] = field(default_factory=list)
 
     @property
     def live(self) -> list[AssetVerdict]:
@@ -1039,6 +1041,7 @@ class MarkResult:
             "assets": [vars(a) for a in self.assets],
             "fingerprint": self.fingerprint,
             "root_versions": self.root_versions,
+            "refused_git": self.refused_git,
         }
 
     def write_json(self, path: str) -> str:
@@ -1065,7 +1068,8 @@ class MarkResult:
             created_at=data.get("created_at", ""),
             roots=roots, assets=assets,
             fingerprint=data.get("fingerprint", {}),
-            root_versions=data.get("root_versions", {}))
+            root_versions=data.get("root_versions", {}),
+            refused_git=data.get("refused_git", []))
 
 
 def fingerprint_dir(asset_dir: str) -> dict:
@@ -1273,6 +1277,19 @@ def mark(project_folder: str, asset_dir: str,
          roots: list[RootResult]) -> MarkResult:
     """Compute reachability. Read-only: writes nothing, anywhere."""
     records = enumerate_assets(asset_dir)
+    owned = [str(Path(project_folder).resolve()), str(Path(asset_dir).resolve())]
+    refused_by_path = {}
+    refused_git = []
+    for hit in _git_guard.partition(
+            [record["path"] for record in records],
+            owned_roots=owned)[1]:
+        refused_by_path[hit.path] = hit
+        refused_git.append(
+            {"path": hit.path, "resolved_path": hit.resolved_path,
+             "reason": hit.reason, "work_tree": hit.work_tree,
+             "detail": _git_guard.describe(hit)})
+    records = [record for record in records
+               if record["path"] not in refused_by_path]
     mov_paths = {r["path"] for r in records if r["kind"] == "mov"}
     reachable: dict[str, str] = {}
     for root in roots:
@@ -1349,7 +1366,8 @@ def mark(project_folder: str, asset_dir: str,
         created_at=datetime.now(timezone.utc).isoformat(),
         roots=list(roots), assets=assets,
         fingerprint=fingerprint_dir(asset_dir),
-        root_versions=root_versions(project_folder, roots))
+        root_versions=root_versions(project_folder, roots),
+        refused_git=refused_git)
 
 
 # ── Sweep ─────────────────────────────────────────────────────────────
@@ -1399,6 +1417,15 @@ def render_sweep_manifest(result: MarkResult, record: dict) -> str:
     for path in record["moved"]:
         lines.append(f"- `{path}`")
     lines.append("")
+    refused = record.get("refused_git") or []
+    if refused:
+        lines += [("## Refused by git guard "
+                   f"({len(refused)})"), "",
+                  ("Inside a git work tree Ren does not own, or tracked "
+                   "by git. Not orphans; never moved."), ""]
+        for row in refused:
+            lines.append(f"- `{row['path']}`: {row['detail']}")
+        lines.append("")
     return "\n".join(lines)
 
 
@@ -1439,6 +1466,16 @@ def render_mark_report(result: MarkResult) -> str:
                   ""]
         for root in unreadable:
             lines.append(f"- `{root.name}`: {root.detail}")
+    if result.refused_git:
+        lines += ["",
+                  "## REFUSED BY GIT GUARD",
+                  "",
+                  ("These paths are inside a git work tree Ren does not "
+                   "own, or git tracks them. They are not orphans and the "
+                   "sweep will never move them."),
+                  ""]
+        for row in result.refused_git:
+            lines.append(f"- `{row['path']}`: {row['detail']}")
     lines.append("")
     return "\n".join(lines)
 
@@ -1574,6 +1611,14 @@ def _sweep_locked(mark_path: str, project_folder: str = "",
                 f"{asset.path} became referenced since the mark "
                 f"(saved now by a current root). The mark no longer "
                 f"describes what is there. Nothing was moved.")
+    owned = [str(Path(project_folder).resolve()),
+             str(Path(asset_dir).resolve())]
+    for asset in orphans:
+        hit = _git_guard.check(asset.path, owned_roots=owned)
+        if hit is not None:
+            raise SweepRefused(
+                f"{_git_guard.describe(hit)}. The mark no longer "
+                f"describes what is there. Nothing was moved.")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     dest_base = _quarantine_base(project_folder, stamp)
@@ -1611,6 +1656,7 @@ def _sweep_locked(mark_path: str, project_folder: str = "",
         "saved_per_root": result.saved_per_root(),
         "quarantine_dir": str(dest_base),
         "manifest_path": manifest_path,
+        "refused_git": result.refused_git,
     }
     Path(manifest_path).parent.mkdir(parents=True, exist_ok=True)
     with open(manifest_path, "w", encoding="utf-8") as handle:
