@@ -4058,9 +4058,11 @@ def _cmd_run_recorded(args) -> int:
     switch_calls = {node.attr for node in ast.walk(tree)
                     if isinstance(node, ast.Attribute)
                     and node.attr in switch_names}
-    switch_calls.update(node.id for node in ast.walk(tree)
-                        if isinstance(node, ast.Name)
-                        and node.id == "open_project")
+    switch_calls.update(
+        node.func.id for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "open_project")
     switch_calls.update(
         node.args[1].value for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)

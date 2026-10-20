@@ -2536,7 +2536,7 @@ def main() -> int:
     report = editorial_acceptance.run_tasks(execute_instruction)
     report["failure_categories"] = _failure_categories(report["results"])
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    out = REPORT_DIR / "editorial-acceptance.json"
+    out = REPORT_DIR / "editorial-request-acceptance.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({"passed": report["passed"],
                       "failed": report["failed"],

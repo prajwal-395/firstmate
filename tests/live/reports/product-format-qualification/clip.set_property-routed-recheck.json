@@ -1,0 +1,91 @@
+{
+  "schema": "ren-axi-routed-qualification-recheck/1",
+  "operation": "clip.set_property",
+  "backend": "edit_patch",
+  "route": "edit_patch.property",
+  "qualification_policy": "production",
+  "qualification_state": {
+    "inspected": true,
+    "missing_targets": [],
+    "state": {
+      "clip_composition": "linked_video_clip",
+      "existing_effects": "transforms+retiming",
+      "frame_rate": "23.976",
+      "linked_audio_configuration": "linked_audio_present",
+      "media_type": "video",
+      "project_settings": "portrait_1080x1920",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "dense",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "targets": [
+      "79cc964b-65d3-4c99-997b-37a0f236a4f4"
+    ]
+  },
+  "project": "Ren Scratch - axc-product-qualification",
+  "timeline": "reel13",
+  "timeline_id": "b72c2e61-bd40-41f8-9c91-283af26808ee",
+  "resolve_version": "21.1.0.14",
+  "target": {
+    "unique_id": "79cc964b-65d3-4c99-997b-37a0f236a4f4",
+    "name": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_7cdb0519.mov",
+    "track": "video4",
+    "record_span": [
+      0,
+      23
+    ],
+    "pan_before": 1.0,
+    "pan_after": 2.5,
+    "tilt_after": -1732.0
+  },
+  "execution": {
+    "entry": "resolve-axi edit transform --timeline reel13 --item 79cc964b-65d3-4c99-997b-37a0f236a4f4 --move-x 1 --verify --apply --project-folder /private/tmp/vep-axc-product-qualification/ren-scratch-project",
+    "transaction_id": "ren-e5672fdde27a3f6fe7cae6208b0dd3a56028842f21a66b530b04086056b76c95",
+    "status": "committed",
+    "base_generation": 3,
+    "generation": 4,
+    "operations": [
+      {
+        "op": "clip.set_property",
+        "key": "Pan",
+        "value": 2.5
+      },
+      {
+        "op": "clip.set_property",
+        "key": "Tilt",
+        "value": -1732.0
+      }
+    ],
+    "acceptance_contracts": [
+      {
+        "operation_readback_matches_request": "passed",
+        "unrelated_items_unchanged": "passed"
+      },
+      {
+        "operation_readback_matches_request": "passed",
+        "unrelated_items_unchanged": "passed"
+      }
+    ],
+    "output": "verified: yes (native properties read back)"
+  },
+  "live_readback": {
+    "source": "resolve-axi items --timeline reel13 --project Ren Scratch - axc-product-qualification --refresh-live --transforms",
+    "generation": 4,
+    "target_pan": 2.5,
+    "target_tilt": -1732.0,
+    "target_record_span": [
+      0,
+      23
+    ]
+  },
+  "prior_refusal": {
+    "status": "not_applied",
+    "transaction_id": "ren-46f2abd51667373c197dc725083828b6d3193527fac5b779db90f81834e36710",
+    "reason": "missing scratch project folder for transform write; refusal stated write was not sent to Resolve",
+    "operations_applied": 0,
+    "recovery": "fresh AXI items read-back confirmed the target state before retry"
+  },
+  "result": "passed"
+}

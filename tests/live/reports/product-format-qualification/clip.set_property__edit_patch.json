@@ -52,6 +52,20 @@
       "readback_generation": 2,
       "receipt_status": "committed",
       "resolve_version": "21.1.0.14",
+      "routed_recheck": {
+        "backend": "edit_patch.property",
+        "base_generation": 3,
+        "generation": 4,
+        "readback_verified": true,
+        "record_span_unchanged": true,
+        "report": "tests/live/reports/product-format-qualification/clip.set_property-routed-recheck.json",
+        "status": "committed",
+        "target_pan_after": 2.5,
+        "target_pan_before": 1.0,
+        "target_tilt_after": -1732.0,
+        "transaction_id": "ren-e5672fdde27a3f6fe7cae6208b0dd3a56028842f21a66b530b04086056b76c95",
+        "unrelated_items_unchanged": true
+      },
       "settings": {
         "timelineFrameRate": 23.976,
         "timelineResolutionHeight": "1920",
@@ -235,7 +249,7 @@
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "tests/live/reports/product-format-qualification/clip.set_property-live.json#qualification_state; live Ren Scratch copy imported from real Reel 13; EditPatch Pan read-back and full timeline snapshot compare passed",
+  "evidence": "tests/live/reports/product-format-qualification/clip.set_property-live.json#qualification_state; live Ren Scratch copy imported from real Reel 13; EditPatch Pan read-back and full timeline snapshot compare passed; routed production recheck: tests/live/reports/product-format-qualification/clip.set_property-routed-recheck.json",
   "expected_state": {
     "key": "Pan",
     "operation": "clip.set_property",
@@ -260,6 +274,18 @@
     },
     {
       "check": "EditPatch unrelated changes empty",
+      "result": "passed"
+    },
+    {
+      "check": "routed Pan/Tilt properties match the command receipt and fresh AXI read-back",
+      "result": "passed"
+    },
+    {
+      "check": "routed edit leaves unrelated items unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "routed edit preserves the target record span",
       "result": "passed"
     }
   ],
@@ -293,6 +319,7 @@
   ],
   "visual_verification": [
     "Pan 40.0 read back from the live item transform; record span kept",
-    "AXI fresh read-back confirmed Pan=1.0 and the full before/after timeline snapshot confirmed no unintended changes."
+    "AXI fresh read-back confirmed Pan=1.0 and the full before/after timeline snapshot confirmed no unintended changes.",
+    "After broker reload, the production-routed resolve-axi edit transform committed and fresh AXI read-back confirmed Pan=2.5, Tilt=-1732.0, record span [0,23], and both operation acceptance contracts passed."
   ]
 }
