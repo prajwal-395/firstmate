@@ -905,6 +905,7 @@ def _capabilities_toon(payload: dict) -> str:
 _SHADOW_READ_COMMANDS = frozenset({
     "cmd_timeline_list", "cmd_timeline_get", "cmd_markers",
     "cmd_items", "cmd_fusion", "cmd_captions", "cmd_frames",
+    "cmd_target",
 })
 
 #: Commands that read Resolve under their own lease but write only local
@@ -1944,6 +1945,117 @@ def cmd_items(args) -> int:
           "exclusive - the mix-up that cost a frame is visible here",
           help_block([f"{TOOL} frames --timeline \"{timeline_name}\""])])
     return 0
+
+
+def cmd_target(args) -> int:
+    """Resolve a DESCRIBED target to the clip it names.
+
+    An agent that knows the task - "trim the second interview B-roll" -
+    used to read `items`, count rows in a TOON table and hand a
+    `--track video2 --index 1` to the next command. The count was the
+    model's, and the table did not print the one column that would let
+    it address a clip by its stable identity.
+
+    `target_resolution` is the one deterministic owner of that question.
+    This command is its Resolve-side face: the description is resolved
+    against the timeline's recorded generation (or a live refresh), and
+    the answer carries the exact addressing arguments the mutating
+    verbs take. A description that does not name exactly one clip is
+    refused, with the candidates named.
+
+    Read-only. It touches no Resolve unless `--refresh-live` is passed.
+    """
+    from library.tools import target_resolution
+
+    scope_error = _resolve_reel_scope(args, "target")
+    if scope_error is not None:
+        return fail(*scope_error)
+    description = (getattr(args, "description", "") or "").strip()
+    if not description:
+        return fail(
+            "no target was described",
+            f'{TOOL} target "row=V2 item=2" --timeline "<name>"')
+    try:
+        view, note = _timeline_view(
+            args.timeline, args.project, caller="resolve_axi.target",
+            refresh_live=getattr(args, "refresh_live", False),
+            exact=bool(getattr(args, "_reel_exact", False)))
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    resolution = target_resolution.resolve_text(
+        description, target_resolution.clips_of(view.snapshot))
+    rows = [match.as_dict() for match in resolution.matches]
+    if getattr(args, "json", False):
+        emit([json.dumps({
+            "timeline": view.generation.timeline_name,
+            "project": view.generation.project,
+            "generation": view.generation.generation,
+            **resolution.as_dict(),
+            "arguments": _target_arguments(resolution),
+        }, indent=2, sort_keys=True, default=str)])
+        return 0
+    single = resolution.single if len(resolution.matches) == 1 else None
+    emit([kv_block("target", {
+              "timeline": view.generation.timeline_name,
+              "project": view.generation.project,
+              "status": resolution.status,
+              "selector": description,
+              "matched": f"{len(resolution.matches)} clip(s)",
+              "note": resolution.note,
+              "assumption": single.assumption if single else "",
+              **_timeline_view_metadata(
+                  view, getattr(args, "refresh_live", False)),
+          }),
+          table("clips", rows,
+                ["row", "index", "name", "unique_id", "record_in",
+                 "record_out", "source_in", "source_out", "source_file"]),
+          note])
+    if single is not None:
+        emit([kv_block("arguments", _target_arguments(resolution)),
+              help_block([_target_command(args, resolution)])])
+    else:
+        emit([help_block([
+            f'{TOOL} items --timeline "{view.generation.timeline_name}"',
+            f'{TOOL} target "<description>" --timeline '
+            f'"{view.generation.timeline_name}"'])])
+    return 0
+
+def _target_arguments(resolution) -> dict:
+    """The addressing arguments a mutating AXI verb takes for this clip."""
+    if len(resolution.matches) != 1:
+        return {}
+    match = resolution.matches[0]
+    record = match.record_span or (None, None)
+    source = match.source_span or (None, None)
+    return {
+        "track": f"{match.track_type}{match.track_index}",
+        "index": match.position,
+        "target-unique-id": match.unique_id,
+        "expected-source-file": match.source_file,
+        "expected-source-in-frame": source[0],
+        "expected-source-out-frame": source[1],
+        "expected-record-in-frame": record[0],
+        "expected-record-out-frame": record[1],
+    }
+
+
+def _target_command(args, resolution) -> str:
+    """The mutating command these arguments address, ready to paste.
+
+    The verb is left as `<verb>`: this command resolves a TARGET, it does
+    not know which change the caller intends, and a command that guessed
+    one would read as a recommendation.
+    """
+    arguments = _target_arguments(resolution)
+    timeline = getattr(args, "timeline", "") or ""
+    return (f"{TOOL} edit <verb> --timeline \"{timeline}\" "
+            f"--track {arguments.get('track')} --index {arguments.get('index')} "
+            f"--target-unique-id \"{arguments.get('target-unique-id')}\" "
+            f"--expected-source-file \"{arguments.get('expected-source-file')}\" "
+            f"--expected-source-in-frame {arguments.get('expected-source-in-frame')} "
+            f"--expected-source-out-frame {arguments.get('expected-source-out-frame')} "
+            f"--expected-record-in-frame {arguments.get('expected-record-in-frame')} "
+            f"--expected-record-out-frame {arguments.get('expected-record-out-frame')}")
 
 
 def cmd_fusion(args) -> int:
@@ -9759,6 +9871,23 @@ def build_parser() -> Parser:
                    help="add the stored Pan/Tilt/Zoom/Opacity columns, "
                         "read back verbatim (units unconverted)")
     p.set_defaults(func=cmd_items)
+
+    p = subs.add_parser(
+        "target",
+        help="resolve a DESCRIBED target to the clip it names, with the "
+             "arguments that address it")
+    p.add_argument("description",
+                   help="the target, as key=value pairs: "
+                        "id=<clip id>, name=<clip name>, row=V2 item=2, "
+                        "or start=<frame> end=<frame>")
+    _add_scope(p, "target")
+    _add_reel_scope(p)
+    p.add_argument("--refresh-live", action="store_true",
+                   help="refresh from Resolve; the exact timeline must "
+                        "already be current")
+    p.add_argument("--json", action="store_true",
+                   help="emit structured JSON instead of concise TOON")
+    p.set_defaults(func=cmd_target)
 
     p = subs.add_parser("captions", help="Subtitles-row cards with file "
                                          "paths")

@@ -231,7 +231,12 @@ it whenever the goal is about what is IN the footage.
   operation from the live AXI registry and its generated references. Keep
   the user's editorial intent here; AXI owns target resolution, route
   selection, Resolve API/MCP/UI mechanics, transactions and recovery.
-  Confirm the exact project and timeline from live state. A command
+  Confirm the exact project and timeline from live state. Resolve a
+  DESCRIBED target with `bin/resolve-axi target "<description>" --timeline
+  "<name>"` - `id=`, `name=`, `row=V2 item=2` or `start=<frame>
+  end=<frame>` - and it returns the clip plus the addressing arguments
+  the mutating verbs take; it refuses when the description does not name
+  one clip, so never count rows by hand. A command
   return is provisional: inspect the merged receipt's request identity,
   selected route, actual changes, verification evidence and lifecycle
   stage, then read back the requested target and effect. Add visual or

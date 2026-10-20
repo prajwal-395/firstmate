@@ -1372,6 +1372,33 @@ def _main(argv=None) -> int:
         elif name != "log":
             sub.add_argument("--generation", type=int, default=None,
                              help="default: the head")
+    # `target` names the clip a DESCRIPTION means, so the description is
+    # the leading positional and the project follows it.
+    target = subs.add_parser(
+        "target",
+        help="resolve a described target to the clip it names")
+    target.add_argument("description",
+                        help="the target, as key=value pairs: "
+                             "id=<clip id>, name=<clip name>, "
+                             "row=V2 item=2, or start=<frame> end=<frame>")
+    target.add_argument("project_ref", nargs="?",
+                        help="Ren project folder (or slug): with --reel N, "
+                             "resolve the reel's exact timeline name from "
+                             "the project's own records")
+    target.add_argument("--project", required=False, default="",
+                        help="the Resolve project's EXACT name "
+                             "(omit with --reel N)")
+    target.add_argument("--timeline", required=False, default="",
+                        help="the timeline's exact name, or its id "
+                             "(omit with --reel N)")
+    target.add_argument("--reel", default=None,
+                        help="the reel number (e.g. 7): read the reel's "
+                             "recorded exact final timeline - with "
+                             "--staging, its staging sibling. Needs the "
+                             "Ren project folder, never a prefix match.")
+    target.add_argument("--staging", action="store_true",
+                        help="with --reel N, read the (rebuild staging) "
+                             "sibling instead of the final")
     args = parser.parse_args(argv)
     try:
         project, timeline = _resolve_scope(args, parser)
@@ -1383,8 +1410,16 @@ def _main(argv=None) -> int:
     try:
         timeline_id = store.resolve_timeline(project, timeline)
         if args.command == "log":
-            out = [g.summary() for g in store.history(project,
-                                                      timeline_id)]
+            out = [g.summary() for g in store.history(project, timeline_id)]
+        elif args.command == "target":
+            from library.tools import target_resolution
+            from library.tools import timeline_read
+            view = timeline_read.read_generation(
+                project, timeline_id, None, store=store)
+            resolution = target_resolution.resolve_text(
+                args.description, view.clip_details)
+            out = {"generation": view.generation.summary(),
+                   "target": resolution.as_dict()}
         elif args.command == "diff":
             from library.tools import timeline_read
             earlier = timeline_read.read_generation(
