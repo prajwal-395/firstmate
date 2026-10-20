@@ -282,7 +282,11 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "FI-13 one measured silence gap: a positive "
         "inter-word or inter-utterance interval with its duration. "
-        "Abutting words carry no gap; judging gaps is the reader's job.",
+        "Abutting words carry no gap. The row's `reading` is what the "
+        "gap was measured to carry - a disfluency, a closed clause, a "
+        "change of voice, or a measured non-speech event - read by "
+        "`library/tools/pause_class.py`; whether to CUT the gap remains "
+        "the reader's job.",
     },
     "speech.disfluency": {
         "unit": "record",

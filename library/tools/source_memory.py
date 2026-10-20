@@ -858,6 +858,11 @@ def build_transcript_document(utterances: list, record: dict,
                 detected, dict) else None,
             "transcriber": (record or {}).get("transcriber"),
             "alignment_window": (record or {}).get("alignment_window"),
+            # The reading of the placed boundaries against the
+            # recording itself. Absent on a transcript measured before
+            # the check existed, and on a hearing that never ran it:
+            # "not checked" is not "checked and clean".
+            "alignment_quality": (record or {}).get("alignment_quality"),
         },
     }
 

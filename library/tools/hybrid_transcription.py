@@ -502,21 +502,33 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
 
     aligned = aligner.align(windows, spoken_language.language, audio_path)
     _check_alignment(aligned)
+    from library.tools import alignment_quality
+
+    quality = alignment_quality.verify_alignment(aligned, audio_path)
 
     return HybridTranscription(
         aligned=aligned,
-        record=hybrid_record(aligned, spoken, spoken_language, windows))
+        record=hybrid_record(aligned, spoken, spoken_language, windows,
+                             alignment_quality=quality))
 
 
 def hybrid_record(aligned: dict, spoken: heard_speech.HeardSpeech,
                   spoken_language: heard_speech.HeardLanguage,
-                  windows: Sequence[dict]) -> Dict[str, Any]:
+                  windows: Sequence[dict],
+                  alignment_quality: Optional[Dict[str, Any]] = None
+                  ) -> Dict[str, Any]:
     """The account of one hybrid hearing of one audio file.
 
     One builder, two callers: `transcribe_and_align` (one file, one
     aligner run) and step 1.04's batched run (many files, one aligner
     run, split back per file), so a transcript measured either way is
     recorded in the same shape (`library/tools/transcript_measurement.py`).
+
+    `alignment_quality` is the reading of the placed boundaries against
+    the recording itself (`library/tools/alignment_quality.py`). It is
+    optional because a caller that never ran the check must not publish
+    one: an absent quality block means "not checked", which is not the
+    same as "checked and clean".
     """
     covered = sum(window["end"] - window["start"] for window in windows)
     fallback_words = 0
@@ -530,7 +542,7 @@ def hybrid_record(aligned: dict, spoken: heard_speech.HeardSpeech,
             and word.get("timing_source") == TRANSCRIBER_TIMING_SOURCE)
         fallback_words += hits
         fallback_windows += 1 if hits else 0
-    return {
+    record = {
         "arm": ARM_HYBRID,
         # The instrument that placed these boundaries. An aligner
         # STAMPS its own document (`aligner` beside `segments`);
@@ -555,6 +567,9 @@ def hybrid_record(aligned: dict, spoken: heard_speech.HeardSpeech,
         },
         "asr_confidence": ASR_CONFIDENCE_ABSENT,
     }
+    if alignment_quality is not None:
+        record["alignment_quality"] = alignment_quality
+    return record
 
 
 def fallback_record(failure: FallbackRequired,

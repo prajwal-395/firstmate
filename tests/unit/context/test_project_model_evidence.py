@@ -570,6 +570,41 @@ def test_vi03_clipping_fractions_migrate_as_exposure_measurements(
     assert [row["payload"]["value"] for row in clipped] == [0.0, 0.0, 0.5, 0.9]
 
 
+def test_a_measured_pause_carries_its_reading_and_its_reason(
+        fixture_project):
+    """The migrated gap says what it carries, not just how long it is.
+
+    A gap row that carries only a duration asks the reader to judge it
+    with nothing to judge by. The reading is on the row, with the
+    measurement that produced it.
+    """
+    from library.tools.analysis import sound_event_pipeline
+
+    source = fixture_project["memory"] / D1
+    _write(source / "transcript.words.json", {
+        "content_digest": D1, "status": "transcribed",
+        "instrument": {"arm": "fixture", "aligner": "fixture"},
+        "utterances": [{"text": "we shipped it and it worked", "words": [
+            {"start": 1.0, "end": 1.5, "text": "we"},
+            {"start": 1.6, "end": 2.1, "text": "shipped"},
+            {"start": 2.2, "end": 2.7, "text": "it"}]}]})
+    _write(source / "sound.json", {
+        "content_digest": D1, "status": "measured",
+        "method": sound_event_pipeline.METHOD,
+        "sound_events": [{"label": "Applause", "start": 1.5, "end": 1.7,
+                          "confidence": 0.9}]})
+
+    model, _report = _migrate(fixture_project)
+
+    pauses = [o for o in model["observations"]
+              if o["modality"] == "speech_pause"]
+    assert pauses, "the gap between two words is a measured pause"
+    reading = pauses[0]["payload"]["reading"]
+    assert reading["verdict"] == "linguistically_important"
+    assert "event_occupied" in reading["markers"]
+    assert reading["coverage"]["sound_events"] == "measured"
+
+
 def test_unmeasured_identity_stays_absent(fixture_project):
     # Cross-source voice identity only activates for tracks with the
     # measured minimum speech duration. These same-embedding tracks are

@@ -99,6 +99,7 @@ try:
         event_spans,
         evidence_contract,
         mask_seed,
+        pause_class,
         person_entity,
         person_measurements,
         person_regions,
@@ -120,6 +121,7 @@ except ImportError:  # imported as `tools.*` from inside library/
         event_spans,
         evidence_contract,
         mask_seed,
+        pause_class,
         person_entity,
         person_measurements,
         person_regions,
@@ -891,6 +893,46 @@ def _speech_take_native(builder: _Builder, digest: str, asset_id: str,
     return replace(record, freshness="fresh")
 
 
+def _measured_sound_events(digest: str,
+                            root: Path | None) -> list[dict] | None:
+    """This source's measured non-speech events, or None.
+
+    None is "not measured": the M5 slot is absent, stale, or recorded
+    as an unmeasured refusal. The pause reading treats the difference
+    between "measured, and there was nothing there" and "nobody
+    looked" as the difference between an answer and no answer.
+    """
+    from library.tools.analysis import sound_event_pipeline
+
+    m5 = source_memory.read_sound(digest, root)
+    if not isinstance(m5, dict):
+        return None
+    method = m5.get("method")
+    if (method != sound_event_pipeline.METHOD
+            or m5.get("status") != "measured"
+            or _memory_freshness(m5, digest) == "stale"):
+        return None
+    events = m5.get("sound_events")
+    return events if isinstance(events, list) else None
+
+
+def _measured_speakers(digest: str, utterances: list[dict],
+                       root: Path | None) -> dict | None:
+    """This source's speaker attribution per utterance, or None.
+
+    The M1b slot carries the diarization lane's voice tracks. None when
+    the lane never ran, or when no track touches an utterance: that is
+    "nobody separated the voices", not "one voice".
+    """
+    doc = source_memory.read_speakers(digest, root)
+    if not isinstance(doc, dict):
+        return None
+    tracks = doc.get("speakers")
+    if not isinstance(tracks, list):
+        return None
+    return pause_class.speakers_from_voice_tracks(utterances, tracks)
+
+
 def _migrate_speech_take(builder: _Builder, digest: str, asset_id: str,
                          clock_id: str, root: Path | None) -> None:
     """FI-13 per-source speech/take records: rate, pause, disfluency,
@@ -963,8 +1005,14 @@ def _migrate_speech_take(builder: _Builder, digest: str, asset_id: str,
                                       "utterance_index":
                                       utterance["utterance_index"]},
                 None, "library.tools.speech_take", evidence=native)
-    for pause in speech_take.pauses_between(utterances):
+    pauses = speech_take.pauses_between(utterances)
+    pause_readings = pause_class.classify_pauses(
+        pauses, utterances=utterances,
+        sound_events=_measured_sound_events(digest, root),
+        speakers=_measured_speakers(digest, utterances, root))
+    for pause, reading in zip(pauses, pause_readings):
         value = dict(pause)
+        value["reading"] = reading
         native = _speech_take_native(
             builder, digest, asset_id, clock_id, pause["start"],
             pause["end"], "speech_pause", "speech.pause", value, 1)

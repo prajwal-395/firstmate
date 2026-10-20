@@ -94,6 +94,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.subject_framing import load_face_cascade
+from library.tools.alignment_quality import verify_alignment as _verify_alignment
 from library.tools.word_boundaries import (
     sanitize_word_boundaries as _sanitize_word_boundaries,
 )
@@ -778,9 +779,15 @@ def transcribe_clips_batched(requests: list,
                                 own_aligned["aligner"] = aligned["aligner"]
                             spoken, heard_language, own_windows = (
                                 spoken_by_key[key])
+                            # The placed boundaries are checked against
+                            # THIS clip's own recording, on this clip's
+                            # own clock: the batch aligned a
+                            # concatenation, so the split-back timings
+                            # are what has to survive the check.
+                            quality = _verify_alignment(own_aligned, path)
                             record = hybrid_transcription.hybrid_record(
                                 own_aligned, spoken, heard_language,
-                                own_windows)
+                                own_windows, alignment_quality=quality)
                             if audio_keys[key] is not None:
                                 transcript_measurement.store(
                                     audio_keys[key], own_aligned, record,
