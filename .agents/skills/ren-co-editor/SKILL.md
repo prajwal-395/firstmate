@@ -245,6 +245,7 @@ it whenever the goal is about what is IN the footage.
 | Find a moment in the footage | `ren search` / `ren where` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
+| What the brief asked for, and what Ren decided | `bin/vep -m library.tools.editorial_intent <project>` prints the canonical intent: what was required, what was preferred, what Ren inferred, and which evidence each request still needs. `bin/vep -m library.tools.editorial_decisions check <decisions.json>` checks a decision record; `... compile <decisions.json> --project <p> --timeline <t>` compiles the APPROVED decisions into the request AXI executes |
 | "N reels about X" from footage | `ren edit <project> --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
 | Reel candidates for approval | `ren propose <project>` |
 | Rule on the proposed reels | After `ren propose`, show the list in chat and approve what the person says: `ren approve <project> 1 3` (or `--all`), `ren reject <project> 2 --note "why"` |

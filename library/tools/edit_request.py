@@ -664,6 +664,20 @@ def _split_target(raw: dict) -> EditTarget | None:
     return EditTarget.from_selector(selector)
 
 
+def split_target(raw: Mapping[str, Any]) -> tuple[EditTarget | None, dict]:
+    """Split a flat op's params into its target selector and its own params.
+
+    The ONE rule for where a target lives inside a flat operation, so a
+    builder that starts from a flat op and a builder that starts from a
+    target and its params cannot disagree about what the op carries.
+    Returns `(target, params)`; `params` is a copy and `raw` is not
+    changed.
+    """
+    params = dict(raw)
+    target = _split_target(params)
+    return target, params
+
+
 def _originator(kind: str = "agent", name: str = "",
                 detail: str = "") -> dict:
     if kind not in ORIGINATOR_KINDS:

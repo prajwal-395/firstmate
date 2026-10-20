@@ -49,7 +49,32 @@ def validate_project_model(model: dict[str, Any]) -> None:
     if any(value is not None and not 0 <= value <= 1 for value in confidence_values):
         raise ValueError("confidence must be between 0 and 1")
     observation_ids = {item["id"] for item in model["observations"]}
+    # The intents collection is a first-class layer, distinct from the
+    # edits that realise it: an intent says what was asked for, an edit
+    # says which clip moves.  The links between them are checked here,
+    # because an edit pointing at an intent nobody wrote is a decision
+    # with nothing behind it.
+    intent_ids = {item["id"] for item in model.get("intents", [])}
+    if len(intent_ids) != len(model.get("intents", [])):
+        raise ValueError("intent ids must be unique")
+    for intent in model.get("intents", []):
+        if not intent.get("id"):
+            raise ValueError("intent requires a stable id")
+        if not set(intent.get("evidence_links", [])) <= observation_ids:
+            raise ValueError(
+                f"intent {intent['id']!r} references unknown observation")
+    for use in model.get("clip_uses", []):
+        intent_id = use.get("intent_id")
+        if intent_id is not None and intent_id not in intent_ids:
+            raise ValueError(
+                f"clip use {use['id']!r} references unknown intent "
+                f"{intent_id!r}")
     for operation in model.get("edits", []):
+        intent_id = operation.get("intent_id")
+        if intent_id is not None and intent_id not in intent_ids:
+            raise ValueError(
+                f"edit {operation['id']!r} references unknown intent "
+                f"{intent_id!r}")
         evidence_backed = any(operation.get(field) is not None for field in (
             "query_result_id", "evidence_revision", "creative_rationale"))
         if evidence_backed and not operation.get("evidence_ids"):
