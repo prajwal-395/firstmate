@@ -366,6 +366,22 @@ def _lease(exclusive: bool):
     return resolve_lease(f"resolve-axi ({TOOL})", exclusive=exclusive)
 
 
+def _qualification_context(resolve, project, timeline, operations) -> dict:
+    """The routing context for an AXI dispatch, with the MEASURED state.
+
+    A promoted operation is routed only when the runtime satisfies the
+    recorded qualification predicates, and that state has to be READ
+    (`library/tools/axi_qualification_state.py`). The command already
+    holds the lease, so the read happens under it - no second lease, and
+    no second scripting client.
+    """
+    from library.tools import axi_qualification_state
+
+    return {"qualification_state": axi_qualification_state.inspect_handles(
+        resolve=resolve, resolve_project=project, timeline=timeline,
+        operations=operations)}
+
+
 # These verbs run locally, never wrapped by the broker's argv router:
 # the api/luts verbs use the native MCP or local files only, and
 # intellisearch-collect submits its own job kinds to the broker rather
@@ -1322,7 +1338,10 @@ def cmd_markers_restore(args) -> int:
                 }]
                 # VC-09: AXI dispatches share the routing contract - a
                 # refusal lands in the refused list below, never a write.
-                axi_routing = route_axi_dispatch(axi_operations)
+                axi_routing = route_axi_dispatch(
+                    axi_operations,
+                    context=_qualification_context(
+                        resolve, project, timeline, axi_operations))
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",
@@ -4686,7 +4705,7 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid,
         return None, f"snapshot restoration raised ({exc})"
 
 
-def _drop_original(project, timeline, uid: str):
+def _drop_original(resolve, project, timeline, uid: str):
     """Delete a verified move/trim source item as a local EditPatch."""
     from library.tools import edit_patch
     from library.tools.execution_router import route_axi_dispatch
@@ -4694,7 +4713,10 @@ def _drop_original(project, timeline, uid: str):
     try:
         axi_operations = [{"op": "clip.delete", "unique_id": uid}]
         # VC-09: AXI dispatches share the routing contract.
-        axi_routing = route_axi_dispatch(axi_operations)
+        axi_routing = route_axi_dispatch(
+            axi_operations,
+            context=_qualification_context(
+                resolve, project, timeline, axi_operations))
         receipt = edit_patch.apply_live_patch(
             project=project, timeline=timeline, capability="reel.touchup",
             operations=axi_operations,
@@ -4727,7 +4749,7 @@ def _inclusive_source_end(source_in: int, source_out: int,
     return None
 
 
-def _preflight_replace_delete(uid: str) -> str:
+def _preflight_replace_delete(resolve, project, timeline, uid: str) -> str:
     """Refuse an unsupported replacement before placing anything live.
 
     Move and trim are implemented as place-then-delete. Their delete must
@@ -4736,8 +4758,12 @@ def _preflight_replace_delete(uid: str) -> str:
     """
     from library.tools.execution_router import route_axi_dispatch
 
+    axi_operations = [{"op": "clip.delete", "unique_id": uid}]
     try:
-        route_axi_dispatch([{"op": "clip.delete", "unique_id": uid}])
+        route_axi_dispatch(
+            axi_operations,
+            context=_qualification_context(
+                resolve, project, timeline, axi_operations))
     except Exception as exc:
         return str(exc)
     return ""
@@ -5134,7 +5160,10 @@ def cmd_edit_delete(args) -> int:
                 try:
                     axi_operations = [{"op": "clip.delete", "unique_id": uid}]
                     # VC-09: AXI dispatches share the routing contract.
-                    axi_routing = route_axi_dispatch(axi_operations)
+                    axi_routing = route_axi_dispatch(
+                        axi_operations,
+                        context=_qualification_context(
+                            resolve, project, timeline, axi_operations))
                     receipt = edit_patch.apply_live_patch(
                         project=project, timeline=timeline,
                         capability="reel.touchup",
@@ -5264,7 +5293,7 @@ def cmd_edit_move(args) -> int:
         # Fresh AppendToTimeline placements report the exclusive source
         # endpoint; the re-place speaks inclusive bounds like the CLI.
         src_out = normalized
-        refusal = _preflight_replace_delete(uid)
+        refusal = _preflight_replace_delete(resolve, project, timeline, uid)
         if refusal:
             return fail(
                 f"move refused before writing because its source delete is "
@@ -5289,7 +5318,7 @@ def cmd_edit_move(args) -> int:
             if error:
                 return fail(error, f"{TOOL} items --timeline "
                                    f"\"{timeline.GetName()}\"")
-            drop_error = _drop_original(project, timeline, uid)
+            drop_error = _drop_original(resolve, project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline "
                                          f"\"{timeline.GetName()}\"")
@@ -5389,7 +5418,7 @@ def cmd_edit_trim(args) -> int:
                       f"--source-in {new_in} --source-out {new_out} "
                       f"--apply"])])
             return 0
-        refusal = _preflight_replace_delete(uid)
+        refusal = _preflight_replace_delete(resolve, project, timeline, uid)
         if refusal:
             return fail(
                 f"trim refused before writing because its source delete is "
@@ -5421,7 +5450,7 @@ def cmd_edit_trim(args) -> int:
                 return fail(
                     f"trim refused before writing: {exc}",
                     f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-            drop_error = _drop_original(project, timeline, uid)
+            drop_error = _drop_original(resolve, project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline "
                                    f"\"{timeline.GetName()}\"")
@@ -5567,7 +5596,7 @@ def cmd_edit_switch_camera(args) -> int:
         except edit_state_preservation.StatePreservationError as exc:
             return fail(f"camera switch refused before writing: {exc}",
                         f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        refusal = _preflight_replace_delete(uid)
+        refusal = _preflight_replace_delete(resolve, project, timeline, uid)
         if refusal:
             return fail(f"camera switch refused before writing: {refusal}",
                         f"{TOOL} items --timeline \"{timeline.GetName()}\"")
@@ -5583,7 +5612,7 @@ def cmd_edit_switch_camera(args) -> int:
                       "source_out": args.source_out,
                       "record_in": record_in, "record_out": record_out},
                 gate_class="multicam_select_angle") as (journal, journal_state):
-            drop_error = _drop_original(project, timeline, uid)
+            drop_error = _drop_original(resolve, project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline \"{timeline.GetName()}\"")
             replacement, error = _replace_item(
@@ -8375,7 +8404,10 @@ def cmd_sense_reframe(args) -> int:
                     "keys": list(_REFRAME_KEYS), "before": before,
                 }]
                 # VC-09: AXI dispatches share the routing contract.
-                axi_routing = route_axi_dispatch(axi_operations)
+                axi_routing = route_axi_dispatch(
+                    axi_operations,
+                    context=_qualification_context(
+                        resolve, project, timeline, axi_operations))
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",
@@ -8515,7 +8547,10 @@ def cmd_edit_transform(args) -> int:
                      "key": "Tilt", "value": new_tilt},
                 ]
                 # VC-09: AXI dispatches share the routing contract.
-                axi_routing = route_axi_dispatch(axi_operations)
+                axi_routing = route_axi_dispatch(
+                    axi_operations,
+                    context=_qualification_context(
+                        resolve, project, timeline, axi_operations))
                 receipt = edit_patch.apply_live_patch(
                     project=project, timeline=timeline,
                     capability="reel.touchup",

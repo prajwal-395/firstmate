@@ -367,8 +367,16 @@ def _fold_decisions(project: str, record: dict, spec: dict) -> dict | None:
 # ── 4. Route ────────────────────────────────────────────────────────
 
 
-def classify(spec: dict, frame=None) -> dict:
-    """`feedback_patch.decide` over the spec's own operations, plus route."""
+def classify(spec: dict, frame=None, *, project: str = "",
+             reel: str = "") -> dict:
+    """`feedback_patch.decide` over the spec's own operations, plus route.
+
+    `project` is the Ren project FOLDER and `reel` the timeline the
+    revision names. They are what the classifier needs to MEASURE the
+    runtime state the router checks the recorded qualification predicates
+    against; without them the classifier cannot inspect, and the router
+    refuses for that reason.
+    """
     from library.tools import edit_spec, feedback_patch, marker_routing
 
     operations = marker_routing.edit_spec_operations(
@@ -376,6 +384,18 @@ def classify(spec: dict, frame=None) -> dict:
     program = any(op["ledger_op"] == "edit_program" for op in operations)
     owners = list(dict.fromkeys(op["owner"] for op in operations
                                 if op["owner"]))
+    resolve_project = ""
+    if project:
+        try:
+            resolve_project = _resolve_project_name(project)
+        except Exception:  # noqa: BLE001 - a name is a convenience here
+            # The classifier classifies; it does not adjudicate the
+            # project. A project that names no Resolve project cannot be
+            # inspected, so the router refuses for that reason - and the
+            # real refusal ("this project names no Resolve project")
+            # belongs to the path that submits the request.
+            resolve_project = ""
+    timeline = str(reel or (spec.get("program") or {}).get("reel") or "")
     verdict = feedback_patch.decide({
         "basis": marker_routing.BASIS_EDIT_SPEC,
         "outcome": (marker_routing.OUTCOME_UNROUTED if program
@@ -385,7 +405,9 @@ def classify(spec: dict, frame=None) -> dict:
         # staging guarantee, so the classifier routes under the SAME
         # policy the AXI planner will (`edit_qualification_policy`).
         "evidence": {"edit_spec_ops": operations,
-                     "originator": ORIGINATOR_NAME}})
+                     "originator": ORIGINATOR_NAME,
+                     "resolve_project": resolve_project,
+                     "timeline": timeline}})
     if verdict["verdict"] == feedback_patch.VERDICT_REFUSED:
         route = None
     elif program:
@@ -982,7 +1004,8 @@ def advance(project, revise_id: str, *, answer: str = "",
         return _result(project, _save(project, record))
     record["decisions"] = _fold_decisions(project, record, spec)
     note = _find_note(project, record["note_id"])
-    classification = classify(spec, frame=note.frame if note else None)
+    classification = classify(spec, frame=note.frame if note else None,
+                              project=project, reel=record.get("reel") or "")
     record["classification"] = classification["verdict"]
     if classification["route"] is None:
         from library.tools import feedback_outcomes

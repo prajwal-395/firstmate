@@ -124,7 +124,32 @@ def _assert_program_refused_unqualified(result: dict, live) -> None:
 
 
 @pytest.fixture
-def live(monkeypatch):
+def qualification_runtime(monkeypatch):
+    """The live runtime the qualification inspection reads.
+
+    The inspection checks the recorded qualification predicates against
+    the LIVE runtime, so a test stands in for Resolve here rather than
+    opening the live instance (tests/conftest.py). This fixture's
+    timeline holds no item, which is not the single seeded clip the
+    recorded evidence was earned on, so the promotion does not carry and
+    a promoted program stays refused - the gate, unchanged.
+    """
+    from types import SimpleNamespace
+
+    from library.tools import axi_qualification_state
+
+    monkeypatch.setattr(
+        axi_qualification_state, "_read_runtime",
+        lambda project, timeline: {
+            "resolve": SimpleNamespace(
+                GetVersionString=lambda: "DaVinci Resolve 21.1.0.14"),
+            "project": SimpleNamespace(GetName=lambda: QUALIFICATION),
+            "timeline": SimpleNamespace(GetName=lambda: REEL),
+            "rows": []})
+
+
+@pytest.fixture
+def live(monkeypatch, qualification_runtime):
     """Resolve, as the patch path meets it: handles, read-back, apply."""
     from types import SimpleNamespace
 
@@ -350,7 +375,8 @@ def test_unqualified_program_is_refused_before_any_write(
     assert live.applied == [] and _ledger(project) == []
 
 
-def test_off_qualification_unqualified_patch_is_refused(project, monkeypatch):
+def test_off_qualification_unqualified_patch_is_refused(
+        project, monkeypatch, qualification_runtime):
     """No project scope bypasses the production executor qualification."""
     from library.tools import edit_spec, revise
 

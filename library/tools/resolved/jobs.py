@@ -736,7 +736,8 @@ def _run_impl(job: dict, resolve) -> dict | None:
             cancellation.checkpoint(job["id"])
             from library.tools import resolve_axi_core
             try:
-                receipt = resolve_axi_core.execute_semantic_edit_job(job)
+                receipt = resolve_axi_core.execute_semantic_edit_job(
+                    job, resolve=resolve)
             except ValueError as exc:
                 raise JobRefused(str(exc)) from exc
         if receipt.get("status") == "committed":

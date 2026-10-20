@@ -169,6 +169,7 @@ def _decide_program(operations: list, steps: list,
         originator_name=str(evidence.get("originator") or ""))
     if context is None:
         context = {"require_qualified": True}
+    context = _runtime_context(context, normalized, evidence)
     try:
         routing = execution_router.route_compiled_edit(
             {"operations": normalized},
@@ -185,6 +186,28 @@ def _decide_program(operations: list, steps: list,
         "steps": steps,
         "execution": routing,
     }
+
+
+def _runtime_context(context: Mapping, operations: list,
+                     evidence: Mapping) -> dict:
+    """The routing context, with the MEASURED runtime state attached.
+
+    A promoted operation is routed only when the runtime satisfies the
+    recorded qualification predicates, and that state has to be read
+    (`library/tools/axi_qualification_state.py`). This classifier and the
+    AXI planner must reach the same answer, so both measure it.
+
+    The evidence names the Resolve project and the reel; without them
+    there is nothing to inspect, and the context is returned unchanged so
+    the router refuses for the reason it gives when nobody looked.
+    """
+    from library.tools import axi_qualification_state
+
+    return axi_qualification_state.with_runtime_state(
+        context,
+        project=str(evidence.get("resolve_project") or ""),
+        timeline=str(evidence.get("timeline") or ""),
+        operations=operations)
 
 
 def decide(note) -> dict:

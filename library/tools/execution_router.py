@@ -261,7 +261,11 @@ def _qualification_gaps(edit_algebra, operations: Sequence[dict],
     protected experimental routing must separately provide all required
     staging, preservation and verification guarantees.
     """
-    context = context or {}
+    # The dict it was handed, not a fresh one: the concrete predicate
+    # mismatch is recorded INTO it below, and `context or {}` would hand
+    # a new dict to an EMPTY context and drop the record with it.
+    if context is None:
+        context = {}
     inspected = context.get("qualification_state")
     gaps = []
     for op in operations:
@@ -279,19 +283,65 @@ def _qualification_gaps(edit_algebra, operations: Sequence[dict],
                 str(predicate.get("field", ""))
                 for backend in production_rows
                 for predicate in backend.qualification_predicates))
-            reason = ("runtime qualification state was not inspected" if not isinstance(
-                inspected, Mapping) or inspected.get("inspected") is not True else
-                "runtime state does not satisfy recorded qualification predicates")
+            mismatches = _predicate_mismatches(production_rows, inspected)
+            reason = _refusal_reason(inspected, mismatches)
             gaps.append((op_id, qualified, ()))
             # Keep the concrete predicate mismatch available to the caller's
             # refusal and decision receipt without broadening support.
             if isinstance(context, dict):
                 context.setdefault("qualification_refusals", {})[op_id] = {
-                    "reason": reason, "required_fields": requirements}
+                    "reason": reason, "required_fields": requirements,
+                    "mismatches": list(mismatches)}
             continue
         if not production:
             gaps.append((op_id, qualified, production))
     return tuple(gaps)
+
+
+def _refusal_reason(inspected, mismatches: Sequence[str]) -> str:
+    """Why a promoted operation is not production-routable, by name.
+
+    A state nobody read and a state that was read and does not match are
+    DIFFERENT facts, and the refusal says which: the first names the
+    missing inspection, the second names the predicates the runtime
+    failed.
+    """
+    if not isinstance(inspected, Mapping) or inspected.get("inspected") is not True:
+        detail = (str(inspected.get("reason") or "")
+                  if isinstance(inspected, Mapping) else "")
+        reason = "runtime qualification state was not inspected"
+        return f"{reason} ({detail})" if detail else reason
+    reason = "runtime state does not satisfy recorded qualification predicates"
+    return f"{reason}: {'; '.join(mismatches)}" if mismatches else reason
+
+
+def _predicate_mismatches(backends: Sequence, inspected) -> tuple[str, ...]:
+    """Which recorded predicates the inspected state fails, by name.
+
+    The predicate check itself is unchanged - this only NAMES the fields
+    that failed, so the refusal says which condition the runtime is not
+    in rather than that the conditions are unmet.
+    """
+    if not isinstance(inspected, Mapping) or inspected.get("inspected") is not True:
+        return ()
+    state = inspected.get("state")
+    if not isinstance(state, Mapping):
+        return ()
+    mismatches: list[str] = []
+    for backend in backends:
+        for predicate in backend.qualification_predicates:
+            field = str(predicate.get("field", ""))
+            if field not in state:
+                mismatches.append(f"{field} was not measured")
+                continue
+            actual, expected = state[field], predicate.get("value")
+            operator = predicate.get("operator")
+            if operator == "equals" and actual != expected:
+                mismatches.append(f"{field} is {actual!r}, not {expected!r}")
+            elif operator == "one_of" and actual not in expected:
+                mismatches.append(
+                    f"{field} is {actual!r}, not one of {expected!r}")
+    return tuple(dict.fromkeys(mismatches))
 
 
 def _qualification_matches(backend, inspected) -> bool:

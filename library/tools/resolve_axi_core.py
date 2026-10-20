@@ -1244,8 +1244,48 @@ def _protected_route_context(request, operation_ids) -> dict:
         operation_ids, originator_name=originator_name) or {}
 
 
-def _prepare_request_plan(request):
-    """Validate an edit request against its recorded base, without Resolve.
+def _route_context(request, operation_ids, operations, resolve=None) -> dict:
+    """The routing context: the policy, and the MEASURED runtime state.
+
+    A promoted operation is routed only when the runtime satisfies the
+    recorded qualification predicates, and that state has to be read
+    (`library/tools/axi_qualification_state.py`). Until it was read, every
+    promoted operation was refused with "runtime qualification state was
+    not inspected" - a statement about the code, not about the timeline.
+
+    The broker's AXI execute path calls this under its EXCLUSIVE lease
+    with the target timeline current, and passes its own Resolve
+    connection so the inspection opens no second scripting client; a
+    front door that calls it outside one takes a shared lease for the
+    read.
+    """
+    from library.tools import axi_qualification_state
+
+    context = _protected_route_context(request, operation_ids)
+    # The shadow store is keyed by the RESOLVE project name, and a
+    # request may name the Ren project FOLDER instead - the same reverse
+    # lookup the base snapshot uses, so the inspection names the same
+    # project the request is about to write.
+    project = _shadow_project_key(request.project)
+    return axi_qualification_state.with_runtime_state(
+        context, project=project, timeline=request.timeline,
+        operations=operations, resolve=resolve)
+
+
+def _routing_inspected(routing) -> bool:
+    """Whether the routing decision was made against a MEASURED state.
+
+    The plan says whether Resolve was contacted, so the fact it records
+    is the one that happened: a plan that read the runtime to route a
+    promoted operation did contact Resolve, and a plan that routed from
+    the recorded snapshot alone did not.
+    """
+    selection = (routing or {}).get("selection") or {}
+    return bool(selection.get("qualification_state_inspected"))
+
+
+def _prepare_request_plan(request, *, resolve=None):
+    """Validate an edit request against its recorded base.
 
     The request names meaning, not a backend. The router selects the
     executor after preparation; the plan carries its decision and still
@@ -1325,7 +1365,8 @@ def _prepare_request_plan(request):
     else:
         operation_ids = tuple(
             str(operation.get("op", "")) for operation in compiled.operations)
-        route_context = _protected_route_context(request, operation_ids)
+        route_context = _route_context(
+            request, operation_ids, compiled.operations, resolve=resolve)
         routing = route_request(compiled, context=route_context)
         backend = routing["backend"]
         backend_reason = "; ".join(routing.get("reasons", ()))
@@ -1347,7 +1388,7 @@ def _prepare_request_plan(request):
         "no_write_needed": result.no_write_needed,
         "preparation": result.as_dict(),
         "authorization_required": True,
-        "resolve_contacted": False,
+        "resolve_contacted": bool(_routing_inspected(routing)),
         "mutated": False,
     }
     if routing is not None:
@@ -1359,11 +1400,18 @@ def _plan_request(request) -> dict[str, Any]:
     return _prepare_request_plan(request)[0]
 
 
-def execute_semantic_edit_job(job: Mapping[str, Any]) -> dict[str, Any]:
-    """Execute one broker-owned semantic edit against its queued generation."""
+def execute_semantic_edit_job(job: Mapping[str, Any], *,
+                              resolve=None) -> dict[str, Any]:
+    """Execute one broker-owned semantic edit against its queued generation.
+
+    `resolve` is the broker worker's own Resolve connection, when it has
+    one: the qualification inspection reads the live runtime through it
+    rather than opening a second scripting client (the 2026-10-06
+    crash).
+    """
     request = _request_from_any(job["params"]["request"])
     plan, request, preparation, compiled, generation, snapshot = (
-        _prepare_request_plan(request))
+        _prepare_request_plan(request, resolve=resolve))
     expected_generation = job["params"]["base_generation"]
     if generation.generation != expected_generation:
         raise ValueError(
