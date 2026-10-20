@@ -1575,22 +1575,19 @@ def _delete_clip_with_measured_retry(op, timeline, item, _project=None):
 
 
 def _remove_clip_with_measured_retry(op, timeline, item, _project=None):
-    """Ripple one delete shut, retrying once while its id reads back.
+    """Refuse until gap closure can be scoped to the target track.
 
-    `clip.remove` is `clip.delete` plus the gap close: `DeleteClips`
-    with ripple moves every later cut earlier by the removed duration,
-    which is why the op's span (`_ripple_span`) covers the removed clip
-    through the timeline end. The one measured retry mirrors the local
-    delete - the first call can flop on some Resolve pages, and the
-    re-read says whether the item is still there.
+    Resolve's ``DeleteClips(..., True)`` ripples across tracks. That can
+    move or remove speech and overlays outside ``clip.remove``'s declared
+    target track, so an operation that promises a track-scoped ripple
+    cannot use this timeline-wide primitive. Keep the refusal before the
+    first write; ``clip.delete`` is the explicit local-delete operation.
     """
-    first = timeline.DeleteClips([item], True)
-    handles = _live_handles(timeline)
-    unique_id = op["unique_id"]
-    if unique_id not in handles:
-        return first
-    second = timeline.DeleteClips([handles[unique_id]], True)
-    return second if second else first
+    del op, timeline, item, _project
+    raise RuntimeError(
+        "clip.remove track-scoped gap closure is unavailable: Resolve's "
+        "native ripple is timeline-wide; use clip.delete only when a "
+        "local deletion is what was requested")
 
 
 _insert_sources: ContextVar[dict | None] = ContextVar("insert_sources", default=None)
@@ -3509,9 +3506,11 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("clip.delete", "resolve_axi"):
         ("local delete leaves a gap; ripple must be a separate explicitly requested staged operation",),
     ("clip.remove", "edit_patch"):
-        ("ripple moves every later cut earlier by the removed duration; downstream continuity is verified from read-back, not assumed",),
+        (("track-scoped ripple is unavailable; the EditPatch executor refuses "
+          "before writing because Resolve's native ripple affects every track"),),
     ("clip.remove", "resolve_axi"):
-        ("ripple delete closes the gap by moving later clips earlier by the removed duration; linked audio partners and downstream continuity are verified from read-back, not assumed",),
+        (("track-scoped ripple is unavailable; the AXI adapter refuses before "
+          "writing because Resolve's native ripple affects every track"),),
     ("clip.ripple", "reel_touchup"):
         ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
     ("clip.slip", "reel_touchup"):
@@ -3519,9 +3518,9 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("caption_fix", "resolve_axi"):
         ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
     ("multicam.select_angle", "resolve_axi"):
-        ("requires a resolved speaker id, assignment basis, unique camera media-pool source, "
-         "explicit synced source frames, and a source range matching the existing record duration; "
-         "live Resolve qualification remains deferred",),
+        (("requires a resolved speaker id, assignment basis, unique camera media-pool source, "
+          "explicit synced source frames, and a source range matching the existing record duration; "
+          "live Resolve qualification remains deferred"),),
     ("caption.style", "resolve_axi"):
         ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
     ("reel.opening", "resolve_axi"):

@@ -76,6 +76,24 @@ def test_clip_remove_span_covers_the_ripple_it_declares():
     assert span == (100, 300)
 
 
+def test_clip_remove_backend_refuses_resolves_timeline_wide_ripple():
+    """Defect: the EditPatch backend used Resolve's global ripple and
+    could move or delete content outside the requested track."""
+    from library.tools import edit_algebra
+
+    class Timeline:
+        def DeleteClips(self, *_args):
+            raise AssertionError("unsafe timeline-wide ripple was called")
+
+    try:
+        edit_algebra.get("clip.remove").apply(
+            {"unique_id": "b"}, Timeline(), object())
+    except RuntimeError as exc:
+        assert "track-scoped gap closure is unavailable" in str(exc)
+    else:
+        raise AssertionError("unsupported clip.remove did not refuse")
+
+
 def test_clip_remove_verify_detects_the_absent_write():
     """Defect: a verifier that passes on a timeline the op did not
     change would commit a lie - absence must read back, not be
@@ -113,16 +131,15 @@ def test_clip_remove_acceptance_names_gap_and_continuity_checks():
     assert complete["passed"] is True
 
 
-def test_clip_remove_cover_track_never_ripples_through_speech_or_audio():
-    """Defect: Resolve's native ripple delete on V2 deleted the stacked
-    A-roll speech and linked audio underneath the B-roll shot."""
+def test_clip_remove_never_claims_local_delete_as_gap_closure():
+    """Defect: a requested gap close was silently changed into a local
+    delete on a cover track, leaving the downstream continuity broken."""
     from library.tools import operation_acceptance
 
-    contract = operation_acceptance.contract_for(
-        "clip.remove", {"close_gap": False})
+    contract = operation_acceptance.contract_for("clip.remove")
     assert contract["checks"] == [
-        "target_absent", "underlying_speech_preserved",
-        "unrelated_items_unchanged",
+        "target_absent", "gap_closed",
+        "downstream_continuity_preserved", "unrelated_items_unchanged",
     ]
 
 

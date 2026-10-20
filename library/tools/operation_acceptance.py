@@ -67,12 +67,6 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     elif op_id in {"clip.delete", "overlay.remove"}:
         checks = ["target_absent", "unrelated_items_unchanged"]
     elif op_id == "clip.remove":
-        if operation.get("close_gap") is False:
-            checks = ["target_absent", "underlying_speech_preserved",
-                      "unrelated_items_unchanged"]
-            return {"id": f"acceptance:{op_id}", "operation": op_id,
-                    "checks": checks,
-                    "structural_source": "timeline_readback"}
         # A ripple remove promises more than an absence: the gap it
         # occupied closes, and the downstream continuity - surviving
         # clips keeping their content and sitting either where they

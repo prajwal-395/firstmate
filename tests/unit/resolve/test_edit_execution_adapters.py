@@ -104,9 +104,9 @@ def test_target_identity_must_resolve_exactly_once():
         adapters._target_position(snapshot, "duplicate")
 
 
-def test_clip_remove_refuses_primary_track_global_ripple_before_resolve_write():
-    """Defect: Resolve's timeline-wide ripple can delete stacked speech
-    and audio when a primary-track gap is closed."""
+def test_clip_remove_refuses_unscoped_ripple_before_resolve_write():
+    """Defect: Resolve's timeline-wide ripple can alter tracks outside
+    the requested track when closing a gap."""
     context = _context({
         "op": "clip.remove", "unique_id": "clip-17", "close_gap": True,
     })
@@ -114,7 +114,18 @@ def test_clip_remove_refuses_primary_track_global_ripple_before_resolve_write():
     context.snapshot["tracks"][0]["clips"][0]["track_type"] = "video"
     context.snapshot["tracks"][0]["clips"][0]["track_index"] = 1
 
-    with pytest.raises(ValueError, match="timeline-wide"):
+    with pytest.raises(ValueError, match="track-scoped gap closure"):
+        adapters._remove(context)
+
+
+def test_clip_remove_cannot_be_changed_to_local_delete():
+    """Defect: close_gap=False converted clip.remove into clip.delete
+    and returned success for an operation the user did not request."""
+    context = _context({
+        "op": "clip.remove", "unique_id": "clip-17", "close_gap": False,
+    })
+
+    with pytest.raises(ValueError, match="use clip.delete"):
         adapters._remove(context)
 
 

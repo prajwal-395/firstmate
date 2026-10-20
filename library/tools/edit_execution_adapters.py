@@ -125,21 +125,14 @@ def _verified_command(context, command: list[str], operation: dict,
         evidence["target_absent"] = after_clip is None
         operation_matches = after_clip is None
     elif operation_id == "clip.remove" and before_clip is not None:
-        if operation.get("close_gap") is False:
-            evidence["target_absent"] = after_clip is None
-            evidence["underlying_speech_preserved"] = (
-                _speech_row_signatures(before)
-                == _speech_row_signatures(after))
-        else:
-            evidence.update(_remove_readback_evidence(
-                before, after, target_id, before_clip, after_clip))
+        evidence.update(_remove_readback_evidence(
+            before, after, target_id, before_clip, after_clip))
         operation_matches = all(evidence.values())
     elif operation_id == "caption_fix" and before_clip and after_clip:
         # A timeline inventory does not expose rendered title text. Do not
         # turn command prose into evidence for this operation.
         operation_matches = None
-    if (operation_id == "clip.remove" and before_clip is not None
-            and operation.get("close_gap") is not False):
+    if operation_id == "clip.remove" and before_clip is not None:
         # A ripple moves every later cut, so the collateral scan excuses
         # the rippled range and judges predecessors strictly; the
         # downstream rule above judges what moved.
@@ -352,36 +345,20 @@ def _delete(context) -> dict:
 def _remove(context) -> dict:
     """Remove a clip with gap closure scoped to the requested track.
 
-    Resolve's native ripple delete is timeline-wide. On a cover track
-    it can delete the A-roll and audio beneath the shot, so cover removal
-    is always a local delete. A primary-track ripple is not yet
-    implemented as a linked-item-only edit and refuses before writing.
+    `clip.remove` means close the gap on the target track. Resolve's
+    native ripple delete is timeline-wide, so it cannot safely implement
+    that contract when other tracks contain downstream material. A local
+    delete is the distinct `clip.delete` operation; never silently
+    substitute it when the requested track-scoped ripple is unavailable.
     """
-    unique_id = str(context.operation["unique_id"])
-    clip = next(clip for track in context.snapshot["tracks"]
-                for clip in track["clips"]
-                if str(clip["unique_id"]) == unique_id)
-    close_gap = bool(context.operation.get("close_gap", True))
-    is_cover = (str(clip.get("track_type", "video")) == "video"
-                and int(clip.get("track_index", 1)) > 1)
-    if close_gap and not is_cover:
+    if context.operation.get("close_gap") is False:
         raise ValueError(
-            "clip.remove gap closure on the primary track is refused: "
-            "Resolve's native ripple is timeline-wide; a linked-item-only "
-            "ripple executor is required")
-    close_gap = False if is_cover else close_gap
-    row, index = _target_position_for_context(
-        context, unique_id)
-    return _verified_command(context, [
-        "edit", "delete", "--track", row, "--index", str(index),
-        *( ["--ripple"] if close_gap else [] ),
-        *_target_identity_args(context, unique_id),
-        "--project-folder", _project_folder(context), "--require-recovery",
-        "--apply", "--project", context.request.project,
-        "--timeline", context.request.timeline,
-    ], {**context.operation, "close_gap": close_gap,
-        "op": "clip.remove"},
-       "AXI undo journal; failed ripple restores the timeline snapshot")
+            "clip.remove cannot disable gap closure; use clip.delete for "
+            "a local deletion")
+    raise ValueError(
+        "clip.remove track-scoped gap closure is refused before writing: "
+        "Resolve's native ripple is timeline-wide, and no qualified "
+        "track-scoped ripple executor is available")
 
 
 def _caption_fix(context) -> dict:
