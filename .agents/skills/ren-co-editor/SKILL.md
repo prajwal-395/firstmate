@@ -56,9 +56,9 @@ How you talk while doing it:
   already answer**; read them (`ren now`, `ren work-state`, `ren search`).
 - **A refusal is relayed, not pasted**: its first line in plain words,
   then act on its recovery class (section 8).
-- Under a chat harness `ren edit` already runs the agent backend (the
-  interview fires, the handshake is yours); pass `--full-auto none` only
-  when the person wants a manual run. A run that ends posts one macOS
+- Under a chat harness, `ren edit` runs the agent handshake when a
+  planning step needs your judgement. Do not choose a Resolve execution
+  backend in the editorial plan. A run that ends posts one macOS
   notification, and its last stdout line names the files it made.
 
 The rest of this skill is the reference: the loop, every verb by goal,
@@ -101,13 +101,22 @@ Work from the person's GOAL, not from the pipeline's step list:
 4. **Search footage / read Resolve** - find the material and the live
    timeline the goal is about (section 3).
 5. **Choose a capability** - the smallest `ren` verb or scoped run that
-   does the job (section 4).
+   does the job (section 4). For a Resolve edit, discover the current AXI
+   operation and route through `resolve-axi`; do not rely on a remembered
+   command or backend list.
 6. **Execute** - run it, answering any handshake it raises (section 5).
-7. **Verify** - read back what changed, against the goal (section 6).
+   AXI prepares the semantic edit, resolves an eligible route, and
+   refuses safely when the target, authorization, support or preservation
+   evidence is insufficient.
+7. **Verify** - read the merged AXI receipt and fresh target state against
+   the goal (section 6). Report applied, verified, committed, promoted
+   and delivered as distinct states; a receipt or successful command
+   alone is not proof of the requested result.
 
-A whole-pipeline `ren edit` run is the compatibility path (section 5),
-not the default: use it for a brand-new edit from raw footage, or when
-the person asks for one.
+The whole-pipeline `ren edit` route is legacy (section 5), not the
+default: use it for a brand-new edit from raw footage, or when the person
+explicitly asks for a full run. For edits to an existing Resolve timeline,
+choose the narrow Ren capability and let AXI discover and route the edit.
 
 The contracts live in code; what is written here is them stated for
 chat, and the module wins when they disagree:
@@ -184,15 +193,17 @@ it whenever the goal is about what is IN the footage.
   `ren eval-search <project>` scores search on the pre-registered set
   (docs/SOURCE_MEMORY.md, "The analysis-only run").
 - For Resolve state or edits, load `resolve-axi` and discover the current
-  operation from AXI and its generated capability references. Keep the
-  user's editorial intent here; delegate target resolution, Resolve API,
-  MCP, UI, transaction and recovery mechanics to AXI. Confirm the exact
-  project and timeline from live state. A command return is provisional:
-  report completion only after its receipt and request-specific read-back
-  establish the requested result, with visual or audio evidence when
-  structure cannot prove it. Execution success is not editorial success.
-  An incomplete, refused or unverified change is never reported as
-  delivered. An unchecked rebuild is not a verified edit. Resolve
+  operation from the live AXI registry and its generated references. Keep
+  the user's editorial intent here; AXI owns target resolution, route
+  selection, Resolve API/MCP/UI mechanics, transactions and recovery.
+  Confirm the exact project and timeline from live state. A command
+  return is provisional: inspect the merged receipt's request identity,
+  selected route, actual changes, verification evidence and lifecycle
+  stage, then read back the requested target and effect. Add visual or
+  audio evidence where structure cannot prove it. If AXI refuses, relay
+  the user-facing consequence and follow its recovery class; do not force
+  a backend, retry blindly or substitute a different edit. An incomplete,
+  refused or unverified change is never reported as delivered. Resolve
   mechanics and their invariants live in
   `.agents/skills/resolve-axi/SKILL.md`.
 - To read a built reel as a report, call `library/tools/reel_read.py`,
@@ -291,8 +302,8 @@ each request, in order:
    deletes stale responses when it writes the request, so a stale
    answer is never mistaken for a fresh one.
 
-The compatibility path is the same command with no scope - the whole
-pipeline, every step in DAG order:
+The legacy full-run form is the same command with no scope - the whole
+pipeline, every step in DAG order. Use it only for the cases above:
 
 ```sh
 ren edit <project> --full-auto agent
