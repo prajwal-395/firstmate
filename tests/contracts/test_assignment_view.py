@@ -18,6 +18,7 @@ The defects this names:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -26,10 +27,11 @@ from library.tools import assignment_view as view
 from library.tools import revise
 
 
-def _assignment(project, *, request="two reels about pricing", reels=None):
+def _assignment(project, *, request="two reels about pricing", reels=None,
+                intent_id=""):
     """One assignment, with the reels it owns."""
     lifecycle.create(str(project), "reels-1", kind="reels", request=request,
-                     reels=reels or {})
+                     reels=reels or {}, intent_id=intent_id)
     lifecycle.transition(str(project), "reels-1", "draft", event="propose")
     return "reels-1"
 
@@ -191,3 +193,99 @@ def test_the_named_assignment_must_exist(tmp_path):
     _assignment(tmp_path)
     with pytest.raises(FileNotFoundError):
         view.task_state(str(tmp_path), "reels-nope")
+
+
+def _project_model(project):
+    """A project with a canonical Project Model, so an intent can land."""
+    from library.tools import project_model_store
+
+    fixture = json.loads(
+        (Path(__file__).resolve().parents[2] / "native" / "ren-protocol" /
+         "fixtures" / "project-model.json").read_text(encoding="utf-8"))
+    project_model_store.commit_project_model(project, fixture,
+                                             expected_revision=0)
+
+
+def test_the_canonical_intent_is_what_ren_understood(tmp_path):
+    """The intent is the canonical record of what was ASKED FOR (EDIT-001),
+    and it lives in the Project Model. The task state reads it, so the
+    agent is told what Ren took the request to mean instead of reading a
+    request string."""
+    from library.tools import editorial_intent
+
+    _assignment(tmp_path, intent_id="intent:1")
+    _project_model(tmp_path)
+    intent = editorial_intent.build_intent(
+        intent_id="intent:1",
+        desired_outcome="the viewer learns the price",
+        requests=[{"id": "request:1", "kind": "remove_repetition",
+                   "statement": "remove the repeated answer"}])
+    editorial_intent.commit_intent(str(tmp_path), intent)
+
+    state = view.task_state(str(tmp_path))
+    understood = state["understood"]["intent"]
+    assert understood["intent_id"] == "intent:1"
+    assert understood["desired_outcome"] == "the viewer learns the price"
+    assert [row["statement"] for row in understood["requests"]] == [
+        "remove the repeated answer"]
+
+
+def test_a_request_whose_evidence_is_missing_is_shown_as_missing(tmp_path):
+    """EDIT-008: silence is not evidence. A request whose evidence bar is
+    unmet is a request Ren cannot act on yet, and the task state has to
+    say so rather than read as "understood and ready"."""
+    from library.tools import editorial_intent
+
+    _assignment(tmp_path, intent_id="intent:1")
+    _project_model(tmp_path)
+    intent = editorial_intent.build_intent(
+        intent_id="intent:1",
+        desired_outcome="the viewer learns the price",
+        requests=[{"id": "request:1", "kind": "remove_repetition",
+                   "statement": "remove the repeated answer"}])
+    editorial_intent.commit_intent(str(tmp_path), intent)
+
+    state = view.task_state(str(tmp_path))
+    [row] = state["uncertainties"]["intent_uncertainty"]
+    assert row["request_id"] == "request:1"
+    assert [entry["lane"] for entry in row["missing_evidence"]] == ["m1"]
+    assert row["missing_evidence"][0]["status"] == "not_yet_analysed"
+
+
+def test_an_intent_that_is_not_on_record_is_said_not_guessed(tmp_path):
+    """The assignment names an intent the Project Model does not carry.
+    The section says so and names what IS on record, rather than
+    substituting an intent the person never asked for."""
+    from library.tools import editorial_intent
+
+    _assignment(tmp_path, intent_id="intent:missing")
+    _project_model(tmp_path)
+    editorial_intent.commit_intent(
+        str(tmp_path),
+        editorial_intent.build_intent(intent_id="intent:1",
+                                      desired_outcome="outcome 1"))
+
+    intent = view.task_state(str(tmp_path))["understood"]["intent"]
+    assert intent["intent_id"] == ""
+    assert "intent:missing" in intent["note"]
+    assert "intent:1" in intent["on_record"]
+
+
+def test_several_intents_and_no_name_are_not_resolved_by_guesswork(tmp_path):
+    """A project with two intents and an assignment that names neither
+    does not get one picked for it."""
+    from library.tools import editorial_intent
+
+    _assignment(tmp_path)
+    _project_model(tmp_path)
+    for index in (1, 2):
+        editorial_intent.commit_intent(
+            str(tmp_path),
+            editorial_intent.build_intent(
+                intent_id=f"intent:extra-{index}",
+                desired_outcome=f"outcome {index}"))
+
+    intent = view.task_state(str(tmp_path))["understood"]["intent"]
+    assert intent["intent_id"] == ""
+    assert "no intent is on record" in intent["note"]
+    assert "intent:extra-1" in intent["on_record"]

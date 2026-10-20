@@ -39,6 +39,7 @@ their words. `<p>` is the project's slug (or its absolute path).
 | **Where is X** - "where does she talk about pricing?", "where is Craig?" | `ren search <p> "pricing"`; for a person, `ren where <p> Craig` (section 3). Below the floor means "not in this footage" - say so |
 | **Where is my file** - "where did it go?" | `ren reels <p>` (each reel's last delivery and build), and the `Watch:` path `ren preview <p>` prints |
 | **How is it going** - "is it done?", "where are we at?" | `ren now <p>` (state plus the next action); during a run `ren progress <p>`, or `ren wait <p>` for the next thing it needs |
+| **What did you take this to mean** - "what did you understand?", "what have you actually done?", "did you change it yet?" | `ren assignment-state <p>` (section 7): what Ren understood, what it proposed, what it applied against what it only planned, what it could not determine, what it verified, and the open corrections |
 | **Hold on / carry on** - "hang on", "OK, carry on" | `ren pause <p>` / `ren resume <p>` |
 | **An episode of a series** - "edit Night 12 of 4th Wall" | `ren series list`, then `ren new <slug> --series <id> --episode <n>` (section 1) |
 | **Where were we** - a fresh chat on an old project | `ren work-state <p>`, then `ren now <p>` |
@@ -95,6 +96,13 @@ Work from the person's GOAL, not from the pipeline's step list:
    `resume_point.command`, which is the next verb to run. A refusal with
    recovery class `needs_question` is a question for the person. On yes,
    run the `--authorize-replacement` command it names, then repeat.
+   `ren assignment-state <project>` is the other half of that read: what
+   Ren understood about the request, what it proposed and on whose
+   evidence, what it applied against what it only planned, what it could
+   not determine, what it verified, and which corrections are still open.
+   Relay those six in your own words when the person asks what has
+   happened; a plan is not an applied edit, and an applied edit is not a
+   verified result.
 2. **Goal** - what should be different when you are done? Ask in chat
    when it is ambiguous; never guess a creative choice.
 3. **Inspect state** - what exists already (section 2).
@@ -253,6 +261,7 @@ it whenever the goal is about what is IN the footage.
 | Find WHEN it happened ("the second time she opens the box") | `ren search <project> --temporal "<question>"` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
+| What Ren understood about the request, and what it has done with it | `ren assignment-state <project>` (read only): the request's own words, the canonical intent, the ops Ren read out of them, the proposed changes and the evidence behind them, what landed against what is only planned, the uncertainties and blocked capabilities, what was verified against what was not, and each open correction with the command that continues it |
 | What the brief asked for, and what Ren decided | `bin/vep -m library.tools.editorial_intent <project>` prints the canonical intent: what was required, what was preferred, what Ren inferred, and which evidence each request still needs. `bin/vep -m library.tools.editorial_decisions check <decisions.json>` checks a decision record; `... compile <decisions.json> --project <p> --timeline <t>` compiles the APPROVED decisions into the request AXI executes |
 | "N reels about X" from footage | `ren edit <project> --reels N --about "X"`: hears the transcript from the footage when no Resolve cut exists (reused on later runs), selects and judges reels only; then `ren propose <project>` |
 | Reel candidates for approval | `ren propose <project>` |
@@ -431,8 +440,16 @@ typed in chat or pulled off a marker - becomes a change through ONE verb:
 ren revise <project> "<the note's exact words>" [--reel "<timeline name>"]
 ren revise <project> --at 0:12 --reel <N> "<the note>"  # a moment in a delivered file
 ren revise <project> --note-id <id from ren notes>     # a pulled marker
+ren revise <project> --assignment <id> "<the note>"  # update ONE named request
 ren revise <project>               # continue the newest open revision
 ```
+
+`--assignment <id>` names the request the correction updates. Without it
+Ren attaches the note to the request that owns the reel, which is right
+until the person means a different one. `ren assignment-state <project>`
+names the requests on record and shows every correction already on them,
+so a correction updates the existing task instead of starting a second
+one.
 
 It prints JSON; relay its `reply` line to the person. `status` says what
 happened next:

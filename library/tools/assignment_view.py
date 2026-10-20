@@ -3,8 +3,9 @@
 One read-only projection over the records an assignment already owns. It
 answers the six questions a host otherwise has to answer for itself, and
 each answer is READ from a record that already exists: the assignment's
-own checkpoint, the revision records it owns, the edit ledger, the run's
-declared gaps, the delivery receipt.
+own checkpoint, the revision records it owns, the canonical intent in the
+Project Model, the edit spec, the run's declared gaps, the delivery
+receipt.
 
     understood     what Ren took the request to mean              (AGENT-018)
     proposed       the changes it would make, and their evidence  (AGENT-019)
@@ -19,6 +20,10 @@ rule is the same one: asking what Ren understood must not change what
 Ren understands. Nothing here writes, nothing here decides, and nothing
 here invents a judgement - a section with no record behind it says so
 rather than filling the gap.
+
+The canonical intent is read, never rebuilt. `editorial_intent` owns what
+was ASKED FOR and where it lives; this module is its reader, and it
+refuses to pick an intent for a request that does not name one.
 
 The final architectural principle of the captain's punch list is that the
 MODEL must not be responsible for understanding the internal machinery of
@@ -120,7 +125,94 @@ def _spec_for(project: str, revisions: list[dict]):
     return None, None
 
 
-def _understood(project: str, record: dict, revisions: list[dict]) -> dict:
+def _intent(project: str, record: dict) -> dict:
+    """The canonical intent, when one is on record.
+
+    `editorial_intent` is the canonical record of what was ASKED FOR
+    (EDIT-001), and it lives in the Project Model, not in the assignment.
+    This is its READER: the assignment names the intent it serves, and
+    where the assignment names none, a project's single intent is
+    unambiguous and is used. Where there is more than one, the section
+    says so and names them, because picking one is a guess and a guess
+    about what the person asked for is the one thing this view must not
+    do.
+    """
+    from library.tools import editorial_intent, project_model_store
+
+    store = Path(project) / project_model_store.STORE_DIR
+    if not store.is_dir():
+        return _no_intent("no Project Model is on record for this project")
+    try:
+        _revision, model = project_model_store.load_project_model(
+            Path(project))
+    except (OSError, ValueError):
+        return _no_intent("the project model could not be read")
+    rows = [row for row in (model.get("intents") or [])
+            if isinstance(row, dict) and row.get("id")]
+    named = str(record.get("intent_id") or "")
+    if named:
+        chosen = next((row for row in rows if row["id"] == named), None)
+        if chosen is None:
+            return _no_intent(
+                f"the assignment names intent {named!r}, which is not on "
+                f"record", on_record=[row["id"] for row in rows])
+        basis = "the assignment names it"
+    elif len(rows) == 1:
+        chosen = rows[0]
+        basis = "it is the only intent on record"
+    else:
+        return _no_intent(
+            "no intent is on record for this request",
+            on_record=[row["id"] for row in rows])
+    try:
+        intent = editorial_intent.from_project_model_row(chosen)
+    except (editorial_intent.IntentError, KeyError, TypeError, ValueError) as exc:
+        return _no_intent(f"the intent on record could not be read: {exc}")
+    data = intent.to_dict()
+    return {
+        "intent_id": data["intent_id"],
+        "named_by": basis,
+        "desired_outcome": data["desired_outcome"],
+        "requirements": [_declaration(row) for row in data["requirements"]],
+        "preferences": [_declaration(row) for row in data["preferences"]],
+        "inferred_preferences": [_declaration(row)
+                                 for row in data["inferred_preferences"]],
+        "requests": [_intent_request(row) for row in data["requests"]],
+        "constraints": data["constraints"],
+        "unresolved": data["unresolved"],
+        "evidence_links": data["evidence_links"],
+        "on_record": [row["id"] for row in rows],
+    }
+
+
+def _no_intent(reason: str, on_record=None) -> dict:
+    """No intent to show, said plainly rather than left blank."""
+    return {"intent_id": "", "named_by": "", "desired_outcome": "",
+            "requirements": [], "preferences": [], "inferred_preferences": [],
+            "requests": [], "constraints": [], "unresolved": [],
+            "evidence_links": [], "on_record": list(on_record or []),
+            "note": reason}
+
+
+def _declaration(row: dict) -> dict:
+    """One declaration, without the fields a reader does not act on."""
+    return {key: row.get(key) for key in
+            ("declaration_id", "statement", "kind", "explicit", "objective",
+             "source")
+            if key in row}
+
+
+def _intent_request(row: dict) -> dict:
+    """One request the intent carries, with the evidence it still needs."""
+    return {key: row.get(key) for key in
+            ("request_id", "kind", "statement", "explicit", "objective",
+             "autonomy", "autonomy_basis", "evidence_bar", "evidence_lanes",
+             "missing_evidence", "uncertainty", "question")
+            if key in row}
+
+
+def _understood(project: str, record: dict, revisions: list[dict],
+                intent: dict) -> dict:
     """What Ren took the request to mean."""
     request = str(record.get("request") or record.get("brief") or "")
     source = ("assignment.request" if record.get("request")
@@ -146,6 +238,7 @@ def _understood(project: str, record: dict, revisions: list[dict]) -> dict:
         "ops": ops,
         "questions": questions,
         "moments": _moments(project),
+        "intent": intent,
         "revision_id": (revision or {}).get("revise_id"),
         "spec_id": (revision or {}).get("spec_id"),
     }
@@ -317,7 +410,8 @@ def _blocked_capabilities(project: str, record: dict) -> list[dict]:
     return rows
 
 
-def _uncertainties(project: str, record: dict, revisions: list[dict]) -> dict:
+def _uncertainties(project: str, record: dict, revisions: list[dict],
+                    intent: dict) -> dict:
     """What Ren could not determine, and what it cannot do."""
     questions: list[dict] = []
     for revision in revisions:
@@ -329,7 +423,35 @@ def _uncertainties(project: str, record: dict, revisions: list[dict]) -> dict:
         "declared_gaps": _declared_gaps(project),
         "blocked_capabilities": _blocked_capabilities(project, record),
         "open_questions": questions,
+        "intent_uncertainty": _intent_uncertainty(intent),
     }
+
+
+def _intent_uncertainty(intent: dict) -> list[dict]:
+    """What the canonical intent says is still missing.
+
+    EDIT-008 made uncertainty explicit on the intent, with an evidence
+    bar per request: a request whose lanes are not measured is a request
+    Ren cannot act on yet, and saying so here is what keeps the task
+    state from reading as "understood and ready".
+    """
+    rows = []
+    for request in intent.get("requests") or []:
+        missing = list(request.get("missing_evidence") or [])
+        uncertainty = request.get("uncertainty")
+        if not missing and uncertainty is None and not request.get("question"):
+            continue
+        rows.append({"request_id": request.get("request_id"),
+                     "kind": request.get("kind"),
+                     "missing_evidence": missing,
+                     "uncertainty": uncertainty,
+                     "question": request.get("question") or ""})
+    for entry in intent.get("unresolved") or []:
+        rows.append({"request_id": "", "kind": "unresolved",
+                     "missing_evidence": [], "uncertainty": None,
+                     "question": str(entry.get("statement")
+                                     or entry.get("question") or entry)})
+    return rows
 
 
 def _verified(project: str, record: dict,
@@ -451,6 +573,7 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
                     "run opens one.",
         }
     revisions = _revisions(root, record)
+    intent = _intent(root, record)
     from library.tools import assignment_interaction
 
     return {
@@ -460,10 +583,10 @@ def task_state(project: str, assignment_id: str | None = None) -> dict:
         "state": record.get("state"),
         "stage": assignment_interaction.STAGE_BY_STATE.get(
             record.get("state"), "understand"),
-        "understood": _understood(root, record, revisions),
+        "understood": _understood(root, record, revisions, intent),
         "proposed": _proposed(root, record, revisions),
         "applied": _applied(record, revisions),
-        "uncertainties": _uncertainties(root, record, revisions),
+        "uncertainties": _uncertainties(root, record, revisions, intent),
         "verified": _verified(root, record, revisions),
         "corrections": _corrections(root, record, revisions),
         "resume_point": assignment_spine.resume_point(root, record),
@@ -486,7 +609,7 @@ def _empty(section: str) -> dict:
                         "a new one."}
     if section == "uncertainties":
         return {"declared_gaps": [], "blocked_capabilities": [],
-                "open_questions": []}
+                "open_questions": [], "intent_uncertainty": []}
     if section == "proposed":
         return {"changes": [], "evidence": [], "untouched_categories": [],
                 "source": "none", "note": ""}
@@ -508,6 +631,23 @@ def render(view: dict) -> str:
                  f" is {view['state']}, at the {view['stage']} stage.")
     request = understood.get("request") or ""
     lines.append("What Ren understood: " + (request or "(no words on record)"))
+    intent = understood.get("intent") or {}
+    if intent.get("intent_id"):
+        lines.append(f"  canonical intent {intent['intent_id']}"
+                     + (f": {intent['desired_outcome']}"
+                        if intent.get("desired_outcome") else "")
+                     + f" ({intent.get('named_by')})")
+        for declaration in intent.get("requirements") or []:
+            lines.append(f"  required: {declaration.get('statement')}")
+        for declaration in intent.get("preferences") or []:
+            lines.append(f"  preferred: {declaration.get('statement')}")
+        for entry in intent.get("requests") or []:
+            lines.append(f"  request {entry.get('kind')}: "
+                         f"{entry.get('statement')}"
+                         + (f" (needs {', '.join(m['lane'] for m in entry.get('missing_evidence') or [] if isinstance(m, dict) and m.get('lane'))})"
+                            if entry.get("missing_evidence") else ""))
+    elif intent.get("note"):
+        lines.append("  canonical intent: " + intent["note"])
     if understood.get("ops"):
         lines.append("  read as: " + ", ".join(understood["ops"]))
     if understood.get("moments"):
@@ -545,6 +685,13 @@ def render(view: dict) -> str:
                          f"{entry.get('what')}")
     for row in uncertainties["blocked_capabilities"]:
         lines.append(f"  blocked capability {row.get('id')}: {row.get('reason')}")
+    for row in uncertainties.get("intent_uncertainty") or []:
+        missing = ", ".join(
+            str(entry.get("lane")) for entry in row.get("missing_evidence") or []
+            if isinstance(entry, dict) and entry.get("lane"))
+        lines.append(f"  the request still needs evidence"
+                     + (f" ({missing})" if missing else "")
+                     + (f": {row.get('question')}" if row.get("question") else ""))
     verified = view["verified"]
     lines.append(f"Verified {verified['counts']['verified']}, unverified "
                  f"{verified['counts']['unverified']}.")

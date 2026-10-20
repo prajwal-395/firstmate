@@ -629,7 +629,25 @@ def revision_owner(project, reel: str = "") -> dict | None:
     return current(root, KIND_REELS if _moments(root) else KIND_EDIT)
 
 
-def attach_revision(project, reel: str = "", *, request: str) -> dict:
+def named_assignment(project, assignment_id: str) -> dict:
+    """The request an id names, or a refusal naming what to do instead.
+
+    One place, because a caller that names a request and a reader that
+    lists the requests must agree on what an id means.
+    """
+    record = lifecycle.load(_root(project), assignment_id)
+    if record is None:
+        raise RenRefusal(
+            f"assignment {assignment_id} has no record",
+            "a correction is attached to the request it updates, and that "
+            "request has to exist",
+            f"run `ren assignment-state {shlex.quote(_root(project))}` to "
+            f"list the requests on record")
+    return record
+
+
+def attach_revision(project, reel: str = "", *, request: str,
+                    assignment_id: str = "") -> dict:
     """The assignment a revision that is about to change work joins.
 
     Called when the change is made, never when the note arrives: a note
@@ -637,11 +655,18 @@ def attach_revision(project, reel: str = "", *, request: str) -> dict:
     writes no history entry - the entry is the revision itself, when it
     lands (`end_act`). A note no request owns opens one, which is an act
     and is recorded as `revise`.
+
+    A NAMED assignment is honoured as given. Guessing the owner is right
+    when nobody says otherwise, and wrong when the person says which
+    request they mean: a focused correction must update THAT task, not
+    the one the reel happens to belong to.
     """
+    root = _root(project)
+    if assignment_id:
+        return named_assignment(project, assignment_id)
     owner = revision_owner(project, reel)
     if owner is not None:
         return owner
-    root = _root(project)
     return open_request(root, KIND_REELS if _moments(root) else KIND_EDIT,
                         event="revise", request=request)
 

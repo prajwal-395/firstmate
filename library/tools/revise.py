@@ -252,7 +252,7 @@ def _decision_candidates(project: str, routed) -> tuple[list, str]:
 
 
 def start(project, note: str = "", *, note_id: str = "", reel: str = "",
-          at: str = "", **options) -> dict:
+          at: str = "", assignment_id: str = "", **options) -> dict:
     """Take a note in and carry it as far as it can go now."""
     from library.tools import assignment_spine as spine
     from library.tools import edit_spec
@@ -291,7 +291,8 @@ def start(project, note: str = "", *, note_id: str = "", reel: str = "",
             "a revision starts from what the editor wants changed",
             f'run `ren revise {shlex.quote(project)} "<what to change>"`')
     note = note.strip()
-    owner = spine.revision_owner(project, reel)
+    owner = (spine.named_assignment(project, assignment_id) if assignment_id
+             else spine.revision_owner(project, reel))
     candidates, why_none = _decision_candidates(project, routed)
     spec_id, request_path, linked = edit_spec.prepare_request(
         project, note, reel=reel,
@@ -308,6 +309,7 @@ def start(project, note: str = "", *, note_id: str = "", reel: str = "",
         "reel": reel,
         "anchor": anchor,
         "assignment_id": owner["assignment_id"] if owner else None,
+        "requested_assignment_id": assignment_id,
         "spec_id": spec_id,
         "request_path": request_path,
         "decision_candidates": candidates,
@@ -744,7 +746,9 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
         originator={"kind": "human", "name": ORIGINATOR_NAME,
                     "detail": record.get("note", "")})
     record["assignment_id"] = spine.attach_revision(
-        project, reel, request=record["note"])["assignment_id"]
+        project, reel, request=record["note"],
+        assignment_id=record.get("requested_assignment_id", "")
+    )["assignment_id"]
     act = spine.begin_revision(project, record["assignment_id"], reel)
     edit_spec.record_spec(project, spec)
     note = _note_for(project, record)
@@ -878,7 +882,9 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
               "summary": summary}
     note = _note_for(project, record)
     record["assignment_id"] = spine.attach_revision(
-        project, record["reel"], request=record["note"])["assignment_id"]
+        project, record["reel"], request=record["note"],
+        assignment_id=record.get("requested_assignment_id", "")
+    )["assignment_id"]
     if record.get("status") != STATUS_INCOMPLETE:
         # A resumed rebuild already recorded its spec and its plan.
         edit_spec.record_spec(project, spec)
@@ -950,7 +956,7 @@ def _result(project: str, record: dict) -> dict:
     }.get(status) or (record.get("change") or {}).get("summary")
     out = {key: record.get(key) for key in (
         "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
-        "assignment_id",
+        "assignment_id", "requested_assignment_id",
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question", "failed_command",
         "landed_generation", "scope", "supersedes", "prior_bases",
@@ -1098,6 +1104,9 @@ def main(argv=None) -> int:
     parser.add_argument("--id", default="", dest="revise_id",
                         help="continue this revision (default: the newest "
                              "open one)")
+    parser.add_argument("--assignment", default="", dest="assignment_id",
+                        help="the request this correction updates "
+                             "(default: the one that owns the reel)")
     parser.add_argument("--answer", default="",
                         help="answer the revision's open question")
     parser.add_argument("--retranslate", action="store_true",
@@ -1113,6 +1122,7 @@ def main(argv=None) -> int:
         if args.note or args.note_id or args.at:
             result = start(args.project, args.note, note_id=args.note_id,
                            reel=args.reel, at=args.at,
+                           assignment_id=args.assignment_id,
                            plan_only=args.plan_only, preview=args.preview)
         else:
             revise_id = args.revise_id

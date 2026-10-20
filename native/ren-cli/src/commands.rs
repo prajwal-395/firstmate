@@ -183,6 +183,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "launch-pack", group: "Projects", summary: "Emit a bounded project snapshot for a lane brief" },
     Verb { name: "asks", group: "Projects", summary: "What the host model owes, each shared prompt once (read only)" },
     Verb { name: "assignment", group: "Projects", summary: "Read a request's assignment: state, history and the verb it waits on" },
+    Verb { name: "assignment-state", group: "Projects", summary: "Read what Ren understood, proposed, applied, blocked and verified (read only)" },
     Verb { name: "task", group: "Projects", summary: "Start or finish an isolated semantic task" },
     Verb { name: "check", group: "Projects", summary: "Run a project's readiness check" },
     Verb { name: "edit", group: "Projects", summary: "Run the editing pipeline on a project" },
