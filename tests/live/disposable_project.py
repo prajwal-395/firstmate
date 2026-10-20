@@ -31,8 +31,8 @@ TIMELINE_NAME = "fm-scratch qualify"
 DISPOSABLE_SLUG = "axc-disposable"
 DISPOSABLE_REEL_STEM = "Reel 01 - axc-disposable"
 
-QUAL_POOL_DIR = Path(
-    "/Users/prajwal/.local/share/vep/qualification/622307e41719")
+QUAL_POOL_DIR = (Path.home() / ".local" / "share" / "vep"
+                   / "qualification" / "622307e41719")
 
 
 def materialize(parent: Path | str | None = None) -> Path:
