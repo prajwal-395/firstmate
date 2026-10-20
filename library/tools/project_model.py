@@ -41,9 +41,20 @@ def validate_project_model(model: dict[str, Any]) -> None:
         if not set(state["edit_operation_ids"]) <= edit_ids:
             raise ValueError("timeline state references unknown edit operation")
     from library.tools.project_model_contract import validate_typed_confidence
+    clock_rates: dict[str, int] = {}
     for clock in model["clocks"]:
         if clock["ticks_per_second"] <= 0 or (clock["frame_rate"] and clock["frame_rate"]["denominator"] <= 0):
             raise ValueError("clock rates must have positive denominators and ticks_per_second")
+        # One clock, one rate: a second row for the same clock under a
+        # different rate puts two grids under one id, and every row that
+        # names the clock then reads at the wrong time by the ratio.
+        prior_rate = clock_rates.get(clock["id"])
+        if prior_rate is not None and prior_rate != clock["ticks_per_second"]:
+            raise ValueError(
+                f"clock {clock['id']!r} carries two tick rates "
+                f"({prior_rate} and {clock['ticks_per_second']}); one clock "
+                f"keeps one rate")
+        clock_rates[clock["id"]] = clock["ticks_per_second"]
     confidence_values = [item["confidence"] for key in ("observations", "identity_links", "relations") for item in model[key]]
     confidence_values.extend(sample["confidence"] for track in model["tracks"] for sample in track["samples"])
     if any(value is not None and not 0 <= value <= 1 for value in confidence_values):

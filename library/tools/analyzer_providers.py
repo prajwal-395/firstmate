@@ -358,8 +358,8 @@ def normalize_transcription(
         method=f"analyzer-provider/{provider_id}")
     provenance_id = provenance.id
     for index, (word, start, end, speaker) in enumerate(words):
-        begin = start_tick + round(start * evidence.TICKS_PER_SECOND)
-        finish = start_tick + round(end * evidence.TICKS_PER_SECOND)
+        begin = start_tick + evidence.point_to_tick(start, evidence.TICKS_PER_SECOND)
+        finish = start_tick + evidence.point_to_tick(end, evidence.TICKS_PER_SECOND)
         if finish <= begin:
             raise ValueError("transcript word collapses at FI-03 tick resolution")
         records.append(evidence.EvidenceRecord(
@@ -772,14 +772,16 @@ def _detect_object_interval(context: ProducerContext) -> Mapping[str, Any]:
             required_output_evidence_types=frozenset({"object.detection"}))
         at = float(frame["t"])
         for index, detection in enumerate(result.detections):
-            tick = round(at * evidence_contract.TICKS_PER_SECOND)
+            tick = evidence_contract.point_to_tick(at, evidence_contract.TICKS_PER_SECOND)
             value = {"label": detection.phrase, "box": detection.box,
                      "score": detection.score, "detector": detection.detector,
                      "tier_id": detection.tier_id,
                      "frame_time_s": at}
             record = evidence_contract.new_measurement(
                 asset_id=asset["id"], clock_id=clock_id,
-                start_tick=tick, end_tick=tick + max(1, round(period * 1000)),
+                start_tick=tick,
+                end_tick=tick + max(1, evidence_contract.point_to_tick(
+                    period, evidence_contract.TICKS_PER_SECOND)),
                 measurement_type="object.detection", value=value,
                 method=f"{detection.detector}-open-vocabulary-detection",
                 provenance_id=provenance_id,

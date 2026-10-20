@@ -847,6 +847,113 @@ def ticks_to_seconds(start_tick: int, end_tick: int,
     return (start_tick / ticks_per_second, end_tick / ticks_per_second)
 
 
+def point_to_tick(seconds: float,
+                  ticks_per_second: int = TICKS_PER_SECOND) -> int:
+    """Float seconds to the ONE tick that names that instant.
+
+    Floor, never round: the tick sits at or before the measurement, so a
+    point never reads later than the observation that produced it. An
+    interval maps floor/ceil (``sec_to_ticks``); a point maps floor.
+    One reading, so two lanes measuring the same instant cannot
+    disagree by a tick.
+    """
+    try:
+        seconds_f = float(seconds)
+    except (TypeError, ValueError):
+        raise TemporalAlignmentError(f"unalignable instant {seconds!r}") from None
+    if not math.isfinite(seconds_f):
+        raise TemporalAlignmentError("instant must be finite")
+    if ticks_per_second <= 0:
+        raise TemporalAlignmentError("ticks_per_second is positive")
+    if seconds_f < 0:
+        raise TemporalAlignmentError("ticks are non-negative")
+    return math.floor(seconds_f * ticks_per_second)
+
+
+#: The integer keys that carry a tick in a Project Model row.
+TICK_KEYS = ("start", "end", "tick")
+
+#: The integer keys that carry a tick COUNT rather than a position:
+#: a duration, a spread, an offset. They scale with their clock.
+TICK_COUNT_KEYS = ("offset_ticks", "uncertainty_ticks")
+
+#: Every top-level Project Model collection, minus the clock registry
+#: itself. A clock's rate change rescales the rows that carry its
+#: ticks, and a hand-picked list of collections is how a row gets left
+#: behind on the old grid.
+CLOCK_BEARING_COLLECTIONS = (
+    "assets", "clip_uses", "coordinate_spaces", "edits", "effects",
+    "entities", "evaluation_policies", "events", "frame_maps",
+    "identity_links", "intents", "interpretations", "masks",
+    "nle_bindings", "object_classes", "observations", "query_results",
+    "receipts", "relations", "renders", "signals", "space_transforms",
+    "streams", "time_transforms", "timeline_states", "tracks",
+)
+
+
+def rescale_clock_references(model: dict[str, Any], clock_id: str,
+                             multiplier: int) -> None:
+    """Rescale every stored tick that rides ``clock_id``.
+
+    A clock's rate is part of what its numbers MEAN, so a rate change
+    rescales every row that carries that clock's ticks - observations,
+    events, signals, tracks, transforms and query scopes alike. A row
+    left behind on the old grid reads at the wrong time by the ratio
+    of the two rates, which is a silent corruption, not a rounding.
+    """
+    if not isinstance(multiplier, int) or isinstance(multiplier, bool):
+        raise TemporalAlignmentError("multiplier is an integer")
+    if multiplier == 1:
+        return
+
+    def scale(row: dict[str, Any], keys: tuple[str, ...]) -> None:
+        for key in keys:
+            value = row.get(key)
+            if isinstance(value, int) and not isinstance(value, bool):
+                row[key] = value * multiplier
+
+    def walk(value: Any, inherited: bool = False) -> None:
+        if isinstance(value, list):
+            for child in value:
+                walk(child, inherited)
+            return
+        if not isinstance(value, dict):
+            return
+        owns_clock = value.get("clock_id") == clock_id
+        interval = value.get("interval")
+        has_timed_keys = (isinstance(interval, dict)
+                          and interval.get("clock_id") == clock_id)
+        active = inherited or owns_clock
+        if active:
+            scale(value, TICK_KEYS)
+        # A time transform names its clocks by direction, and its own
+        # tick counts ride the clock it maps FROM.
+        from_clock = value.get("from_clock") == clock_id
+        to_clock = value.get("to_clock") == clock_id
+        transform_handled = from_clock or to_clock
+        if transform_handled:
+            for segment in value.get("segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                for side in ("from", "to"):
+                    bound = segment.get(side)
+                    if isinstance(bound, dict) and bound.get("clock_id") == clock_id:
+                        scale(bound, TICK_KEYS)
+                if from_clock:
+                    scale(segment, TICK_COUNT_KEYS)
+        for key, child in value.items():
+            if transform_handled and key == "segments":
+                # Already rescaled above: walking them again would scale
+                # the same tick twice.
+                continue
+            child_is_timed = (active and key in ("samples", "keyframes"))
+            child_is_keyed = (has_timed_keys and key == "keyframes")
+            walk(child, child_is_timed or child_is_keyed)
+
+    for key in CLOCK_BEARING_COLLECTIONS:
+        walk(model.get(key, []))
+
+
 @dataclass(frozen=True)
 class RationalRate:
     """A rational frame rate: variable rates stay exact (plan A3)."""

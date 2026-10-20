@@ -86,6 +86,7 @@ import copy
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import replace
 from decimal import ROUND_CEILING, Decimal
 from itertools import pairwise
@@ -1440,6 +1441,93 @@ def _migrate_voice_match_conflicts(builder: _Builder,
                                     contradicting_obs))
 
 
+def _scene_sampling(instrument: Mapping[str, Any] | None,
+                    start: Any, end: Any) -> dict[str, Any]:
+    """The frames a scene description was read from.
+
+    The M4 slot records, per window, how many frames the model call
+    carried and at what rate. The scene's own range names the window it
+    was described from, and the frames are that window's: a description
+    of a range is a reading of the samples its window carried. A slot
+    that records no sampling says so - the frames are then unrecorded,
+    never zero-measured.
+    """
+    sampling = (instrument or {}).get("sampling") or {}
+    windows = ((sampling.get("windows") or {}).get("scene") or [])
+    for window in windows:
+        if not isinstance(window, dict):
+            continue
+        try:
+            w_start = float(window["start"])
+            w_end = float(window["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        try:
+            s_start = float(start)
+            s_end = float(end)
+        except (TypeError, ValueError):
+            continue
+        if s_start < w_end and s_end > w_start:
+            frames = window.get("frames")
+            rate = window.get("effective_fps")
+            return {
+                "frames": (int(frames)
+                           if isinstance(frames, int) and frames >= 0 else 0),
+                "effective_fps": (float(rate)
+                                  if isinstance(rate, (int, float))
+                                  and not isinstance(rate, bool) else 0.0),
+                "window_start_s": w_start,
+                "window_end_s": w_end,
+            }
+    return {"frames": 0, "effective_fps": 0.0,
+            "window_start_s": None, "window_end_s": None}
+
+
+def _description_coverage(scene: Mapping[str, Any],
+                          scene_coverage: Mapping[str, Any] | None,
+                          sampling: Mapping[str, Any]) -> dict[str, Any]:
+    """What the description covers, and what it does not.
+
+    The vision pass already measured both: the window it answered from
+    and the frames that window carried, and the share of the clip its
+    descriptions account for. They travel with the description, so a
+    reader that knows the description covers 46% of the footage weighs
+    it differently from one that believes it accounts for all of it.
+    """
+    scope: dict[str, Any] = {
+        "window_start_s": sampling.get("window_start_s"),
+        "window_end_s": sampling.get("window_end_s"),
+        "frames_read": sampling.get("frames"),
+        "sample_rate_hz": sampling.get("effective_fps"),
+    }
+    try:
+        scene_start = float(scene.get("start"))
+        scene_end = float(scene.get("end"))
+    except (TypeError, ValueError):
+        scene_start = scene_end = None
+    if scene_start is not None and scene_end is not None:
+        scope["described_s"] = round(max(scene_end - scene_start, 0.0), 6)
+        window_start = sampling.get("window_start_s")
+        window_end = sampling.get("window_end_s")
+        if (isinstance(window_start, (int, float))
+                and isinstance(window_end, (int, float))
+                and window_end > window_start):
+            scope["window_described_ratio"] = round(
+                max(scene_end - scene_start, 0.0) / (window_end - window_start),
+                6)
+    coverage = scene_coverage or {}
+    for key, name in (("described_s", "clip_described_s"),
+                      ("total_s", "clip_total_s"),
+                      ("ratio", "clip_described_ratio")):
+        value = coverage.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            scope[name] = value
+    undescribed = coverage.get("undescribed_ranges")
+    if isinstance(undescribed, list):
+        scope["clip_undescribed_ranges"] = undescribed
+    return scope
+
+
 def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     clock_id: str, duration: float | None,
                     root: Path | None) -> None:
@@ -1465,6 +1553,8 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         builder.notes.append(f"{digest[:12]}: M4 boundary method absent or stale; "
                              "boundary evidence refused")
     scenes = m4.get("scenes") or []
+    scene_coverage = m4.get("scene_coverage") or {}
+    model_id = instrument.get("model_id")
     window_coverage = [row for row in m4.get("window_coverage", [])
                        if isinstance(row, dict)
                        and row.get("status") == "complete"
@@ -1489,18 +1579,30 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         if ticks is None:
             continue
         version = window["producer_version"]
+        window_sampling = _scene_sampling(instrument, start, end)
         native = evidence_contract.new_measurement(
             asset_id=asset_id, clock_id=clock_id,
             start_tick=ticks[0], end_tick=ticks[1],
             measurement_type="video.scene_segment", value=[], method=method,
             provenance_id=_prov_id(digest, "m4"),
-            coverage=evidence_contract.CoverageKind.COMPLETE,
-            coverage_samples=0, coverage_sample_rate_hz=0.0)
+            # The model read this window and described nothing in it.
+            # That is a reading that came back empty, NOT a measured
+            # absence of a scene: the record says which it is.
+            coverage=evidence_contract.CoverageKind.SAMPLED,
+            coverage_samples=window_sampling["frames"],
+            coverage_sample_rate_hz=window_sampling["effective_fps"])
         native = replace(native, freshness=freshness,
-                          producer_version=version)
+                         producer_version=version or model_id,
+                         sampling_method=method,
+                         coverage_status="sampled_no_description")
         stable_id = (f"obs-{digest}-m4-window-"
                      f"{ticks[0]}-{ticks[1]}-empty")
-        empty_payload = {"scenes": []}
+        empty_payload = {
+            "scenes": [],
+            "description_coverage": _description_coverage(
+                {"start": start, "end": end}, scene_coverage,
+                window_sampling),
+        }
         if (window.get("model_provenance") is not None
                 and window.get("producer_project_id")
                 and window.get("producer_project_root")):
@@ -1518,19 +1620,27 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
             and freshness != "stale"):
         ticks = sec_to_ticks(0.0, duration)
         if ticks is not None:
+            whole_sampling = _scene_sampling(instrument, 0.0, duration)
             native = evidence_contract.new_measurement(
                 asset_id=asset_id, clock_id=clock_id,
                 start_tick=ticks[0], end_tick=ticks[1],
                 measurement_type="video.scene_segment", value=[],
                 method=method, provenance_id=_prov_id(digest, "m4"),
-                coverage=evidence_contract.CoverageKind.COMPLETE,
-                coverage_samples=0, coverage_sample_rate_hz=0.0)
-            native = replace(native, freshness=freshness)
+                coverage=evidence_contract.CoverageKind.SAMPLED,
+                coverage_samples=whole_sampling["frames"],
+                coverage_sample_rate_hz=whole_sampling["effective_fps"])
+            native = replace(native, freshness=freshness,
+                             producer_version=model_id,
+                             sampling_method=method,
+                             coverage_status="sampled_no_description")
             builder.observation(
                 digest, "m4", asset_id, clock_id, 0.0, duration,
                 "scene", {"scenes": [],
                           "scene_boundaries": copy.deepcopy(
-                              m4.get("scene_boundaries") or [])}, None,
+                              m4.get("scene_boundaries") or []),
+                          "description_coverage": _description_coverage(
+                              {"start": 0.0, "end": duration},
+                              scene_coverage, whole_sampling)}, None,
                 "library.tools.analysis.vision_pipeline_v3", evidence=native)
     for scene in scenes:
         if not isinstance(scene, dict):
@@ -1538,6 +1648,7 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
         native = None
         start, end = scene.get("start"), scene.get("end")
         ticks = sec_to_ticks(start, end)
+        sampling = _scene_sampling(instrument, start, end)
         if method_fresh and freshness != "stale" and ticks is not None:
             scene_version = next((window["producer_version"]
                                   for window in window_coverage
@@ -1550,10 +1661,20 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 measurement_type="video.scene_segment",
                 value=copy.deepcopy(scene), method=method,
                 provenance_id=_prov_id(digest, "m4"),
-                coverage=evidence_contract.CoverageKind.COMPLETE,
-                coverage_samples=1, coverage_sample_rate_hz=0.0)
+                # A description is read from SAMPLED frames. Claiming
+                # COMPLETE here said the description accounts for the
+                # whole window, and a query can then read a sampled
+                # reading as an exhaustive one.
+                coverage=evidence_contract.CoverageKind.SAMPLED,
+                coverage_samples=sampling["frames"],
+                coverage_sample_rate_hz=sampling["effective_fps"])
             native = replace(native, freshness=freshness,
-                             producer_version=scene_version)
+                             producer_version=scene_version or model_id,
+                             sampling_method=method,
+                             coverage_status="sampled",
+                             temporal_coverage=({
+                                 "clock_id": clock_id,
+                                 "start": ticks[0], "end": ticks[1]},))
         stable_id = None
         model_window = next((window for window in window_coverage
                              if float(scene.get("start", 0)) < float(window["end_s"])
@@ -1570,6 +1691,8 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                          f"{hashlib.sha256(json.dumps(scene, sort_keys=True).encode()).hexdigest()[:12]}")
         scene_payload = {k: scene.get(k) for k in
                          ("location", "type", "lighting", "notable_features")}
+        scene_payload["description_coverage"] = _description_coverage(
+            scene, scene_coverage, sampling)
         if model_record is not None:
             scene_payload["model_provenance"] = model_record
             scene_payload["model_provenance_source"] = {
@@ -2892,8 +3015,8 @@ def _migrate_object_visibility(builder: _Builder, digest: str,
                              range(start_frame, end_frame + 1))})
     value = {"track_id": f"track-{clip_id}-{object_id}",
              "object_id": object_id,
-             "visible_ticks": [round(index / sample_fps * TICKS_PER_SECOND)
-                               for index in frames],
+             "visible_ticks": [evidence_contract.point_to_tick(
+                 index / sample_fps, TICKS_PER_SECOND) for index in frames],
              "gaps": gap_rows}
     ticks = sec_to_ticks(first_t, last_t)
     evidence = None
@@ -3016,7 +3139,7 @@ def _migrate_segmentation(builder: _Builder, project_folder: str,
             if box is None:
                 continue
             sample_time = frame_idx / sample_fps
-            tick = round(sample_time * TICKS_PER_SECOND)
+            tick = evidence_contract.point_to_tick(sample_time, TICKS_PER_SECOND)
             samples.append({"tick": tick,
                             "geometry": {"bbox_pixels": list(box)},
                             "confidence": None,
@@ -3334,7 +3457,7 @@ def _migrate_regions(builder: _Builder, digest: str, asset_id: str,
                 valid = False
                 break
             samples.append({
-                "tick": round(t * TICKS_PER_SECOND),
+                "tick": evidence_contract.point_to_tick(t, TICKS_PER_SECOND),
                 "geometry": {
                     "kind": "region",
                     "bbox": summary["bbox"],

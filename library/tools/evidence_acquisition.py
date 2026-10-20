@@ -397,6 +397,7 @@ def served_requirements(step: Mapping[str, Any]) -> list[str]:
             return list(ids)
     return [step["requirement_id"]]
 
+
 def _coalesce_steps(steps: Sequence[Mapping[str, Any]],
                     why_for: Callable[[Mapping[str, Any]], str],
                     ) -> tuple[list[dict[str, Any]], int]:
@@ -439,6 +440,32 @@ def _coalesce_steps(steps: Sequence[Mapping[str, Any]],
         row["why"] = why_for(row)
         out.append(row)
     return out, duplicates
+def _unresolved_question(step: Mapping[str, Any],
+                         answers: Mapping[str, Any],
+                         compiled_by_id: Mapping[str, Any]) -> dict[str, Any]:
+    """The question one scheduled inference answers.
+
+    A cost is only justifiable against a question, so the question
+    travels with the work: what was asked, where, what the answer
+    currently says, and what would satisfy it. One acquisition can
+    answer several questions of the same footage, so EVERY question it
+    serves is named - the questions, not one of them.
+    """
+    ids = served_requirements(step)
+    statuses = {req_id: answers.get(req_id, {}).get("status", "unverified")
+                for req_id in ids}
+    negated = any(compiled_by_id.get(req_id, {}).get("negated")
+                  for req_id in ids)
+    return {
+        "requirement_ids": list(ids),
+        "lane": step["lane"],
+        "interval": {"start_s": step["interval"]["start_s"],
+                     "end_s": step["interval"]["end_s"]},
+        "answer_status": (statuses[ids[0]] if ids else "unverified"),
+        "answer_statuses": statuses,
+        "satisfied_by": ("an explicit negative assertion"
+                         if negated else "an explicit positive assertion"),
+    }
 
 
 def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
@@ -632,6 +659,12 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
     # of the same footage are answered by ONE producer call, and every
     # question that asked for it is named on the step.
     steps, duplicate_acquisitions = _coalesce_steps(steps, _why_for)
+    # The question each acquisition answers, named after the
+    # coalescing: one measurement can answer several questions, and
+    # every one of them is named on the step.
+    for step in steps:
+        step["unresolved_question"] = _unresolved_question(
+            step, answers, compiled_by_id)
     # Information value first: selectivity per second of inference,
     # with zero-cost cached lookups always ahead of model passes
     # (ACQ-016/017/018).
@@ -798,6 +831,13 @@ def plan_escalation(prior_plan: Mapping[str, Any],
                         f"selective escalation ({picked.get('note')})"),
                 "ledger_key": key,
                 "selectivity": 0.0,
+                # The cheaper tier that could not answer it, and the
+                # question the escalation answers. A cost is only
+                # justifiable against a question.
+                "escalated_from": sorted(
+                    {row["producer"] for row in prior_plan.get("steps") or ()
+                     if row["lane"] == lane
+                     and row["interval"] == window}),
             })
 
     def _why_for(row: Mapping[str, Any]) -> str:
@@ -813,6 +853,11 @@ def plan_escalation(prior_plan: Mapping[str, Any],
     # round: two questions the cheap tier left open over the same window
     # are answered by ONE escalation call.
     steps, duplicate_acquisitions = _coalesce_steps(steps, _why_for)
+    # The question each escalation answers, named after the coalescing:
+    # one escalation can answer several questions of the same footage.
+    for step in steps:
+        step["unresolved_question"] = _unresolved_question(
+            step, answers_after, compiled_by_id)
     estimated = round(sum(row["cost_budget_seconds"] for row in steps), 3)
     if latency_budget_s is not None and estimated > latency_budget_s:
         kept, running = [], 0.0

@@ -462,3 +462,54 @@ def test_escalation_batches_one_window_for_two_questions():
     assert all(row["requirement_ids"] == ["req-1", "req-2", "req-3"]
                for row in second["steps"])
     assert second["batching"]["duplicate_acquisitions_removed"] > 0
+
+
+# ── Every acquisition names the question it answers ─────────────────
+#
+# A cost is only justifiable against a question. One measurement can
+# answer several questions of the same footage, so EVERY question it
+# serves is named on the step, and an escalation says which cheaper
+# tier could not answer it.
+
+
+def test_every_scheduled_inference_names_the_question_it_answers():
+    plan, _ = _plan_for(
+        "speaker discussing revenue while a chart is visible",
+        {"observations": []})
+
+    assert plan["steps"]
+    for step in plan["steps"]:
+        question = step["unresolved_question"]
+        assert question["requirement_ids"] == step["requirement_ids"]
+        assert question["lane"] == step["lane"]
+        assert question["interval"] == step["interval"]
+        assert question["answer_status"]
+        assert set(question["answer_statuses"]) == set(
+            step["requirement_ids"])
+
+
+def test_a_batched_acquisition_names_every_question_it_answers():
+    plan, _ = _plan_for("footage with laughter and applause",
+                        {"observations": []})
+    question = plan["steps"][0]["unresolved_question"]
+    assert question["requirement_ids"] == ["req-1", "req-2"]
+    assert set(question["answer_statuses"]) == {"req-1", "req-2"}
+
+
+def test_an_escalation_names_the_cheaper_tier_that_could_not_answer_it():
+    """The escalation is a second round bought with a cost, so it says
+    which cheaper tier ran first and which question it answers."""
+    plan, _ = _plan_for(
+        "speaker discussing revenue while a chart is visible",
+        {"observations": []})
+    answers = {"req-1": {"status": "present"},
+               "req-2": {"status": "inconclusive"}}
+    second = ea.plan_escalation(plan, answers)
+
+    assert second["steps"]
+    for step in second["steps"]:
+        assert step["escalated_from"], (
+            "an escalation must name the tier that could not answer it")
+        question = step["unresolved_question"]
+        assert question["requirement_ids"] == step["requirement_ids"]
+        assert "inconclusive" in set(question["answer_statuses"].values())

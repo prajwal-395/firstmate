@@ -8102,3 +8102,53 @@ its eight metrics are in the same table.
 construct and not the ones it constructs on a path the source does not show.  A producer that
 builds its rows through a helper the harvest does not name is still invisible; the enumeration of
 producers is `FINDING_CONSTRUCTORS`, and adding one is a line there.
+
+## a-description-that-claimed-the-whole-window
+
+**The rule:** AGENTS.md 10.1, "No assessment field reports a default as though it were
+measured", and the punch list's VI-025/VI-026: a generated description is a READING, and a
+reading carries the coverage it was read from, the model that read it, and the limits of what
+it accounts for.
+
+**What happened.** The vision pass describes a clip from the frames a model call carried - a
+ten-second window at two frames a second. The description was then filed in the Project Model
+as `video.scene_segment`, an ordinary MEASUREMENT, and the evidence record claimed
+
+```
+coverage: complete        coverage_samples: 1        coverage_sample_rate_hz: 0.0
+```
+
+That says one sample accounted for the whole window, at a rate of nothing per second. The
+measurement the vision pass had already made - the share of the clip its descriptions account
+for, and the ranges it left undescribed - was computed, printed, stored on the profile, written
+into the M4 slot, and then dropped on the floor: `_migrate_scenes` never read it. The model that
+produced the description was not on the record either; the M4 slot named the pass but not the
+model, so two readings of the same footage by two models were indistinguishable.
+
+The second half of the same defect was in the prompt. The vision document is MIXED - measured
+ranges and another model's prose in one object - and `VISION_PROSE_PATHS` names the prose half.
+But the marking rode the direction block, and the direction block is only rendered for a step
+that reaches a model AND inherits a creative direction. The steps that read the same document
+without one - `plan_picture`, `select_broll`, `build_edit_graph`, `compile_manifest`,
+`mesh_spine`, `plan_transitions`, `plan_vfx`, `plan_sfx`, `color_grade` - were handed a model's
+reading with nothing saying which half of the object it was looking at.
+
+**The rule.** A description is read from SAMPLED frames and says so: its coverage is
+`sampled`, it carries the frames it was read from and the rate they arrived at, it names the
+model that read them, and it travels with the ranges it does not account for. The marking that
+tells a reader which half of a document is prose is delivered by what the reader READS, not by
+what else it holds.
+
+**Where it is.** `library/tools/direction_contradiction.py` owns the caveat
+(`vision_caveat_block`, `holds_vision_document`), and `library/tools/model_task.py` and
+`library/tools/replay_bench/reconstruct.py` deliver it to every model-reaching invocation that
+is handed the vision document. `library/tools/project_model_evidence.py` builds the scene
+record: `_scene_sampling` and `_description_coverage` carry the measurement. The model id
+travels in the M4 slot's instrument (`library/tools/source_memory.py`,
+`library/tools/analysis/vision_pipeline_v3.py`).
+
+**What it does not fix.** The confidence of a VLM description is still UNMEASURED, and this
+change does not invent one: a record that reports a default as though it were measured is the
+defect, so the confidence stays absent and the sampling says what the reading rests on. A
+calibrated per-description confidence needs its own measurement and its own corpus; the
+held-out harness for it is `library/tools/acquisition_benchmark.py`.

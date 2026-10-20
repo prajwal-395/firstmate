@@ -79,7 +79,7 @@ def _add_track(builder, *, digest: str, asset_id: str, clock_id: str,
                 or type(frame_index) is not int or frame_index < 0
                 or (confidence is not None and not 0 <= confidence <= 1)):
             continue
-        tick = round(timestamp * TICKS_PER_SECOND)
+        tick = evidence_contract.point_to_tick(timestamp, TICKS_PER_SECOND)
         polygon = sample.get("polygon_normalized") or []
         normalized.append({"tick": tick, "timestamp": timestamp,
                            "bbox": box, "polygon": polygon,

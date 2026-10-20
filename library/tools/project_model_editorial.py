@@ -72,6 +72,7 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
+from library.tools import evidence_contract
 from library.tools.edit_point_planner import generate_edit_point_candidates
 
 #: Anchor kinds that name frames. ``edit_ledger`` already refuses these;
@@ -366,11 +367,14 @@ def interval_from_seconds(
         raise EditorialMigrationError(
             f"ticks_per_second must be a positive int, got {ticks_per_second!r}"
         )
-    return interval_from_ticks(
-        clock_id,
-        round(float(start_s) * ticks_per_second),
-        round(float(end_s) * ticks_per_second),
-    )
+    try:
+        start, end = evidence_contract.sec_to_ticks(
+            float(start_s), float(end_s), ticks_per_second)
+    except evidence_contract.TemporalAlignmentError as exc:
+        raise EditorialMigrationError(
+            f"interval must be non-empty and half-open (start < end) on "
+            f"{clock_id}: {exc}") from exc
+    return interval_from_ticks(clock_id, start, end)
 
 
 def interval_from_played_frames(

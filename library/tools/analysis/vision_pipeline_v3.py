@@ -134,6 +134,7 @@ from library.tools.semantic_window_planner import (
 )
 from library.tools.adaptive_frame_sampling import (
     POLICY_VERSION as FRAME_SAMPLING_POLICY_VERSION,
+    edit_critical_events_from_index,
     plan_adaptive_frames,
 )
 from library.tools.camera_stability import read_camera_stability
@@ -287,7 +288,13 @@ def _resolve_frame_sampling(mode):
 
 def plan_coarse_frame_sampling(duration, fps, temporal_index, *, query=None,
                                retrieval_candidates=()):
-    """Plan the live coarse still-frame pass under a bounded source budget."""
+    """Plan the live coarse still-frame pass under a bounded source budget.
+
+    The edit-critical events the temporal index measured - the speech
+    regions and the measured cuts - travel with the plan, so a boundary
+    keeps the high-fidelity coverage its own type declares instead of
+    one frame on the five-second grid.
+    """
     baseline_count = max(1, int(math.ceil(duration / COARSE_FRAME_INTERVAL_S)) + 1)
     budget = max(1, int(math.ceil(
         baseline_count * ADAPTIVE_COARSE_FRAME_BUDGET_FRACTION)))
@@ -295,7 +302,8 @@ def plan_coarse_frame_sampling(duration, fps, temporal_index, *, query=None,
         duration, fps or 30.0, temporal_index,
         activity_map=activity_map_from_temporal_index(duration, temporal_index),
         query=query, retrieval_candidates=retrieval_candidates,
-        budget_frames=budget)
+        budget_frames=budget,
+        edit_critical_events=edit_critical_events_from_index(temporal_index))
 
 # Window clips are cut at 720p height (aspect kept, never upscaled), not
 # at source resolution. Measured 2026-09-24 on the captain's M5/25.8 GB
@@ -4446,17 +4454,30 @@ def write_scene_memory(clip_path, profile, temporal_index, root=None):
     normalized scene segments and the temporal index's scene boundaries -
     into the per-source slot the scene lane reserved. No new measurement:
     the digest comes from the clip's own content fingerprint.
+
+    The model that produced the description travels with it. A
+    description is a reading, and a reading nobody can attribute cannot
+    be weighed against a different model's reading of the same footage.
+    The sampling it was read from travels with it too: a description of
+    a window is a description of the frames that window carried, and the
+    frames are the coverage.
     """
     from library.tools import footage_identity, source_memory
 
     digest = footage_identity.fingerprint(str(clip_path))["content_digest"]
+    metadata = profile.get("analysis_metadata") or {}
+    instrument = {"scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+                  "boundary_method": source_memory.M4_BOUNDARY_METHOD}
+    sampling = metadata.get("video_sampling")
+    if isinstance(sampling, dict):
+        instrument["sampling"] = sampling
     source_memory.write_scenes(
         digest, str(clip_path), "measured",
         scenes=profile.get("scene") or [],
         scene_boundaries=(temporal_index or {}).get("scene_boundaries") or [],
         scene_coverage=profile.get("scene_coverage"),
-        instrument={"scene_pass": source_memory.M4_SCENE_PASS_METHOD,
-                    "boundary_method": source_memory.M4_BOUNDARY_METHOD},
+        instrument=instrument,
+        model_id=metadata.get("model"),
         root=root)
 
 

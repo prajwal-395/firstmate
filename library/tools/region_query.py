@@ -8,8 +8,8 @@ a mask, mask bytes read only by renderers.
 **Time.** Seconds everywhere on the way in (source seconds, the unit
 `ren where --at` and `ren search` hits already speak). Model track
 samples are millisecond ticks on their own clock; the conversion is
-`round(t * TICKS_PER_SECOND)`, the same floor/ceil-free point mapping
-the evidence migration uses for point samples. A query between samples
+the clock contract's ONE point mapping (`evidence_contract.point_to_tick`),
+which the evidence migration uses for point samples too. A query between samples
 is held on the track's latest sample at or before it while the track
 covers it; a query in a gap between tracks is an absence, never the
 nearest sample.
@@ -43,6 +43,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
+from library.tools import evidence_contract
 
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks, the same convention
@@ -229,7 +231,7 @@ def _summarise_m3d_hit(entity_id: str, digest: str,
         "track_id": cover["track_id"],
         "content_digest": digest,
         "t": cover["sample_t"],
-        "tick": round(cover["sample_t"] * TICKS_PER_SECOND),
+        "tick": evidence_contract.point_to_tick(cover["sample_t"], TICKS_PER_SECOND),
         "bbox": inst.get("bbox"),
         "centroid": inst.get("centroid"),
         "interior_point": inst.get("interior_point"),
@@ -278,7 +280,7 @@ def region_at(model: dict[str, Any], ref: str, t: float,
     except (TypeError, ValueError):
         return _absence(ABSENT_AT_TIME, entity_id=entity_id,
                         detail={"t": t, "why": "not a time"})
-    tick = round(moment * TICKS_PER_SECOND)
+    tick = evidence_contract.point_to_tick(moment, TICKS_PER_SECOND)
 
     tracks = region_tracks_for(model, entity_id)
     if digest is not None or clock_id is not None:
@@ -380,7 +382,7 @@ def regions_overlapping(model: dict[str, Any], box: list[float],
             f"a region interval is two seconds, got {start!r}, {end!r}")
     if not hi > lo:
         return []
-    lo_tick, hi_tick = round(lo * TICKS_PER_SECOND), round(hi * TICKS_PER_SECOND)
+    lo_tick, hi_tick = evidence_contract.sec_to_ticks(lo, hi, TICKS_PER_SECOND)
 
     hits: dict[str, dict[str, Any]] = {}
     for track in model.get("tracks") or []:
@@ -701,7 +703,7 @@ def object_region_at(model: dict[str, Any], ref: str, t: float,
     except (TypeError, ValueError):
         return _absence(ABSENT_AT_TIME, entity_id=entity_id,
                         detail={"t": t, "why": "not a time"})
-    tick = round(moment * TICKS_PER_SECOND)
+    tick = evidence_contract.point_to_tick(moment, TICKS_PER_SECOND)
     tracks = object_tracks_for(model, entity_id)
     if digest is not None or clock_id is not None:
         wanted = {digest, clock_id}

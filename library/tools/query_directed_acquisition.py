@@ -108,18 +108,37 @@ def plan_query_acquisition(
         default_interval = {"start_s": 0.0, "end_s": round(duration, 3)}
 
     intervals: dict[str, list[dict[str, float]]] = {lane: [] for lane in lanes_to_run}
+    # The question each window answers, with the ambiguity that named
+    # it. A cost is only justifiable against a question, so the
+    # question travels with the work.
+    questions: dict[str, list[dict[str, Any]]] = {
+        lane: [] for lane in lanes_to_run}
     for lane in sorted(lanes_to_run):
         intervals[lane].append(default_interval)
+        questions[lane].append({
+            "lane": lane, "interval": dict(default_interval),
+            "answer_status": status,
+            "named_by": "the query's own scope",
+            "ambiguity": None,
+        })
     if status == "inconclusive":
         # Inconclusive evidence is actionable only when the caller can name
         # the specific ambiguity an available lane can resolve.
         intervals = {lane: [] for lane in lanes_to_run}
+        questions = {lane: [] for lane in lanes_to_run}
         for item in resolvable_ambiguities:
             lane = item.get("lane")
             if lane in lanes_to_run:
-                intervals[lane].append(_interval(
-                    item.get("start_s"), item.get("end_s"), duration))
+                span = _interval(item.get("start_s"), item.get("end_s"), duration)
+                intervals[lane].append(span)
+                questions[lane].append({
+                    "lane": lane, "interval": dict(span),
+                    "answer_status": status,
+                    "named_by": "a named ambiguity",
+                    "ambiguity": item.get("candidate_id"),
+                })
         intervals = {lane: spans for lane, spans in intervals.items() if spans}
+        questions = {lane: rows for lane, rows in questions.items() if rows}
         if not intervals:
             return _no_run("no named ambiguity is resolvable by a required lane", status)
 
@@ -151,9 +170,20 @@ def plan_query_acquisition(
                                                                             lane_budget))
                            if window_size is not None else lane_budget *
                            ((window["end_s"] - window["start_s"]) / duration))
+            # The window may be aligned or merged after the question was
+            # named, so the question is the one that COVERS the window.
+            question = next(
+                (row for row in questions.get(lane, ())
+                 if row["interval"]["start_s"] <= window["start_s"]
+                 < row["interval"]["end_s"]), None) or {
+                    "lane": lane, "interval": dict(window),
+                    "answer_status": status, "named_by": "the query's scope",
+                    "ambiguity": None,
+                }
             steps.append({"lane": lane, "interval": window,
                           "cost_budget_seconds": round(cost_budget, 3),
-                          "order": ["cached", "targeted"]})
+                          "order": ["cached", "targeted"],
+                          "unresolved_question": question})
             estimated_cost += cost_budget
     if cost_ceiling is not None and estimated_cost > cost_ceiling:
         return _no_run("estimated producer cost exceeds the query budget", status,

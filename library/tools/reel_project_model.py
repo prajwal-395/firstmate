@@ -64,6 +64,11 @@ try:
 except ImportError:  # imported as ``tools.*`` from inside library/
     from tools.project_model import SCHEMA_VERSION, validate_project_model
 
+try:
+    from library.tools import evidence_contract
+except ImportError:  # imported as ``tools.*`` from inside library/
+    from tools import evidence_contract
+
 TICKS_PER_SECOND = 120_000
 """120 kHz ticks preserve millisecond evidence and common frame rates.
 
@@ -320,20 +325,15 @@ def sec_to_ticks(start: Any, end: Any,
     Refuses non-finite bounds and non-positive spans. The default clock
     is 120 kHz, which represents millisecond evidence and common video
     frame rates exactly; frame clocks may request a larger exact base.
+
+    The mapping is the clock contract's ONE reading - floor/ceil, never
+    round - so a reel's clock and an evidence clock agree on the same
+    source instant.
     """
     try:
-        start_f, end_f = float(start), float(end)
-    except (TypeError, ValueError):
+        return evidence_contract.sec_to_ticks(start, end, ticks_per_second)
+    except evidence_contract.TemporalAlignmentError:
         return None
-    if not (math.isfinite(start_f) and math.isfinite(end_f)):
-        return None
-    if isinstance(ticks_per_second, bool) or ticks_per_second <= 0:
-        return None
-    start_tick = round(start_f * ticks_per_second)
-    end_tick = round(end_f * ticks_per_second)
-    if end_tick <= start_tick:
-        return None
-    return (start_tick, end_tick)
 
 
 def blank_model(model_id: str) -> dict[str, Any]:
@@ -413,32 +413,15 @@ def _frame_ticks(model: dict[str, Any], clock_id: str, fps: Any) -> int:
 
 def _rebase_clock_references(model: dict[str, Any], clock_id: str,
                              multiplier: int) -> None:
-    """Keep every stored time in seconds when upgrading a clock's tick rate."""
-    def walk(value: Any, inherited: bool = False) -> None:
-        if isinstance(value, list):
-            for child in value:
-                walk(child, inherited)
-            return
-        if not isinstance(value, dict):
-            return
-        owns_clock = value.get("clock_id") == clock_id
-        interval = value.get("interval")
-        has_timed_keys = (isinstance(interval, dict)
-                          and interval.get("clock_id") == clock_id)
-        active = inherited or owns_clock
-        if active:
-            for key in ("start", "end", "tick"):
-                item = value.get(key)
-                if isinstance(item, int) and not isinstance(item, bool):
-                    value[key] = item * multiplier
-        for key, child in value.items():
-            child_is_timed = (active and key in ("samples", "keyframes"))
-            child_is_keyed = has_timed_keys and key == "keyframes"
-            walk(child, child_is_timed or child_is_keyed)
+    """Keep every stored time in seconds when upgrading a clock's tick rate.
 
-    for key in ("clip_uses", "observations", "masks", "tracks", "effects",
-                "frame_maps", "relations", "intents"):
-        walk(model.get(key, []))
+    The clock contract owns the rule (``evidence_contract``): every
+    collection that carries the clock's ticks is rescales, because a row
+    left on the old grid reads at the wrong time by the ratio of the two
+    rates.
+    """
+    evidence_contract.rescale_clock_references(model, clock_id, multiplier)
+
 
 
 def _clock(model: dict[str, Any], clock_id: str, domain: dict[str, Any],
@@ -461,6 +444,40 @@ def _clock(model: dict[str, Any], clock_id: str, domain: dict[str, Any],
         "frame_rate": frame_rate,
     })
     return clock_id
+
+
+def _merge_clocks(model: dict[str, Any], base: dict[str, Any]) -> None:
+    """One clock keeps one rate when a fresh evidence base joins a model.
+
+    The stored model's grid wins for every clock the two share: the
+    base's rows are rescaled onto it, and the stored clock row survives.
+    Replacing the clock row instead would leave the rows that outlived
+    the replacement - another reel's fragments - reading at the wrong
+    time by the ratio of the two rates.
+    """
+    stored_clocks = {row["id"]: row for row in model.get("clocks") or []
+                     if isinstance(row, dict) and "id" in row}
+    added: list[dict[str, Any]] = []
+    for clock in base.get("clocks") or []:
+        if not isinstance(clock, dict) or "id" not in clock:
+            continue
+        prior = stored_clocks.get(clock["id"])
+        if prior is None:
+            added.append(clock)
+            continue
+        stored_tps = int(prior.get("ticks_per_second") or 0)
+        base_tps = int(clock.get("ticks_per_second") or 0)
+        if stored_tps <= 0 or base_tps <= 0 or stored_tps == base_tps:
+            continue
+        if stored_tps % base_tps:
+            raise ValueError(
+                f"clock {clock['id']!r} is stored at {stored_tps} ticks per "
+                f"second and the fresh evidence at {base_tps}; one clock "
+                f"keeps one rate")
+        evidence_contract.rescale_clock_references(
+            base, clock["id"], stored_tps // base_tps)
+    if added:
+        model["clocks"] = [*(model.get("clocks") or []), *added]
 
 
 def asset_for_source(model: dict[str, Any], source_file: str,
@@ -1720,14 +1737,21 @@ def _maintain(project_folder: str, store_at: Path, slug: str,
         # rebuilt reel owns: other reels' fragments and prior renders
         # survive a partial rebuild.
         model = stored
+        # The stored grid wins for every clock the two share: the fresh
+        # base's rows are rescaled onto it, so one clock keeps one rate.
+        _merge_clocks(model, base)
         fresh_ids = {row["id"] for key in MODEL_COLLECTIONS
                      for row in base.get(key) or []
                      if isinstance(row, dict) and "id" in row}
         for key in MODEL_COLLECTIONS:
+            if key == "clocks":
+                continue
             model[key] = [row for row in model.get(key) or []
                           if not (isinstance(row, dict)
                                   and row.get("id") in fresh_ids)]
         for key in MODEL_COLLECTIONS:
+            if key == "clocks":
+                continue
             model[key] = [*model.get(key, []), *base.get(key, [])]
         ensure_provenance(model)
     reel_slugs = [_slug(name) for name in placements_by_reel]

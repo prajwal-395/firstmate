@@ -398,6 +398,10 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                              "schema is reconstructed without the "
                              "contradicts_direction field")
             else:
+                direction_evidence = (
+                    direction_contradiction.evidence_sources(node_id)
+                    if direction_contradiction.flags(node_id)
+                    else dict(_task_evidence or {}))
                 if direction_contradiction.flags(node_id):
                     schema_outputs.append(
                         direction_contradiction.schema_entry())
@@ -408,6 +412,18 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                         direction_contradiction.schema_entry())
                     prompt += direction_contradiction.prompt_block_for(
                         _task_evidence)
+
+                # The vision document is MIXED, and every reader of it is
+                # told which half is a reading.  The condition is the
+                # same one the live prompt uses, so the reconstruction
+                # and the archived prompt say the same thing.
+                # See library/tools/direction_contradiction.py.
+                if (direction_contradiction.holds_vision_document(inputs)
+                        or direction_contradiction.holds_vision_document(
+                            _task_evidence)):
+                    if not direction_contradiction.renders_vision_caveat(
+                            direction_evidence):
+                        prompt += direction_contradiction.vision_caveat_block()
             try:
                 from library.tools import brief_attachment, briefing_interview
             except ImportError:

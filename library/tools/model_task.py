@@ -575,6 +575,9 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
         # declaration names (`task.evidence`) rather than routed ones, so
         # its flag is rendered from those through the same builder.
         # See library/tools/direction_contradiction.py.
+        direction_evidence = (direction_contradiction.evidence_sources(key)
+                              if direction_contradiction.flags(key)
+                              else dict(task.evidence or {}))
         if direction_contradiction.flags(key) or task.evidence:
             schema_outputs.append(direction_contradiction.schema_entry())
             if direction_contradiction.flags(key):
@@ -582,6 +585,21 @@ def _run(key: str, task: ModelTask, inputs: dict, full_auto, llm_timeout,
             else:
                 prompt += direction_contradiction.prompt_block_for(
                     task.evidence)
+
+        # The vision document is MIXED: measured ranges and another
+        # model's prose in one object.  Every reader of it is told which
+        # half is a reading - a step that reads the description without
+        # inheriting a creative direction is still reading a
+        # description, and it is told the same thing in the same words.
+        # The direction block above already renders the caveat when it
+        # holds the document, so it is added once.
+        # See library/tools/direction_contradiction.py.
+        if (direction_contradiction.holds_vision_document(inputs)
+                or direction_contradiction.holds_vision_document(
+                    task.evidence)):
+            if not direction_contradiction.renders_vision_caveat(
+                    direction_evidence):
+                prompt += direction_contradiction.vision_caveat_block()
 
         # No creative brief was attached, so the model is asked what it
         # would have needed to know rather than planning in silence.

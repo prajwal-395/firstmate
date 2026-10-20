@@ -345,3 +345,34 @@ def test_production_m4_acquisition_skips_when_answer_is_already_present(tmp_path
     assert result["requery"] is None
     assert result["source_revision"] == result["result_revision"] == 1
     assert calls == []
+
+
+def test_the_step_carries_the_named_ambiguity_it_answers():
+    """A cost is only justifiable against a question. The question that
+    named the ambiguity travels with the work."""
+    answer = {"status": "inconclusive", "required_missing_lanes": ["m7"]}
+    query = {"required_lanes": ["m7"], "scope": {"start_s": 12, "end_s": 18}}
+    plan = plan_query_acquisition(
+        answer, query, source_digest="digest-fixture", duration_seconds=60,
+        available_lanes=["m7"], producer_budgets={"m7": 60},
+        resolvable_ambiguities=[{"lane": "m7", "start_s": 10.0,
+                                 "end_s": 20.0, "candidate_id": "cand-1"}])
+
+    assert plan["steps"]
+    question = plan["steps"][0]["unresolved_question"]
+    assert question["ambiguity"] == "cand-1"
+    assert question["answer_status"] == "inconclusive"
+    assert question["lane"] == "m7"
+
+
+def test_a_scoped_query_names_the_scope_as_the_question():
+    answer = {"status": "not_yet_analysed", "required_missing_lanes": ["m7"]}
+    query = {"required_lanes": ["m7"], "scope": {"start_s": 12, "end_s": 18}}
+    plan = plan_query_acquisition(
+        answer, query, source_digest="digest-fixture", duration_seconds=60,
+        available_lanes=["m7"], producer_budgets={"m7": 60})
+
+    question = plan["steps"][0]["unresolved_question"]
+    assert question["ambiguity"] is None
+    assert question["named_by"] == "the query's own scope"
+    assert question["answer_status"] == "not_yet_analysed"

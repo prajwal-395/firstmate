@@ -2017,6 +2017,31 @@ def test_write_scenes_serializes_the_measured_scene_pass(tmp_path, memory_root):
     assert doc["scene_coverage"] == {"ratio": 1.0}
 
 
+def test_the_m4_slot_names_the_model_that_produced_the_description(
+        memory_root):
+    """A description is a reading, and a reading nobody can attribute
+    to a model cannot be weighed against a different model's reading of
+    the same footage."""
+    digest = "e" * 64
+    source_memory.write_scenes(
+        digest, "/src/A.MXF", "measured", [],
+        model_id="mlx-community/gemma-4-12b-it-4bit", root=memory_root)
+
+    doc = source_memory.read_scenes(digest, memory_root)
+    assert doc["instrument"]["model_id"] == "mlx-community/gemma-4-12b-it-4bit"
+
+
+def test_the_m4_slot_without_a_model_names_none(memory_root):
+    """No model is not a default model: the slot says it does not know
+    rather than recording one it never measured."""
+    digest = "f" * 64
+    source_memory.write_scenes(digest, "/src/A.MXF", "measured", [],
+                               root=memory_root)
+
+    doc = source_memory.read_scenes(digest, memory_root)
+    assert "model_id" not in doc["instrument"]
+
+
 def test_vi09_hierarchy_merges_into_m4_without_racing_its_writer(memory_root):
     digest = "d" * 64
     hierarchy = {"method": "scene-cinematography-measurements-v1",

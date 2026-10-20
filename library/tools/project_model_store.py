@@ -17,6 +17,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from library.tools import evidence_contract
 from library.tools.project_model import validate_project_model
 
 # Validation verdicts are keyed by the verified chain head. Loads with
@@ -920,6 +921,41 @@ def merge_evidence_records(project: Path, *, observations: list[dict[str, Any]],
         author=author, reason=reason, allow_rebase=False)
 
 
+def _align_incoming_clock_rates(stored: dict[str, Any],
+                                incoming: dict[str, Any]) -> None:
+    """Put the incoming rows on the stored model's grid for every clock.
+
+    A clock's tick rate is part of what its numbers MEAN. When the
+    stored model carries a clock at a finer rate than the incoming
+    evidence does, merging the incoming clock row verbatim would put
+    two grids under one id, and the stored rows would read at the wrong
+    time by the ratio of the two rates. The incoming rows are rescaled
+    onto the stored rate instead, so ONE clock keeps ONE rate.
+
+    The incoming model is rescaled in place; the merge consumes it.
+    """
+    stored_clocks = {row["id"]: row for row in stored.get("clocks") or []
+                     if isinstance(row, dict) and "id" in row}
+    for clock in incoming.get("clocks") or []:
+        if not isinstance(clock, dict) or "id" not in clock:
+            continue
+        prior = stored_clocks.get(clock["id"])
+        if prior is None:
+            continue
+        stored_tps = int(prior.get("ticks_per_second") or 0)
+        incoming_tps = int(clock.get("ticks_per_second") or 0)
+        if stored_tps <= 0 or incoming_tps <= 0 or stored_tps == incoming_tps:
+            continue
+        if stored_tps % incoming_tps:
+            raise ValueError(
+                f"clock {clock['id']!r} is stored at {stored_tps} ticks per "
+                f"second and the incoming evidence at {incoming_tps}; one "
+                f"clock keeps one rate")
+        evidence_contract.rescale_clock_references(
+            incoming, clock["id"], stored_tps // incoming_tps)
+        clock["ticks_per_second"] = stored_tps
+
+
 def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
                          expected_revision: int, author: str,
                          reason: str = "capability evidence update") -> int:
@@ -938,6 +974,7 @@ def merge_evidence_model(project: Path, evidence_model: dict[str, Any], *,
             raise ValueError("evidence update belongs to a different Project Model")
         if evidence_model["schema_version"] != model["schema_version"]:
             raise ValueError("evidence update uses a different Project Model schema version")
+        _align_incoming_clock_rates(model, evidence_model)
         changes: list[dict[str, Any]] = []
         query_merge: list[dict[str, Any]] | None = None
         for key in (*EVIDENCE_COLLECTIONS, "clocks"):

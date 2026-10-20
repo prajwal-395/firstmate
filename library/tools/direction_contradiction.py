@@ -57,6 +57,16 @@ decision never rests on unattributed text.  The inventory that drew this
 line, and what it judged already marked or genuinely just prose, is in
 docs/evidence/direction_contradiction.md.
 
+**Every reader of the vision document is MARKED, not only the flagging
+ones.**  The caveat is delivered by what an invocation is HANDED: an
+invocation that reaches a model and is given the vision document is told
+which of its paths are prose, whether or not it also inherited a creative
+direction.  The marking used to ride the direction block, so it reached
+only the steps that hold one - and the planning steps, the compiler and
+the graph builder read the same document with nothing saying which half
+of it was a model's reading.  `vision_caveat_block` is the one renderer;
+the direction block and the standalone caveat are the same text.
+
 
 Rules relocated from AGENTS.md 3
 --------------------------------
@@ -267,6 +277,60 @@ VISION_PROSE_PATHS = {
 # `semantic_analysis`.  The name differs, the document does not, and a
 # caveat keyed on one spelling would leave the other unmarked.
 VISION_INPUT_NAMES = frozenset({"semantic_analysis_documents", "semantic_analysis"})
+
+
+def holds_vision_document(inputs) -> bool:
+    """True when this invocation is HANDED a vision document.
+
+    The document is MIXED: measured ranges and another model's prose in
+    one object. Whether a reader is told so is a fact about WHAT IT
+    READS, not about what else it holds - a step that reads the
+    description without inheriting a creative direction is still
+    reading a description.
+    """
+    if not inputs:
+        return False
+    return bool(VISION_INPUT_NAMES & set(inputs))
+
+
+def renders_vision_caveat(evidence) -> bool:
+    """True when this evidence set already renders the vision caveat.
+
+    The direction block renders it too, so a step that holds BOTH a
+    direction and the vision document is told once, in the same words,
+    by the same renderer.
+    """
+    if not evidence:
+        return False
+    return bool(VISION_INPUT_NAMES & set(evidence))
+
+
+def vision_caveat_block() -> str:
+    """The caveat for every reader of a vision document.
+
+    It names the paths that are a model's READING of the picture and
+    says what the document's measured half actually holds. One renderer
+    for one list: the paths belong to the document, so a step that
+    holds a creative direction and a step that does not are told the
+    same thing, in the same words.
+    """
+    lines = [
+        "\n\n## One of your inputs is a description, not an observation\n\n",
+        "The vision document carries measured ranges AND another "
+        "model's prose in the same object. The prose paths below are "
+        "that model's READING of the picture. Treat a reading as a "
+        "reading: it is a lead to look at, never an observed fact you "
+        "may assert, and never a measurement you may cite as one.\n\n",
+    ]
+    for path in sorted(VISION_PROSE_PATHS):
+        lines.append(f"- `{path}` - {VISION_PROSE_PATHS[path]}\n")
+    lines.append(
+        "\nWhat DOES count in the vision document: camera segments "
+        "with time bounds, `usable_ranges` read with "
+        "`usable_ranges_method`, and subject-visibility ranges. Cite "
+        "those with their numbers and bounds.\n"
+    )
+    return "".join(lines)
 
 DECLINED_OUTPUTS = {
     "sfx_library_status": "0.01 validates a SHARED library, not this project's material",
@@ -639,23 +703,10 @@ def prompt_block_for(evidence: Dict[str, str]) -> str:
     ]
     for name, why in sorted(sources.items()):
         lines.append(f"- `{name}` - {why}\n")
-    if VISION_INPUT_NAMES & set(sources):
-        lines.append(
-            "\nOne of those inputs is MIXED: the vision document carries "
-            "measurements AND another model's prose in the same object, "
-            "and only the first half can contradict anything. These "
-            "paths are VLM readings, not measurements - do not cite them "
-            "as `measurement`, and an entry whose only evidence is one "
-            "of them is prose disagreeing with prose:\n\n"
-        )
-        for path in sorted(VISION_PROSE_PATHS):
-            lines.append(f"- `{path}` - {VISION_PROSE_PATHS[path]}\n")
-        lines.append(
-            "\nWhat DOES count in the vision document: camera segments "
-            "with time bounds, `usable_ranges` read with "
-            "`usable_ranges_method`, and subject-visibility ranges. "
-            "Cite those with their numbers and bounds.\n"
-        )
+    if renders_vision_caveat(sources):
+        # The same renderer every other reader of the document gets, so
+        # the prose paths are named once, in one place, in one wording.
+        lines.append(vision_caveat_block())
     lines.append(
         "\nAn entry with no `measurement`, or naming an input outside "
         "that list, is NOT a contradiction and is recorded separately as "

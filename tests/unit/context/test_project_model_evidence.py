@@ -356,6 +356,70 @@ def test_model_provenance_is_attached_to_project_model_scene_evidence(
     assert scene["payload"]["model_provenance"] == model_record
 
 
+def _m4_scene_record(model, digest=D1):
+    """The M4 scene description's evidence record, as the model stores it."""
+    return next(
+        obs["payload"]["evidence_contract"]
+        for obs in model["observations"]
+        if obs["provenance_id"] == f"prov-{digest}-m4"
+        and obs["payload"].get("evidence_contract", {}).get(
+            "measurement_type") == "video.scene_segment")
+
+
+def test_a_scene_description_is_a_sampled_reading_that_names_its_model(
+        fixture_project):
+    """A description is read from sampled frames and attributed to the
+    model that read them. Claiming COMPLETE coverage said the reading
+    accounted for the whole window, and a query can then read a sampled
+    reading as an exhaustive one."""
+    from library.tools import source_memory
+
+    scenes_path = fixture_project["memory"] / D1 / "scenes.json"
+    scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
+    scenes["instrument"].update({
+        "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+        "boundary_method": source_memory.M4_BOUNDARY_METHOD,
+        "model_id": "mlx-community/gemma-4-12b-it-4bit",
+        "sampling": {"frames_per_call": 32, "decode_fps": 2.0,
+                     "window_s": 10.0,
+                     "windows": {"scene": [
+                         {"start": 0.0, "end": 5.0, "frames": 10,
+                          "decode_fps": 2.0, "effective_fps": 2.0}]}},
+    })
+    scenes["scene_coverage"] = {
+        "described_s": 5.0, "total_s": 10.0, "ratio": 0.5,
+        "undescribed_ranges": [[5.0, 10.0]]}
+    _write(scenes_path, scenes)
+
+    model, _report = _migrate(fixture_project)
+
+    record = _m4_scene_record(model)
+    assert record["coverage"] == "sampled"
+    assert record["coverage_samples"] == 10
+    assert record["coverage_sample_rate_hz"] == 2.0
+    assert record["producer_version"] == "mlx-community/gemma-4-12b-it-4bit"
+    assert record["temporal_coverage"] == [
+        {"clock_id": f"clock-{D1}", "start": 0, "end": 5000}]
+    scene = next(row for row in model["observations"]
+                 if row["provenance_id"] == f"prov-{D1}-m4"
+                 and row["modality"] == "scene")
+    scope = scene["payload"]["description_coverage"]
+    assert scope["clip_described_ratio"] == 0.5
+    assert scope["clip_undescribed_ranges"] == [[5.0, 10.0]]
+    assert scope["frames_read"] == 10
+
+
+def test_a_scene_description_never_claims_complete_coverage(
+        fixture_project):
+    """The defect this pins: a sampled reading filed as a complete
+    observation of the window it was read from."""
+    model, _report = _migrate(fixture_project)
+
+    record = _m4_scene_record(model)
+    assert record["coverage"] != "complete"
+    assert record["coverage_status"].startswith("sampled")
+
+
 def test_m1_utterance_is_grounded_through_m3b_voice_and_m7_lips(
         fixture_project, monkeypatch):
     from library.tools import footage_analysis

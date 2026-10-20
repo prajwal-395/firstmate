@@ -1358,6 +1358,7 @@ def write_scenes(content_digest: str, source_file: str, status: str,
                  scenes: list, scene_boundaries: Optional[list] = None,
                  scene_coverage: Optional[dict] = None,
                  instrument: Optional[dict] = None,
+                 model_id: Optional[str] = None,
                  root: Optional[Path] = None) -> None:
     """M4 `scenes.json`: the VLM scene pass plus ffmpeg scene boundaries.
 
@@ -1365,7 +1366,16 @@ def write_scenes(content_digest: str, source_file: str, status: str,
     (`[{start, end, location, type, lighting, notable_features}]`),
     `scene_boundaries` the temporal index's ffmpeg cut points - both
     already measured, serialized into the slot the scene lane reserved.
+
+    `model_id` names the model that produced the description.  A
+    description is a READING, and a reading nobody can attribute to a
+    model cannot be weighed against another one - so the model travels
+    with the words, in the instrument block beside the pass that made
+    them.
     """
+    instrument = dict(instrument or {})
+    if model_id:
+        instrument["model_id"] = model_id
     write_json(source_dir(content_digest, root) / SLOT_SCENES, {
         "content_digest": content_digest,
         "source_file": os.path.abspath(source_file),
@@ -1373,7 +1383,7 @@ def write_scenes(content_digest: str, source_file: str, status: str,
         "scenes": scenes,
         "scene_boundaries": scene_boundaries or [],
         "scene_coverage": scene_coverage,
-        "instrument": instrument or {},
+        "instrument": instrument,
     })
 
 

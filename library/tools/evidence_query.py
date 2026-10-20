@@ -175,7 +175,7 @@ class EvidenceQueryError(ValueError):
 
 
 def _ticks(seconds: float) -> int:
-    return round(float(seconds) * TICKS_PER_SECOND)
+    return evidence_contract.point_to_tick(float(seconds), TICKS_PER_SECOND)
 
 
 def _seconds(tick: int) -> float:
