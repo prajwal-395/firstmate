@@ -56,12 +56,47 @@ def test_legacy_live_evidence_does_not_fill_missing_qualification_fields():
     assert edit_algebra.status("clip.move", "missing_backend") is None
 
 
-def test_all_78_operations_have_an_audited_implementation_classification():
-    assert len(edit_algebra.OP_STATUS) == 78
+def test_all_79_operations_have_an_audited_implementation_classification():
+    assert len(edit_algebra.OP_STATUS) == 79
     assert {row.implementation_status for row in edit_algebra.OP_STATUS.values()} <= {
         "implemented_qualified", "implemented_unqualified", "workflow_only",
         "no_executor", "planning_only",
     }
+
+
+def test_caption_style_stays_fail_closed_until_live_qualification():
+    """Defect: a restyle with no live qualification evidence must never
+    read as production-ready - the ordinary request
+    "Apply the supplied caption style consistently to every caption"
+    fails today on exactly this missing path."""
+    entry = edit_algebra.status("caption.style", "resolve_axi")
+    assert entry is not None and entry.compilable
+    assert not entry.qualified
+    assert not entry.production_enabled
+    assert not edit_algebra.status("caption.style").qualified
+    assert not edit_algebra.status("caption.style").production_enabled
+    assert (edit_algebra.safety_class("caption.style")
+            == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
+    assert edit_algebra.has_independent_readback("caption.style")
+    assert edit_algebra.get("caption.style").inverse.self_inverse
+
+
+def test_caption_style_verifier_judges_presence_and_timing_never_taste():
+    """Defect: a snapshot judge that scored taste would invent it, and
+    one that passed a lost or drifted card would commit a lie - the
+    style itself is judged by the acceptance contract's rendered
+    evidence, never here."""
+    op = edit_algebra.get("caption.style")
+    base = {"tracks": [{"type": "video", "index": 3, "name": "Subtitles",
+                        "clips": [{"unique_id": "cap-1", "record_in": 10,
+                                   "record_out": 40}]}]}
+    assert op.verify(
+        {"unique_id": "cap-1", "style": "minimal"}, base) is None
+    assert "not on the timeline" in op.verify(
+        {"unique_id": "gone", "style": "minimal"}, base)
+    assert "must not move" in op.verify(
+        {"unique_id": "cap-1", "style": "minimal",
+         "record_in": 10, "record_out": 99}, base)
 
 
 def test_executor_coverage_matches_the_current_dispatches():

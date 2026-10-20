@@ -140,6 +140,7 @@ def test_p0_adapters_register_only_the_implemented_operation_backend_pairs():
         ("clip.delete", "resolve_axi"),
         ("clip.trim", "resolve_axi"),
         ("caption_fix", "resolve_axi"),
+        ("caption.style", "resolve_axi"),
         ("clip.move", "reel_touchup"),
         ("clip.ripple", "reel_touchup"),
         ("clip.slip", "reel_touchup"),
@@ -147,6 +148,46 @@ def test_p0_adapters_register_only_the_implemented_operation_backend_pairs():
         ("overlay.remove", "reel_touchup"),
         ("overlay.swap_pixels", "reel_touchup"),
     } <= set(resolve_axi_core.registered_edit_executors())
+
+
+def test_caption_style_refuses_an_unknown_style_before_any_resolve_contact():
+    """Defect: an invented style name reaching the render path would
+    mint pixels nobody chose - the name is judged before any snapshot
+    or live timeline is read."""
+    with pytest.raises(RuntimeError, match="refuses unknown style"):
+        adapters._caption_style(_context({
+            "op": "caption.style", "unique_id": "clip-17",
+            "style": "not_a_style",
+        }))
+
+
+def test_caption_style_refuses_a_target_off_the_subtitles_row():
+    """Defect: a style op on a non-caption would mislabel the executed
+    write - the row is part of the target identity."""
+    with pytest.raises(ValueError, match="not the 'Subtitles'"):
+        adapters._caption_style(_context({
+            "op": "caption.style", "unique_id": "clip-17",
+            "style": "minimal",
+        }))
+
+
+def test_caption_style_target_must_resolve_exactly_once():
+    """Defect: a style applied to two cards wearing one id would restyle
+    a card nobody addressed."""
+    context = _context({
+        "op": "caption.style", "unique_id": "duplicate",
+        "style": "minimal",
+    })
+    context.snapshot = {"tracks": [
+        {"type": "video", "index": 3, "name": "Subtitles",
+         "clips": [{"unique_id": "duplicate",
+                    "source_file": "/media/cap-a.mov"}]},
+        {"type": "video", "index": 4, "name": "Subtitles",
+         "clips": [{"unique_id": "duplicate",
+                    "source_file": "/media/cap-b.mov"}]},
+    ]}
+    with pytest.raises(ValueError, match="resolved to 2 prepared items"):
+        adapters._caption_style(context)
 
 
 def test_capability_discovery_reports_staged_resize_without_qualification():

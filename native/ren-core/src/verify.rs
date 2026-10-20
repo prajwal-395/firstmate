@@ -174,6 +174,41 @@ fn verify_property(op: &EditOp, after: &Snapshot) -> Option<String> {
     None
 }
 
+fn verify_caption_style(op: &EditOp, after: &Snapshot) -> Option<String> {
+    let EditOp::CaptionStyle {
+        unique_id,
+        record_in,
+        record_out,
+        ..
+    } = op
+    else {
+        return None;
+    };
+    let clip = match after.clip(&unique_id.0) {
+        Some(clip) => clip,
+        None => return Some(format!("clip {unique_id:?} is not on the timeline")),
+    };
+    // The style itself is judged by the acceptance contract's rendered
+    // evidence - the shadow carries no style field. This verifier refuses
+    // what the snapshot can judge: a caption the write lost, and a
+    // timing the write moved (mirrors `_verify_caption_style`).
+    for (key, want) in [("record_in", record_in), ("record_out", record_out)] {
+        if let Some(want) = want {
+            let got = if key == "record_in" {
+                clip.record_in
+            } else {
+                clip.record_out
+            };
+            if got != *want {
+                return Some(format!(
+                    "clip {unique_id:?} reads {key}={got}, not {want}: a style change must not move the timing"
+                ));
+            }
+        }
+    }
+    None
+}
+
 fn verify_delete(op: &EditOp, after: &Snapshot) -> Option<String> {
     let EditOp::ClipDelete { unique_id } = op else {
         return None;
@@ -827,6 +862,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::SpanRetime { .. } => verify_retime(op, after),
         EditOp::DropFragment { .. } => verify_presence(op, after, false, "clip"),
         EditOp::CaptionFix { .. } => None,
+        EditOp::CaptionStyle { .. } => verify_caption_style(op, after),
         EditOp::RedrawCloser { .. } => None,
         EditOp::AnglePlan { .. } => None,
         EditOp::PlanChange { .. } => None,

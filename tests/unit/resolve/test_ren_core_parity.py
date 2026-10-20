@@ -614,6 +614,11 @@ def _op_cases():
         ("drop_fragment-present", drop_fragment, base),
         ("caption_fix", {"op": "caption_fix", "unique_id": "a",
                          "text": "hello"}, base),
+        ("caption.style", {"op": "caption.style", "unique_id": "a",
+                           "style": "minimal"}, base),
+        ("caption.style-moved", {"op": "caption.style", "unique_id": "a",
+                                 "style": "minimal",
+                                 "record_in": 0, "record_out": 999}, base),
         ("redraw_closer", {"op": "redraw_closer", "unique_id": "a",
                            "start": 12.5}, base),
 

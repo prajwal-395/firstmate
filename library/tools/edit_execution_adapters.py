@@ -247,6 +247,313 @@ def _caption_fix(context) -> dict:
         "missing")
 
 
+def _caption_style_props(source_file: str) -> dict:
+    """The tight render props written beside a placed caption card.
+
+    The same layout `caption_width._props` reads: `<stem>_props.json`
+    beside the card carries the bounds, words and timings the card was
+    drawn from. Without them a restyle would have to guess what the
+    card says or when it plays, so an unreadable sidecar refuses.
+    """
+    import json
+    import os
+
+    stem = str(source_file).removesuffix(".mov")
+    path = stem + "_props.json"
+    try:
+        with open(path, encoding="utf-8") as handle:
+            props = json.load(handle)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"caption.style cannot re-render "
+            f"{os.path.basename(str(source_file))!r}: no readable render "
+            f"props beside it ({path}: {exc}) - refusing to guess bounds, "
+            f"text or timing") from None
+    if not isinstance(props, dict):
+        raise TypeError(
+            f"caption.style cannot re-render "
+            f"{os.path.basename(str(source_file))!r}: {path} holds no "
+            f"props mapping")
+    return props
+
+
+def _resolve_named_caption_style(project_folder: str,
+                                 style_name: str) -> dict:
+    """The named style resolved for this project, forced by name.
+
+    The name is the request's own word: video-preference layers never
+    override it here, the way an explicit instruction outranks a saved
+    default. The project's `pipeline.subtitle_typography` still applies
+    key by key (the project typesetting its own captions), and the safe
+    area plus the declared caption row still place it - the same
+    precedence `subtitle_style.resolve_subtitle_style` keeps. No
+    brand-template color palette is re-resolved in this path: the named
+    style's own colours apply, never a guessed palette.
+    """
+    from library.tools import subtitle_style as subtitle_style_mod
+    from library.tools.delivery_format import (
+        delivery_format_name,
+        resolve_format_name,
+    )
+    from library.tools.safe_area import resolve_safe_area
+
+    try:
+        style = subtitle_style_mod.get_subtitle_style(style_name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"caption.style refuses unknown style {style_name!r} "
+            f"({exc})") from exc
+    typography = dict(
+        subtitle_style_mod.project_subtitle_typography(project_folder)
+        or {})
+    _frame_w, frame_h = resolve_format_name(
+        delivery_format_name(project_folder))
+    declared_row = subtitle_style_mod.project_caption_row(project_folder)
+    return style.resolve(
+        typography=typography or None,
+        color_palette=None,
+        safe_area=resolve_safe_area(project_folder),
+        caption_row_px=(None if declared_row is None else
+                        subtitle_style_mod.caption_row_px(
+                            declared_row, frame_h)),
+        frame_h=frame_h)
+
+
+def _caption_style_prepared_target(context, unique_id: str) -> tuple:
+    """The prepared caption clip and its track, resolved exactly once."""
+    from library.tools.caption_swap import SUBTITLES_TRACK_NAME
+
+    hits = [(track, clip)
+            for track in context.snapshot["tracks"]
+            for clip in track["clips"]
+            if str(clip.get("unique_id")) == unique_id]
+    if len(hits) != 1:
+        raise ValueError(
+            f"caption.style target {unique_id!r} resolved to "
+            f"{len(hits)} prepared items")
+    track, clip = hits[0]
+    if track.get("name") != SUBTITLES_TRACK_NAME:
+        raise ValueError(
+            f"caption.style target {unique_id!r} sits on "
+            f"{track.get('name')!r}, not the {SUBTITLES_TRACK_NAME!r} "
+            f"row - a style op on a non-caption is a mislabelled write")
+    if not clip.get("source_file"):
+        raise ValueError(
+            f"caption.style target {unique_id!r} has no source file - "
+            f"there is no placed card to re-render")
+    return track, clip
+
+
+def _caption_style_revalidate_live(context, clip: dict) -> dict:
+    """Fresh live read-back of the target before anything is rendered.
+
+    The prepared identity (media plus record span) must still hold on
+    the live timeline: a card Resolve moved, replaced or removed since
+    preparation is stale, and rendering against the stale read would
+    style the wrong pixels.
+    """
+    from library.tools import resolve_axi_core
+
+    unique_id = str(clip["unique_id"])
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    matches = [live for track in after["tracks"]
+               for live in track["clips"]
+               if str(live.get("unique_id")) == unique_id]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"caption.style target {unique_id!r} is stale: it resolves "
+            f"to {len(matches)} live items, not one - nothing was rendered")
+    live = matches[0]
+    for key in ("source_file", "source_in_frame", "source_out_frame",
+                "record_in", "record_out"):
+        if str(live.get(key)) != str(clip.get(key)):
+            raise RuntimeError(
+                f"caption.style target {unique_id!r} is stale: live "
+                f"{key} reads {live.get(key)!r}, not the prepared "
+                f"{clip.get(key)!r} - nothing was rendered")
+    return after
+
+
+def _caption_style(context) -> dict:
+    """Re-render one caption card in the requested style and swap it in.
+
+    The physical work is the caption render path, not a new writer:
+    the card's own props (bounds, words, timings) are re-rendered with
+    only the style replaced, through `subtitles.rerender_swap`, and the
+    new file is ReplaceClip'ed onto the card with the swap's own
+    per-placement read-back and post-check. Text and timing are never
+    rewritten here - the new props are the old props with a new style,
+    compared key by key before anything touches Resolve.
+
+    Fail-closed notes: an unknown style name, a target that is not a
+    Subtitles-row card, a stale live identity, an unreadable props
+    sidecar, and a card that already renders the requested style all
+    refuse before mutation. Live Resolve qualification is deferred, so
+    ordinary production routing refuses this op; the adapter, its
+    read-back and its recovery exist so that qualification has
+    something to judge.
+    """
+    import os
+
+    from library.tools import operation_acceptance, resolve_axi_core
+
+    operation = dict(context.operation)
+    operation_id = "caption.style"
+    unique_id = str(operation.get("unique_id") or "")
+    style_name = operation.get("style")
+    if not unique_id:
+        raise ValueError(
+            "caption.style names no unique_id - the card to restyle is "
+            "required, never inferred")
+    if not isinstance(style_name, str) or not style_name:
+        raise ValueError(
+            f"caption.style needs a style naming SUBTITLE_STYLES, got "
+            f"{style_name!r}")
+    try:
+        from library.tools import subtitle_style as subtitle_style_names
+
+        subtitle_style_names.get_subtitle_style(style_name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"caption.style refuses unknown style {style_name!r} "
+            f"({exc})") from exc
+    _track, clip = _caption_style_prepared_target(context, unique_id)
+    _caption_style_revalidate_live(context, dict(clip))
+    project_folder = _project_folder(context)
+    old_file = str(clip["source_file"])
+    old_props = _caption_style_props(old_file)
+    old_style = (old_props.get("style")
+                 if isinstance(old_props.get("style"), dict) else {})
+    new_style = _resolve_named_caption_style(project_folder, style_name)
+    if "captionMaxWidth" in old_style:
+        new_style = {**new_style,
+                     "captionMaxWidth": old_style["captionMaxWidth"]}
+    if old_style == new_style:
+        raise RuntimeError(
+            f"caption.style has nothing to do: card {unique_id!r} already "
+            f"renders style {style_name!r} - refusing rather than "
+            f"claiming a restyle")
+    new_props = dict(old_props)
+    new_props["style"] = new_style
+    if ({key: new_props[key] for key in new_props if key != "style"} !=
+            {key: old_props[key] for key in old_props if key != "style"}):
+        raise RuntimeError(
+            f"caption.style restyle of card {unique_id!r} would rewrite "
+            f"more than the style - refusing a restyle that moves text "
+            f"or timing")
+
+    from library.tools import operations as pipeline_operations
+
+    rerender_and_swap = pipeline_operations.get(
+        "subtitles.rerender_swap").run
+    report = rerender_and_swap(
+        project_folder,
+        [{"old_mov": old_file,
+          "timeline_label": context.request.timeline,
+          "props": new_props}],
+        swap=True)
+    if not report.get("ok"):
+        raise RuntimeError(
+            f"caption.style render-and-swap refused: "
+            f"{report.get('error') or report}")
+    new_file = dict(report.get("map") or {}).get(old_file)
+    if not new_file:
+        raise RuntimeError(
+            f"caption.style has nothing to do: card {unique_id!r} already "
+            f"renders style {style_name!r} "
+            f"(already-current: {report.get('already_current') or []}) - "
+            f"refusing rather than claiming a restyle")
+
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    live_hits = [live for track in after["tracks"]
+                 for live in track["clips"]
+                 if str(live.get("unique_id")) == unique_id]
+
+    evidence = {
+        "target_identity": len(live_hits) == 1,
+        "requested_record_span": (
+            len(live_hits) == 1
+            and int(live_hits[0]["record_in"]) == int(clip["record_in"])
+            and int(live_hits[0]["record_out"]) == int(clip["record_out"])),
+        "caption_text_preserved": (
+            {key: new_props[key] for key in new_props if key != "style"}
+            == {key: old_props[key] for key in old_props if key != "style"}),
+        "caption_style_applied": (
+            bool(new_file) and os.path.isfile(new_file)
+            and len(live_hits) == 1
+            and str(live_hits[0].get("source_file")) == str(new_file)),
+    }
+    operation_matches = all(evidence.values())
+    unrelated = _unrelated_changes(context.snapshot, after, unique_id)
+    evidence["unrelated_items_unchanged"] = not unrelated
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": operation_id},
+        readback_passed=operation_matches and not unrelated,
+        evidence=evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            f"AXI read-back acceptance failed for {operation_id}: "
+            f"missing evidence [{missing}], failed checks [{failed}]")
+    target_identity = {
+        key: operation[key]
+        for key in ("unique_id", "client_unique_id")
+        if key in operation
+    }
+    target_identity.update({
+        key: clip[key]
+        for key in ("source_file", "source_in_frame",
+                    "source_out_frame", "record_in", "record_out")
+        if key in clip
+    })
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": operation_id,
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            **target_identity,
+        },
+        "readback": {"snapshot": after,
+                      "render_report": {
+                          "rendered": report.get("rendered"),
+                          "reused": report.get("reused"),
+                          "swapped": report.get("swapped"),
+                      },
+                      "previous_file": old_file, "new_file": new_file},
+        "acceptance_contracts": [acceptance],
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": operation_id, "passed": True},),
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline",
+                             "previous_file": old_file,
+                             "new_file": new_file},
+            },
+            "recovery": {
+                "status": "recorded",
+                "action": "swap the retained previous-generation file "
+                          "back onto the card (old caption files stay on "
+                          "disk as superseded generations; caption.style "
+                          "is self-inverse)",
+                "reference": {
+                    "kind": "caption_swap_back",
+                    "project_folder": project_folder,
+                    "unique_id": unique_id,
+                    "previous_file": old_file,
+                    "current_file": new_file,
+                },
+            },
+        },
+    }
+
+
 def _audio_gain(context) -> dict:
     raise RuntimeError(
         "audio.gain is refused before mutation: the candidate receipt lacks "
@@ -482,6 +789,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.delete", "resolve_axi"): _delete,
         ("caption_fix", "resolve_axi"): _caption_fix,
         ("multicam.select_angle", "resolve_axi"): _multicam_select_angle,
+        ("caption.style", "resolve_axi"): _caption_style,
         ("clip.move", "reel_touchup"): _touchup,
         ("clip.ripple", "reel_touchup"): _touchup,
         ("clip.slip", "reel_touchup"): _touchup,

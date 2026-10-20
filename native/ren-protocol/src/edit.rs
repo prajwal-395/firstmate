@@ -395,6 +395,16 @@ pub enum EditOp {
     /// Rewrite caption text.
     #[serde(rename = "caption_fix")]
     CaptionFix { unique_id: ClipId, text: String },
+    /// Re-render one caption card in the named style; same text, same timing.
+    #[serde(rename = "caption.style")]
+    CaptionStyle {
+        unique_id: ClipId,
+        style: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record_in: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        record_out: Option<i64>,
+    },
     /// Move a shared closer's start to the anchor's words.
     #[serde(rename = "redraw_closer")]
     RedrawCloser { unique_id: ClipId, start: f64 },
@@ -504,6 +514,7 @@ impl EditOp {
             EditOp::SpanRetime { .. } => "span_retime",
             EditOp::DropFragment { .. } => "drop_fragment",
             EditOp::CaptionFix { .. } => "caption_fix",
+            EditOp::CaptionStyle { .. } => "caption.style",
             EditOp::RedrawCloser { .. } => "redraw_closer",
             EditOp::AnglePlan { .. } => "angle_plan",
             EditOp::PlanChange { .. } => "plan_change",

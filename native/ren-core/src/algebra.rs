@@ -572,6 +572,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous text") },
     },
     OpDeclaration {
+        id: "caption.style", domain: "captions",
+        required: &["unique_id", "style"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous style") },
+    },
+    OpDeclaration {
         id: "redraw_closer", domain: "timeline_structure",
         required: &["unique_id", "start"],
         merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
@@ -893,6 +900,7 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         EditOp::SpanRetime { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::DropFragment { unique_id } => item_span(base, &unique_id.0),
         EditOp::CaptionFix { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::CaptionStyle { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::RedrawCloser { unique_id, .. } => item_span(base, &unique_id.0),
 
         // ── plan-level ops: they address no timeline frames ────
@@ -1321,6 +1329,12 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("caption".to_string()),
         ],
+        EditOp::CaptionStyle { unique_id, .. } => vec![
+            KeyPart::Text("clip".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+            KeyPart::Text("caption".to_string()),
+            KeyPart::Text("style".to_string()),
+        ],
         EditOp::RedrawCloser { unique_id, .. } => {
             vec![
                 KeyPart::Text("clip".to_string()),
@@ -1436,6 +1450,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::SpanRetime { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::DropFragment { unique_id } => Some(unique_id.0.clone()),
         EditOp::CaptionFix { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::CaptionStyle { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::RedrawCloser { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MarkerAdd { .. } => None,
         EditOp::MarkerDelete { .. } => None,
@@ -1530,6 +1545,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::SpanRetime { .. } => None,
         EditOp::DropFragment { .. } => None,
         EditOp::CaptionFix { .. } => None,
+        EditOp::CaptionStyle { .. } => None,
         EditOp::RedrawCloser { .. } => None,
         EditOp::AnglePlan { .. } => None,
         EditOp::PlanChange { .. } => None,

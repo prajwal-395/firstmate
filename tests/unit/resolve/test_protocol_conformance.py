@@ -366,6 +366,7 @@ _EXAMPLE_OPS = {
     "span_retime": {"unique_id": "clip_1", "percent": 1.5},
     "drop_fragment": {"unique_id": "clip_1"},
     "caption_fix": {"unique_id": "clip_1", "text": "hello"},
+    "caption.style": {"unique_id": "clip_1", "style": "minimal"},
     "redraw_closer": {"unique_id": "clip_1", "start": 10.0},
     "angle_plan": {"plan": {"angle": 0}},
     "plan_change": {"node": "step_1_04", "note": "replan"},

@@ -1841,6 +1841,41 @@
           ]
         },
         {
+          "description": "Re-render one caption card in the named style; same text, same timing.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "caption.style"
+            },
+            "record_in": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "record_out": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            },
+            "style": {
+              "type": "string"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "style"
+          ]
+        },
+        {
           "description": "Move a shared closer's start to the anchor's words.",
           "type": "object",
           "properties": {

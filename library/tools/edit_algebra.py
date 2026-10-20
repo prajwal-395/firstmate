@@ -297,6 +297,26 @@ def _verify_transform(key: str, expected):
     return verify
 
 
+def _verify_caption_style(op, after):
+    """One restyled caption reads back on its own span under a new file.
+
+    The style itself is judged by the acceptance contract's rendered
+    evidence - the shadow carries no style field, and a snapshot judge
+    that scored taste would be the pipeline inventing it (AGENTS.md
+    10.5). This verifier refuses what the snapshot CAN judge: a caption
+    the write lost, and a timing the write moved.
+    """
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    for key in ("record_in", "record_out"):
+        if key in op and int(clip[key]) != int(op[key]):
+            return (f"clip {op['unique_id']!r} reads {key}={clip[key]}, "
+                    f"not {op[key]}: a style change must not move "
+                    f"the timing")
+    return None
+
+
 def _verify_duration(expected):
     def verify(op, after):
         clip = _clip(after, op["unique_id"])
@@ -2428,6 +2448,20 @@ ALGEBRA: dict[str, AlgebraOp] = {
         merge="replace",
         inverse=_self("the inverse carries the previous text"),
         note="Rewrite caption text."),
+    "caption.style": AlgebraOp(
+        id="caption.style", domain="captions",
+        required=("unique_id", "style"),
+        span=_item_span, item=True,
+        verify=_verify_caption_style,
+        key=lambda op: ("clip", op["unique_id"], "caption", "style"),
+        merge="replace",
+        inverse=_self("the inverse carries the previous style"),
+        note="Re-render one caption card in the named style - same text, "
+             "same timing, new pixels - and swap it in place. The caption "
+             "render path (`subtitle_style`, the step 4.05 assets) does "
+             "the physical work and the swap read-back judges every card. "
+             "`style` names `SUBTITLE_STYLES`; anything else is refused, "
+             "never guessed."),
     "redraw_closer": AlgebraOp(
         id="redraw_closer", domain="timeline_structure",
         required=("unique_id", "start"),
@@ -3095,6 +3129,13 @@ _ROUTE_EVALUATION = {
         "next": "Run the deferred live qualification with visual/audio evidence and recovery checks before enabling normal routing.",
         "not_yet_evaluated": [],
     },
+    "caption.style": {
+        "inspected": ["native scripting title/text properties", "step 4.05 caption render path and subtitle_style", "caption_swap pool-item replacement", "OTIO", "Blackmagic MCP tools/list", "Resolve Workflow Integrations developer package and installed VEP plugin"],
+        "available": ["the adapter re-renders one caption card in a named subtitle style through rerender_and_swap with text and timing preserved, then ReplaceClips the pool item with per-placement read-back and a post-check that no old file remains placed", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
+        "gaps": ["one caption card per operation; the style must name SUBTITLE_STYLES and is never guessed", "live Resolve qualification remains deferred, so normal routing stays fail-closed", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
+        "next": "Run the deferred live qualification with per-card rendered evidence, text/timing preservation and swap-back recovery before enabling normal routing.",
+        "not_yet_evaluated": [],
+    },
 }
 _WORKFLOW_EVIDENCE = {
     "clip.ripple": (
@@ -3146,6 +3187,12 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/resolve_axi_core_commands.py:cmd_sense_switch",
         "library/tools/resolve_axi_core_commands.py:cmd_multicam_build",
         "library/tools/resolve_axi_core_commands.py:cmd_multicam_sync",
+    ),
+    ("caption.style", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_caption_style",
+        "library/steps/step_4_05_render_subtitles/step.py:rerender_and_swap",
+        "library/tools/caption_swap.py:swap_files",
+        "library/tools/subtitle_style.py:resolve_subtitle_style",
     ),
     ("overlay.add", "reel_touchup"): (
         "library/tools/reel_touchup.py:_is_native_still",
@@ -3203,6 +3250,8 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("no guarded set-angle verb: only the sense-switch auto-cut and the pool build/sync verbs exist; "
          "the timeline inventory exposes no per-item angle, so the switch cannot be verified; "
          "the staged replacement needs the assigned camera's synced source range, which preparation does not supply",),
+    ("caption.style", "resolve_axi"):
+        ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
     ("clip.move", "reel_touchup"):
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):
@@ -3258,6 +3307,7 @@ def _executor_coverage() -> dict[str, set[str]]:
             # They remain implemented/unqualified until operation-specific
             # live qualification records are added.
             "clip.trim", "caption_fix", "multicam.select_angle",
+            "caption.style",
         },
         "reel_append_placement": {"clip.insert"},
         "reel_otio_placement": {"clip.insert"},
@@ -3742,6 +3792,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "clip_lut": SAFETY_COMPLEX_LOCALIZED,
     "grade": SAFETY_COMPLEX_LOCALIZED,
     "caption_fix": SAFETY_COMPLEX_LOCALIZED,
+    "caption.style": SAFETY_COMPLEX_LOCALIZED,
     "transform_override": SAFETY_COMPLEX_LOCALIZED,
     "clip.roll": SAFETY_COMPLEX_LOCALIZED,
     "clip.slip": SAFETY_COMPLEX_LOCALIZED,
@@ -3791,6 +3842,7 @@ VC20_TARGET_STRATEGY = {
     "clip.replace": "incremental staged edit with source/effect preservation",
     "clip.trim": "incremental staged edit with timing verification",
     "caption_fix": "targeted caption regeneration",
+    "caption.style": "targeted caption regeneration in the requested style",
     "clip.ripple": "dependency-aware structural transaction",
     "grade.node_set": "native grade transaction once qualified",
     "grade.node_add": "native grade transaction once qualified",
@@ -3844,6 +3896,7 @@ _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "overlay.remove",
     "transform_override", "span_retime", "drop_fragment",
     "multicam.select_angle",
+    "caption.style",
 })
 
 #: Router labels that name the matrix backend they prove against. The

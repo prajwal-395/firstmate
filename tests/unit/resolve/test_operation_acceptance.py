@@ -128,6 +128,40 @@ def test_acceptance_reports_unavailable_readback_as_missing_evidence():
     assert "operation_readback_matches_request" in result["missing"]
 
 
+def test_caption_style_contract_demands_independent_rendered_evidence():
+    """Defect: a restyle claimed from prose while the render was never
+    measured would ship the wrong look under a passing receipt."""
+    result = operation_acceptance.evaluate(
+        {"op": "caption.style", "unique_id": "clip-9", "style": "minimal"},
+        readback_passed=True)
+    assert not result["passed"]
+    assert "caption_text_preserved" in result["missing"]
+    assert "caption_style_applied" in result["missing"]
+    assert "unrelated_items_unchanged" in result["missing"]
+
+
+def test_caption_style_passes_only_when_every_check_is_measured():
+    """Defect: a restyle that rewrote words, skipped the swap, or moved
+    a neighbour must read as failed, never as verified."""
+    contract = operation_acceptance.contract_for("caption.style")
+    assert contract["checks"] == [
+        "target_identity", "requested_record_span",
+        "caption_text_preserved", "caption_style_applied",
+        "unrelated_items_unchanged"]
+    assert contract["rendered_source"] == "caption_asset_rerender"
+    evidence = {check: True for check in contract["checks"]}
+    result = operation_acceptance.evaluate(
+        {"op": "caption.style", "unique_id": "clip-9", "style": "minimal"},
+        readback_passed=True, evidence=evidence)
+    assert result["passed"]
+    rewritten = operation_acceptance.evaluate(
+        {"op": "caption.style", "unique_id": "clip-9", "style": "minimal"},
+        readback_passed=True,
+        evidence={**evidence, "caption_text_preserved": False})
+    assert not rewritten["passed"]
+    assert "caption_text_preserved" in rewritten["failed"]
+
+
 def test_audio_changes_require_independent_render_evidence():
     result = operation_acceptance.evaluate(
         {"op": "audio.gain"}, readback_passed=True,
