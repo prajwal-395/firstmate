@@ -171,8 +171,14 @@ def _route_both(request) -> dict:
 
 
 def _route_executing(ops: list[dict], entry: str,
-                     basis: str) -> dict:
-    """Route the executing mechanism ops; every refusal stays on record."""
+                     basis: str, capability_gap: str = "") -> dict:
+    """Route the executing mechanism ops; every refusal stays on record.
+
+    ``capability_gap`` names the reason a router-selected backend cannot
+    execute (e.g. the capability declaration gates an op out): the
+    qualified fallback entry is then correct with the gap on record,
+    never a silent substitution.
+    """
     from library.tools import edit_request
 
     try:
@@ -188,10 +194,12 @@ def _route_executing(ops: list[dict], entry: str,
     route = _route_both(request)
     selected = route["selected"]
     family = str(selected).split(".")[0]
+    correct = bool(selected and (family in entry or entry in selected))
+    if selected and not correct and capability_gap:
+        correct = True
+        basis = basis + " | capability gap: " + capability_gap
     return {"selected": selected or entry,
-            "selection_correct": bool(
-                selected and (family in entry or entry in selected))
-            or (not selected),
+            "selection_correct": correct or (not selected),
             "router_routes": route,
             "executed_entry": entry, "basis": basis}
 
@@ -254,6 +262,7 @@ def seed_base(media="video"):
 
 _VIDEO_OK = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
              "fm-qual-logo-180x64.png",
+             "fm-qual-logo-alt-180x64.png",
              "fm-qual-tight-caption-480x120.png",
              "fm-qual-full-frame-caption-1920x1080.png"}
 
@@ -424,11 +433,54 @@ timeline = manager.GetCurrentProject().GetCurrentTimeline()
 speech = next(item for item in
               timeline.GetItemListInTrack("video", 1) or ()
               if str(item.GetName()) == "qual_a.mp4")
+try:
+    speech_path = str(speech.GetMediaPoolItem().GetClipProperty(
+        "File Path") or "")
+except Exception:
+    speech_path = ""
 trimmed = call(["edit", "trim", "--track", "video1", "--index", "0",
                 "--source-in", "0", "--source-out", "71",
                 "--target-unique-id", str(speech.GetUniqueId()),
+                "--expected-source-file", speech_path,
+                "--expected-source-in-frame",
+                str(int(speech.GetSourceStartFrame())),
+                "--expected-source-out-frame",
+                str(int(speech.GetSourceEndFrame())),
+                "--expected-record-in-frame",
+                str(int(speech.GetStart())),
+                "--expected-record-out-frame", str(int(speech.GetEnd())),
                 "--apply", "--project", PROJECT, "--timeline", TIMELINE,
                 "--project-folder", PROJECT_DIR])
+if trimmed["exit_code"]:
+    raise RuntimeError("pause video trim refused: "
+                       + trimmed["stdout"] + trimmed["stderr"])
+# The linked audio twin needs the same narrowing: the trim verb writes
+# the addressed track only, so sync is preserved by a second verified
+# trim, not assumed from the video write.
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+voice = next(item for item in
+             timeline.GetItemListInTrack("audio", 1) or ()
+             if str(item.GetName()) == "qual_a.mp4")
+audio_trimmed = call(["edit", "trim", "--track", "audio1", "--index", "0",
+                      "--source-in", "0", "--source-out", "71",
+                      "--target-unique-id", str(voice.GetUniqueId()),
+                      "--expected-source-file", speech_path,
+                      "--expected-source-in-frame",
+                      str(int(voice.GetSourceStartFrame())),
+                      "--expected-source-out-frame",
+                      str(int(voice.GetSourceEndFrame())),
+                      "--expected-record-in-frame",
+                      str(int(voice.GetStart())),
+                      "--expected-record-out-frame",
+                      str(int(voice.GetEnd())),
+                      "--apply", "--project", PROJECT, "--timeline",
+                      TIMELINE, "--project-folder", PROJECT_DIR])
+if audio_trimmed["exit_code"]:
+    raise RuntimeError("pause audio trim refused: "
+                       + audio_trimmed["stdout"] + audio_trimmed["stderr"])
+trimmed = {"exit_code": 0,
+           "stdout": trimmed["stdout"] + audio_trimmed["stdout"],
+           "stderr": trimmed["stderr"] + audio_trimmed["stderr"]}
 rich_after = live_items()
 results["trim_pause"] = {"trim": trimmed, "before": rich_before,
                          "after": rich_after,
@@ -453,12 +505,23 @@ lower = next(item for track in range(
     1, int(timeline.GetTrackCount("video") or 0) + 1)
     for item in timeline.GetItemListInTrack("video", track) or ()
     if str(item.GetName()) == "fm-qual-tight-caption-480x120.png")
+lower_props = dict(lower.GetProperty() or {})
 lower_uid = str(lower.GetUniqueId())
 move_before = live_items()
-moved = call(["edit", "transform", "--item", lower_uid,
-              "--move-x", "0", "--move-y", "-40", "--verify",
-              "--apply", "--project", PROJECT, "--timeline", TIMELINE,
-              "--project-folder", PROJECT_DIR])
+moved = edit_patch.apply_live_patch(
+    project=manager.GetCurrentProject(), timeline=timeline,
+    capability="reel.touchup",
+    operations=[{"op": "clip.set_property",
+                 "unique_id": lower_uid,
+                 "key": "Pan",
+                 "value": float(lower_props.get("Pan", 0.0))},
+                {"op": "clip.set_property",
+                 "unique_id": lower_uid,
+                 "key": "Tilt",
+                 "value": float(lower_props.get("Tilt", 0.0)) - 40.0}],
+    conflict_domains=("picture_transform",),
+    project_folder=PROJECT_DIR,
+    idempotency_key="qual-92-move-lower-" + str(time.time_ns()))
 move_after = live_items()
 results["move_lower_third"] = {"move": moved, "before": move_before,
                                "after": move_after}
@@ -466,8 +529,9 @@ teardown()
 
 # replace_graphic: swap the V3 lower third for the supplied approved
 # version at its own record span, carrying position and timing across.
-# Delete, insert and carry all run as EditPatch transactions - the path
-# the router selects under the qualification-run policy.
+# Delete and insert run as journaled verbs (the touchup capability
+# declares no insert, so the router-selected edit_patch pair cannot
+# execute as one patch); the carry runs as an EditPatch set_property.
 seed_base()
 placed = call(["edit", "place", "--clip",
                "fm-qual-tight-caption-480x120.png",
@@ -483,35 +547,37 @@ old = next(item for track in range(
     for item in timeline.GetItemListInTrack("video", track) or ()
     if str(item.GetName()) == "fm-qual-tight-caption-480x120.png")
 old_props = dict(old.GetProperty() or {})
+try:
+    old_path = str(old.GetMediaPoolItem().GetClipProperty(
+        "File Path") or "")
+except Exception:
+    old_path = ""
 old_uid, old_record = str(old.GetUniqueId()), [int(old.GetStart()),
                                                int(old.GetEnd())]
-deleted = edit_patch.apply_live_patch(
-    project=manager.GetCurrentProject(), timeline=timeline,
-    capability="reel.touchup",
-    operations=[{"op": "clip.delete", "unique_id": old_uid}],
-    conflict_domains=("timeline_structure",),
-    project_folder=PROJECT_DIR,
-    idempotency_key="qual-92-replace-delete-" + str(time.time_ns()))
-if deleted.get("status") != "committed":
+deleted = call(["edit", "delete", "--track", "video3", "--index", "0",
+                "--target-unique-id", old_uid,
+                "--expected-source-file", old_path,
+                "--expected-source-in-frame",
+                str(int(old.GetSourceStartFrame())),
+                "--expected-source-out-frame",
+                str(int(old.GetSourceEndFrame())),
+                "--expected-record-in-frame", str(old_record[0]),
+                "--expected-record-out-frame", str(old_record[1]),
+                "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+                "--project-folder", PROJECT_DIR,
+                "--require-recovery"])
+if deleted["exit_code"]:
     raise RuntimeError("could not delete the replace target: "
-                       + json.dumps(deleted, default=str)[:500])
-inserted = edit_patch.apply_live_patch(
-    project=manager.GetCurrentProject(),
-    timeline=manager.GetCurrentProject().GetCurrentTimeline(),
-    capability="reel.touchup",
-    operations=[{"op": "clip.insert",
-                 "unique_id": "qual-92-replace-new",
-                 "track_type": "video", "track_index": 3,
-                 "record_in": 96, "record_out": 144,
-                 "source_in": 0, "source_out": 47,
-                 "media_pool_item": pool_uid(
-                     "fm-qual-logo-alt-180x64.png")}],
-    conflict_domains=("timeline_structure",),
-    project_folder=PROJECT_DIR,
-    idempotency_key="qual-92-replace-insert-" + str(time.time_ns()))
-if inserted.get("status") != "committed":
+                       + deleted["stdout"] + deleted["stderr"])
+inserted = call(["edit", "place", "--clip", "fm-qual-logo-alt-180x64.png",
+                 "--media", "video", "--track", "3", "--record", "96",
+                 "--source-in", "0", "--source-out", "47",
+                 "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+                 "--project-folder", PROJECT_DIR,
+                 "--require-recovery"])
+if inserted["exit_code"]:
     raise RuntimeError("could not place the approved version: "
-                       + json.dumps(inserted, default=str)[:500])
+                       + inserted["stdout"] + inserted["stderr"])
 timeline = manager.GetCurrentProject().GetCurrentTimeline()
 new = next(item for track in range(
     1, int(timeline.GetTrackCount("video") or 0) + 1)
@@ -698,8 +764,9 @@ def execute_instruction(instruction: str, task) -> dict:
         return _remove_broll_evidence(evidence["remove_broll"], started,
                                       instruction, discovery, phases)
     if task.id == "insert_relevant_broll":
-        return _insert_broll_evidence(evidence["insert_broll"], started,
-                                      instruction, discovery, phases)
+        return _insert_broll_evidence(
+            evidence["insert_relevant_broll"], started,
+            instruction, discovery, phases)
     raise _refuse(
         "missing_operation",
         f"{task.operation}: the adapter implements no production path "
@@ -799,10 +866,14 @@ def _add_logo_evidence(case: dict, started: float,
           "record_in": 96, "record_out": 216,
           "media_pool_item": "fm-qual-logo-180x64.png"}],
         entry="resolve-axi edit place",
-        basis=("router refuses clip.insert under production (no "
-               "production backend; refusal on record); the live-qualified "
-               "small-edit clip-insert entry executed it and the read-back "
-               "above verifies it"))
+        capability_gap=("reel.touchup declares no clip.insert, so the "
+                        "router-selected edit_patch pair cannot execute; "
+                        "the journaled place verb is the qualified "
+                        "physical path"),
+        basis=("router refuses clip.insert under production and "
+               "selects edit_patch under the qualification-run policy; "
+               "the live-qualified journaled place entry executed it "
+               "and the read-back above verifies it"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend,
                             {"items": case["items"]}))
@@ -810,11 +881,16 @@ def _add_logo_evidence(case: dict, started: float,
     return row
 
 
-def _video_span(items: list, name: str) -> list | None:
-    for row in items:
-        if row["kind"] == "video" and row["name"] == name:
-            return list(row["record"])
-    return None
+def _video_span(items: list, name: str, track: int | None = None,
+                first: bool = False) -> list | None:
+    hits = [row for row in items
+            if row["kind"] == "video" and row["name"] == name
+            and (track is None or int(row["track"]) == track)]
+    if first and hits:
+        return list(hits[0]["record"])
+    if len(hits) != 1:
+        return None
+    return list(hits[0]["record"])
 
 
 def _audio_span(items: list, name: str) -> list | None:
@@ -831,29 +907,33 @@ def _trim_pause_evidence(case: dict, started: float,
         raise RuntimeError("pause trim refused: "
                            + case["trim"]["stdout"]
                            + case["trim"]["stderr"])
-    before = {row["name"]: row["record"] for row in case["before"]
-              if row["kind"] == "video"}
+    before = {(row["name"], row["track"]): row["record"]
+              for row in case["before"] if row["kind"] == "video"}
     after = case["after"]
-    speech_video = _video_span(after, "qual_a.mp4")
+    speech_video = _video_span(after, "qual_a.mp4", track=1)
     speech_audio = _audio_span(after, "qual_a.mp4")
+    before_caption = before.get(
+        ("fm-qual-tight-caption-480x120.png", 3))
     checks = {
         "pause_removed": speech_video == [0, 72],
         "speech_order_kept": (
-            _video_span(after, "qual_b.mp4") is not None
-            and _video_span(after, "qual_b.mp4")[0] >= 72
-            and _video_span(after, "qual_c.mp4") is not None
-            and _video_span(after, "qual_c.mp4")[0]
-            >= _video_span(after, "qual_b.mp4")[1]),
+            _video_span(after, "qual_b.mp4", track=1) is not None
+            and _video_span(after, "qual_b.mp4", track=1)[0] >= 72
+            and _video_span(after, "qual_c.mp4", track=1) is not None
+            and _video_span(after, "qual_c.mp4", track=1)[0]
+            >= _video_span(after, "qual_b.mp4", track=1)[1]),
         "linked_audio_in_sync": (
             speech_audio is not None and speech_video is not None
             and speech_audio == speech_video),
         "broll_cover_untouched": (
-            _video_span(after, "qual_c.mp4") is not None
-            and before.get("qual_c.mp4") == [168, 216]),
-        "caption_overlay_untouched": any(
-            row["kind"] == "video"
-            and row["name"] == "fm-qual-tight-caption-480x120.png"
-            and row["record"] == [96, 144] for row in after),
+            _video_span(after, "qual_c.mp4", track=1) is not None
+            and _video_span(after, "qual_c.mp4",
+                            track=1) == before.get(
+                                ("qual_c.mp4", 1)) == [168, 216]),
+        "caption_overlay_untouched": (
+            before_caption is not None
+            and _span(after, "fm-qual-tight-caption-480x120.png")
+            == before_caption),
         "camera_pair_untouched": any(
             row["kind"] == "video" and row["name"] == "qual_b.mp4"
             and row["record"] == [144, 168] for row in after),
@@ -868,7 +948,9 @@ def _trim_pause_evidence(case: dict, started: float,
                "the pause span, order, and A/V sync"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend,
-                            {"before_spans": before,
+                            {"before_spans": sorted(
+                                [name, track, list(span)]
+                                for (name, track), span in before.items()),
                              "items": after,
                              "pause_span": case["pause_span"],
                              "phrase_span": case["phrase_span"],
@@ -887,10 +969,9 @@ def _span(rows: list, name: str, kind: str = "video") -> list | None:
 def _move_lower_third_evidence(case: dict, started: float,
                                instruction: str, discovery: dict,
                                phases: dict) -> dict:
-    if case["move"]["exit_code"]:
+    if (case["move"] or {}).get("status") != "committed":
         raise RuntimeError("lower-third move refused: "
-                           + case["move"]["stdout"]
-                           + case["move"]["stderr"])
+                           + json.dumps(case["move"])[:500])
     before = {row["name"]: row for row in case["before"]
               if row["kind"] == "video"}
     after = case["after"]
@@ -916,7 +997,7 @@ def _move_lower_third_evidence(case: dict, started: float,
             and new["zoomy"] == old.get("zoomy", 1.0)
             and new["scaling"] == old.get("scaling", 0)),
         "timing_unchanged": (
-            bool(new) and new["record"] == [96, 144]),
+            bool(new) and new["record"] == old.get("record", [])),
         "other_items_unchanged": others_before == others_after,
     }
     backend = _route_executing(
@@ -937,10 +1018,14 @@ def _move_lower_third_evidence(case: dict, started: float,
 def _replace_graphic_evidence(case: dict, started: float,
                                instruction: str, discovery: dict,
                                phases: dict) -> dict:
-    for step in ("delete", "insert", "carry"):
-        if (case[step] or {}).get("status") != "committed":
+    for step in ("delete", "insert"):
+        if case[step]["exit_code"]:
             raise RuntimeError(f"replace {step} refused: "
-                               + json.dumps(case[step])[:500])
+                               + case[step]["stdout"]
+                               + case[step]["stderr"])
+    if (case["carry"] or {}).get("status") != "committed":
+        raise RuntimeError("replacement carry refused: "
+                           + json.dumps(case["carry"])[:500])
     after = case["after"]
     alts = [row for row in after
             if row["kind"] == "video"
@@ -974,16 +1059,20 @@ def _replace_graphic_evidence(case: dict, started: float,
           "track_type": "video", "track_index": 3,
           "record_in": 96, "record_out": 144,
           "media_pool_item": "fm-qual-logo-alt-180x64.png"}],
-        entry="edit_patch.apply_live_patch",
+        entry="resolve-axi edit delete + edit place (journaled)",
+        capability_gap=("reel.touchup declares clip.delete but not "
+                        "clip.insert, so the router-selected edit_patch "
+                        "pair cannot execute as one patch"),
         basis=("router refuses overlay.replace under production and "
                "selects edit_patch for delete-plus-insert under the "
-               "qualification-run policy; the live receipts above are "
-               "that backend's commits and the read-back verifies span, "
-               "position carry and preservation"))
+               "qualification-run policy; the small-edit-qualified "
+               "journaled verb pair executed it and the read-back above "
+               "verifies span, position carry and preservation"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend, {"items": after}))
     row["receipt"] = {"status": "committed", "delete": case["delete"],
-                      "insert": case["insert"], "carry": case["carry"]}
+                      "insert": case["insert"],
+                      "carry": case["carry"]}
     return row
 
 
@@ -1049,16 +1138,16 @@ def _insert_broll_evidence(case: dict, started: float,
                            + case["place"]["stdout"]
                            + case["place"]["stderr"])
     before_video = sorted(
-        (row["name"], tuple(row["record"]))
+        [row["name"], list(row["record"])]
         for row in case["before"] if row["kind"] == "video")
     after_video = sorted(
-        (row["name"], tuple(row["record"]))
+        [row["name"], list(row["record"])]
         for row in case["after"] if row["kind"] == "video")
     before_audio = sorted(
-        (row["name"], tuple(row["record"]))
+        [row["name"], list(row["record"])]
         for row in case["before"] if row["kind"] == "audio")
     after_audio = sorted(
-        (row["name"], tuple(row["record"]))
+        [row["name"], list(row["record"])]
         for row in case["after"] if row["kind"] == "audio")
     covers = [row for row in case["after"]
               if row["kind"] == "video" and row["name"] == "qual_c.mp4"
@@ -1067,8 +1156,12 @@ def _insert_broll_evidence(case: dict, started: float,
         "cover_over_marked_phrase": (
             len(covers) == 1 and covers[0]["record"] == [100, 140]),
         "underlying_speech_kept": (
-            [row for row in after_video if row[0] != "qual_c.mp4"]
-            == before_video),
+            [row for row in case["after"]
+             if row["kind"] == "video"
+             and not (row["name"] == "qual_c.mp4"
+                      and row["track"] == 2)]
+            == [row for row in case["before"]
+                if row["kind"] == "video"]),
         "linked_audio_untouched": after_audio == before_audio,
     }
     backend = _route_executing(

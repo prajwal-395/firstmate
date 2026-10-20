@@ -414,6 +414,7 @@ for case in CASES:
                           if item["name"] == "qual_a.mp4"
                           and item["record"][0] == 0
                           and item["track"] == 1)
+            target_track = int(target["track"])
             trimmed = call(["edit", "trim", "--track", "video1",
                             "--index",
                             str(track_index_of(before,
@@ -437,8 +438,29 @@ for case in CASES:
                                    + trimmed["stdout"]
                                    + trimmed["stderr"])
             after = live_video()
-            landed = next(item for item in after
-                          if item["unique_id"] == target["unique_id"])
+            landed_rows = [item for item in after
+                           if item["name"] == target["name"]
+                           and int(item["track"]) == target_track
+                           and item["record"][0]
+                           == target["record"][0]]
+            if len(landed_rows) != 1:
+                raise RuntimeError(
+                    "trim target does not resolve uniquely after the "
+                    f"write: {len(landed_rows)} hits - refusing to judge")
+            landed = landed_rows[0]
+            held = next((item for item in after
+                         if item["name"] == "qual_a.mp4"
+                         and int(item["track"]) == target_track
+                         and item["record"][0]
+                         == target["record"][0]), None)
+            row["observed"] = {
+                "reidentified": (landed["unique_id"]
+                                 != target["unique_id"]),
+                "landed_pan": landed["pan"],
+                "held_pan": (None if held is None
+                             else held["pan"]),
+                "history_uid": history_uid,
+            }
             row["checks"] = {
                 "same_semantic_target": True,
                 "exact_intervals": (
@@ -448,12 +470,13 @@ for case in CASES:
                                   < target["record"][1]
                                   - target["record"][0]),
                 "approved_edits_preserved": (
-                    history_uid is None or any(
-                        item["unique_id"] == history_uid
-                        for item in after)),
+                    history_uid is None or (
+                        held is not None
+                        and held["pan"] == 40.0)),
                 "no_unrelated_changes": (
                     sorted(key for key in snapshot_key(after)
-                           if key[0] != target["unique_id"])
+                           if key[0] not in (target["unique_id"],
+                                             landed["unique_id"]))
                     == sorted(key for key in before_key
                               if key[0] != target["unique_id"])),
                 "output_pixel_geometry": True,

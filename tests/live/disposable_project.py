@@ -60,6 +60,23 @@ def materialize(parent: Path | str | None = None) -> Path:
         "fps": 24,
         "frame_size": [1920, 1080],
         "duration_frames": 48,
+        "segments": [{
+            "speaker": "disposable",
+            "text": "disposable rebuild-row speech",
+            "timeline_start": 0.0,
+            "timeline_end": 2.0,
+            "source_file": "qual_a.mp4",
+            "source_start": 0.0,
+            "source_end": 2.0,
+            "resolve_item_id": "",
+            "words": [
+                {"word": word, "start": round(index * 0.25, 2),
+                 "end": round(index * 0.25 + 0.2, 2), "timed": True}
+                for index, word in enumerate(
+                    ["disposable", "rebuild", "row", "speech",
+                     "covers", "two", "seconds", "here"])
+            ],
+        }],
         "clips": [{
             "name": "qual_a.mp4",
             "source_path": str(QUAL_POOL_DIR / "qual_a.mp4"),
@@ -85,7 +102,7 @@ def materialize(parent: Path | str | None = None) -> Path:
             "approval": "approved",
             "approved_by": "axc-disposable-project",
             "source_spans": [{"source_file": "qual_a.mp4",
-                              "source_start": 0, "source_end": 48}],
+                              "source_start": 0.0, "source_end": 2.0}],
         }],
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return root
@@ -142,6 +159,18 @@ def check(project_dir: Path | str) -> list[str]:
             refuse_build_from_source(transcript)
         except Exception as exc:  # noqa: BLE001 - gate reports
             errors.append(f"transcript refused: {exc}")
+        segments = transcript.get("segments")
+        required = ("speaker", "text", "timeline_start", "timeline_end",
+                    "source_file", "source_start", "source_end",
+                    "resolve_item_id")
+        if not isinstance(segments, list) or not segments:
+            errors.append("transcript carries no segments row the "
+                          "mic-bleed merge reads")
+        elif any(not isinstance(row, dict) or any(key not in row
+                                                  for key in required)
+                 for row in segments):
+            errors.append("transcript segments lack the keys "
+                          "resolve_document_mic_bleed reads")
     if "Ren Qualification" in str(root) and "axc-disposable" not in str(root):
         errors.append("disposable folder must not masquerade as a real project")
     return errors

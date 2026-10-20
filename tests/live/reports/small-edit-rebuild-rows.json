@@ -1,0 +1,36 @@
+{
+  "scenarios": 2,
+  "passed": 0,
+  "failed": 2,
+  "first_attempt_passes": 0,
+  "unintended_change_scenarios": 0,
+  "proof_milestone": false,
+  "results": [
+    {
+      "id": "add_logo",
+      "intent": "Add an independent PNG logo",
+      "production_entry": "edit_patch.apply_live_patch",
+      "operation": "overlay.add",
+      "proof": true,
+      "status": "fail",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "checks": {},
+      "error": "RuntimeError: qualification batch failed: step 0 exited 1: staging): NO SPAN PICTURES - no model answer on file (reel_span_01.json), recording span_not_planned\n  Reel 01 - axc-disposable [candidate-8ebcb3d1dcaf4f698f9b763473534a96] (rebuild staging): relinked V1@0 qual_a.mp4\n  Reel 01 - axc-disposable [candidate-8ebcb3d1dcaf4f698f9b763473534a96] (rebuild staging): placed by ONE OTIO import - 1 item(s), 0 deferred transform(s)\n── Link Pass ──\n  ✓ 0 link group(s), 0 caption(s) joined\n  ✗ Empty row VIDEO2 (V3) removed\n  ✗ Empty row AUDIO2 (V3 CH1) removed\n",
+      "elapsed_seconds": 18.79994862499734
+    },
+    {
+      "id": "rebuild_after_edit",
+      "intent": "Rebuild after a user edit",
+      "production_entry": "reel_build",
+      "operation": "rebuild",
+      "proof": false,
+      "status": "fail",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "checks": {},
+      "error": "RuntimeError: qualification batch failed: step 0 exited 1: project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-cpu712bt/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T025221615752Z-69c9962fbf97.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: private qualification timeline must be empty before the batch.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
+      "elapsed_seconds": 13.539845249997597
+    }
+  ]
+}

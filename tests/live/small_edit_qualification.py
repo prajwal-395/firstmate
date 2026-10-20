@@ -606,14 +606,24 @@ def cleanup(expected_items):
                      "--refresh-live"])
         observations.append(read)
         rows = re.findall(r"^\\s+(video\\d+),", read["stdout"], re.MULTILINE)
-        if read["exit_code"] or not rows:
-            return {{"clean": read["exit_code"] == 0 and not rows,
+        current = manager.GetCurrentProject().GetCurrentTimeline()
+        try:
+            audio_tracks = int(current.GetTrackCount("audio") or 0)
+        except Exception:
+            audio_tracks = 0
+        audio_left = any(current.GetItemListInTrack("audio", index)
+                         for index in range(1, audio_tracks + 1))
+        if read["exit_code"] or (not rows and not audio_left):
+            return {{"clean": read["exit_code"] == 0 and not rows
+                     and not audio_left,
                     "observations": observations,
                     "collateral_changes": collateral}}
         # Fixture teardown runs inside this AXI --unsafe broker lease as raw
         # DeleteClips: teardown is not a scored operation, so it never
-        # exercises a production delete entry point.
-        current = manager.GetCurrentProject()
+        # exercises a production delete entry point. Audio twins of the
+        # linked A-roll are torn down by the same allowlist; an audio
+        # item nothing placed reads as contamination, never as debris.
+        # `current` is the timeline handle read above.
         current_timeline = current.GetCurrentTimeline()
         placed = []
         allowed_names = {{"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
@@ -621,6 +631,7 @@ def cleanup(expected_items):
                          "fm-qual-logo-alt-180x64.png",
                          "fm-qual-tight-caption-480x120.png",
                          "fm-qual-full-frame-caption-1920x1080.png"}}
+        audio_allowed = {{"qual_a.mp4", "qual_b.mp4", "qual_c.mp4"}}
         for track_index in range(1, int(current_timeline.GetTrackCount(
                 "video") or 0) + 1):
             for item in current_timeline.GetItemListInTrack(
@@ -638,6 +649,24 @@ def cleanup(expected_items):
                                  str(Path("/tmp") / name))
                 if path != expected_path:
                     collateral.append("refused fixture cleanup path mismatch for "
+                                      + name)
+                    return {{"clean": False, "observations": observations,
+                            "collateral_changes": collateral}}
+                placed.append(item)
+        try:
+            audio_tracks = int(current_timeline.GetTrackCount("audio") or 0)
+        except Exception:
+            audio_tracks = 0
+        for track_index in range(1, audio_tracks + 1):
+            for item in current_timeline.GetItemListInTrack(
+                    "audio", track_index) or ():
+                pool_item = item.GetMediaPoolItem()
+                name = str(item.GetName())
+                path = str(pool_item.GetClipProperty("File Path") or "")
+                expected_path = (str(Path.home() / ".local/share/vep/qualification/"
+                                     "622307e41719" / name))
+                if name not in audio_allowed or path != expected_path:
+                    collateral.append("refused fixture audio cleanup of "
                                       + name)
                     return {{"clean": False, "observations": observations,
                             "collateral_changes": collateral}}
@@ -806,15 +835,45 @@ for name, commands in CASES.items():
     disposable_leftovers = []
     if name == "add_logo" and not any(row["exit_code"] for row in receipts):
         render_after = render_rgb_at(96)
+        # The disposable build stages audio rows too; seed the A-roll
+        # twin so an empty audio row never reaches the empty-row gate.
+        # Scored by the same read-back as every other fixture item.
+        audio_seed = call(["edit", "place", "--clip", "qual_a.mp4",
+                           "--media", "audio", "--track", "1",
+                           "--record", "0", "--source-in", "0",
+                           "--source-out", "95",
+                           "--apply", "--project", PROJECT,
+                           "--timeline", TIMELINE])
+        receipts.append(audio_seed)
         timeline_before = timeline_names()
+        build_ok = False
         try:
             from library.tools.reel_build import rebuild_reels_in_project
             rebuild_reels_in_project(
-                DISPOSABLE, verify=True, only=[1], reuse_unchanged=True)
-            select_qualification_timeline()
-            post_rebuild = live_state()
+                DISPOSABLE, verify=True, only=[1], reuse_unchanged=True,
+                skip_captions=True)
+            build_ok = True
         except Exception as exc:
-            receipts.append({{"argv": ["reel_build.rebuild_reels_in_project"],
+            receipts.append({{"argv": ["rebuild_reels_in_project"],
+                             "exit_code": 1, "stdout": "",
+                             "stderr": type(exc).__name__ + ": " + str(exc)}})
+        finally:
+            # The build borrows the cursor; a failed build must not
+            # leave the after-read (or the next case) on its timeline.
+            try:
+                select_qualification_timeline()
+            except Exception as exc:
+                build_ok = False
+                receipts.append(
+                    {{"argv": ["select_qualification_timeline"],
+                      "exit_code": 1, "stdout": "",
+                      "stderr": type(exc).__name__ + ": " + str(exc)}})
+        if build_ok:
+            post_rebuild = live_state()
+        try:
+            disposable_leftovers = drop_disposable_timelines(timeline_before)
+        except Exception as exc:
+            receipts.append({{"argv": ["drop_disposable_timelines"],
                              "exit_code": 1, "stdout": "",
                              "stderr": type(exc).__name__ + ": " + str(exc)}})
         try:
@@ -863,6 +922,17 @@ for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict")
             if placed["exit_code"]:
                 raise RuntimeError("could not place the rebuild fixture: "
                                    + placed["stderr"])
+            # The disposable build stages audio rows too; seed the A-roll
+            # twin so an empty audio row never reaches the empty-row gate.
+            audio_seed = call(["edit", "place", "--clip", "qual_a.mp4",
+                               "--media", "audio", "--track", "1",
+                               "--record", "0", "--source-in", "0",
+                               "--source-out", "47", "--apply",
+                               "--project", PROJECT, "--timeline", TIMELINE])
+            if audio_seed["exit_code"]:
+                raise RuntimeError("could not place the rebuild audio: "
+                                   + audio_seed["stdout"]
+                                   + audio_seed["stderr"])
             target = next(item for item in live_state()["items"]
                           if item["name"] == "qual_a.mp4")
             edited = call(["edit", "transform", "--item", target["unique_id"],
@@ -875,10 +945,24 @@ for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict")
                                    + edited["stderr"])
             before = live_state()
             timeline_before = timeline_names()
-            operation["result"] = rebuild_reels_in_project(
-                DISPOSABLE, verify=True, only=[1], reuse_unchanged=True)
-            operation["status"] = "returned"
-            operation["timeline_after_rebuild"] = select_qualification_timeline()
+            build_error = None
+            try:
+                operation["result"] = rebuild_reels_in_project(
+                    DISPOSABLE, verify=True, only=[1],
+                    reuse_unchanged=True, skip_captions=True)
+                operation["status"] = "returned"
+            except Exception as exc:
+                build_error = exc
+            try:
+                operation["timeline_after_rebuild"] = (
+                    select_qualification_timeline())
+            except Exception as exc:
+                if build_error is None:
+                    raise
+                operation["select_error"] = (
+                    type(exc).__name__ + ": " + str(exc))
+            if build_error is not None:
+                raise build_error
             operation["disposable_leftovers"] = drop_disposable_timelines(
                 timeline_before)
         elif name == "verification_failure":

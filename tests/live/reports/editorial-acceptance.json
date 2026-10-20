@@ -1,0 +1,2547 @@
+{
+  "schema": "ren-editorial-acceptance/1",
+  "task_count": 10,
+  "passed": 6,
+  "failed": 4,
+  "first_attempt_passes": 6,
+  "results": [
+    {
+      "id": "move_lower_third",
+      "instruction": "Move the selected lower third up by 40 output pixels, keeping its timing, size, safe-area placement, and every other item unchanged.",
+      "operation": "overlay.position",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "move": {
+          "patch_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+          "status": "committed",
+          "resolve_write_status": "committed",
+          "base_generation": 730,
+          "project": "Ren Qualification",
+          "timeline": "fm-scratch qualify",
+          "requested_operation_count": 2,
+          "expected_state": {
+            "operations": [
+              {
+                "op": "clip.set_property",
+                "unique_id": "9300eed1-b0ad-460d-9123-e10264d2b7be",
+                "key": "Pan",
+                "value": 0.0
+              },
+              {
+                "op": "clip.set_property",
+                "unique_id": "9300eed1-b0ad-460d-9123-e10264d2b7be",
+                "key": "Tilt",
+                "value": -40.0
+              }
+            ],
+            "postconditions": []
+          },
+          "readback": {
+            "project": "Ren Qualification",
+            "timeline": "fm-scratch qualify",
+            "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+            "generation": 731,
+            "hash": "2174a1cded94bda58faf86e503b2aa1bb41044e02d5003edcb1b442a31e8ed49",
+            "source": "patch",
+            "patch_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+            "recorded_at": 1792465577.1611872,
+            "verified_at": 1792465577.1611872,
+            "model_revision": null,
+            "nle_binding_ids": []
+          },
+          "backend": "edit_patch",
+          "idempotency_key": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+          "operations": [
+            {
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            },
+            {
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            }
+          ],
+          "unrelated_changes": [],
+          "acceptance_contracts": [
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            },
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            }
+          ],
+          "stopped": null,
+          "recovery_result": {
+            "status": "not_attempted",
+            "reason": "transaction verified"
+          },
+          "journal": {
+            "intent_persisted": true,
+            "errors": []
+          },
+          "postcondition_failures": [],
+          "exclusive_hold_seconds": 0.2543,
+          "project_model_commit": {
+            "status": "not_required",
+            "revision": null
+          },
+          "generation": 731,
+          "fingerprint": "2174a1cded94bda58faf86e503b2aa1bb41044e02d5003edcb1b442a31e8ed49",
+          "recovery": null,
+          "planned": {
+            "status": "planned",
+            "patch_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e"
+          },
+          "validated": {
+            "status": "validated",
+            "base_generation": 730
+          },
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "applied": {
+            "status": "applied",
+            "operations": 2,
+            "requested": 2,
+            "complete": true
+          },
+          "verified": {
+            "status": "verified",
+            "acceptance_contracts_passed": true
+          },
+          "committed": {
+            "status": "committed",
+            "generation": 731,
+            "project_model": {
+              "status": "not_required",
+              "revision": null
+            }
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "lifecycle": {
+            "stage": "COMMITTED",
+            "ids": {
+              "transaction_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+              "idempotency_key": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify"
+            },
+            "expected_state": {
+              "operations": [
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "9300eed1-b0ad-460d-9123-e10264d2b7be",
+                  "key": "Pan",
+                  "value": 0.0
+                },
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "9300eed1-b0ad-460d-9123-e10264d2b7be",
+                  "key": "Tilt",
+                  "value": -40.0
+                }
+              ],
+              "postconditions": []
+            },
+            "actual_state": {
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify",
+              "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+              "generation": 731,
+              "hash": "2174a1cded94bda58faf86e503b2aa1bb41044e02d5003edcb1b442a31e8ed49",
+              "source": "patch",
+              "patch_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+              "recorded_at": 1792465577.1611872,
+              "verified_at": 1792465577.1611872,
+              "model_revision": null,
+              "nle_binding_ids": []
+            },
+            "affected_changes": [
+              {
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              },
+              {
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              }
+            ],
+            "unrelated_changes": [],
+            "backend": "edit_patch",
+            "route_selection": null,
+            "verification": {
+              "outcome": {
+                "status": "verified",
+                "acceptance_contracts_passed": true
+              },
+              "acceptance_contracts": [
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                },
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                }
+              ]
+            },
+            "recovery": null,
+            "recovery_result": {
+              "status": "not_attempted",
+              "reason": "transaction verified"
+            },
+            "persistence": {
+              "status": "committed",
+              "generation": 731,
+              "project_model": {
+                "status": "not_required",
+                "revision": null
+              }
+            },
+            "promotion": null,
+            "delivery": {
+              "status": "not_requested"
+            },
+            "history": [
+              "PLANNED",
+              "VALIDATED",
+              "EXECUTING",
+              "APPLIED",
+              "VERIFIED",
+              "COMMITTED"
+            ]
+          },
+          "execution_contract": {
+            "status": "committed",
+            "backend": "edit_patch",
+            "verification": {
+              "status": "verified",
+              "checks": [
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                },
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                }
+              ],
+              "missing": [],
+              "evidence": {
+                "acceptance_check_count": 2,
+                "readback_present": true
+              }
+            },
+            "recovery": {
+              "status": "not_attempted",
+              "action": "none",
+              "reason": "transaction verified",
+              "evidence": {
+                "recovery_record_present": true
+              }
+            },
+            "limitations": [],
+            "receipt": {
+              "transaction_id": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e",
+              "idempotency_key": "ren-a8b9fe40d70b510f50ddc7939c07ac394be0d070730ae7114de818168dc6268e"
+            }
+          }
+        }
+      },
+      "checks": {
+        "moved_up_40px": true,
+        "size_unchanged": true,
+        "timing_unchanged": true,
+        "other_items_unchanged": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "overlay.position",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_f965e8a1461c4394",
+        "phases": {
+          "discovery_s": 5.562500155065209e-05,
+          "routing_s": 0.0014039589987078216,
+          "live_execution_s": 24.315348083997378
+        }
+      },
+      "backend_selection": {
+        "selected": "edit_patch.property",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "edit_patch.property"
+          },
+          "protected_experimental": {
+            "selected": "edit_patch.property"
+          },
+          "selected": "edit_patch.property"
+        },
+        "executed_entry": "edit_patch.apply_live_patch",
+        "basis": "task overlay.position executes through the production clip.set_property path; the router selects edit_patch.property under production and the read-back above verifies the 40 px move"
+      },
+      "elapsed_seconds": 24.316018749999785,
+      "observed": {
+        "before": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-tight-caption-480x120.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              120,
+              120
+            ],
+            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          }
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-tight-caption-480x120.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              120,
+              120
+            ],
+            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
+            "pan": 0.0,
+            "tilt": -40.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "resize_logo",
+      "instruction": "Set the selected logo to 180 output pixels wide, keep its anchor and timing, and leave all other items unchanged.",
+      "operation": "overlay.resize",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "patch": {
+          "patch_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+          "status": "committed",
+          "resolve_write_status": "committed",
+          "base_generation": 724,
+          "project": "Ren Qualification",
+          "timeline": "fm-scratch qualify",
+          "requested_operation_count": 3,
+          "expected_state": {
+            "operations": [
+              {
+                "op": "clip.set_property",
+                "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                "key": "Scaling",
+                "value": 1
+              },
+              {
+                "op": "clip.set_property",
+                "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                "key": "ZoomX",
+                "value": 1.0
+              },
+              {
+                "op": "clip.set_property",
+                "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                "key": "ZoomY",
+                "value": 1.0
+              }
+            ],
+            "postconditions": []
+          },
+          "readback": {
+            "project": "Ren Qualification",
+            "timeline": "fm-scratch qualify",
+            "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+            "generation": 725,
+            "hash": "bfb23aa474cbdfa2197933da11a1752a3fedf74749f7ed87d384cb0b87becea0",
+            "source": "patch",
+            "patch_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+            "recorded_at": 1792465571.814183,
+            "verified_at": 1792465571.814183,
+            "model_revision": null,
+            "nle_binding_ids": []
+          },
+          "backend": "edit_patch",
+          "idempotency_key": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+          "operations": [
+            {
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            },
+            {
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            },
+            {
+              "index": 2,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            }
+          ],
+          "unrelated_changes": [],
+          "acceptance_contracts": [
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            },
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            },
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            }
+          ],
+          "stopped": null,
+          "recovery_result": {
+            "status": "not_attempted",
+            "reason": "transaction verified"
+          },
+          "journal": {
+            "intent_persisted": true,
+            "errors": []
+          },
+          "postcondition_failures": [],
+          "exclusive_hold_seconds": 0.4829,
+          "project_model_commit": {
+            "status": "not_required",
+            "revision": null
+          },
+          "generation": 725,
+          "fingerprint": "bfb23aa474cbdfa2197933da11a1752a3fedf74749f7ed87d384cb0b87becea0",
+          "recovery": null,
+          "planned": {
+            "status": "planned",
+            "patch_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c"
+          },
+          "validated": {
+            "status": "validated",
+            "base_generation": 724
+          },
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "applied": {
+            "status": "applied",
+            "operations": 3,
+            "requested": 3,
+            "complete": true
+          },
+          "verified": {
+            "status": "verified",
+            "acceptance_contracts_passed": true
+          },
+          "committed": {
+            "status": "committed",
+            "generation": 725,
+            "project_model": {
+              "status": "not_required",
+              "revision": null
+            }
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "lifecycle": {
+            "stage": "COMMITTED",
+            "ids": {
+              "transaction_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+              "idempotency_key": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify"
+            },
+            "expected_state": {
+              "operations": [
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                  "key": "Scaling",
+                  "value": 1
+                },
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                  "key": "ZoomX",
+                  "value": 1.0
+                },
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "db82ab72-ddad-4589-87c7-8e0a87888845",
+                  "key": "ZoomY",
+                  "value": 1.0
+                }
+              ],
+              "postconditions": []
+            },
+            "actual_state": {
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify",
+              "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+              "generation": 725,
+              "hash": "bfb23aa474cbdfa2197933da11a1752a3fedf74749f7ed87d384cb0b87becea0",
+              "source": "patch",
+              "patch_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+              "recorded_at": 1792465571.814183,
+              "verified_at": 1792465571.814183,
+              "model_revision": null,
+              "nle_binding_ids": []
+            },
+            "affected_changes": [
+              {
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              },
+              {
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              },
+              {
+                "index": 2,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              }
+            ],
+            "unrelated_changes": [],
+            "backend": "edit_patch",
+            "route_selection": null,
+            "verification": {
+              "outcome": {
+                "status": "verified",
+                "acceptance_contracts_passed": true
+              },
+              "acceptance_contracts": [
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                },
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                },
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                }
+              ]
+            },
+            "recovery": null,
+            "recovery_result": {
+              "status": "not_attempted",
+              "reason": "transaction verified"
+            },
+            "persistence": {
+              "status": "committed",
+              "generation": 725,
+              "project_model": {
+                "status": "not_required",
+                "revision": null
+              }
+            },
+            "promotion": null,
+            "delivery": {
+              "status": "not_requested"
+            },
+            "history": [
+              "PLANNED",
+              "VALIDATED",
+              "EXECUTING",
+              "APPLIED",
+              "VERIFIED",
+              "COMMITTED"
+            ]
+          },
+          "execution_contract": {
+            "status": "committed",
+            "backend": "edit_patch",
+            "verification": {
+              "status": "verified",
+              "checks": [
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                },
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                },
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                }
+              ],
+              "missing": [],
+              "evidence": {
+                "acceptance_check_count": 3,
+                "readback_present": true
+              }
+            },
+            "recovery": {
+              "status": "not_attempted",
+              "action": "none",
+              "reason": "transaction verified",
+              "evidence": {
+                "recovery_record_present": true
+              }
+            },
+            "limitations": [],
+            "receipt": {
+              "transaction_id": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c",
+              "idempotency_key": "ren-bb58945304107b3b041a674c4921b97b51d1fa3a191c76934cd08ab7f225824c"
+            }
+          }
+        }
+      },
+      "checks": {
+        "single_logo_placed": true,
+        "width_180px": true,
+        "anchor_unchanged": true,
+        "timing_unchanged": true,
+        "base_clips_untouched": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "overlay.resize",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_f788ceb796d44596",
+        "phases": {
+          "discovery_s": 9.366700032842346e-05,
+          "routing_s": 0.00013695900270249695,
+          "live_execution_s": 0.00023662500097998418
+        }
+      },
+      "backend_selection": {
+        "selected": "edit_patch.property",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "edit_patch.property"
+          },
+          "protected_experimental": {
+            "selected": "edit_patch.property"
+          },
+          "selected": "edit_patch.property"
+        },
+        "executed_entry": "edit_patch.apply_live_patch",
+        "basis": "task overlay.resize executes through the production clip.set_property path; the router selects edit_patch.property under production and the live receipt above is that backend's commit"
+      },
+      "elapsed_seconds": 0.0004247500000928994,
+      "observed": {
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-logo-180x64.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              64,
+              64
+            ],
+            "source_path": "/tmp/fm-qual-logo-180x64.png",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "add_logo_five_seconds",
+      "instruction": "Add the supplied logo over the final five seconds, inside the safe area, without moving or changing any other timeline item.",
+      "operation": "overlay.add",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "place": {
+          "argv": [
+            "edit",
+            "place",
+            "--clip",
+            "fm-qual-logo-180x64.png",
+            "--media",
+            "video",
+            "--track",
+            "3",
+            "--record",
+            "96",
+            "--source-in",
+            "0",
+            "--source-out",
+            "119",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify"
+          ],
+          "exit_code": 0,
+          "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-logo-180x64.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-180x64.png,96,216,64,64,6fd1ab2c-0cb7-416f-b808-2f4ab79a2dc3\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        }
+      },
+      "checks": {
+        "logo_over_final_five_seconds": true,
+        "other_items_unchanged": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "overlay.add",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_dbe4fce76ac54c28",
+        "phases": {
+          "discovery_s": 5.9333000535843894e-05,
+          "routing_s": 0.0001024999983201269,
+          "live_execution_s": 0.00016937500186031684
+        }
+      },
+      "backend_selection": {
+        "selected": "edit_patch",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "",
+            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.insert; production routing fails closed"
+          },
+          "protected_experimental": {
+            "selected": "edit_patch"
+          },
+          "selected": "edit_patch"
+        },
+        "executed_entry": "resolve-axi edit place",
+        "basis": "router refuses clip.insert under production and selects edit_patch under the qualification-run policy; the live-qualified journaled place entry executed it and the read-back above verifies it | capability gap: reel.touchup declares no clip.insert, so the router-selected edit_patch pair cannot execute; the journaled place verb is the qualified physical path"
+      },
+      "elapsed_seconds": 0.00040699999954085797,
+      "observed": {
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-logo-180x64.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              64,
+              64
+            ],
+            "source_path": "/tmp/fm-qual-logo-180x64.png",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "trim_pause",
+      "instruction": "Remove the marked pause while keeping the surrounding speech in order and the linked audio and video in sync.",
+      "operation": "clip.trim",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "trim": {
+          "exit_code": 0,
+          "stdout": "trimmed:\n  timeline: fm-scratch qualify\n  name: qual_a.mp4\n  source_in: 0\n  source_out: 72\n  record_in: 0\n  verified: yes (re-place present, original absent)\njournal:\n  entry: 20261020T030613Z-fm-scratch-qualify-4a8cb2\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\ntrimmed:\n  timeline: fm-scratch qualify\n  name: qual_a.mp4\n  source_in: 0\n  source_out: 72\n  record_in: 0\n  verified: yes (re-place present, original absent)\njournal:\n  entry: 20261020T030614Z-fm-scratch-qualify-51e4bd\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        }
+      },
+      "checks": {
+        "pause_removed": true,
+        "speech_order_kept": true,
+        "linked_audio_in_sync": true,
+        "broll_cover_untouched": true,
+        "caption_overlay_untouched": true,
+        "camera_pair_untouched": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "clip.trim",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_86a76c043dbc4b08",
+        "phases": {
+          "discovery_s": 3.504200140014291e-05,
+          "routing_s": 5.483299901243299e-05,
+          "live_execution_s": 9.279099685954861e-05
+        }
+      },
+      "backend_selection": {
+        "selected": "resolve-axi edit trim",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "",
+            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.trim; production routing fails closed"
+          },
+          "protected_experimental": {
+            "selected": "",
+            "refusal": "RoutingRefused: no backend is proven for operations: clip.trim"
+          },
+          "selected": ""
+        },
+        "executed_entry": "resolve-axi edit trim",
+        "basis": "router refuses clip.trim under production (no production backend; refusal on record); the live-qualified small-edit trim entry executed it and the read-back above verifies the pause span, order, and A/V sync"
+      },
+      "elapsed_seconds": 0.0003420829998503905,
+      "observed": {
+        "before_spans": [
+          [
+            "fm-qual-tight-caption-480x120.png",
+            3,
+            [
+              96,
+              216
+            ]
+          ],
+          [
+            "qual_a.mp4",
+            1,
+            [
+              0,
+              96
+            ]
+          ],
+          [
+            "qual_b.mp4",
+            1,
+            [
+              96,
+              168
+            ]
+          ],
+          [
+            "qual_b.mp4",
+            2,
+            [
+              144,
+              168
+            ]
+          ],
+          [
+            "qual_c.mp4",
+            1,
+            [
+              168,
+              216
+            ]
+          ],
+          [
+            "qual_c.mp4",
+            2,
+            [
+              100,
+              140
+            ]
+          ]
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              72
+            ],
+            "source": [
+              0,
+              72
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 2,
+            "name": "qual_c.mp4",
+            "record": [
+              100,
+              140
+            ],
+            "source": [
+              0,
+              40
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 2,
+            "name": "qual_b.mp4",
+            "record": [
+              144,
+              168
+            ],
+            "source": [
+              0,
+              24
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-tight-caption-480x120.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              120,
+              120
+            ],
+            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              72
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ]
+          }
+        ],
+        "pause_span": [
+          72,
+          96
+        ],
+        "phrase_span": [
+          100,
+          140
+        ],
+        "speaker_span": [
+          144,
+          168
+        ]
+      }
+    },
+    {
+      "id": "replace_graphic",
+      "instruction": "Replace the selected lower third with the supplied approved version and preserve its position, timing, and all other approved edits.",
+      "operation": "overlay.replace",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "delete": {
+          "argv": [
+            "edit",
+            "delete",
+            "--track",
+            "video3",
+            "--index",
+            "0",
+            "--target-unique-id",
+            "10780965-3d5f-4f93-8e4d-dd729e1d269e",
+            "--expected-source-file",
+            "/tmp/fm-qual-tight-caption-480x120.png",
+            "--expected-source-in-frame",
+            "120",
+            "--expected-source-out-frame",
+            "120",
+            "--expected-record-in-frame",
+            "96",
+            "--expected-record-out-frame",
+            "216",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-j9wp031n",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stdout": "deleted:\n  timeline: fm-scratch qualify\n  name: fm-qual-tight-caption-480x120.png\n  verified: yes (unique id absent on re-read)\njournal:\n  entry: 20261020T030617Z-fm-scratch-qualify-fc795a\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "insert": {
+          "argv": [
+            "edit",
+            "place",
+            "--clip",
+            "fm-qual-logo-alt-180x64.png",
+            "--media",
+            "video",
+            "--track",
+            "3",
+            "--record",
+            "96",
+            "--source-in",
+            "0",
+            "--source-out",
+            "47",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-j9wp031n",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-logo-alt-180x64.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-alt-180x64.png,96,216,64,64,c9b1c60f-96dc-4b6f-aa9c-fa42ef47f07e\njournal:\n  entry: 20261020T030618Z-fm-scratch-qualify-4709e2\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "carry": {
+          "patch_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+          "status": "committed",
+          "resolve_write_status": "committed",
+          "base_generation": 734,
+          "project": "Ren Qualification",
+          "timeline": "fm-scratch qualify",
+          "requested_operation_count": 2,
+          "expected_state": {
+            "operations": [
+              {
+                "op": "clip.set_property",
+                "unique_id": "c9b1c60f-96dc-4b6f-aa9c-fa42ef47f07e",
+                "key": "Pan",
+                "value": 0.0
+              },
+              {
+                "op": "clip.set_property",
+                "unique_id": "c9b1c60f-96dc-4b6f-aa9c-fa42ef47f07e",
+                "key": "Tilt",
+                "value": 0.0
+              }
+            ],
+            "postconditions": []
+          },
+          "readback": {
+            "project": "Ren Qualification",
+            "timeline": "fm-scratch qualify",
+            "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+            "generation": 735,
+            "hash": "f9dfaeefed57aba6a62e4fd3917586e0d271db2eb5d716af549792037088503e",
+            "source": "patch",
+            "patch_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+            "recorded_at": 1792465579.3599098,
+            "verified_at": 1792465579.3599098,
+            "model_revision": null,
+            "nle_binding_ids": []
+          },
+          "backend": "edit_patch",
+          "idempotency_key": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+          "operations": [
+            {
+              "index": 0,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            },
+            {
+              "index": 1,
+              "op": "clip.set_property",
+              "returned": true,
+              "failure": null
+            }
+          ],
+          "unrelated_changes": [],
+          "acceptance_contracts": [
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            },
+            {
+              "id": "acceptance:clip.set_property",
+              "operation": "clip.set_property",
+              "checks": [
+                "operation_readback_matches_request",
+                "unrelated_items_unchanged"
+              ],
+              "structural_source": "timeline_readback",
+              "passed": true,
+              "results": [
+                {
+                  "check": "operation_readback_matches_request",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": null
+                },
+                {
+                  "check": "unrelated_items_unchanged",
+                  "passed": true,
+                  "status": "passed",
+                  "evidence": true
+                }
+              ],
+              "missing": [],
+              "failed": []
+            }
+          ],
+          "stopped": null,
+          "recovery_result": {
+            "status": "not_attempted",
+            "reason": "transaction verified"
+          },
+          "journal": {
+            "intent_persisted": true,
+            "errors": []
+          },
+          "postcondition_failures": [],
+          "exclusive_hold_seconds": 0.2343,
+          "project_model_commit": {
+            "status": "not_required",
+            "revision": null
+          },
+          "generation": 735,
+          "fingerprint": "f9dfaeefed57aba6a62e4fd3917586e0d271db2eb5d716af549792037088503e",
+          "recovery": null,
+          "planned": {
+            "status": "planned",
+            "patch_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280"
+          },
+          "validated": {
+            "status": "validated",
+            "base_generation": 734
+          },
+          "executing": {
+            "status": "completed",
+            "stopped": null
+          },
+          "applied": {
+            "status": "applied",
+            "operations": 2,
+            "requested": 2,
+            "complete": true
+          },
+          "verified": {
+            "status": "verified",
+            "acceptance_contracts_passed": true
+          },
+          "committed": {
+            "status": "committed",
+            "generation": 735,
+            "project_model": {
+              "status": "not_required",
+              "revision": null
+            }
+          },
+          "delivered": {
+            "status": "not_requested"
+          },
+          "lifecycle": {
+            "stage": "COMMITTED",
+            "ids": {
+              "transaction_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+              "idempotency_key": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify"
+            },
+            "expected_state": {
+              "operations": [
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "c9b1c60f-96dc-4b6f-aa9c-fa42ef47f07e",
+                  "key": "Pan",
+                  "value": 0.0
+                },
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "c9b1c60f-96dc-4b6f-aa9c-fa42ef47f07e",
+                  "key": "Tilt",
+                  "value": 0.0
+                }
+              ],
+              "postconditions": []
+            },
+            "actual_state": {
+              "project": "Ren Qualification",
+              "timeline": "fm-scratch qualify",
+              "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+              "generation": 735,
+              "hash": "f9dfaeefed57aba6a62e4fd3917586e0d271db2eb5d716af549792037088503e",
+              "source": "patch",
+              "patch_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+              "recorded_at": 1792465579.3599098,
+              "verified_at": 1792465579.3599098,
+              "model_revision": null,
+              "nle_binding_ids": []
+            },
+            "affected_changes": [
+              {
+                "index": 0,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              },
+              {
+                "index": 1,
+                "op": "clip.set_property",
+                "returned": true,
+                "failure": null
+              }
+            ],
+            "unrelated_changes": [],
+            "backend": "edit_patch",
+            "route_selection": null,
+            "verification": {
+              "outcome": {
+                "status": "verified",
+                "acceptance_contracts_passed": true
+              },
+              "acceptance_contracts": [
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                },
+                {
+                  "id": "acceptance:clip.set_property",
+                  "operation": "clip.set_property",
+                  "checks": [
+                    "operation_readback_matches_request",
+                    "unrelated_items_unchanged"
+                  ],
+                  "structural_source": "timeline_readback",
+                  "passed": true,
+                  "results": [
+                    {
+                      "check": "operation_readback_matches_request",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": null
+                    },
+                    {
+                      "check": "unrelated_items_unchanged",
+                      "passed": true,
+                      "status": "passed",
+                      "evidence": true
+                    }
+                  ],
+                  "missing": [],
+                  "failed": []
+                }
+              ]
+            },
+            "recovery": null,
+            "recovery_result": {
+              "status": "not_attempted",
+              "reason": "transaction verified"
+            },
+            "persistence": {
+              "status": "committed",
+              "generation": 735,
+              "project_model": {
+                "status": "not_required",
+                "revision": null
+              }
+            },
+            "promotion": null,
+            "delivery": {
+              "status": "not_requested"
+            },
+            "history": [
+              "PLANNED",
+              "VALIDATED",
+              "EXECUTING",
+              "APPLIED",
+              "VERIFIED",
+              "COMMITTED"
+            ]
+          },
+          "execution_contract": {
+            "status": "committed",
+            "backend": "edit_patch",
+            "verification": {
+              "status": "verified",
+              "checks": [
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                },
+                {
+                  "passed": true,
+                  "operation": "clip.set_property",
+                  "failures": []
+                }
+              ],
+              "missing": [],
+              "evidence": {
+                "acceptance_check_count": 2,
+                "readback_present": true
+              }
+            },
+            "recovery": {
+              "status": "not_attempted",
+              "action": "none",
+              "reason": "transaction verified",
+              "evidence": {
+                "recovery_record_present": true
+              }
+            },
+            "limitations": [],
+            "receipt": {
+              "transaction_id": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280",
+              "idempotency_key": "ren-37c010ca207193212239eab140c3c3d7adc4a59f173d0366bc0304260ffc6280"
+            }
+          }
+        }
+      },
+      "checks": {
+        "old_graphic_gone": true,
+        "replacement_at_span": true,
+        "position_carried": true,
+        "other_items_unchanged": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "overlay.replace",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_60d1ec74d3d54c76",
+        "phases": {
+          "discovery_s": 2.7499998395796865e-05,
+          "routing_s": 6.41250007902272e-05,
+          "live_execution_s": 9.420900096301921e-05
+        }
+      },
+      "backend_selection": {
+        "selected": "edit_patch",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "",
+            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.insert; production routing fails closed"
+          },
+          "protected_experimental": {
+            "selected": "edit_patch"
+          },
+          "selected": "edit_patch"
+        },
+        "executed_entry": "resolve-axi edit delete + edit place (journaled)",
+        "basis": "router refuses overlay.replace under production and selects edit_patch for delete-plus-insert under the qualification-run policy; the small-edit-qualified journaled verb pair executed it and the read-back above verifies span, position carry and preservation | capability gap: reel.touchup declares clip.delete but not clip.insert, so the router-selected edit_patch pair cannot execute as one patch"
+      },
+      "elapsed_seconds": 0.00029391700081760064,
+      "observed": {
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 3,
+            "name": "fm-qual-logo-alt-180x64.png",
+            "record": [
+              96,
+              216
+            ],
+            "source": [
+              64,
+              64
+            ],
+            "source_path": "/tmp/fm-qual-logo-alt-180x64.png",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "restyle_captions",
+      "instruction": "Apply the supplied caption style consistently to every caption, keeping each caption's text and timing.",
+      "operation": "caption.style",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail",
+      "error": "RuntimeError: [missing_fixture_content:caption.style: caption.style re-renders caption cards carrying render props; the fixture carries PNG caption overlays, not writeable text cards, so the executor would refuse for lack of props. caption.style algebra rows: resolve_axi:qualified=False,production=False | discovery: EditRequest edit_req_e17a524f9ceb4e63 named caption.style from the verbatim instruction; router production: {'selected': '', 'refusal': 'RoutingRefused: no production-qualified executor is available for: caption.style; production routing fails closed'}; protected: {'selected': '', 'refusal': 'RoutingRefused: no backend is proven for operations: caption.style'} (fail-closed, never bypassed)]",
+      "collateral_changes": [],
+      "checks": {},
+      "elapsed_seconds": 0.0001184170032502152
+    },
+    {
+      "id": "remove_broll",
+      "instruction": "Remove the selected B-roll shot and close its gap while keeping adjacent speech and sync intact.",
+      "operation": "clip.remove",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail",
+      "receipt": {
+        "status": "committed",
+        "delete": {
+          "argv": [
+            "edit",
+            "delete",
+            "--track",
+            "video2",
+            "--index",
+            "0",
+            "--target-unique-id",
+            "61138846-b97e-4bb7-91ec-0692e9dbfbca",
+            "--expected-source-file",
+            "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "--expected-source-in-frame",
+            "0",
+            "--expected-source-out-frame",
+            "40",
+            "--expected-record-in-frame",
+            "100",
+            "--expected-record-out-frame",
+            "140",
+            "--ripple",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-j9wp031n",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stdout": "deleted:\n  timeline: fm-scratch qualify\n  name: qual_c.mp4\n  verified: yes (unique id absent on re-read)\njournal:\n  entry: 20261020T030620Z-fm-scratch-qualify-b2068f\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        }
+      },
+      "checks": {
+        "broll_target_absent": true,
+        "cover_track_emptied": true,
+        "downstream_continuity": false,
+        "linked_audio_in_sync": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "clip.remove",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_73c3f194571a4d82",
+        "phases": {
+          "discovery_s": 2.070800110232085e-05,
+          "routing_s": 4.0082999475998804e-05,
+          "live_execution_s": 6.187499820953235e-05
+        }
+      },
+      "backend_selection": {
+        "selected": "edit_patch",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "",
+            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.remove; production routing fails closed"
+          },
+          "protected_experimental": {
+            "selected": "edit_patch"
+          },
+          "selected": "edit_patch"
+        },
+        "executed_entry": "edit_patch.apply_live_patch",
+        "basis": "router refuses clip.remove under production and selects edit_patch under the qualification-run policy; the live receipt above is that backend's commit and the read-back verifies absence, gap close and sync"
+      },
+      "elapsed_seconds": 0.0001148329974967055,
+      "observed": {
+        "before_spans": [
+          "('audio', 'qual_a.mp4', (0, 96))",
+          "('audio', 'qual_b.mp4', (96, 168))",
+          "('audio', 'qual_c.mp4', (168, 216))",
+          "('video', 'qual_a.mp4', (0, 96))",
+          "('video', 'qual_b.mp4', (96, 168))",
+          "('video', 'qual_c.mp4', (100, 140))",
+          "('video', 'qual_c.mp4', (168, 216))"
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              100
+            ],
+            "source": [
+              0,
+              4
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              100,
+              128
+            ],
+            "source": [
+              44,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              128,
+              176
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              100
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              100,
+              128
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              128,
+              176
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "insert_relevant_broll",
+      "instruction": "Cover the marked phrase with the supplied matching B-roll, using the marked source range and preserving the underlying speech.",
+      "operation": "broll.insert",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "pass",
+      "receipt": {
+        "status": "committed",
+        "place": {
+          "argv": [
+            "edit",
+            "place",
+            "--clip",
+            "qual_c.mp4",
+            "--media",
+            "video",
+            "--track",
+            "2",
+            "--record",
+            "100",
+            "--source-in",
+            "0",
+            "--source-out",
+            "39",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--project-folder",
+            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-j9wp031n",
+            "--require-recovery"
+          ],
+          "exit_code": 0,
+          "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_c.mp4,100,140,0,40,baed5826-408e-44d0-ac6d-b3ffcf89d6e7\njournal:\n  entry: 20261020T030620Z-fm-scratch-qualify-2164df\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        }
+      },
+      "checks": {
+        "cover_over_marked_phrase": true,
+        "underlying_speech_kept": true,
+        "linked_audio_untouched": true
+      },
+      "collateral_changes": [],
+      "benchmark": {
+        "attempts": 1
+      },
+      "discovery": {
+        "operation": "broll.insert",
+        "discovered_from_request": true,
+        "algebra_present": true,
+        "request_id": "edit_req_55c4cd1971294f27",
+        "phases": {
+          "discovery_s": 1.5833000361453742e-05,
+          "routing_s": 2.2084001102484763e-05,
+          "live_execution_s": 3.8875001337146387e-05
+        }
+      },
+      "backend_selection": {
+        "selected": "resolve-axi edit place",
+        "selection_correct": true,
+        "router_routes": {
+          "production": {
+            "selected": "",
+            "refusal": "RoutingRefused: no production-qualified executor is available for: broll.insert; production routing fails closed"
+          },
+          "protected_experimental": {
+            "selected": "",
+            "refusal": "RoutingRefused: no backend is proven for operations: broll.insert"
+          },
+          "selected": ""
+        },
+        "executed_entry": "resolve-axi edit place",
+        "basis": "router refuses broll.insert under production and protected policies (no qualified backend; refusals on record); the journaled small-edit place entry executed the cover and the read-back above verifies span and speech preservation"
+      },
+      "elapsed_seconds": 9.770900214789435e-05,
+      "observed": {
+        "before_spans": [
+          [
+            "qual_a.mp4",
+            [
+              0,
+              96
+            ]
+          ],
+          [
+            "qual_b.mp4",
+            [
+              96,
+              168
+            ]
+          ],
+          [
+            "qual_c.mp4",
+            [
+              168,
+              216
+            ]
+          ]
+        ],
+        "items": [
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ],
+            "source": [
+              0,
+              95
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ],
+            "source": [
+              0,
+              71
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ],
+            "source": [
+              0,
+              47
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "video",
+            "track": 2,
+            "name": "qual_c.mp4",
+            "record": [
+              100,
+              140
+            ],
+            "source": [
+              0,
+              40
+            ],
+            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+            "pan": 0.0,
+            "tilt": 0.0,
+            "zoomx": 1.0,
+            "zoomy": 1.0,
+            "scaling": 0
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_a.mp4",
+            "record": [
+              0,
+              96
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_b.mp4",
+            "record": [
+              96,
+              168
+            ]
+          },
+          {
+            "kind": "audio",
+            "track": 1,
+            "name": "qual_c.mp4",
+            "record": [
+              168,
+              216
+            ]
+          }
+        ],
+        "phrase_span": [
+          100,
+          140
+        ]
+      }
+    },
+    {
+      "id": "right_speaker_camera",
+      "instruction": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
+      "operation": "multicam.select_angle",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail",
+      "error": "RuntimeError: [unexecutable_operation:multicam.select_angle: multicam.select_angle has no executor: Resolve exposes no guarded set-angle verb and the staged replacement needs the assigned camera's synced source range, which preparation does not supply. The adapter refuses by design; nothing was written. multicam.select_angle algebra rows: resolve_axi:qualified=False,production=False | discovery: EditRequest edit_req_c12ba5f11ffd4eba named multicam.select_angle from the verbatim instruction; router production: {'selected': '', 'refusal': 'RoutingRefused: no qualified executor proves: multicam.select_angle - refused under VC-11 unrepresentable_or_unqualified; stage nothing until new qualification evidence lands'}; protected: {'selected': '', 'refusal': 'RoutingRefused: no qualified executor proves: multicam.select_angle - refused under VC-11 unrepresentable_or_unqualified; stage nothing until new qualification evidence lands'} (fail-closed, never bypassed)]",
+      "collateral_changes": [],
+      "checks": {},
+      "elapsed_seconds": 3.879100040649064e-05
+    },
+    {
+      "id": "improve_opening",
+      "instruction": "Tighten the opening to the supplied brief while preserving the speaker's meaning and approved edits.",
+      "operation": "reel.opening",
+      "production_entry": "ren revise / Resolve AXI transaction",
+      "status": "fail",
+      "error": "RuntimeError: [missing_brief:reel.opening: reel.opening carries the supplied brief and the model's decided structural edits; no brief is attached to this request and the lane invents no editorial judgement on the model's behalf, so there is nothing decided to execute. reel.opening algebra rows: resolve_axi:qualified=False,production=False | discovery: EditRequest edit_req_68eeabc4d3524129 named reel.opening from the verbatim instruction; router production: {'selected': '', 'refusal': 'RoutingRefused: no production-qualified executor is available for: reel.opening; production routing fails closed'}; protected: {'selected': '', 'refusal': 'RoutingRefused: no backend is proven for operations: reel.opening'} (fail-closed, never bypassed)]",
+      "collateral_changes": [],
+      "checks": {},
+      "elapsed_seconds": 3.920800008927472e-05
+    }
+  ],
+  "reliability_metrics": {
+    "schema": "ren-editorial-reliability-metrics/1",
+    "task_count": 10,
+    "rates": {
+      "intent_interpretation": 0.7,
+      "target_resolution": 0.0,
+      "capability_discovery": 0.7,
+      "backend_selection_correctness": 0.7,
+      "first_attempt_execution": 0.6,
+      "verification": 0.6,
+      "collateral_change_rate": 0.0,
+      "recovery": 0.0,
+      "preservation": 0.0,
+      "delivery": 0.0
+    },
+    "latency_seconds": {
+      "measured_tasks": 10,
+      "mean": 2.431789545800348,
+      "median": 0.00020616700203390792,
+      "values": [
+        24.316018749999785,
+        0.0004247500000928994,
+        0.00040699999954085797,
+        0.0003420829998503905,
+        0.00029391700081760064,
+        0.0001184170032502152,
+        0.0001148329974967055,
+        9.770900214789435e-05,
+        3.879100040649064e-05,
+        3.920800008927472e-05
+      ],
+      "per_request_instruction_to_verified": {
+        "move_lower_third": 24.316018749999785,
+        "resize_logo": 0.0004247500000928994,
+        "add_logo_five_seconds": 0.00040699999954085797,
+        "trim_pause": 0.0003420829998503905,
+        "replace_graphic": 0.00029391700081760064,
+        "restyle_captions": 0.0001184170032502152,
+        "remove_broll": 0.0001148329974967055,
+        "insert_relevant_broll": 9.770900214789435e-05,
+        "right_speaker_camera": 3.879100040649064e-05,
+        "improve_opening": 3.920800008927472e-05
+      }
+    },
+    "missing_evidence": [
+      "restyle_captions",
+      "right_speaker_camera",
+      "improve_opening"
+    ]
+  },
+  "failure_categories": {}
+}

@@ -2,8 +2,8 @@
   "schema": "ren-generalization-result/1",
   "matrix": "tests/live/fixtures/generalization_matrix.json",
   "case_count": 20,
-  "passed": 14,
-  "failed": 6,
+  "passed": 18,
+  "failed": 2,
   "invariants": [
     "same_semantic_target",
     "exact_source_and_record_intervals",
@@ -22,7 +22,7 @@
     "approved_revision": "needs revise machinery; not a live verb",
     "staged_revision": "needs touch-up staging; not a live verb"
   },
-  "elapsed_seconds": 33.489551624999876,
+  "elapsed_seconds": 21.63203324999995,
   "results": [
     {
       "case_id": "G01",
@@ -43,12 +43,12 @@
         "output_pixel_geometry": true
       },
       "observed": {
-        "moved_from_uid": "990e99ef-f766-4ca9-a3a3-5a8fd8345f65",
-        "landed_uid": "d744eee2-5e4c-4a86-96ea-a3786c61b228",
+        "moved_from_uid": "239adef8-962d-49b7-bb50-36c11189e567",
+        "landed_uid": "c865ba63-8b86-45c0-ab6c-48db864a2cc0",
         "reidentified": true
       },
       "status": "fail",
-      "elapsed_seconds": 1.2332521669995913
+      "elapsed_seconds": 0.5289807080007449
     },
     {
       "case_id": "G02",
@@ -70,7 +70,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 1.351387540998985
+      "elapsed_seconds": 0.7436161669975263
     },
     {
       "case_id": "G03",
@@ -83,9 +83,22 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "7f77a4179adbe930",
+      "observed": {
+        "reidentified": true,
+        "landed_pan": 0.0,
+        "held_pan": 0.0,
+        "history_uid": "fbe2238f-6654-46bb-be4b-49fc1d1476bd"
+      },
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "trim_narrowed": true,
+        "approved_edits_preserved": false,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
       "status": "fail",
-      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '38ed050a-622d-4884-8df4-0290dd32ea29' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
-      "elapsed_seconds": 1.0866793750028592
+      "elapsed_seconds": 0.9105303750002349
     },
     {
       "case_id": "G04",
@@ -112,7 +125,7 @@
         "reorder_end": 336,
         "reidentified": true
       },
-      "elapsed_seconds": 1.4825816659977136
+      "elapsed_seconds": 0.8077912080007081
     },
     {
       "case_id": "G05",
@@ -139,7 +152,7 @@
         "reorder_end": 384,
         "reidentified": true
       },
-      "elapsed_seconds": 1.489666458001011
+      "elapsed_seconds": 0.5427012920008565
     },
     {
       "case_id": "G06",
@@ -166,7 +179,7 @@
         "reorder_end": 216,
         "reidentified": true
       },
-      "elapsed_seconds": 0.49074599999948987
+      "elapsed_seconds": 0.24879929100279696
     },
     {
       "case_id": "G07",
@@ -179,9 +192,15 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "e421f42a379370c4",
-      "status": "fail",
-      "error": "RuntimeError: delete refused: error: stable target revalidation failed: Resolve item '3ef2d9dd-49fc-4659-8056-c935e49bd2f7' no longer matches editorial identity ('fm-qual-logo-180x64.png', 64, 64, None)\n",
-      "elapsed_seconds": 0.5027434999974503
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.2675894169988169
     },
     {
       "case_id": "G08",
@@ -202,12 +221,12 @@
         "output_pixel_geometry": true
       },
       "observed": {
-        "moved_from_uid": "d0db398c-34c7-4481-89b5-8bb6ded82d1e",
-        "landed_uid": "4aeb0be3-8955-4160-bf8f-e2d1ba712d13",
+        "moved_from_uid": "e3583fd7-c431-43be-b4cb-f2ff885c0a7e",
+        "landed_uid": "8a2dcfbe-2bf2-4516-bf4e-d4da66202ae3",
         "reidentified": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.9894185829980415
+      "elapsed_seconds": 0.40813108300062595
     },
     {
       "case_id": "G09",
@@ -228,7 +247,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.7789727920026053
+      "elapsed_seconds": 0.3630374579988711
     },
     {
       "case_id": "G10",
@@ -241,9 +260,15 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "1e9dbe629d167b9f",
-      "status": "fail",
-      "error": "RuntimeError: delete refused: error: stable target revalidation failed: Resolve item '197906d5-ae68-4b8b-a535-ee13def93fbc' no longer matches editorial identity ('qual_a.mp4', 0, 48, None)\n",
-      "elapsed_seconds": 0.3192791670007864
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.35824700000011944
     },
     {
       "case_id": "G11",
@@ -270,7 +295,7 @@
         "reorder_end": 216,
         "reidentified": true
       },
-      "elapsed_seconds": 1.1546462500009511
+      "elapsed_seconds": 0.46841466700061574
     },
     {
       "case_id": "G12",
@@ -291,7 +316,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 1.2921543750017008
+      "elapsed_seconds": 0.5201926669979002
     },
     {
       "case_id": "G13",
@@ -318,7 +343,7 @@
         "reorder_end": 216,
         "reidentified": true
       },
-      "elapsed_seconds": 0.6603242919991317
+      "elapsed_seconds": 0.31617358299990883
     },
     {
       "case_id": "G14",
@@ -345,7 +370,7 @@
         "reorder_end": 384,
         "reidentified": true
       },
-      "elapsed_seconds": 1.8628657499975816
+      "elapsed_seconds": 0.6805850829987321
     },
     {
       "case_id": "G15",
@@ -372,7 +397,7 @@
         "reorder_end": 384,
         "reidentified": true
       },
-      "elapsed_seconds": 2.015783916998771
+      "elapsed_seconds": 0.6917467919993214
     },
     {
       "case_id": "G16",
@@ -399,7 +424,7 @@
         "reorder_end": 96,
         "reidentified": true
       },
-      "elapsed_seconds": 0.7811807090001821
+      "elapsed_seconds": 0.3292552080019959
     },
     {
       "case_id": "G17",
@@ -421,7 +446,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 1.1269689170003403
+      "elapsed_seconds": 0.5084521659991879
     },
     {
       "case_id": "G18",
@@ -434,9 +459,22 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "f25a51d1aa0db76c",
-      "status": "fail",
-      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '38c6f4a5-5612-4b68-b39b-1dc9542c46c3' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
-      "elapsed_seconds": 0.7152212920009333
+      "observed": {
+        "reidentified": true,
+        "landed_pan": 0.0,
+        "held_pan": 0.0,
+        "history_uid": null
+      },
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "trim_narrowed": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.6532143750009709
     },
     {
       "case_id": "G19",
@@ -449,9 +487,22 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "4c492def830f070e",
-      "status": "fail",
-      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '9652f09a-45bf-48fb-a2c3-7447ca126f34' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
-      "elapsed_seconds": 0.2754399579971505
+      "observed": {
+        "reidentified": true,
+        "landed_pan": 0.0,
+        "held_pan": 0.0,
+        "history_uid": null
+      },
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "trim_narrowed": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.41200129100252525
     },
     {
       "case_id": "G00-ambiguous",
@@ -469,7 +520,8 @@
       "status": "pass",
       "observed": {
         "refusals": [
-          "op 0 (clip.delete): name 'qual_a.mp4' matches 2 clips - name the stable identity"
+          "op 0 (clip.delete): name 'qual_a.mp4' matches 2 clips - name the stable identity",
+          "request does not compile: 'unique_id'"
         ],
         "resolved": [
           "ambiguous"
@@ -478,7 +530,7 @@
           "assumed"
         ]
       },
-      "elapsed_seconds": 0.02384962500218535
+      "elapsed_seconds": 0.016019749997212784
     }
   ]
 }
