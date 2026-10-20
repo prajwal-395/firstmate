@@ -758,6 +758,20 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
         record["edit_request"] = request.to_dict()
         record["preparation"] = prepared
         _save(project, record)
+        # The readiness gate, before the write. A worker that cannot
+        # reach Resolve refuses BY NAME here, instead of discovering it
+        # as a failed write half way through. The gate sits at the
+        # write edge, not at the start of the revision, because a
+        # `--plan` revision changes nothing and must still be answerable
+        # on a machine that cannot write.
+        from library.tools.worker_requirements import check_edit, is_refusal
+        blocking = [entry for entry in check_edit() if is_refusal(entry)]
+        if blocking:
+            raise ReviseRefused(
+                "this worker cannot make the edit: " + "; ".join(blocking),
+                "the edit needs what `ren doctor` reports missing",
+                "run `ren doctor` to see this machine's verdict, and "
+                "`ren worker manifest` to see what it advertises")
         receipt = resolve_axi_core.submit_edit_request(
             request, authorized=True, owner="ren revise")
         if isinstance(receipt.get("result"), dict):

@@ -214,6 +214,43 @@ def build_requirements() -> TaskRequirements:
     return TaskRequirements(needs=("resolve.scripting", "resolve.studio"))
 
 
+def edit_requirements() -> TaskRequirements:
+    """What an EDIT needs from a worker.
+
+    The same two needs a build needs, and for the same reason: an edit
+    writes the live timeline through a Resolve scripting connection into
+    the Studio edition. Nothing more, for the same reason the build
+    declares nothing more - a capability-level declaration that ropes
+    in needs which do not stop a real edit refuses real production work.
+    """
+    return TaskRequirements(needs=("resolve.scripting", "resolve.studio"))
+
+
+def check_edit(produce=None) -> list:
+    """The requirements this worker fails for an edit, each named; an
+    `unknown:` entry says what the checks could not determine and does
+    not refuse.
+
+    The edit paths call this before they write; a non-empty list of
+    REFUSALS refuses the edit by name. `produce` is injectable so a
+    test can pin the check against a fixture manifest; the default is
+    the live manifest, matched against the very checks that produced
+    it - a refusal names the needs those checks actually fail, never a
+    need the worker has. The live probe is scoped to the two declared
+    needs, so the check costs one Resolve probe group and examines
+    nothing it does not gate on.
+    """
+    if produce is None:
+        from library.tools.worker_manifest import produce_manifest
+        from ren import doctor
+        needs = edit_requirements().needs
+        checks = doctor.run_checks(needs=needs)
+        manifest = produce_manifest(checks=checks)
+        return match_requirements(manifest, edit_requirements(), checks=checks)
+    manifest = produce()
+    return match_requirements(manifest, edit_requirements())
+
+
 def check_build(produce=None) -> list:
     """The requirements this worker fails for a reel build, each named;
     an `unknown:` entry says what the checks could not determine and
