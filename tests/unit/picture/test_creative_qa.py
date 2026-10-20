@@ -28,6 +28,80 @@ def test_report_links_measurement_to_actual_span_intent_and_action():
     assert finding["intent"] == INTENT
     assert finding["action"] == "repair_once"
     assert report.blocks_delivery
+    assert report.as_dict()["correction_requests"][0]["status"] == "needs_plan"
+
+
+def test_failed_finding_selects_unique_smallest_compiled_edit_scope():
+    from library.tools.edit_request import EditOperation, EditRequest, EditTarget
+
+    base = {
+        "start_frame": 0, "end_frame": 200,
+        "tracks": [{"type": "video", "index": 1, "name": "V1", "clips": [
+            {"unique_id": "clip-1", "name": "a.mov", "record_in": 60,
+             "record_out": 100, "duration": 40, "transform": {"Pan": 0.0},
+             "enabled": True, "markers": [], "track_type": "video",
+             "track_index": 1}]}],
+        "markers": {"timeline": []},
+    }
+
+    def request(request_id):
+        operation = EditOperation(
+            op="clip.set_property", target=EditTarget(unique_id="clip-1",
+                track_type="video", track_index=1),
+            params={"key": "Pan", "value": 5.0},
+            expected_effect="adjust framing")
+        return EditRequest.from_dict({
+            "id": request_id, "project": "Podcast", "timeline": "Reel 09",
+            "operations": [operation.to_dict()]})
+
+    report = qa.from_measurements(
+        "assignment-1", "render-7", [_measurement()], duration=12,
+        intent_by_metric={"caption_legibility": INTENT},
+        spans_by_metric={"caption_legibility": {"start": 2, "end": 3}},
+        correction_candidates={
+            "render-7:caption_legibility:0": [request("smallest")]},
+        base_snapshot=base, fps=30, first_frame=0)
+
+    planned = report.as_dict()["correction_requests"][0]
+    assert planned["status"] == "planned"
+    assert planned["selected_edit"]["request"]["id"] == "smallest"
+    assert planned["selected_edit"]["affected_spans"] == [[60, 100]]
+
+
+def test_equal_minimum_correction_scopes_escalate_instead_of_guessing():
+    from library.tools.edit_request import EditOperation, EditRequest, EditTarget
+
+    base = {
+        "start_frame": 0, "end_frame": 200,
+        "tracks": [{"type": "video", "index": 1, "name": "V1", "clips": [
+            {"unique_id": "clip-1", "name": "a.mov", "record_in": 60,
+             "record_out": 100, "duration": 40, "transform": {"Pan": 0.0},
+             "enabled": True, "markers": [], "track_type": "video",
+             "track_index": 1}]}],
+        "markers": {"timeline": []},
+    }
+
+    def request(request_id):
+        operation = EditOperation(
+            op="clip.set_property", target=EditTarget(unique_id="clip-1",
+                track_type="video", track_index=1),
+            params={"key": "Pan", "value": 5.0},
+            expected_effect="adjust framing")
+        return EditRequest.from_dict({
+            "id": request_id, "project": "Podcast", "timeline": "Reel 09",
+            "operations": [operation.to_dict()]})
+
+    report = qa.from_measurements(
+        "assignment-1", "render-7", [_measurement()], duration=12,
+        intent_by_metric={"caption_legibility": INTENT},
+        spans_by_metric={"caption_legibility": {"start": 2, "end": 3}},
+        correction_candidates={
+            "render-7:caption_legibility:0": [request("first"), request("second")]},
+        base_snapshot=base, fps=30, first_frame=0)
+
+    planned = report.as_dict()["correction_requests"][0]
+    assert planned["status"] == "ambiguous"
+    assert planned["selected_edit"] is None
 
 
 def test_deterministic_failures_block_but_subjective_calls_go_to_creator():

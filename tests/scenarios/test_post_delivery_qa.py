@@ -141,6 +141,11 @@ def test_loudness_defect_gets_one_repair_remeasure_and_receipt(project, loudness
         reexport=lambda _attempt: {
             "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
         },
+        inspect_affected=lambda _attempt, _finding, _request: {
+            "evidence": {"sections": [[0, 60]], "render": "fixture-section.mp4"},
+            "inspected_span": {"start": 0, "end": 12},
+            "requires_full_reexport": True,
+        },
     )
 
     assert len(repairs) == 1, "exactly one repair attempt"
@@ -163,6 +168,54 @@ def test_loudness_defect_gets_one_repair_remeasure_and_receipt(project, loudness
     stored = json.loads(qa.store_path(str(project)).read_text(encoding="utf-8"))
     assert stored["receipts"][-1]["repair"]["attempt"] == attempt
     assert stored["receipts"][-1]["repair"]["verified"]["passed"] is True
+    assert stored["receipts"][-1]["repair"]["inspection"]["requires_full_reexport"] is True
+
+
+def test_correction_requires_affected_section_inspection_before_any_edit(
+    project, loudness_qc
+):
+    from library.tools import post_delivery_qa as qa
+
+    repairs = []
+    result = qa.run_for_deliverable(
+        str(project), timeline=TIMELINE, video_path="fixture.mp4", spec=SPEC,
+        expected_duration=12.0, render_id="render-no-inspector",
+        intent_by_metric=INTENT, render_review={},
+        repair=lambda finding: repairs.append(finding.id),
+        reexport=lambda _attempt: {"video_path": "fresh.mp4"})
+
+    assert repairs == [], "no correction lands without an inspection path"
+    assert result["repair"]["error"].startswith(
+        "affected-section inspection and fresh export callbacks are required")
+
+
+def test_section_inspection_runs_before_full_reexport_and_records_evidence(
+    project, loudness_qc
+):
+    from library.tools import post_delivery_qa as qa
+
+    order = []
+
+    def inspection(_attempt, _finding, _request):
+        order.append("inspect")
+        return {"evidence": {"render": "section.mp4", "span": [0, 60]},
+                "inspected_span": {"start": 0, "end": 12},
+                "requires_full_reexport": True}
+
+    def reexport(_attempt):
+        order.append("reexport")
+        return {"video_path": "fresh.mp4", "expected_duration": 12.0}
+
+    result = qa.run_for_deliverable(
+        str(project), timeline=TIMELINE, video_path="fixture.mp4", spec=SPEC,
+        expected_duration=12.0, render_id="render-inspection-order",
+        intent_by_metric=INTENT, render_review={},
+        repair=lambda _finding: {"receipt": {"op": "normalize"},
+                                 "inverse": {"op": "restore"}},
+        inspect_affected=inspection, reexport=reexport)
+
+    assert order == ["inspect", "reexport"]
+    assert result["repair"]["inspection"]["evidence"]["render"] == "section.mp4"
 
 
 def test_repair_that_fixes_loudness_but_regresses_grade_stays_blocked(
@@ -190,6 +243,11 @@ def test_repair_that_fixes_loudness_but_regresses_grade_stays_blocked(
         },
         reexport=lambda _attempt: {
             "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
+        },
+        inspect_affected=lambda _attempt, _finding, _request: {
+            "evidence": {"sections": [[0, 60]], "render": "fixture-section.mp4"},
+            "inspected_span": {"start": 0, "end": 12},
+            "requires_full_reexport": True,
         },
     )
 
@@ -232,6 +290,11 @@ def test_a_repair_that_still_fails_remeasure_is_reported_not_closed(
         },
         reexport=lambda _attempt: {
             "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
+        },
+        inspect_affected=lambda _attempt, _finding, _request: {
+            "evidence": {"sections": [[0, 60]], "render": "fixture-section.mp4"},
+            "inspected_span": {"start": 0, "end": 12},
+            "requires_full_reexport": True,
         },
     )
 

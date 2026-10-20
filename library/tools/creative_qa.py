@@ -86,6 +86,7 @@ class Report:
     findings: list[Finding] = field(default_factory=list)
     repair_budget: int = DEFAULT_REPAIR_BUDGET
     repair_attempts: list[dict] = field(default_factory=list)
+    correction_requests: list[Any] = field(default_factory=list)
 
     @property
     def deterministic_failures(self) -> list[Finding]:
@@ -118,6 +119,8 @@ class Report:
                 "needs_creator": self.needs_creator,
                 "repair_budget": self.repair_budget,
                 "repair_attempts": list(self.repair_attempts),
+                "correction_requests": [row.as_dict()
+                                        for row in self.correction_requests],
                 "deterministic": [f.as_dict() for f in self.findings
                                   if f.kind == DETERMINISTIC],
                 "subjective": [f.as_dict() for f in self.findings
@@ -129,7 +132,11 @@ def from_measurements(assignment_id: str, render_id: str,
                       intent_by_metric: Mapping[str, Mapping[str, Any]],
                       spans_by_metric: Mapping[str, Mapping[str, Any]] | None = None,
                       subjective: Sequence[Mapping[str, Any]] = (),
-                      repair_budget: int = DEFAULT_REPAIR_BUDGET) -> Report:
+                      repair_budget: int = DEFAULT_REPAIR_BUDGET,
+                      correction_candidates: Mapping[str, Sequence[Any]] | None = None,
+                      base_snapshot: Mapping[str, Any] | None = None,
+                      fps: float | None = None,
+                      first_frame: int | None = None) -> Report:
     """Build assignment QA from recorded RenderQAResult-like measurements.
 
     Intent and spans are explicit inputs: QA never invents a creative target
@@ -174,7 +181,13 @@ def from_measurements(assignment_id: str, render_id: str,
             detail=str(observation["detail"]), span=observation["span"],
             intent=observation["intent"],
             action="ask_creator" if not observation.get("passed", False) else "none"))
-    return Report(assignment_id, render_id, findings, repair_budget)
+    from library.tools.qa_correction_request import plan_requests
+
+    correction_requests = plan_requests(
+        findings, candidates_by_finding=correction_candidates,
+        base_snapshot=base_snapshot, fps=fps, first_frame=first_frame)
+    return Report(assignment_id, render_id, findings, repair_budget,
+                  correction_requests=correction_requests)
 
 
 def from_deliverable(assignment_id: str, render_id: str, video_path: str,
@@ -186,7 +199,11 @@ def from_deliverable(assignment_id: str, render_id: str, video_path: str,
                      spine_blocks: Sequence | None = None,
                      declared_black_beats: list | None = None,
                      render_review: Mapping[str, Any] | None = None,
-                     repair_budget: int = DEFAULT_REPAIR_BUDGET) -> Report:
+                     repair_budget: int = DEFAULT_REPAIR_BUDGET,
+                     correction_candidates: Mapping[str, Sequence[Any]] | None = None,
+                     base_snapshot: Mapping[str, Any] | None = None,
+                     fps: float | None = None,
+                     first_frame: int | None = None) -> Report:
     """Run the established deliverable checks and link their results to intent."""
     from library.tools.deliverable_qc import run_deliverable_qc
 
@@ -200,7 +217,9 @@ def from_deliverable(assignment_id: str, render_id: str, video_path: str,
     return from_measurements(
         assignment_id, render_id, measurements, duration=expected_duration,
         intent_by_metric=intent_by_metric, spans_by_metric=spans_by_metric,
-        subjective=subjective, repair_budget=repair_budget)
+        subjective=subjective, repair_budget=repair_budget,
+        correction_candidates=correction_candidates,
+        base_snapshot=base_snapshot, fps=fps, first_frame=first_frame)
 
 
 def observations_from_render_review(render_review: Mapping[str, Any]) -> list[dict]:

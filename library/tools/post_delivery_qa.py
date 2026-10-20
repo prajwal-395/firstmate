@@ -276,6 +276,11 @@ def run_for_deliverable(
     repair=None,
     repair_budget: int | None = None,
     reexport=None,
+    inspect_affected=None,
+    correction_candidates: dict | None = None,
+    base_snapshot: dict | None = None,
+    fps: float | None = None,
+    first_frame: int | None = None,
 ) -> dict:
     """QA one delivered file: report, at most one repair, questions.
 
@@ -322,6 +327,10 @@ def run_for_deliverable(
             if repair_budget is None
             else repair_budget
         ),
+        correction_candidates=correction_candidates,
+        base_snapshot=base_snapshot,
+        fps=fps,
+        first_frame=first_frame,
     )
 
     repair_record: dict = {}
@@ -335,6 +344,7 @@ def run_for_deliverable(
             float(expected_duration),
             repair=repair,
             reexport=reexport,
+            inspect_affected=inspect_affected,
         )
 
     questions = []
@@ -403,6 +413,7 @@ def _repair_once(
     expected_duration: float,
     repair=None,
     reexport=None,
+    inspect_affected=None,
 ) -> dict:
     """The single bounded repair: first `repair_once` finding, then re-QC."""
     from library.tools import creative_qa
@@ -413,6 +424,14 @@ def _repair_once(
     if not repairable:
         return {}
     finding = repairable[0]
+    if inspect_affected is None or reexport is None:
+        return {
+            "finding_id": finding.id,
+            "repair_class": finding.repair_class,
+            "error": ("affected-section inspection and fresh export callbacks "
+                      "are required before a correction; refusing to edit "
+                      "without both QA-020 evidence paths"),
+        }
     repair = repair or revise_routed_repair(project, timeline)
     try:
         attempt = creative_qa.attempt_repair(report, finding.id, repair)
@@ -425,10 +444,34 @@ def _repair_once(
     fresh_path = ""
     fresh_duration = expected_duration
     try:
-        if reexport is None:
-            raise PostDeliveryQARefused(
-                "the AXI correction has no fresh re-export callback; "
-                "the prior file cannot verify a timeline change")
+        correction_request = next(
+            (row.as_dict() for row in report.correction_requests
+             if row.finding_id == finding.id), {})
+        inspection = inspect_affected(attempt, finding, correction_request)
+        inspected_span = (inspection.get("inspected_span")
+                          if isinstance(inspection, dict) else None)
+        finding_start = float(finding.span["start"])
+        finding_end = float(finding.span["end"])
+        covers_finding = False
+        if isinstance(inspected_span, dict):
+            try:
+                covers_finding = (
+                    float(inspected_span["start"]) <= finding_start
+                    and float(inspected_span["end"]) >= finding_end)
+            except (KeyError, TypeError, ValueError):
+                covers_finding = False
+        if (not isinstance(inspection, dict) or not inspection.get("evidence")
+                or not covers_finding
+                or inspection.get("requires_full_reexport") is not True):
+            return {
+                "finding_id": finding.id,
+                "repair_class": finding.repair_class,
+                "attempt": attempt,
+                "inspection": inspection if isinstance(inspection, dict) else {},
+                "error": ("affected-section inspection did not provide evidence "
+                          "covering the finding and requiring a full export; "
+                          "correction remains unverified"),
+            }
         export = reexport(attempt)
         if not isinstance(export, dict) or not export.get("video_path"):
             raise PostDeliveryQARefused(
@@ -471,6 +514,7 @@ def _repair_once(
         "attempt": attempt,
         "reexport": {"video_path": fresh_path,
                      "expected_duration": fresh_duration},
+        "inspection": inspection,
         "verified": {
             "passed": bool(verification["target"].passed),
             "detail": verification["target"].detail,
@@ -480,7 +524,8 @@ def _repair_once(
     }
 
 
-def run_for_project(project, *, reel: int | None = None) -> dict:
+def run_for_project(project, *, reel: int | None = None,
+                    inspect_affected=None) -> dict:
     """QA every delivered reel of this project (or one `--reel`).
 
     Reads the delivery ledger T16 wrote: the file on disk, its sidecar
@@ -575,6 +620,7 @@ def run_for_project(project, *, reel: int | None = None) -> dict:
                 render_id=render_id,
                 render_review=review,
                 reexport=reexport,
+                inspect_affected=inspect_affected,
             )
         )
     return {"platforms": wanted, "deliverables": ran, "skipped": skipped}
