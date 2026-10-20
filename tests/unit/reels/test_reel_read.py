@@ -35,7 +35,7 @@ class _Pool:
 
     def GetClipProperty(self, name):
         return {"File Path": self._path, "Frames": "5000",
-                "Comments": ""}.get(name, "")
+                "Comments": "", "Resolution": "1920x1080"}.get(name, "")
 
     def GetMarkers(self):
         return dict(self._markers)
@@ -67,6 +67,9 @@ class _Item:
         self._fusion = fusion
         self._source = source or (pool.GetClipProperty("File Path")
                                   if pool else "")
+
+    def GetLinkedItems(self):
+        return list(getattr(self, "_linked_items", []))
 
     def GetName(self):
         return self._name
@@ -686,7 +689,7 @@ def _matte_comp(keyframes, geometry=None):
     from library.tools import edit_algebra
     from tests.resolve_double import FakeTool, matte_comp_from_text
 
-    item = _Item("c", 0, 100, 0, None)
+    item = _Item("c", 0, 100, 0, _Pool("c"))
     path = edit_algebra._build_matte_comp(item, "m-matte", geometry or {},
                                           keyframes)
     with open(path, encoding="utf-8") as handle:

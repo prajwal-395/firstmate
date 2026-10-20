@@ -18,6 +18,14 @@ PICTURE_PROPERTIES = (
 READ_ONLY_PROPERTIES = frozenset({"Frames", "FPS", "Resolution"})
 
 
+def _grade_node_count(item):
+    """Read the grade count from Resolve's color node graph surface."""
+    graph = item.GetNodeGraph()
+    if graph is None:
+        raise ValueError("the item's color node graph is unreadable")
+    return graph.GetNumNodes()
+
+
 class StatePreservationError(ValueError):
     """The requested replacement cannot safely carry the item's state."""
 
@@ -85,7 +93,7 @@ def capture(item, *, picture: bool = True) -> dict:
     try:
         properties = item.GetProperty()
         comp_count = int(item.GetFusionCompCount() or 0)
-        node_count = item.GetNumNodes() if picture else 0
+        node_count = _grade_node_count(item) if picture else 0
         native_object_id = str(item.GetUniqueId() or "")
     except Exception as exc:
         raise StatePreservationError(
@@ -153,7 +161,7 @@ def restore(item, state: Mapping, *, source_in: int, source_out: int,
     if grade_source is not None:
         try:
             grade_source.CopyGrades([item])
-            nodes_actual = item.GetNumNodes()
+            nodes_actual = _grade_node_count(item)
             if nodes_actual != state["grade_node_count"]:
                 mismatches["grade_node_count"] = [
                     state["grade_node_count"], nodes_actual]

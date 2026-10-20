@@ -70,6 +70,9 @@ class _Item:
     def GetMarkers(self):
         return {}
 
+    def GetLinkedItems(self):
+        return []
+
 
 class _Timeline:
     def __init__(self, items):

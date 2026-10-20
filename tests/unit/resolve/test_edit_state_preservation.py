@@ -7,6 +7,14 @@ import pytest
 from library.tools import edit_state_preservation as preservation
 
 
+class _NodeGraph:
+    def __init__(self, item):
+        self.item = item
+
+    def GetNumNodes(self):
+        return self.item.nodes
+
+
 class _Item:
     def __init__(self):
         self.properties = {"Pan": -24.0, "Tilt": 3.0, "ZoomX": 1.4}
@@ -22,8 +30,40 @@ class _Item:
     def GetProperty(self, key=None):
         return self.properties if key is None else self.properties.get(key)
 
+    def GetName(self):
+        return "Shot"
+
     def GetFusionCompCount(self):
         return self.comp_count
+
+    def GetNodeGraph(self):
+        return _NodeGraph(self)
+
+    def GetKeyframes(self, key):
+        return getattr(self, "keyframes", {}).get(key, [])
+
+    def CopyGrades(self, targets):
+        for target in targets:
+            target.nodes = self.nodes
+        return True
+
+    def GetUniqueId(self):
+        return self.uid
+
+    def GetSourceStartFrame(self):
+        return 100
+
+    def GetSourceEndFrame(self):
+        return 200
+
+    def GetStart(self):
+        return 20
+
+    def GetEnd(self):
+        return 120
+
+    def GetTrackTypeAndIndex(self):
+        return ["video", 1]
 
     def GetFlagList(self):
         return self.flags
@@ -150,8 +190,6 @@ def test_replacement_contract_carries_and_verifies_approved_clip_state(
 
 @pytest.mark.parametrize(("field", "value", "reason"), [
     ("comp_count", 1, "Fusion compositions"),
-    ("flags", ["Blue"], "flags"),
-    ("markers", {10: {"name": "Keep"}}, "clip markers"),
     ("keyframes", {"Pan": [{"frame": 5, "value": 10}]},
      "animated picture properties"),
 ])

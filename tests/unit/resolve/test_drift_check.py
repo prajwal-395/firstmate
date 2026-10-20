@@ -364,6 +364,9 @@ class _Item:
     def GetName(self):
         return self._name
 
+    def GetLinkedItems(self):
+        return []
+
     def GetStart(self):
         return self._start
 

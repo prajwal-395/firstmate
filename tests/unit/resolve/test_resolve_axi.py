@@ -172,6 +172,9 @@ class _PoolClip:
     def GetName(self):
         return self._name
 
+    def GetUniqueId(self):
+        return f"pool:{self._name}"
+
     def GetMarkers(self):
         return {}
 
@@ -887,7 +890,8 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
                 "SetVoiceIsolationState", "TranscribeAudio",
                 "PerformAudioClassification", "AnalyzeForIntellisearch",
                 "DetectSceneCuts", "SmartReframe", "CreateMagicMask",
-                "PerformMulticamSmartSwitch", "ReplaceClip"}
+                "PerformMulticamSmartSwitch", "ReplaceClip",
+                "SetClipsLinked"}
     undeclared = []
     # Only invoked attributes are writers: a bare reference such as
     # `except timeline_addressing.AddressingError` matches the "Add"

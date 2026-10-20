@@ -571,7 +571,7 @@ def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
     assert qualification.gate_class == tu.COMPOSED
 
 
-def test_swap_staging_keeps_an_untouched_passthrough_comp(
+def test_swap_refuses_target_comp_without_touching_passthrough_comp(
         tmp_path, monkeypatch):
     """A touch swap must not strip a bystander's auto-created comp.
 
@@ -611,38 +611,15 @@ def test_swap_staging_keeps_an_untouched_passthrough_comp(
     required_frames = insertion.left_offset + insertion.duration
     pool.GetRootFolder().add_clip(pool_clip(
         str(replacement), frames=max(required_frames, 2000)))
-    resolved_insertions = tu._resolve_insertions(
-        pool, staged, qualification.insertions)
+    with pytest.raises(tu.TouchupRefused, match="Fusion compositions"):
+        tu._resolve_insertions(pool, staged, qualification.insertions)
 
-    _mock_pre_delete_patch(monkeypatch, staged)
-    tu._pre_delete_removed(object(), staged, qualification.removals,
-                           "test-journal")
-
-    assert target not in staged.rows["V4"]
-    assert survivor in staged.rows["V4"]
-
-    ce.apply_composed_edit(
-        timeline=staged, media_pool=pool,
-        changes=tu._rekey_changes(_tracks(staged), qualification),
-        insertions=resolved_insertions,
-        comp_dir=str(tmp_path / "comps"),
-        withheld_dir=str(tmp_path / "withheld"),
-        rederiver=tu._NullRederiver("test swap has no comp pass"),
-        write_context=_write_context(tmp_path, staged))
-
-    assert any(item.GetName() == "replacement.mov"
-               for item in staged.rows["V4"])
+    assert target in staged.rows["V4"]
     assert survivor.GetFusionCompCount() == 1
 
 
-def test_graded_swap_refuses_at_resolve(tmp_path):
-    """An Insertion cannot take a grade from an item being deleted.
-
-    The V3 overlay carries no comp, so it passes qualify - and the
-    resolve then refuses its 8-node grade by name, before anything
-    is staged. The legitimate producer - Resolve's own default
-    single node - is what every qualifying swap test above rides on.
-    """
+def test_graded_swap_captures_grade_for_verified_carry(tmp_path):
+    """The shared preservation state supplies the approved grade source."""
 
     timeline, _pool, _media = build_reel(tmp_path)
     timeline.rows["V4"][0].nodes = 8  # graded, but no drawing comp
@@ -654,10 +631,10 @@ def test_graded_swap_refuses_at_resolve(tmp_path):
     qualification = tu.qualify(_tracks(timeline), spec)
     assert qualification.gate_class == tu.COMPOSED
     stub = _pool_holding([pool_clip(str(pixels), frames=200)])
-    with pytest.raises(tu.TouchupRefused) as refusal:
-        tu._resolve_insertions(stub, timeline,
-                               qualification.insertions)
-    assert "colour grade" in str(refusal.value)
+    insertion = tu._resolve_insertions(
+        stub, timeline, qualification.insertions)[0]
+    assert insertion.preservation_state["grade_node_count"] == 8
+    assert insertion.preservation_state["grade_source"] is timeline.rows["V4"][0]
 
 
 def _overlay_swap(tmp_path):

@@ -1922,6 +1922,14 @@ class FakeTimelineItem:
     def GetSourceEndFrame(self):
         return self._source_end_frame
 
+    def GetTrackTypeAndIndex(self):
+        for kind in ("video", "audio", "subtitle"):
+            for index in range(1, self._timeline.GetTrackCount(kind) + 1):
+                if self in (self._timeline.GetItemListInTrack(kind, index) or []):
+                    return [kind, index]
+        raise ResolveDoubleError(
+            "timeline item is not present on a track - cannot report its row")
+
     def GetSourceStartTime(self):
         return (self._source_start_frame + self.start_tc_frames) * 1001 / 24000
 
@@ -1956,6 +1964,10 @@ class FakeTimelineItem:
 
     def SetClipColor(self, color):
         self._color = color
+        return True
+
+    def ClearClipColor(self):
+        self._color = ""
         return True
 
     def Delete(self):
