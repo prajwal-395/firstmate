@@ -154,6 +154,41 @@ def _write_origin(state: dict) -> None:
     os.replace(temporary, path)
 
 
+def _return_to_recorded_scratch(resolve, manager, state: dict,
+                                reason: str) -> dict:
+    """Keep Ren-owned scratch work reachable when its origin cannot return."""
+    scratch_name = _name(state.get("scratch_project"))
+    if not _listed(manager, scratch_name):
+        raise ScratchProjectError(
+            f"cannot recover scratch origin: recorded Ren-owned project "
+            f"{scratch_name!r} is not available")
+    project = manager.GetCurrentProject()
+    if not project or project.GetName() != scratch_name:
+        project = switch_project(manager, scratch_name)
+    if not project or project.GetName() != scratch_name:
+        raise ScratchProjectError(
+            f"cannot recover scratch origin: could not reopen {scratch_name!r}")
+    timeline = project.GetCurrentTimeline()
+    if not timeline:
+        raise ScratchProjectError(
+            f"cannot recover scratch origin: {scratch_name!r} has no current timeline")
+    page = state.get("page")
+    if (page is not None and resolve.GetCurrentPage() != page
+            and (not resolve.OpenPage(page)
+                 or resolve.GetCurrentPage() != page)):
+        raise ScratchProjectError(
+            f"cannot recover scratch origin: could not return to page {page!r}")
+    return {"project": scratch_name, "timeline": timeline.GetName(),
+            "page": page, "verified": True, "timeline_restored": False,
+            "reason": reason}
+
+
+def _missing_recorded_timeline(error: ScratchProjectError) -> bool:
+    message = str(error)
+    return ("cannot find timeline" in message
+            or "cannot recover timeline" in message)
+
+
 def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
     """Restore the origin recorded by `open`, then clear its receipt.
 
@@ -201,10 +236,19 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
             # project was open, so after a restart neither could move
             # and the record had to be removed by hand. The record is
             # completed here instead.
+            ren_owned_origin = str(state.get("project", "")).startswith("Ren ")
+            if (not timeline_drts and ren_owned_origin
+                    and state.get("timeline_id") is None):
+                result = _return_to_recorded_scratch(
+                    resolve, manager, state,
+                    "origin had no current timeline; reopened the recorded "
+                    f"scratch project {state['scratch_project']!r}")
+                path.unlink(missing_ok=True)
+                return {**result, "imported_timeline_drts": imported}
             try:
                 result = restore(resolve, manager, state)
             except ScratchProjectError as exc:
-                if "cannot find timeline" not in str(exc):
+                if not _missing_recorded_timeline(exc):
                     raise
                 if str(state.get("project", "")).startswith("Ren "):
                     # A Ren-owned origin can be rebuilt independently of
@@ -261,7 +305,25 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
         raise ScratchProjectError(
             "cannot restore: Resolve would not save the open scratch "
             "project; not leaving unsavable work behind")
-    result = restore(resolve, manager, state)
+    ren_owned_origin = str(state.get("project", "")).startswith("Ren ")
+    if (not timeline_drts and ren_owned_origin
+            and state.get("timeline_id") is None):
+        result = _return_to_recorded_scratch(
+            resolve, manager, state,
+            "origin had no current timeline; kept the recorded scratch "
+            f"project {state['scratch_project']} open")
+        path.unlink(missing_ok=True)
+        return {**result, "imported_timeline_drts": imported}
+    try:
+        result = restore(resolve, manager, state)
+    except ScratchProjectError as exc:
+        if (not _missing_recorded_timeline(exc) or timeline_drts
+                or not ren_owned_origin):
+            raise
+        result = _return_to_recorded_scratch(
+            resolve, manager, state,
+            "origin timeline is gone; reopened the recorded "
+            f"scratch project {state['scratch_project']!r}")
     path.unlink()
     return {**result, "imported_timeline_drts": imported}
 

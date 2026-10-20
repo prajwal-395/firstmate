@@ -587,3 +587,32 @@ def test_missing_ren_owned_origin_timeline_reopens_recorded_scratch_project(
     assert restored["timeline_restored"] is False
     assert manager.GetCurrentProject().GetName() == scratch_project.name
     assert not origin.exists()
+
+
+def test_ren_owned_origin_without_current_timeline_returns_to_scratch(
+        monkeypatch, tmp_path):
+    """Catches scratch restore switching to a Ren fixture with no timeline."""
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    qualification = Project("Ren Qualification", [])
+    scratch_project = Project(
+        "Ren Scratch - breaktest", [Timeline("Reel 13", "copied-reel")])
+    manager.projects[qualification.name] = qualification
+    manager.projects[scratch_project.name] = scratch_project
+    manager.current = qualification
+
+    scratch.open_project(resolve, manager, scratch_project.name)
+    recorded = json.loads(origin.read_text(encoding="utf-8"))
+    assert recorded["timeline_id"] is None
+
+    # Broker restart returns to the Ren-owned origin, which has no timeline.
+    manager.current = qualification
+    restored = scratch.restore_recorded(resolve, manager)
+
+    assert restored["project"] == scratch_project.name
+    assert restored["timeline"] == "Reel 13"
+    assert restored["verified"] is True
+    assert restored["timeline_restored"] is False
+    assert manager.GetCurrentProject().GetName() == scratch_project.name
+    assert not origin.exists()
