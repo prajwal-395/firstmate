@@ -117,7 +117,11 @@ def test_speech_sequence_run_persists_interpretations_for_project_model_query(
                if row["author"] == "narrative_relations.rules/1"]
     assert result["status"] == "committed"
     assert revision == 2
-    assert [row["id"] for row in records] == [row["id"] for row in sequence["interpretations"]]
+    # Record-level writes persist changes in canonical sorted-by-id order
+    # (see test_record_change_events_are_small_sorted_and_replay_with_legacy_history),
+    # so stored rows read back sorted, not in bridge-emission order.
+    assert [row["id"] for row in records] == sorted(
+        row["id"] for row in sequence["interpretations"])
     assert records[0]["evidence_ids"] == ["speech:7"]
     assert records[0]["uncertainty"] == 0.5
     assert records[0]["certainty"] == "interpreted"
