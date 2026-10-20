@@ -776,6 +776,18 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
     """Normalize a registered-backend batch with operation evidence."""
     from library.tools.transaction_orchestration import standardize_receipt
 
+    recovery_rows = [
+        result.get("receipt", result).get("execution_contract", {}).get(
+            "recovery", {})
+        for result in receipts
+    ]
+    recovery_available = bool(recovery_rows) and all(
+        row.get("status") in {"available", "recorded"}
+        and isinstance(row.get("reference"), Mapping)
+        and bool(row["reference"].get("kind"))
+        for row in recovery_rows
+    )
+
     acceptance_contracts = []
     for operation, result in zip(operations, receipts):
         receipt = result.get("receipt", result)
@@ -818,9 +830,9 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "requested_operation_count": len(operations),
         "acceptance_contracts": acceptance_contracts,
         "execution_routing": plan.get("routing") or {},
-        "recovery": {"status": "available", "operations": [
-            result.get("receipt", result).get("execution_contract", {}).get(
-                "recovery", {}) for result in receipts]},
+        "recovery": {"status": "available" if recovery_available
+                     else "unavailable",
+                     "operations": recovery_rows},
         "promotion": {"status": "awaiting_promotion"},
         "delivered": {"status": "not_requested"},
     }

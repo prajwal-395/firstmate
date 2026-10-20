@@ -198,6 +198,42 @@ def test_registered_execution_uses_canonical_verified_receipt():
     }
     assert receipt["promotion"]["status"] == "awaiting_promotion"
     assert receipt["delivered"]["status"] == "not_requested"
+    assert receipt["recovery"]["status"] == "unavailable"
+
+
+def test_registered_execution_claims_recovery_only_with_actionable_reference():
+    from types import SimpleNamespace
+
+    from library.tools.resolve_axi_core import _registered_execution_receipt
+
+    operation = {"op": "clip.trim", "unique_id": "clip-1",
+                 "in_frame": 12, "out_frame": 20}
+    reference = {"kind": "undo_journal_entry",
+                 "project_folder": "/project", "entry_id": "entry-1"}
+    adapter_receipt = {
+        "status": "committed", "backend": "resolve_axi",
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "clip.trim", "passed": True},),
+                "evidence": {"readback": {"record_range": [12, 20]}},
+            },
+            "recovery": {"status": "available", "reference": reference},
+        },
+    }
+
+    receipt = _registered_execution_receipt(
+        backend="resolve_axi", plan={},
+        request=SimpleNamespace(
+            id="request-recoverable", idempotency_key="request-recoverable",
+            project="Project", timeline="Timeline"),
+        operations=[operation], receipts=[adapter_receipt],
+        base_generation=4, committed_generation=5,
+    )
+
+    assert receipt["recovery"]["status"] == "available"
+    assert receipt["recovery"]["operations"] == [
+        adapter_receipt["execution_contract"]["recovery"]]
 
 
 def test_registered_execution_missing_operation_evidence_is_not_verified():
