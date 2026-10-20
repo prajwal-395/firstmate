@@ -224,7 +224,8 @@ DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
 # attachment choice and never raises: an empty folder is a stated
 # absence, and learnings simply scope to nothing.
 PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief",
-                        "project_context", "video_preferences")
+                        "project_context", "video_preferences",
+                        "editorial_policy")
 
 # The one input carrying the LAST render's QA findings.  It is not a
 # process-level input and it is not DAG-routable - see the block in
@@ -637,6 +638,29 @@ def load_pipeline_state(project_dir: str) -> dict:
             # nobody chose was to read the resolver.
             import sys
             print(describe_brand_absence(), file=sys.stderr)
+
+    # The project's own EDITORIAL policy (EDIT-025/EDIT-024): what kind
+    # of video it is and how hard the cut should push.  Read from
+    # project.yaml on EVERY run, like the declarations above, so a
+    # change made after the first run reaches the next one.
+    #
+    # A project that declares none gets NO key: the editing behaviours
+    # fall back to the material's own measured distribution rather than
+    # to a house style, and a key that says "no policy" would be a
+    # second reading of the same absence.
+    from library.tools.editorial_policy import (
+        EditorialPolicyError, read_project_policy)
+    try:
+        _editorial_policy = read_project_policy(
+            project_dir, project_id=os.path.basename(
+                os.path.normpath(project_dir)))
+    except EditorialPolicyError as exc:
+        raise RuntimeError(
+            f"the project's editorial policy is not readable: {exc}") from exc
+    if _editorial_policy is not None:
+        state["editorial_policy"] = _editorial_policy.to_dict()
+    else:
+        state.pop("editorial_policy", None)
 
     # The video's own preferences (project layer in style.yaml,
     # per-video layer in video.yaml - see library/tools/video_prefs).

@@ -358,6 +358,14 @@ class PipelineConfig:
     # mapping - see library/tools/creative_tasks.py, which is the one
     # place that reads them. Empty means the project declares none.
     creative_tasks: list[dict] = field(default_factory=list)
+    # The project's own EDITORIAL policy: what kind of video this is and
+    # how hard the cut should push. None means the project declares none,
+    # and every editing behaviour falls back to the material's own
+    # measured distribution rather than to a house style. Shape and
+    # reader: library/tools/editorial_policy.py - the objective, the
+    # slots and their kinds are validated there, so a slot the engine
+    # cannot read is refused by name rather than silently dropped.
+    editorial_policy: dict | None = None
     # Watchable low-cost reel previews after successful builds. Opt-in
     # per project; the independent `ren preview` verb remains available.
     preview_after_build: bool = False
@@ -675,6 +683,18 @@ class ProjectConfig:
             errors.append(
                 "pipeline.broll_evaluation_policy_ref must be an exact "
                 "policy reference such as `steady-broll@v1`.")
+        if self.pipeline.editorial_policy is not None:
+            # The shape - the objective, the slot groups, the slot kinds -
+            # belongs to library/tools/editorial_policy.py, which is the
+            # one place that reads them. A declaration naming an
+            # objective nobody implements is refused there by name.
+            from library.tools.editorial_policy import (
+                EditorialPolicyError, parse_policy)
+            try:
+                parse_policy(self.pipeline.editorial_policy,
+                             project_id=self.slug or self.name)
+            except EditorialPolicyError as exc:
+                errors.append(f"pipeline.editorial_policy is not readable: {exc}")
         return errors
 
 
@@ -823,6 +843,9 @@ def _dict_to_project_config(data: dict,
         max_duration_seconds=pipeline_data.get("max_duration_seconds"),
         creative_tasks=list(
             pipeline_data.get("creative_tasks", []) or []),
+        editorial_policy=(dict(pipeline_data["editorial_policy"])
+                          if isinstance(pipeline_data.get("editorial_policy"),
+                                        dict) else None),
         preview_after_build=pipeline_data.get("preview_after_build", False),
         sfx_library=_expand_path(pipeline_data.get("sfx_library", "")),
         music_library=_expand_path(pipeline_data.get("music_library", "")),
@@ -989,6 +1012,13 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if not config.pipeline.creative_tasks
                else {"creative_tasks":
                      [dict(t) for t in config.pipeline.creative_tasks]}),
+            # Only when declared: a project that says nothing about how
+            # its edit should be cut carries no editorial policy, and the
+            # run falls back to the material's own measurements rather
+            # than to a house style.
+            **({} if config.pipeline.editorial_policy is None
+               else {"editorial_policy":
+                     dict(config.pipeline.editorial_policy)}),
             **({} if not config.pipeline.preview_after_build
                else {"preview_after_build": True}),
             "sfx_library": config.pipeline.sfx_library,

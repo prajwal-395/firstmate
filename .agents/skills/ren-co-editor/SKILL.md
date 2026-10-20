@@ -265,6 +265,7 @@ it whenever the goal is about what is IN the footage.
 | Creative QA after delivery | `ren qa <project>` (one reversible repair for a measurable defect through `ren revise`, then re-QC; editorial calls land on the review page as questions; clean passes untouched) |
 | Pause or release a run | `ren pause <project>` / `ren resume <project>`; a staged timeline held from the sweep: `ren holds release <project> <timeline>` |
 | Redo one stage, step or clip | `ren edit <project>` with `--rerun <target>`, `--only <step>`, `--step <step>` or `--target <name>` (AGENTS.md §3) |
+| What the measurements say about this cut | `python3 -m library.tools.editorial_report <project>`: the project's declared editorial objective and whether the cut satisfies it, what a silence or a filler would cost the rhythm, the camera angles to choose between, the shot sequences that measure as weak, the moments that should be held, and what a reduction took with it. It is an ANALYSIS - it changes nothing and gates nothing |
 | Tidy the Resolve pool | `ren pool-organize`, `ren pool-prune`, `ren relink` |
 
 `pipeline_operations` lists the named operations a scoped run can do and
