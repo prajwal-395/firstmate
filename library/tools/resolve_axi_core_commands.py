@@ -4014,6 +4014,60 @@ def _edit_item(timeline, track_spec: str, index: int):
     return item, track_type, track_index, uid
 
 
+def _edit_item_by_identity(timeline, args):
+    """Resolve a live item by stable Resolve id and verify its media span.
+
+    The track/index pair remains in the command for old callers and display,
+    but semantic AXI adapters supply this identity so preceding structural
+    mutations cannot redirect a later write to the old position.
+    """
+    unique_id = getattr(args, "target_unique_id", None)
+    if not unique_id:
+        return _edit_item(timeline, args.track, args.index)
+    required = ("expected_source_file", "expected_source_in_frame",
+                "expected_source_out_frame", "expected_record_in_frame",
+                "expected_record_out_frame")
+    missing = [name for name in required if getattr(args, name, None) is None]
+    if missing:
+        raise AxiError(
+            "stable item targeting requires media identity fields: "
+            + ", ".join(missing))
+    track_type, _track_index = _parse_track(args.track)
+    selector = {
+        "resolve_item_id": str(unique_id),
+        "source_file": str(args.expected_source_file),
+        "source_in_frame": int(args.expected_source_in_frame),
+        "source_out_frame": int(args.expected_source_out_frame),
+        "track_type": track_type,
+    }
+    from library.tools import timeline_addressing
+    try:
+        address = timeline_addressing.resolve_item(timeline, selector)
+        timeline_addressing.verify_item(timeline, address)
+    except timeline_addressing.AddressingError as exc:
+        raise AxiError(f"stable target revalidation failed: {exc}") from exc
+    try:
+        items = timeline.GetItemListInTrack(address.track_type,
+                                            address.track_index) or []
+        matches = [(index, item) for index, item in enumerate(items)
+                   if str(item.GetUniqueId() or "") == address.resolve_item_id]
+    except Exception as exc:
+        raise AxiError(f"could not re-read the stable target position: {exc}") from exc
+    if len(matches) != 1:
+        raise AxiError(
+            f"stable target {unique_id!r} occupies {len(matches)} live positions")
+    index, item = matches[0]
+    span = _item_span(item)
+    if (int(span["record_in"]) != int(args.expected_record_in_frame)
+            or int(span["record_out"]) != int(args.expected_record_out_frame)):
+        raise AxiError(
+            f"stable target {unique_id!r} changed record span from "
+            f"[{args.expected_record_in_frame}, {args.expected_record_out_frame}] "
+            f"to [{span['record_in']}, {span['record_out']}] since preparation")
+    args.index = index
+    return item, address.track_type, address.track_index, address.resolve_item_id
+
+
 def _item_span(item) -> dict:
     """The span a dry run names and a read-back checks. Best effort
     per field: a verb refuses on the fields it needs, never on a
@@ -4617,8 +4671,8 @@ def cmd_edit_delete(args) -> int:
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         try:
-            item, track_type, track_index, uid = _edit_item(
-                timeline, args.track, args.index)
+            item, track_type, track_index, uid = _edit_item_by_identity(
+                timeline, args)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         span = _item_span(item)
@@ -4840,8 +4894,8 @@ def cmd_edit_trim(args) -> int:
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         try:
-            item, track_type, track_index, uid = _edit_item(
-                timeline, args.track, args.index)
+            item, track_type, track_index, uid = _edit_item_by_identity(
+                timeline, args)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
         span = _item_span(item)
@@ -6645,6 +6699,10 @@ def _journal_write(args, *, timeline, project, spec, gate_class):
 
     project_folder = getattr(args, "project_folder", "") or ""
     if not project_folder:
+        if getattr(args, "require_recovery", False):
+            raise AxiError(
+                "this semantic write requires a durable recovery journal",
+                "supply --project-folder <pipeline project>")
         yield None, {"success": False}
         return
     entry = _journal.open_entry(
@@ -8334,6 +8392,13 @@ def build_parser() -> Parser:
                        help="video1, audio2, ...")
         q.add_argument("--index", required=True, type=int,
                        help="position on the track, 0-based")
+        q.add_argument("--target-unique-id", default="",
+                       help="stable live item identity; re-resolved before a write")
+        q.add_argument("--expected-source-file", default="")
+        q.add_argument("--expected-source-in-frame", type=int)
+        q.add_argument("--expected-source-out-frame", type=int)
+        q.add_argument("--expected-record-in-frame", type=int)
+        q.add_argument("--expected-record-out-frame", type=int)
         q.add_argument("--apply", action="store_true",
                        help="write under the Resolve lease with the "
                             "cursor asserted (default is a dry-run "
@@ -8343,6 +8408,8 @@ def build_parser() -> Parser:
                             "journal the write through the undo journal "
                             "so `ren undo` can reverse it (without this "
                             "the write acts but is not undone)")
+        q.add_argument("--require-recovery", action="store_true",
+                       help="refuse before writing unless the undo journal opens")
 
     q = esubs.add_parser("place", help="append a pool clip onto the "
                                         "reel; --apply writes")

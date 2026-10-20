@@ -232,3 +232,125 @@ def test_sdk_semantic_submit_uses_shared_request_pipeline(monkeypatch):
         {"id": "req-1"}, authorized=True, owner="test-owner")
     assert result == {"id": "semantic-job", "status": "queued"}
     assert seen == [({"id": "req-1"}, True, "test-owner")]
+
+
+def test_registered_batch_compensates_successes_in_reverse_order(monkeypatch):
+    from library.tools import undo_journal
+    from library.tools.resolve_axi_core import _compensate_registered_operations
+
+    calls = []
+
+    def undo(project_folder, *, final, act):
+        calls.append((project_folder, final, act))
+        return [{"verified": True, "act": act}]
+
+    monkeypatch.setattr(undo_journal, "undo", undo)
+    receipts = [{
+        "operation_index": index,
+        "receipt": {"execution_contract": {"recovery": {
+            "reference": {"kind": "undo_journal_entry",
+                          "project_folder": "/project",
+                          "entry_id": f"entry-{index}"}}}},
+    } for index in range(2)]
+
+    recovery = _compensate_registered_operations(
+        receipts, timeline="Reel 01")
+
+    assert calls == [
+        ("/project", "Reel 01", "entry-1"),
+        ("/project", "Reel 01", "entry-0"),
+    ]
+    assert recovery["status"] == "restored_original_verified"
+    assert [action["operation_index"] for action in recovery["actions"]] == [1, 0]
+
+
+def test_registered_batch_keeps_recovery_required_for_unknown_failed_write(
+        monkeypatch):
+    from library.tools import undo_journal
+    from library.tools.resolve_axi_core import _compensate_registered_operations
+
+    monkeypatch.setattr(undo_journal, "undo", lambda *_args, **_kwargs: [
+        {"verified": True}])
+    receipts = [{
+        "operation_index": 0,
+        "receipt": {"execution_contract": {"recovery": {
+            "reference": {"kind": "undo_journal_entry",
+                          "project_folder": "/project",
+                          "entry_id": "entry-0"}}}},
+    }]
+
+    recovery = _compensate_registered_operations(
+        receipts, timeline="Reel 01",
+        failure_evidence={"mutation_state": "unknown", "operation_index": 1})
+
+    assert recovery["status"] == "recovery_required"
+    assert recovery["actions"][0]["verified"] is True
+    assert recovery["remaining_operations"] == [1]
+
+
+def test_compatible_delete_batch_uses_one_editpatch_commit(monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from library.tools import edit_patch, project_registry, resolve_axi_core
+    from library.tools import resolve_axi_core_commands as commands
+    from library.tools import timeline_addressing
+
+    project = object()
+    timeline = SimpleNamespace(GetName=lambda: "Reel 01")
+    request = SimpleNamespace(
+        id="request-1", idempotency_key="stable-batch-key",
+        project="Project", timeline="Reel 01")
+    compiled = SimpleNamespace(
+        operations=({"op": "clip.delete", "unique_id": "clip-1"},
+                    {"op": "clip.delete", "unique_id": "clip-2"}),
+        conflict_domains=("timeline_structure",))
+    generation = SimpleNamespace(generation=12)
+    snapshot = {"tracks": [{"type": "video", "index": 1, "clips": [
+        {"unique_id": "clip-1", "track_type": "video",
+         "source_file": "/media/one.mov", "source_in_frame": 1,
+         "source_out_frame": 20, "record_in": 100, "record_out": 119},
+        {"unique_id": "clip-2", "track_type": "video",
+         "source_file": "/media/two.mov", "source_in_frame": 2,
+         "source_out_frame": 21, "record_in": 200, "record_out": 219},
+    ]}]}
+    calls = []
+
+    monkeypatch.setattr(commands, "_connect", lambda: "resolve")
+    monkeypatch.setattr(commands, "_project", lambda *_args: project)
+    monkeypatch.setattr(commands, "_target_timeline", lambda *_args: (
+        timeline, True, ""))
+    monkeypatch.setattr(commands, "_assert_cursor_on", lambda *_args: None)
+    monkeypatch.setattr(
+        commands, "_item_span",
+        lambda item: next({"record_in": clip["record_in"],
+                           "record_out": clip["record_out"]}
+                          for clip in snapshot["tracks"][0]["clips"]
+                          if clip["unique_id"] == item.GetUniqueId()))
+    monkeypatch.setattr(
+        timeline_addressing, "resolve_item",
+        lambda _timeline, selector: SimpleNamespace(item=SimpleNamespace(
+            GetUniqueId=lambda: selector["resolve_item_id"])))
+    monkeypatch.setattr(timeline_addressing, "verify_item", lambda *_args: None)
+    monkeypatch.setattr(project_registry, "resolve_project_path", lambda _ref: (
+        Path("/tmp/project/project.yaml")))
+    monkeypatch.setattr(resolve_axi_core, "_patch_capability", lambda _compiled: (
+        "reel.touchup"))
+    monkeypatch.setattr(edit_patch, "apply_live_patch", lambda **kwargs: (
+        calls.append(kwargs) or {"status": "committed", "operations": [
+            {"index": 0, "verified": True},
+            {"index": 1, "verified": True},
+        ]}))
+
+    receipt = resolve_axi_core._execute_registered_delete_batch(
+        request=request, compiled=compiled, generation=generation,
+        snapshot=snapshot,
+        decision={"backend": "resolve_axi"}, owner="test")
+
+    assert len(calls) == 1
+    assert calls[0]["operations"] == compiled.operations
+    assert calls[0]["idempotency_key"] == "stable-batch-key"
+    assert receipt["atomicity"] == "single_edit_patch_commit"
+    assert receipt["atomic"] is True
+    assert receipt["operations"][0]["target_identity"]["source_file"] == (
+        "/media/one.mov")

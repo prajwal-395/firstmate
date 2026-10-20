@@ -70,6 +70,7 @@ from library.tools.resolve_axi import (
     cmd_sense_transcribe,
     cmd_timeline_duplicate,
     cmd_timeline_get,
+    _edit_item_by_identity,
     _item_span,
 )
 
@@ -2817,6 +2818,48 @@ def test_delete_dry_run_names_the_clip_it_will_touch(edit_patched,
         index=0, ripple=False, apply=False)) == 0
     out = capsys.readouterr().out
     assert items[0].GetName() in out
+
+
+def test_edit_target_revalidates_identity_and_refreshes_position(monkeypatch):
+    from types import SimpleNamespace
+
+    from library.tools import timeline_addressing
+
+    target = SimpleNamespace(
+        GetUniqueId=lambda: "target-id",
+        GetStart=lambda: 100,
+        GetEnd=lambda: 180,
+    )
+    inserted = SimpleNamespace(GetUniqueId=lambda: "inserted-id")
+    timeline = _Timeline("Reel", tracks={
+        ("video", 1): {"name": "V1", "items": [inserted, target]},
+    })
+    address = SimpleNamespace(
+        timeline_id="timeline:Reel", resolve_item_id="target-id",
+        track_type="video", track_index=1, item=target)
+    selectors = []
+    monkeypatch.setattr(timeline_addressing, "resolve_item", lambda _timeline, selector: (
+        selectors.append(selector) or address))
+    monkeypatch.setattr(timeline_addressing, "verify_item", lambda *_args: None)
+    args = SimpleNamespace(
+        target_unique_id="target-id", expected_source_file="/media/a.mov",
+        expected_source_in_frame=10, expected_source_out_frame=20,
+        expected_record_in_frame=100, expected_record_out_frame=180,
+        track="video1", index=0)
+
+    item, track_type, track_index, unique_id = _edit_item_by_identity(
+        timeline, args)
+
+    assert item is target
+    assert (track_type, track_index, unique_id, args.index) == (
+        "video", 1, "target-id", 1)
+    assert selectors == [{
+        "resolve_item_id": "target-id",
+        "source_file": "/media/a.mov",
+        "source_in_frame": 10,
+        "source_out_frame": 20,
+        "track_type": "video",
+    }]
 
 
 # ── C-15: writes are journalled through the undo journal ──────────────

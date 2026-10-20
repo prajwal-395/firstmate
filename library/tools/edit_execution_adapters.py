@@ -9,12 +9,22 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+def _project_folder(context) -> str:
+    from library.tools import project_registry
+
+    project_path = project_registry.resolve_project_path(context.request.project)
+    if project_path is None:
+        project = project_registry.get_project(context.request.project)
+        return str(project.project_root)
+    return str(project_path.parent)
+
 # These operations can change the positional address of a later item. Until
 # this adapter has a fresh live read-back after each command, a subsequent
 # positional write must refuse rather than reuse the prepared index.
 _POSITION_INVALIDATING_OPERATIONS = frozenset({
-    "clip.delete", "clip.move", "clip.split", "clip.slide", "clip.roll",
-    "clip.ripple", "track.add", "overlay.add", "overlay.remove",
+    "clip.delete", "clip.trim", "clip.move", "clip.split", "clip.slide", "clip.roll",
+    "clip.ripple", "clip.insert", "track.add", "overlay.add",
+    "overlay.remove",
 })
 
 
@@ -25,12 +35,34 @@ def _target_position_for_context(context, unique_id: str) -> tuple[str, int]:
              else ())
     invalidators = [str(operation["op"]) for operation in prior
                     if str(operation["op"]) in _POSITION_INVALIDATING_OPERATIONS]
-    if invalidators:
+    live_identity_operations = {"clip.delete"}
+    if invalidators and str(context.operation["op"]) not in live_identity_operations:
         raise ValueError(
             "cannot safely reuse a prepared track/index after positional "
             f"mutation(s) {invalidators}; refresh target identity before "
             "the next mutation")
     return _target_position(context.snapshot, unique_id)
+
+
+def _target_identity_args(context, unique_id: str) -> list[str]:
+    matches = [clip for track in context.snapshot["tracks"]
+               for clip in track["clips"]
+               if str(clip["unique_id"]) == unique_id]
+    if len(matches) != 1:
+        raise ValueError(
+            f"target {unique_id!r} resolved to {len(matches)} prepared items")
+    clip = matches[0]
+    required = ("source_file", "source_in_frame", "source_out_frame")
+    missing = [key for key in required if clip.get(key) is None]
+    if missing:
+        raise ValueError(
+            f"target {unique_id!r} has no complete media identity: {missing}")
+    return ["--target-unique-id", unique_id,
+            "--expected-source-file", str(clip["source_file"]),
+            "--expected-source-in-frame", str(clip["source_in_frame"]),
+            "--expected-source-out-frame", str(clip["source_out_frame"]),
+            "--expected-record-in-frame", str(clip["record_in"]),
+            "--expected-record-out-frame", str(clip["record_out"])]
 
 
 def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
@@ -101,6 +133,38 @@ def _verified_command(context, command: list[str], operation: dict,
         raise RuntimeError(
             f"AXI read-back acceptance failed for {operation_id}: "
             f"missing evidence [{missing}], failed checks [{failed}]")
+    import re
+
+    journal_match = re.search(r"(?m)^\s*entry:\s*(\S+)\s*$",
+                              result.stdout)
+    recovery_reference = None
+    if journal_match:
+        recovery_reference = {
+            "kind": "undo_journal_entry",
+            "project_folder": _project_folder(context),
+            "entry_id": journal_match.group(1),
+        }
+    elif operation_id in {"clip.trim", "clip.delete"}:
+        raise RuntimeError(
+            f"AXI command for {operation_id} verified without a recovery "
+            "journal reference")
+    target_identity = {
+        key: context.operation[key]
+        for key in ("unique_id", "client_unique_id")
+        if key in context.operation
+    }
+    unique_id = str(context.operation.get("unique_id") or "")
+    if unique_id:
+        clips = [clip for track in context.snapshot["tracks"]
+                 for clip in track["clips"]
+                 if str(clip["unique_id"]) == unique_id]
+        if len(clips) == 1:
+            target_identity.update({
+                key: clips[0][key]
+                for key in ("source_file", "source_in_frame",
+                            "source_out_frame", "record_in", "record_out")
+                if key in clips[0]
+            })
     return {
         "status": "committed",
         "backend": "resolve_axi",
@@ -109,9 +173,7 @@ def _verified_command(context, command: list[str], operation: dict,
         "request_id": context.request.id,
         "operation_index": int(getattr(context, "operation_index", 0)),
         "target_identity": {
-            key: context.operation[key]
-            for key in ("unique_id", "client_unique_id")
-            if key in context.operation
+            **target_identity,
         },
         "readback": {"snapshot": after, "command_output": result.stdout},
         "acceptance_contracts": [acceptance],
@@ -122,7 +184,12 @@ def _verified_command(context, command: list[str], operation: dict,
                 "evidence": {"acceptance": acceptance,
                              "snapshot_source": "fresh_live_timeline"},
             },
-            "recovery": {"status": "recorded", "action": recovery_action},
+            "recovery": {
+                "status": "available" if recovery_reference else "unavailable",
+                "action": recovery_action,
+                **({"reference": recovery_reference}
+                   if recovery_reference else {}),
+            },
         },
     }
 
@@ -152,6 +219,8 @@ def _trim(context) -> dict:
     return _verified_command(context, [
         "edit", "trim", "--track", row, "--index", str(index),
         "--source-in", str(source_in), "--source-out", str(source_out),
+        *_target_identity_args(context, unique_id),
+        "--project-folder", _project_folder(context), "--require-recovery",
         "--apply", "--project", context.request.project,
         "--timeline", context.request.timeline,
     ], {**operation, "op": "clip.trim"},
@@ -163,6 +232,8 @@ def _delete(context) -> dict:
         context, str(context.operation["unique_id"]))
     return _verified_command(context, [
         "edit", "delete", "--track", row, "--index", str(index),
+        *_target_identity_args(context, str(context.operation["unique_id"])),
+        "--project-folder", _project_folder(context), "--require-recovery",
         "--apply", "--project", context.request.project,
         "--timeline", context.request.timeline,
     ], {**context.operation, "op": "clip.delete"},

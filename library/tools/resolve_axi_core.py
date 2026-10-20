@@ -113,6 +113,10 @@ _ROUTER_QUALIFIED_BACKENDS = frozenset({
 _ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup"})
 
 
+class RegisteredBatchPreflightRefused(ValueError):
+    """A multi-operation batch refused before its first write."""
+
+
 def register_edit_executor(operation_id: str, backend_id: str,
                            executor: EditExecutor, *, replace: bool = False
                            ) -> None:
@@ -153,6 +157,225 @@ def registered_edit_executors() -> tuple[tuple[str, str], ...]:
     """Return registered operation/backend pairs in stable order."""
     with _EDIT_EXECUTOR_LOCK:
         return tuple(sorted(_EDIT_EXECUTORS))
+
+
+def _compensate_registered_operations(receipts: Sequence[Mapping], *,
+                                      timeline: str,
+                                      failure_evidence: Mapping | None = None
+                                      ) -> dict:
+    """Undo journaled registered writes in reverse order and verify each."""
+    from library.tools import undo_journal
+
+    actions = []
+    evidence = dict(failure_evidence or {})
+    uncertain_failure = evidence.get("mutation_state") == "unknown"
+    failed_receipt = evidence.get("adapter_receipt")
+    rows = list(reversed(receipts))
+    if failed_receipt is not None:
+        rows.insert(0, {
+            "operation_index": int(evidence["operation_index"]),
+            "receipt": failed_receipt,
+        })
+    for row in rows:
+        recovery = (row["receipt"].get("execution_contract", {})
+                    .get("recovery", {}))
+        reference = recovery.get("reference") or {}
+        if reference.get("kind") != "undo_journal_entry":
+            completed = {action["operation_index"] for action in actions}
+            return {
+                "status": "recovery_required",
+                "reason": "a completed operation has no undo journal reference",
+                "actions": actions,
+                "remaining_operations": [item["operation_index"]
+                                         for item in receipts
+                                         if item["operation_index"] not in completed],
+            }
+        try:
+            result = undo_journal.undo(
+                str(reference["project_folder"]), final=timeline,
+                act=str(reference["entry_id"]))
+            if (not isinstance(result, list) or len(result) != 1
+                    or (isinstance(result[0], Mapping)
+                        and result[0].get("verified") is False)):
+                raise RuntimeError(
+                    "undo journal did not return one verified restoration")
+        except Exception as exc:  # noqa: BLE001 - preserve partial state
+            completed = {action["operation_index"] for action in actions}
+            return {
+                "status": "recovery_required",
+                "reason": f"undo of operation {row['operation_index']} "
+                f"failed: {type(exc).__name__}: {exc}",
+                "actions": actions,
+                "failed_operation_index": row["operation_index"],
+                "remaining_operations": [item["operation_index"]
+                                         for item in receipts
+                                         if item["operation_index"] not in completed],
+            }
+        actions.append({
+            "operation_index": row["operation_index"],
+            "entry_id": reference["entry_id"],
+            "verified": True,
+            "receipt": result[0],
+        })
+    if uncertain_failure:
+        return {
+            "status": "recovery_required",
+            "reason": "the failed operation may have mutated without a recovery receipt",
+            "failed_operation_index": evidence.get("operation_index"),
+            "actions": actions,
+            "remaining_operations": [evidence.get("operation_index")],
+        }
+    return {"status": "restored_original_verified",
+            "actions": actions,
+            "independent_readback": "each undo journal restore verified its live read-back"}
+
+
+def _execute_registered_delete_batch(*, request, compiled, generation,
+                                     snapshot, decision, owner: str) -> dict:
+    """Commit compatible local deletes as one verified EditPatch."""
+    from library.tools import edit_patch, project_registry
+    from library.tools.resolve_axi_core_commands import (
+        _assert_cursor_on,
+        _connect,
+        _item_span,
+        _project,
+        _target_timeline,
+    )
+    from library.tools import timeline_addressing
+
+    try:
+        resolve = _connect()
+        project = _project(resolve, request.project)
+        timeline, _is_current, _note = _target_timeline(project, request.timeline)
+        _assert_cursor_on(resolve, timeline.GetName())
+        prepared = {
+            str(clip["unique_id"]): clip
+            for track in snapshot["tracks"] for clip in track["clips"]
+            if clip.get("unique_id")
+        }
+        target_ids = [str(operation["unique_id"])
+                      for operation in compiled.operations]
+        if len(set(target_ids)) != len(target_ids):
+            raise ValueError("a delete batch cannot target the same item twice")
+        target_evidence = []
+        for target_id in target_ids:
+            clip = prepared.get(target_id)
+            if clip is None:
+                raise ValueError(
+                    f"delete target {target_id!r} is absent from the prepared snapshot")
+            selector = {
+                "resolve_item_id": target_id,
+                "source_file": str(clip["source_file"]),
+                "source_in_frame": int(clip["source_in_frame"]),
+                "source_out_frame": int(clip["source_out_frame"]),
+                "track_type": str(clip.get("track_type") or "video"),
+            }
+            address = timeline_addressing.resolve_item(timeline, selector)
+            timeline_addressing.verify_item(timeline, address)
+            live_span = _item_span(address.item)
+            expected_record = (int(clip["record_in"]), int(clip["record_out"]))
+            actual_record = (int(live_span["record_in"]),
+                             int(live_span["record_out"]))
+            if actual_record != expected_record:
+                raise timeline_addressing.StaleTarget(
+                    f"delete target {target_id!r} changed record span from "
+                    f"{expected_record} to {actual_record} since preparation")
+            target_evidence.append({
+                "unique_id": target_id, "source_file": selector["source_file"],
+                "source_in_frame": selector["source_in_frame"],
+                "source_out_frame": selector["source_out_frame"],
+                "record_in": actual_record[0], "record_out": actual_record[1],
+            })
+        project_path = project_registry.resolve_project_path(request.project)
+        if project_path is None:
+            config = project_registry.get_project(request.project)
+            project_folder = str(config.project_root)
+        else:
+            project_folder = str(project_path.parent)
+    except Exception as exc:  # noqa: BLE001 - this section is read-only
+        raise RegisteredBatchPreflightRefused(str(exc)) from exc
+    receipt = edit_patch.apply_live_patch(
+        project=project, timeline=timeline,
+        capability=_patch_capability(compiled),
+        operations=compiled.operations,
+        conflict_domains=compiled.conflict_domains,
+        idempotency_key=request.idempotency_key or request.id,
+        project_folder=project_folder,
+    )
+    operation_results = receipt.get("operations") or []
+    operation_receipts = [
+        {
+            "operation_index": index,
+            "operation": dict(operation),
+            "target_identity": target_evidence[index],
+            "receipt": (operation_results[index]
+                        if index < len(operation_results) else {}),
+        }
+        for index, operation in enumerate(compiled.operations)
+    ]
+    return {
+        "status": receipt["status"],
+        "request_id": request.id,
+        "project": request.project,
+        "timeline": request.timeline,
+        "backend": "edit_patch",
+        "selected_backend": "resolve_axi",
+        "atomic": receipt["status"] == "committed",
+        "atomicity": "single_edit_patch_commit",
+        "base_generation": generation.generation,
+        "mutated": receipt.get("mutated", True),
+        "operations": operation_receipts,
+        "target_identities": target_evidence,
+        "transaction_receipt": receipt,
+        "execution_routing": decision,
+        "owner": owner,
+    }
+
+
+def _revalidate_registered_targets(*, request, operations, snapshot) -> list[dict]:
+    """Check each stable item and media identity before a batch starts."""
+    from library.tools import timeline_addressing
+    from library.tools.resolve_axi_core_commands import (
+        _connect, _item_span, _project, _target_timeline,
+    )
+
+    resolve = _connect()
+    project = _project(resolve, request.project)
+    timeline, _is_current, _note = _target_timeline(project, request.timeline)
+    prepared = {
+        str(clip["unique_id"]): (clip, str(track["type"]))
+        for track in snapshot["tracks"] for clip in track["clips"]
+        if clip.get("unique_id")
+    }
+    evidence = []
+    for operation in operations:
+        target_id = str(operation.get("unique_id") or "")
+        if not target_id:
+            continue
+        item = prepared.get(target_id)
+        if item is None:
+            raise ValueError(
+                f"batch target {target_id!r} is absent from its prepared snapshot")
+        clip, track_type = item
+        selector = {
+            "resolve_item_id": target_id,
+            "source_file": str(clip["source_file"]),
+            "source_in_frame": int(clip["source_in_frame"]),
+            "source_out_frame": int(clip["source_out_frame"]),
+            "track_type": track_type,
+        }
+        address = timeline_addressing.resolve_item(timeline, selector)
+        timeline_addressing.verify_item(timeline, address)
+        live_span = _item_span(address.item)
+        expected = (int(clip["record_in"]), int(clip["record_out"]))
+        actual = (int(live_span["record_in"]), int(live_span["record_out"]))
+        if actual != expected:
+            raise timeline_addressing.StaleTarget(
+                f"batch target {target_id!r} changed record span from "
+                f"{expected} to {actual} since preparation")
+        evidence.append({**selector, "record_in": actual[0],
+                         "record_out": actual[1]})
+    return evidence
 
 
 def _execute_registered_backend(*, backend: str, plan: Mapping,
@@ -212,6 +435,13 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     if not executors:
         raise ValueError("routed semantic request contains no executable operations")
+    if len(operations) > 1 and (
+            backend_id != "resolve_axi"
+            or any(str(operation["op"]) not in {"clip.trim", "clip.delete"}
+                   for operation in operations)):
+        raise ValueError(
+            f"{backend_id} has no verified batch recovery strategy for this "
+            "multi-operation request; no operation was applied")
 
     execution = ExecutionInput(
         intent=request.to_dict(), decision=decision,
@@ -240,8 +470,9 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             "transaction_id": request.id,
             "idempotency_key": request.idempotency_key,
             "project": request.project, "timeline": request.timeline,
-            "base_generation": generation.generation,
             "atomic": False, "atomicity": "sequential_non_atomic",
+            "base_generation": generation.generation,
+            "concurrency": "exclusive_broker_lease_for_batch",
             "mutated": bool(receipts or (evidence or {}).get("mutated")),
             "completion_claimed": False,
             "partial_result_preserved": bool(
@@ -278,46 +509,130 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         from library.tools.transaction_orchestration import standardize_receipt
         return standardize_receipt(failure_receipt)
 
-    for index, executor in executors:
-        context = EditExecutionContext(
-            execution=execution, request=request, preparation=preparation,
-            compiled=compiled, generation=generation, snapshot=snapshot,
-            operation=operations[index], operation_index=index, owner=owner,
-        )
-        try:
-            result = executor(context)
-        except Exception as exc:  # noqa: BLE001 - preserve partial result
-            return refused("backend_failure",
-                           f"{type(exc).__name__}: {exc}",
-                           failed_index=index)
-        if not isinstance(result, Mapping):
-            return refused(
-                "verification_failed",
-                f"adapter for {operations[index]['op']} on {backend_id} "
-                "did not return a receipt mapping", failed_index=index)
-        receipt = (dict(result) if result.get("execution_contract")
-                   else standardize_receipt(result))
-        verification = (receipt.get("execution_contract") or {}).get(
-            "verification", {})
-        if (verification.get("status") != "verified"
-                or not verification.get("checks")
-                or not isinstance(verification.get("evidence"), Mapping)
-                or not verification.get("evidence")):
-            return refused(
-                "verification_failed",
-                f"adapter for {operations[index]['op']} on {backend_id} "
-                "returned without operation-level verification evidence",
-                failed_index=index,
-                evidence={"adapter_receipt": receipt,
-                          "mutated": receipt.get("mutated", True)},
+    def compensate_completed(failure_evidence: Mapping | None = None) -> dict:
+        return _compensate_registered_operations(
+            receipts, timeline=request.timeline,
+            failure_evidence=failure_evidence)
+
+    def run_operations() -> dict | None:
+        for index, executor in executors:
+            context = EditExecutionContext(
+                execution=execution, request=request, preparation=preparation,
+                compiled=compiled, generation=generation, snapshot=snapshot,
+                operation=operations[index], operation_index=index, owner=owner,
             )
-        receipts.append({"operation_index": index,
-                         "operation": operations[index],
-                         "target_identity": {
-                             key: operations[index][key]
-                             for key in ("unique_id", "client_unique_id")
-                             if key in operations[index]},
-                         "receipt": receipt})
+            try:
+                result = executor(context)
+            except Exception as exc:  # noqa: BLE001 - preserve partial result
+                return refused("backend_failure",
+                               f"{type(exc).__name__}: {exc}",
+                               failed_index=index,
+                               evidence={"mutation_state": "unknown",
+                                         "mutated": True,
+                                         "operation_index": index,
+                                         "error": repr(exc)})
+            if not isinstance(result, Mapping):
+                return refused(
+                    "verification_failed",
+                    f"adapter for {operations[index]['op']} on {backend_id} "
+                    "did not return a receipt mapping", failed_index=index,
+                    evidence={"mutation_state": "unknown", "mutated": True,
+                              "operation_index": index})
+            receipt = (dict(result) if result.get("execution_contract")
+                       else standardize_receipt(result))
+            verification = (receipt.get("execution_contract") or {}).get(
+                "verification", {})
+            if (verification.get("status") != "verified"
+                    or not verification.get("checks")
+                    or not isinstance(verification.get("evidence"), Mapping)
+                    or not verification.get("evidence")):
+                return refused(
+                    "verification_failed",
+                    f"adapter for {operations[index]['op']} on {backend_id} "
+                    "returned without operation-level verification evidence",
+                    failed_index=index,
+                    evidence={"adapter_receipt": receipt,
+                              "mutated": receipt.get("mutated", True),
+                              "operation_index": index},
+                )
+            receipts.append({"operation_index": index,
+                             "operation": operations[index],
+                             "target_identity": dict(
+                                 receipt.get("target_identity") or {
+                                     key: operations[index][key]
+                                     for key in ("unique_id", "client_unique_id")
+                                     if key in operations[index]}),
+                             "receipt": receipt})
+        return None
+
+    from library.tools.resolve_lock import resolve_lease
+
+    batch_receipt = None
+    # Hold the broker lease across the entire batch so another Ren
+    # transaction cannot interleave between its operations.
+    with resolve_lease(
+            "resolve-axi-operation-batch", exclusive=True, owner=owner,
+            project=request.project, timeline=request.timeline,
+            edit_ids=tuple(str(operation.get("unique_id", ""))
+                           for operation in operations)):
+        from library.tools import timeline_shadow
+
+        current = [
+            (head, live_snapshot)
+            for head, live_snapshot in
+            timeline_shadow.ShadowStore().current_snapshots(request.project)
+            if head.timeline_name == request.timeline
+        ]
+        if len(current) != 1 or current[0][0].generation != generation.generation:
+            refusal = refused(
+                "stale", "timeline generation changed after preparation; "
+                "the batch was not applied", failed_index=0)
+        elif (len(operations) > 1
+              and all(str(operation["op"]) == "clip.delete"
+                      for operation in operations)):
+            try:
+                batch_receipt = _execute_registered_delete_batch(
+                    request=request, compiled=compiled,
+                    generation=generation, snapshot=snapshot,
+                    decision=decision, owner=owner)
+                refusal = None
+            except Exception as exc:  # noqa: BLE001 - patch owns recovery
+                preflight_refused = isinstance(
+                    exc, RegisteredBatchPreflightRefused)
+                refusal = refused(
+                    "backend_failure",
+                    f"single EditPatch delete batch failed: "
+                    f"{type(exc).__name__}: {exc}", failed_index=0,
+                    evidence={"mutation_state": ("none" if preflight_refused
+                                                 else "unknown"),
+                              "mutated": not preflight_refused,
+                              "operation_index": 0, "error": repr(exc)})
+        elif len(operations) > 1 and backend_id == "resolve_axi":
+            try:
+                _revalidate_registered_targets(
+                    request=request, operations=operations, snapshot=snapshot)
+                refusal = run_operations()
+            except Exception as exc:  # noqa: BLE001 - read-only preflight
+                refusal = refused(
+                    "stale", f"batch target preflight failed: "
+                    f"{type(exc).__name__}: {exc}", failed_index=0,
+                    evidence={"mutation_state": "none", "mutated": False,
+                              "operation_index": 0, "error": repr(exc)})
+        else:
+            refusal = run_operations()
+        if refusal is not None and receipts:
+            recovery = compensate_completed(refusal.get("failure_evidence"))
+            recovery["failure_reason"] = refusal["refusal"]["reason"]
+            recovery["failed_operation_index"] = refusal[
+                "failed_operation_index"]
+            refusal["recovery"] = recovery
+        elif refusal is not None and refusal.get("mutated"):
+            refusal["recovery"] = compensate_completed(
+                refusal.get("failure_evidence"))
+    if refusal is not None:
+        return refusal
+    if batch_receipt is not None:
+        return batch_receipt
 
     from library.tools.timeline_shadow import ShadowStore
     heads = [head for head, _snapshot in
@@ -377,6 +692,7 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "backend": backend, "generation": committed_generation,
         "base_generation": base_generation,
         "atomic": False, "atomicity": "sequential_non_atomic",
+        "concurrency": "exclusive_broker_lease_for_batch",
         "mutated": True,
         "affected_items": sorted({
             str(op["unique_id"]) for op in operations if op.get("unique_id")}),

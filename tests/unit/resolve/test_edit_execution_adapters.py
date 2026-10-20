@@ -50,9 +50,13 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
     }]}
     monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
         calls.append(command) or SimpleNamespace(
-            ok=True, stdout="command completed", stderr="")))
+            ok=True,
+            stdout="command completed\njournal:\n  entry: journal-17",
+            stderr="")))
     monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
                         lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
 
     receipt = adapters._trim(_context({
         "op": "clip.trim", "unique_id": "clip-17",
@@ -61,11 +65,23 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
 
     assert calls == [[
         "edit", "trim", "--track", "V2", "--index", "0",
-        "--source-in", "9", "--source-out", "60", "--apply",
+        "--source-in", "9", "--source-out", "60",
+        "--target-unique-id", "clip-17",
+        "--expected-source-file", "/media/music.wav",
+        "--expected-source-in-frame", "5",
+        "--expected-source-out-frame", "64",
+        "--expected-record-in-frame", "20",
+        "--expected-record-out-frame", "80",
+        "--project-folder", "/tmp/project", "--require-recovery",
+        "--apply",
         "--project", "project-1", "--timeline", "Reel 01 - opening",
     ]]
     assert receipt["execution_contract"]["verification"]["status"] == "verified"
     assert receipt["acceptance_contracts"][0]["passed"]
+    assert receipt["execution_contract"]["recovery"]["reference"] == {
+        "kind": "undo_journal_entry", "project_folder": "/tmp/project",
+        "entry_id": "journal-17",
+    }
 
 
 def test_caption_fix_refuses_without_readable_title_text():
@@ -93,6 +109,21 @@ def test_prepared_position_is_refused_after_prior_structural_mutation():
     context.compiled = SimpleNamespace(operations=(
         {"op": "clip.delete", "unique_id": "clip-99"},
         context.operation,
+    ))
+    context.operation_index = 1
+
+    with pytest.raises(ValueError, match="cannot safely reuse a prepared"):
+        adapters._target_position_for_context(context, "clip-17")
+
+
+@pytest.mark.parametrize("prior_operation", [
+    "clip.insert", "clip.delete", "clip.trim", "clip.move",
+])
+def test_later_positional_mutation_refuses_a_stale_prepared_index(
+        prior_operation):
+    context = _context({"op": "overlay.resize", "unique_id": "clip-17"})
+    context.compiled = SimpleNamespace(operations=(
+        {"op": prior_operation, "unique_id": "clip-99"}, context.operation,
     ))
     context.operation_index = 1
 
