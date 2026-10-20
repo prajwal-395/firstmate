@@ -8291,3 +8291,44 @@ under the lease would hold the very lock the holder needs.
 judgement: an abandoned session whose origin is the captain's project leaves the machine in a
 Ren-owned scratch project and NAMES that origin, and the route back to the captain's project
 stays recorded until the holder's own restore unwinds it.
+
+## the-caption-operation-that-carried-no-style
+
+**The rule:** AGENTS.md 3, "A declaration must be true", applied to an operation: it
+states the parameters its algebra declares required, and a builder that omits one is
+refused rather than completed.
+
+**What happened.** The AXI-11 live adapter builds the `caption.style` operation it
+records for the restyle request:
+
+```
+operations.append({"op": "caption.style", "unique_id": card["unique_id"]})
+```
+
+`edit_algebra` declares `required=("unique_id", "style")` for that op, and
+`library/tools/edit_request.py::from_axi_operations` checks exactly that set. The
+request therefore never became a request: the recorded operation reached
+`_restyle_captions_evidence` -> `_route_executing` and the builder refused it with
+`op 0 ('caption.style') is missing required parameters: style`. The restyle itself
+had already succeeded - two cards were re-rendered in `bold_large` and swapped in
+place with their text and timing preserved - so the lane reported a refusal of a
+request whose edit had landed, and the recorded route was a refusal rather than the
+route the executed AXI entry took.
+
+The defect was in the BUILDER, not in the check. `edit_request` refused the
+operation because the operation did not carry the style it applies; the fix is to
+build the operation with its style, never to relax the required-parameter check.
+
+**Where it is.** `library/tools/subtitle_style.py::caption_style_operation` is the
+one builder of a `caption.style` operation: it takes the style NAME, refuses a name
+that is not in `SUBTITLE_STYLES` (never guessed), and returns the operation with the
+`style` the algebra requires. The live adapter's broker script
+(`tests/live/editorial_live_adapter.py`) and the blind driver
+(`tests/live/blind_driver.py`) both build through it, and the adapter's render reads
+the same name the operation records.
+
+**What it does not fix.** The required-parameter check in `edit_request` is
+unchanged and still refuses a `caption.style` operation that names no style - that
+refusal is the contract, and it is what caught this. The other algebra operations
+keep their own builders; nothing here generalises to them until one of them is
+caught the same way.

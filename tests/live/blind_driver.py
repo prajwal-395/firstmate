@@ -115,11 +115,10 @@ def interpret(instruction: str) -> dict[str, Any]:
             "brief": "",
         }
     if _has(text, "caption style", "every caption"):
+        from library.tools.subtitle_style import caption_style_operation
         style = "bold_large" if "bold" in text else "bold_large"
         return {
-            "operations": [{"op": "caption.style",
-                            "unique_id": "blind-caption",
-                            "style": style}],
+            "operations": [caption_style_operation("blind-caption", style)],
             "role": "all_caption_cards",
             "case": "restyle_captions",
             "brief": "",

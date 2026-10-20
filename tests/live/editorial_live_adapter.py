@@ -1052,6 +1052,11 @@ if TASK in ("all", "restyle_captions"):
     restyle_before = live_items()
     per_caption = []
     operations = []
+    # The style every caption card is restyled to, named once: the
+    # recorded operation and the render read the SAME name.
+    CAPTION_STYLE = "bold_large"
+    from library.tools.subtitle_style import (
+        caption_style_operation as _caption_style_operation)
     for index, (card_name, card_path) in enumerate(card_files):
         record = 96 + index * 48
         placed = call(["edit", "place", "--clip", card_name,
@@ -1069,13 +1074,13 @@ if TASK in ("all", "restyle_captions"):
                     if row["kind"] == "video"
                     and row["name"] == card_name
                     and row["record"] == [record, record + 48])
-        operations.append({"op": "caption.style",
-                           "unique_id": card["unique_id"]})
+        operations.append(_caption_style_operation(card["unique_id"],
+                                                  CAPTION_STYLE))
     from library.tools.edit_execution_adapters import (
         _resolve_named_caption_style as _resolve_style)
     from library.tools import operations as _pipeline_operations
     rerender = _pipeline_operations.get("subtitles.rerender_swap").run
-    new_style = _resolve_style(PROJECT_DIR, "bold_large")
+    new_style = _resolve_style(PROJECT_DIR, CAPTION_STYLE)
     import traceback as _traceback_mod
     def _restyle_one_card(card_name):
         card = next(row for row in live_items()

@@ -374,6 +374,30 @@ def get_subtitle_style(name: str) -> SubtitleStyle:
         ) from None
 
 
+def caption_style_operation(unique_id: str, style_name: str) -> dict[str, Any]:
+    """The `caption.style` algebra operation for one caption card.
+
+    The operation carries the style it applies. `edit_algebra` declares
+    `style` REQUIRED on this op, and `edit_request` refuses a request
+    built from an operation without it - so an operation that omits the
+    style never reaches a backend at all.
+
+    The style name is checked against `SUBTITLE_STYLES` here: a style
+    that does not exist is refused, never guessed. This is the ONE
+    builder of a caption.style operation, so the live fixture and any
+    production caller state the same required parameter. [why - the
+    recorded operation that carried no style and was refused before it
+    reached the router](docs/RULE_EVIDENCE.md#the-caption-operation-that-carried-no-style)
+    """
+    get_subtitle_style(style_name)
+    if not unique_id:
+        raise ValueError(
+            "caption.style names no unique_id - the card to restyle is "
+            "required, never inferred")
+    return {"op": "caption.style", "unique_id": str(unique_id),
+            "style": str(style_name)}
+
+
 def project_subtitle_typography(
         project_folder: Optional[str]) -> Optional[Dict[str, Any]]:
     """`pipeline.subtitle_typography` off a project.yaml, or None.
