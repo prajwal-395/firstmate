@@ -373,6 +373,13 @@ pub enum EditOp {
         width: i64,
         height: i64,
     },
+    /// Move an overlay by a signed output-pixel delta, preserving its size and timing.
+    #[serde(rename = "overlay.position")]
+    OverlayPosition {
+        unique_id: ClipId,
+        dx: f64,
+        dy: f64,
+    },
     #[serde(rename = "overlay.entry_motion")]
     OverlayEntryMotion { unique_id: ClipId, frames: i64 },
     /// Rebind the media windows on a freeze-hold tail without changing its picture.
@@ -508,6 +515,7 @@ impl EditOp {
             EditOp::OverlayRemove { .. } => "overlay.remove",
             EditOp::OverlaySwapPixels { .. } => "overlay.swap_pixels",
             EditOp::OverlayResize { .. } => "overlay.resize",
+            EditOp::OverlayPosition { .. } => "overlay.position",
             EditOp::OverlayEntryMotion { .. } => "overlay.entry_motion",
             EditOp::HoldRepairWindow { .. } => "hold.repair_window",
             EditOp::TransformOverride { .. } => "transform_override",

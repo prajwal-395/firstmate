@@ -13,6 +13,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `audio.pan` | `none` | True | the inverse carries the previous pan |
 | `audio_mix` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `brand_asset` | `none` | False | a planner re-run has no timeline inverse (C-04) |
+| `caption.style` | `none` | True | the inverse carries the previous style |
 | `caption_fix` | `none` | True | the inverse carries the previous text |
 | `clip.delete` | `clip.insert` | False | re-inserts the deleted source range |
 | `clip.insert` | `clip.delete` | False | none |
@@ -62,7 +63,9 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `music_selection` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `overlay.add` | `overlay.remove` | False | none |
 | `overlay.entry_motion` | `none` | True | the inverse clears the animation |
+| `overlay.position` | `none` | True | the inverse carries the previous position |
 | `overlay.remove` | `overlay.add` | False | re-places the removed item |
+| `overlay.replace` | `none` | True | the inverse carries the previous file |
 | `overlay.resize` | `none` | True | the inverse carries the previous size |
 | `overlay.swap_pixels` | `none` | True | the inverse carries the previous file |
 | `picture.keyframe` | `none` | True | the inverse carries the previous keyframes |

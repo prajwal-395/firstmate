@@ -529,6 +529,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous size") },
     },
     OpDeclaration {
+        id: "overlay.position", domain: "fusion",
+        required: &["unique_id", "dx", "dy"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous position") },
+    },
+    OpDeclaration {
         id: "overlay.entry_motion", domain: "fusion",
         required: &["unique_id", "frames"],
         merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
@@ -891,6 +898,7 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         EditOp::OverlayRemove { unique_id } => item_span(base, &unique_id.0),
         EditOp::OverlaySwapPixels { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayResize { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::OverlayPosition { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayEntryMotion { unique_id, .. } => item_span(base, &unique_id.0),
         // Rebinds the existing hold item's Fusion comp windows in place.
         EditOp::HoldRepairWindow { unique_id } => item_span(base, &unique_id.0),
@@ -1297,6 +1305,10 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text("overlay".to_string()),
             KeyPart::Text(unique_id.0.clone()),
         ],
+        EditOp::OverlayPosition { unique_id, .. } => vec![
+            KeyPart::Text("overlay".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+        ],
         EditOp::OverlayEntryMotion { unique_id, .. } => vec![
             KeyPart::Text("overlay".to_string()),
             KeyPart::Text(unique_id.0.clone()),
@@ -1444,6 +1456,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::OverlayRemove { unique_id } => Some(unique_id.0.clone()),
         EditOp::OverlaySwapPixels { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayResize { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::OverlayPosition { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayEntryMotion { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::HoldRepairWindow { unique_id } => Some(unique_id.0.clone()),
         EditOp::TransformOverride { unique_id, .. } => Some(unique_id.0.clone()),
@@ -1537,6 +1550,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::OverlayRemove { .. } => None,
         EditOp::OverlaySwapPixels { .. } => None,
         EditOp::OverlayResize { .. } => None,
+        EditOp::OverlayPosition { .. } => None,
         EditOp::OverlayEntryMotion { .. } => None,
         // Fusion comp window state is not represented in Snapshot; the
         // staging operation performs its own stable re-read verification.

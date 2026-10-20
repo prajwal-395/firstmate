@@ -685,6 +685,12 @@ def _touchup(context) -> dict:
         edit = {"op": "resize_overlay", "row": row, "item": index,
                 "width": int(operation["width"]),
                 "height": int(operation["height"])}
+    elif operation_id == "overlay.position":
+        row, index = _target_position_for_context(
+            context, str(operation["unique_id"]))
+        edit = {"op": "position_overlay", "row": row, "item": index,
+                "dx": float(operation["dx"]),
+                "dy": float(operation["dy"])}
     else:
         row, index = _target_position_for_context(
             context, str(operation["unique_id"]))
@@ -800,6 +806,7 @@ def register_builtin_edit_executors() -> None:
         ("audio.gain", "reel_touchup"): _audio_gain,
         ("transition", "reel_touchup"): _touchup,
         ("overlay.resize", "reel_touchup"): _touchup,
+        ("overlay.position", "reel_touchup"): _touchup,
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,

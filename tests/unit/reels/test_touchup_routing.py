@@ -11,6 +11,7 @@ def test_touchup_routing_preserves_overlay_and_row_operation_identity():
         "swap_pixels": "overlay.swap_pixels",
         "resize_still": "overlay.resize",
         "resize_overlay": "overlay.resize",
+        "position_overlay": "overlay.position",
         "split": "clip.split",
         "slide": "clip.slide",
         "roll": "clip.roll",

@@ -601,7 +601,8 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # them under the default production policy above.
     if (len(ids) == 1
             and ids[0] in {"audio.gain", "audio.fade", "transition",
-                           "overlay.resize", "clip.split", "clip.slide",
+                           "overlay.resize", "overlay.position",
+                           "clip.split", "clip.slide",
                            "clip.roll"}
             and context.get("qualification_policy") == "protected_experimental"):
         status = edit_algebra.status(ids[0])

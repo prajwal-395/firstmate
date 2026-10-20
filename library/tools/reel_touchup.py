@@ -231,6 +231,7 @@ _STRUCTURAL_OPERATION_IDS = {
     "swap_pixels": "overlay.swap_pixels",
     "resize_still": "overlay.resize",
     "resize_overlay": "overlay.resize",
+    "position_overlay": "overlay.position",
     "split": "clip.split",
     "slide": "clip.slide",
     "roll": "clip.roll",
@@ -684,6 +685,17 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
             "mixing it with another resize or structural write would make "
             "the candidate evidence ambiguous",
             "resize one overlay or still per `ren touch` request")
+    position_positions = [index for index, edit in enumerate(edits)
+                          if isinstance(edit, Mapping)
+                          and str(edit.get("op") or "") in {
+                              "position_overlay"}]
+    if position_positions and (len(edits) != 1 or len(position_positions) != 1):
+        raise TouchupRefused(
+            "a position must be the only edit in its request",
+            "position verification requires one isolated staged change; "
+            "mixing it with another position or structural write would make "
+            "the candidate evidence ambiguous",
+            "position one overlay per `ren touch` request")
     exclude = [(str(r), int(i)) for r, i in
                ((spec or {}).get("exclude") or ())]
     # A copy: `add_row` appends the row it will make, so later edits in
@@ -1480,6 +1492,58 @@ def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
     return False
 
 
+def _op_position_overlay(edit, position, tracks, spans, changes, insertions,
+                         removals, moves, exclude, notes, in_place) -> bool:
+    """Declare an output-pixel translation for one untreated PNG overlay.
+
+    Native transform lowering happens against the live staged item in
+    ``_apply_in_place`` so it can use that timeline's resolution and proxy
+    units. Size and timing are preserved; only the box centre moves by the
+    signed (dx, dy) output-pixel delta. Promotion is gated by a rendered
+    enabled/disabled pixel diff, the same evidence the resize path uses.
+    """
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    try:
+        dx, dy = float(edit["dx"]), float(edit["dy"])
+    except (KeyError, TypeError, ValueError) as invalid:
+        raise TouchupRefused(
+            f"edit {position} (`position_overlay`) needs numeric dx/dy",
+            "output geometry must be expressed as a signed delivery-pixel delta",
+            "provide signed output-pixel dx and dy") from invalid
+    from math import isfinite as _isfinite
+    if (not row.startswith("V") or not row[1:].isdigit()
+            or int(row[1:]) < 3 or item_index is None
+            or not _isfinite(dx) or not _isfinite(dy)
+            or (dx == 0 and dy == 0)):
+        raise TouchupRefused(
+            f"edit {position} (`position_overlay`) has an invalid overlay target or delta",
+            "only an existing V3+ overlay with a non-zero finite output-pixel delta is supported",
+            "address one overlay row item and provide a non-zero dx/dy")
+    clip = _find_clip(tracks, row, int(item_index))
+    source = str(clip.get("source_file") or "")
+    if (clip.get("media_type") != "Still" or not source.lower().endswith(".png")
+            or _ce.treatment_comps(clip)):
+        raise TouchupRefused(
+            f"edit {position} (`position_overlay`) targets unsupported media {source!r}",
+            "the first route is limited to a native PNG still without a drawing Fusion comp",
+            "use a native PNG overlay without a Fusion treatment")
+    if clip.get("enabled") is not True:
+        raise TouchupRefused(
+            f"edit {position} (`position_overlay`) target {row}[{item_index}] "
+            "is disabled or its enabled state is unreadable",
+            "rendered-pixel verification temporarily toggles the candidate item",
+            "use a visible overlay with readable enabled state")
+    in_place.append({"kind": "overlay_position", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": int(clip["record_in"]),
+                     "dx": dx, "dy": dy,
+                     "source_file": source})
+    notes.append(f"edit {position}: position {row}[{item_index}] by "
+                 f"({dx:g}, {dy:g}) output pixels; verify rendered box")
+    return False
+
+
 def _require_simple_picture_clip(clip: Mapping, op: str, position: int,
                                  row: str, index: int) -> None:
     if not row.startswith("V"):
@@ -2202,6 +2266,7 @@ _OP_HANDLERS = {
     "slip": _op_slip,
     "resize_still": _op_resize_still,
     "resize_overlay": _op_resize_overlay,
+    "position_overlay": _op_position_overlay,
     "split": _op_split,
     "slide": _op_slide,
     "roll": _op_roll,
@@ -3164,6 +3229,98 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
             "correct the overlay or timeline measurements and retry") from exc
 
 
+def _overlay_position_projection(item: Any, timeline: Any, project: Any,
+                                 entry: Mapping) -> tuple[dict, dict]:
+    """Lower an output-pixel translation to native properties and pixel-QA."""
+    from PIL import Image
+
+    from library.tools.layout_model import (
+        GeometryDescriptor,
+        LayoutItem,
+        LayoutModel,
+        Transform,
+        current_proxy_units,
+    )
+
+    pool_item = item.GetMediaPoolItem()
+    if pool_item is None:
+        raise TouchupRefused(
+            "overlay.position target has no media-pool item",
+            "the source canvas and identity must be measured before a transform write",
+            "re-read the exact still overlay")
+    path = str(pool_item.GetClipProperty("File Path") or "")
+    if not path or os.path.realpath(path) != os.path.realpath(
+            str(entry["source_file"])):
+        raise TouchupRefused(
+            "overlay.position source identity changed on staging",
+            "the candidate must still contain the exact targeted asset",
+            "discard the stale candidate and re-address the overlay")
+    try:
+        with Image.open(path) as asset:
+            source_size = tuple(map(int, asset.size))
+            alpha = asset.convert("RGBA").getchannel("A")
+            if alpha.getbbox() is None:
+                raise ValueError("asset has no alpha ink")
+            if alpha.getextrema()[0] == 255:
+                raise ValueError("asset has no transparent pixels")
+        frame = (int(timeline.GetSetting("timelineResolutionWidth")),
+                 int(timeline.GetSetting("timelineResolutionHeight")))
+        stored = item.GetProperty() or {}
+        if not isinstance(stored, Mapping):
+            raise TypeError("native transform properties are unreadable")
+        units = current_proxy_units(project)
+        current = Transform.from_dict({**dict(stored),
+                                       "pan_units": units,
+                                       "tilt_units": units})
+        if abs(current.rotation) > 1e-7 or abs(current.scaling - 1.0) > 1e-7:
+            raise ValueError(
+                "rotation or non-native Scaling has no qualified position projection")
+        model = LayoutModel(*frame, units, units)
+        current_item = LayoutItem(*source_size, current)
+        centre = model.local_to_canvas(
+            current_item, source_size[0] * current.anchor_x,
+            source_size[1] * current.anchor_y)
+        placed = model.placed_box(current_item)
+        width, height = placed[2] - placed[0], placed[3] - placed[1]
+        dx, dy = float(entry["dx"]), float(entry["dy"])
+        box = (centre[0] + dx - width / 2, centre[1] + dy - height / 2,
+               centre[0] + dx + width / 2, centre[1] + dy + height / 2)
+        if (box[0] < 0 or box[1] < 0
+                or box[2] > frame[0] or box[3] > frame[1]):
+            raise ValueError(
+                "translated box would clip outside the delivery frame")
+        lowered = model.place_absolute_box(
+            source_size, box, anchor=(current.anchor_x, current.anchor_y),
+            rotation=0.0, crop=(0.0, 0.0, 0.0, 0.0),
+            draw_gain=current.draw_gain)
+        properties = {key: float(value) for key, value in {
+            "Pan": lowered.pan, "Tilt": lowered.tilt,
+            "ZoomX": lowered.zoom_x, "ZoomY": lowered.zoom_y,
+            "Scaling": lowered.scaling,
+        }.items()}
+        descriptor = GeometryDescriptor(
+            frame=frame, box=box, canvas=source_size,
+            anchor=(current.anchor_x, current.anchor_y),
+            source_size=source_size, asset_mode="tight")
+        record = {
+            "label": f"{entry['row']}@{entry['record_frame']}",
+            "overlay_path": path, "absolute_box": box,
+            "geometry": descriptor.to_dict(), "canvas_wh": source_size,
+            "timeline_start_frame": int(item.GetStart()),
+            "duration_frames": int(item.GetDuration()),
+            "source_start_frame": int(item.GetSourceStartFrame()),
+            "requested_delta": [dx, dy],
+        }
+        return properties, record
+    except TouchupRefused:
+        raise
+    except Exception as exc:
+        raise TouchupRefused(
+            f"overlay.position geometry could not be lowered: {exc}",
+            "source pixels, proxy units, transform, and timeline canvas must all be measurable",
+            "correct the overlay or timeline measurements and retry") from exc
+
+
 def apply_touchup(project_folder: str, spec: Mapping,
                   resolve_project_name: str = "",
                   allow_drops=None,
@@ -3618,6 +3775,7 @@ def _apply_in_place(project: Any, staged: Any,
 
     applied: dict = {"properties": [], "enabled": [], "audio_fades": [],
                      "transitions": [], "overlay_resizes": [],
+                     "overlay_positions": [],
                      "entry_motion": [], "hold_windows": []}
     if not qualification.in_place:
         return applied
@@ -3861,6 +4019,27 @@ def _apply_in_place(project: Any, staged: Any,
                 "row": row, "record_frame": entry["record_frame"],
                 "properties": properties, "pixel_record": pixel_record,
                 "verified": False})
+            continue
+        if entry.get("kind") == "overlay_position":
+            try:
+                unique_id = str(item.GetUniqueId() or "")
+            except Exception:  # noqa: BLE001 - a staged target must be addressable
+                unique_id = ""
+            if not unique_id:
+                raise TouchupError(
+                    f"the staged {row}@{entry.get('record_frame')} has no "
+                    "unique id for overlay.position")
+            properties, pixel_record = _overlay_position_projection(
+                item, staged, project, entry)
+            for key, value in sorted(properties.items()):
+                patch_operations.append({
+                    "op": "clip.set_property", "unique_id": unique_id,
+                    "key": key, "value": value})
+            applied["overlay_positions"].append({
+                "row": row, "record_frame": entry["record_frame"],
+                "properties": properties, "pixel_record": pixel_record,
+                "verified": False})
+            continue
     if patch_operations:
         from library.tools import edit_patch
         from library.tools import transaction_orchestration as _orch
@@ -4280,6 +4459,27 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         for row in resize_rows:
             row["verified"] = True
         receipt["in_place"]["overlay_resize_pixels"] = pixel_report
+    position_rows = (receipt.get("in_place") or {}).get(
+        "overlay_positions") or []
+    if position_rows:
+        if resolve_app is None:
+            raise TouchupError(
+                "overlay.position requires a Resolve handle for independent "
+                "rendered-pixel verification; approved timeline remains intact")
+        from library.tools.overlay_verify import verify_rendered_boxes
+        position_report = verify_rendered_boxes(
+            resolve_app, project, staged,
+            [row["pixel_record"] for row in position_rows],
+            os.path.join(comp_dir, "overlay_position_pixels"),
+            tolerance_px=2)
+        if (position_report.get("passed") is not True
+                or int(position_report.get("checked", 0)) != len(position_rows)):
+            raise TouchupError(
+                "overlay.position rendered-pixel verification failed or was "
+                f"incomplete: {position_report}")
+        for row in position_rows:
+            row["verified"] = True
+        receipt["in_place"]["overlay_position_pixels"] = position_report
     staged_tracks = _read.read_tracks(staged)
     receipt["verification_read"] = _summarise_rows(staged_tracks)
     acceptance_operations = list(spec.get("acceptance_operations") or ())

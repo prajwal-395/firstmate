@@ -2395,6 +2395,19 @@ ALGEBRA: dict[str, AlgebraOp] = {
         note="Width and height are output-geometry values. The staged "
              "candidate adapter links the geometry model to rendered-pixel "
              "verification; live qualification remains deferred."),
+    "overlay.position": AlgebraOp(
+        id="overlay.position", domain="fusion",
+        required=("unique_id", "dx", "dy"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("overlay", op["unique_id"]), merge="replace",
+        inverse=_self("the inverse carries the previous position"),
+        note="dx/dy are signed output-pixel deltas (dx positive right, "
+             "dy positive down, so up by 40 output pixels is dy=-40). "
+             "Size, timing and every other item are preserved. The staged "
+             "candidate adapter lowers the translated box through the "
+             "geometry model to rendered-pixel verification; live "
+             "qualification remains deferred."),
     "overlay.entry_motion": AlgebraOp(
         id="overlay.entry_motion", domain="fusion",
         required=("unique_id", "frames"),
@@ -2904,6 +2917,7 @@ TOUCHUP_VIEW = {
     "retime": "retime",
     "resize_still": "overlay.resize",
     "resize_overlay": "overlay.resize",
+    "position_overlay": "overlay.position",
     "audio_fade": "audio.fade",
     "split": "clip.split",
     "slide": "clip.slide",
@@ -3084,8 +3098,15 @@ _ROUTE_EVALUATION = {
     "overlay.resize": {
         "inspected": ["Resolve 21.1 TimelineItem.SetProperties/GetProperties and documented Pan/Tilt/ZoomX/ZoomY", "Fusion scripting", "layout_model", "overlay_verify", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
         "available": ["protected reel_touchup lowers output-pixel dimensions through layout_model, writes Pan/Tilt/ZoomX/ZoomY on staging, and verifies an enabled/disabled rendered pixel diff with overlay_verify before promotion", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
-        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling", "live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
+        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
         "next": "Run the deferred geometry qualification on disposable Resolve timelines, including preservation, recovery, clipping and rendered dimensions, before enabling normal routing.",
+        "not_yet_evaluated": [],
+    },
+    "overlay.position": {
+        "inspected": ["Resolve 21.1 TimelineItem.SetProperties/GetProperties and documented Pan/Tilt/ZoomX/ZoomY", "Fusion scripting", "layout_model", "overlay_verify", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
+        "available": ["protected reel_touchup translates the output-pixel box through layout_model, writes Pan/Tilt/ZoomX/ZoomY on staging, and verifies an enabled/disabled rendered pixel diff with overlay_verify before promotion", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
+        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; size and timing preserved, translated box must stay inside the delivery frame and safe area; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
+        "next": "Run the deferred geometry qualification on disposable Resolve timelines, including preservation, recovery, safe-area placement and rendered position, before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "audio.gain": {
@@ -3204,6 +3225,10 @@ _IMPLEMENTATION_EVIDENCE = {
         ("library/tools/reel_touchup.py:_op_resize_overlay",
          "library/tools/reel_touchup.py:_overlay_resize_projection",
          "library/tools/overlay_verify.py:verify_rendered_boxes"),
+    ("overlay.position", "reel_touchup"):
+        ("library/tools/reel_touchup.py:_op_position_overlay",
+         "library/tools/reel_touchup.py:_overlay_position_projection",
+         "library/tools/overlay_verify.py:verify_rendered_boxes"),
     ("clip.split", "reel_touchup"): (
         "library/tools/edit_execution_adapters.py:_touchup",
         "library/tools/reel_touchup.py:_op_split",
@@ -3224,6 +3249,8 @@ _IMPLEMENTATION_EVIDENCE = {
 _BACKEND_OPERATION_LIMITATIONS = {
     ("overlay.resize", "reel_touchup"):
         ("one transparent PNG still on V3+; no drawing Fusion comp, rotation, crop or non-native Scaling; dimensions are delivery pixels; preserve center; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
+    ("overlay.position", "reel_touchup"):
+        ("one transparent PNG still on V3+; no drawing Fusion comp, rotation, crop or non-native Scaling; dx/dy are signed output pixels (dx positive right, dy positive down); size and timing preserved; translated box must stay inside the delivery frame; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
     ("clip.split", "reel_touchup"):
         ("one normal-speed video item without links, Fusion comps, markers, flags, keyframes or color state; exact interior record-frame boundary and readable source bounds; carries native transform properties to the second half; candidate verifies both source/record spans and collateral timeline",),
     ("clip.slide", "reel_touchup"):
@@ -3285,7 +3312,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     touchup = {
         "clip.move", "overlay.swap_pixels", "overlay.replace", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
-        "audio.fade", "audio.gain", "transition", "overlay.resize", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
+        "audio.fade", "audio.gain", "transition", "overlay.resize", "overlay.position", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but
@@ -3784,6 +3811,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "overlay.swap_pixels": SAFETY_COMPLEX_LOCALIZED,
     "overlay.replace": SAFETY_COMPLEX_LOCALIZED,
     "overlay.resize": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.position": SAFETY_COMPLEX_LOCALIZED,
     "overlay.entry_motion": SAFETY_COMPLEX_LOCALIZED,
     "audio.gain": SAFETY_COMPLEX_LOCALIZED,
     "audio.fade": SAFETY_COMPLEX_LOCALIZED,

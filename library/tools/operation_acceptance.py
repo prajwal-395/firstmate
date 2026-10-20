@@ -21,6 +21,7 @@ _STRUCTURAL_CHECKS = {
     "requested_track", "target_absent", "source_identity",
     "requested_source_identity", "record_span_preserved",
     "requested_timeline_span", "asset_identity", "requested_size",
+    "requested_position",
 }
 
 
@@ -29,14 +30,16 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     operation = operation or {}
     op_id = operation.get("acceptance_op", op_id)
     if op_id in {"overlay.add", "overlay.move", "overlay.resize",
-                  "overlay.swap_pixels", "overlay.replace",
-                  "overlay.entry_motion"}:
+                   "overlay.position", "overlay.swap_pixels", "overlay.replace",
+                   "overlay.entry_motion"}:
         checks = ["target_identity", "requested_timeline_span",
                   "unrelated_items_unchanged", *_OVERLAY_VISUAL]
         if op_id == "overlay.add":
             checks.extend(("asset_identity", "alpha_preserved"))
         if op_id == "overlay.resize":
             checks.append("requested_size")
+        if op_id == "overlay.position":
+            checks.append("requested_position")
         return {"id": f"acceptance:{op_id}", "operation": op_id,
                 "checks": list(dict.fromkeys(checks)),
                 "structural_source": "timeline_readback",

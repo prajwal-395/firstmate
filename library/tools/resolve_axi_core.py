@@ -864,7 +864,8 @@ def _prepare_request_plan(request):
                 and len(operation_ids) == 1
                 and operation_ids[0] in {
                     "audio.gain", "audio.fade", "transition",
-                    "overlay.resize", "clip.split", "clip.slide",
+                    "overlay.resize", "overlay.position",
+                    "clip.split", "clip.slide",
                     "clip.roll"}):
             route_context = {
                 "qualification_policy": "protected_experimental",

@@ -15,6 +15,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `audio.pan` | no_executor | `unique_id`, `pan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio_mix` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `caption.style` | implemented_unqualified | `unique_id`, `style` | yes | yes | no | no | post-write snapshot checked by _verify_caption_style |
 | `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
@@ -64,7 +65,9 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `music_selection` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.position` | implemented_unqualified | `unique_id`, `dx`, `dy` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
+| `overlay.replace` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

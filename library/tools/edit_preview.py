@@ -662,6 +662,19 @@ def _effect_overlay_resize(op, state):
     return (before, after)
 
 
+def _effect_overlay_position(op, state):
+    uid = op["unique_id"]
+    clip = _clip_state(state, uid)
+    if clip is None:
+        return (None, None)
+    before = {"dx": clip.get("overlay_dx", 0),
+              "dy": clip.get("overlay_dy", 0)}
+    clip["overlay_dx"] = before["dx"] + op["dx"]
+    clip["overlay_dy"] = before["dy"] + op["dy"]
+    after = {"dx": clip["overlay_dx"], "dy": clip["overlay_dy"]}
+    return (before, after)
+
+
 def _effect_overlay_entry_motion(op, state):
     uid = op["unique_id"]
     clip = _clip_state(state, uid)
@@ -759,6 +772,7 @@ _EFFECTS = {
     "overlay.swap_pixels": _effect_overlay_swap_pixels,
     "overlay.replace": _effect_overlay_swap_pixels,
     "overlay.resize": _effect_overlay_resize,
+    "overlay.position": _effect_overlay_position,
     "overlay.entry_motion": _effect_overlay_entry_motion,
     "transform_override": _effect_transform_override,
     "span_retime": _effect_span_retime,

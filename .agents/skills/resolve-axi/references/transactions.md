@@ -10,6 +10,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 |---|---|---|---:|---:|---:|---:|---|
 | `audio.fade` | implemented_unqualified | `unique_id`, `fade_in`, `fade_out` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.gain` | implemented_unqualified | `unique_id`, `db` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `caption.style` | implemented_unqualified | `unique_id`, `style` | yes | yes | no | no | post-write snapshot checked by _verify_caption_style |
 | `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
@@ -44,7 +45,9 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `multicam.select_angle` | implemented_unqualified | `unique_id`, `angle_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `overlay.position` | implemented_unqualified | `unique_id`, `dx`, `dy` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
+| `overlay.replace` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

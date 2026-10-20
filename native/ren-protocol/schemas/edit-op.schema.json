@@ -1381,6 +1381,31 @@
       ]
     },
     {
+      "description": "Move an overlay by a signed output-pixel delta, preserving its size and timing.",
+      "type": "object",
+      "properties": {
+        "dx": {
+          "type": "number"
+        },
+        "dy": {
+          "type": "number"
+        },
+        "op": {
+          "type": "string",
+          "const": "overlay.position"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "dx",
+        "dy"
+      ]
+    },
+    {
       "type": "object",
       "properties": {
         "frames": {
