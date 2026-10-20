@@ -448,6 +448,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         item: true, has_apply: false,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous angle") },
     },
+    OpDeclaration {
+        id: "multicam.select_angle", domain: "picture_transform",
+        required: &["unique_id", "angle_index"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous angle") },
+    },
     // ── compound (domain: timeline_structure) ────────────────────────
     OpDeclaration {
         id: "compound.create", domain: "timeline_structure",
@@ -841,6 +848,7 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
 
         // ── multicam ────────────────────────────────────────────
         EditOp::MulticamAngle { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::MulticamSelectAngle { unique_id, .. } => item_span(base, &unique_id.0),
 
         // ── compound ────────────────────────────────────────────
         EditOp::CompoundCreate {
@@ -1212,6 +1220,11 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text(unique_id.0.clone()),
             KeyPart::Text("angle".to_string()),
         ],
+        EditOp::MulticamSelectAngle { unique_id, .. } => vec![
+            KeyPart::Text("clip".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+            KeyPart::Text("angle".to_string()),
+        ],
 
         // ── compound ────────────────────────────────────────────
         EditOp::CompoundCreate { unique_id, .. } => vec![
@@ -1411,6 +1424,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::MaskEdit { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MaskTrack { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::MulticamAngle { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::MulticamSelectAngle { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::CompoundCreate { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::CompoundFlatten { unique_id } => Some(unique_id.0.clone()),
         EditOp::OverlayRemove { unique_id } => Some(unique_id.0.clone()),
@@ -1497,6 +1511,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::MaskEdit { .. } => None,
         EditOp::MaskTrack { .. } => None,
         EditOp::MulticamAngle { .. } => None,
+        EditOp::MulticamSelectAngle { .. } => None,
         EditOp::CompoundCreate { .. } => None,
         EditOp::CompoundFlatten { .. } => None,
         EditOp::TrackAdd { .. } => None,

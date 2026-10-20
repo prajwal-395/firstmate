@@ -58,6 +58,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `mask.track` | `none` | True | the inverse carries the previous keyframes (empty means none) and the previous geometry |
 | `motion_graphic` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `multicam.angle` | `none` | True | the inverse carries the previous angle |
+| `multicam.select_angle` | `none` | True | the inverse carries the previous angle |
 | `music_selection` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `overlay.add` | `overlay.remove` | False | none |
 | `overlay.entry_motion` | `none` | True | the inverse clears the animation |

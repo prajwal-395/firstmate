@@ -56,8 +56,8 @@ def test_legacy_live_evidence_does_not_fill_missing_qualification_fields():
     assert edit_algebra.status("clip.move", "missing_backend") is None
 
 
-def test_all_77_operations_have_an_audited_implementation_classification():
-    assert len(edit_algebra.OP_STATUS) == 77
+def test_all_78_operations_have_an_audited_implementation_classification():
+    assert len(edit_algebra.OP_STATUS) == 78
     assert {row.implementation_status for row in edit_algebra.OP_STATUS.values()} <= {
         "implemented_qualified", "implemented_unqualified", "workflow_only",
         "no_executor", "planning_only",

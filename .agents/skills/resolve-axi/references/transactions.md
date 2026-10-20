@@ -11,7 +11,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `audio.fade` | implemented_unqualified | `unique_id`, `fade_in`, `fade_out` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.gain` | implemented_unqualified | `unique_id`, `db` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.delete` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
 | `clip.link` | implemented_unqualified | `unique_id`, `with_unique_ids` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.move` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -19,7 +19,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `clip.ripple` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.roll` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.set_enabled` | implemented_unqualified | `unique_id`, `enabled` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `clip.set_property` | implemented_unqualified | `unique_id`, `key`, `value` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `clip.set_property` | implemented_qualified | `unique_id`, `key`, `value` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.slide` | implemented_unqualified | `unique_id`, `to_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.slip` | implemented_unqualified | `unique_id`, `delta_frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.smart_reframe` | implemented_unqualified | `unique_id`, `keys`, `before` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
@@ -41,6 +41,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `mask.delete` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_delete |
 | `mask.edit` | implemented_unqualified | `unique_id`, `matte`, `geometry` | yes | yes | no | no | post-write snapshot checked by _verify_mask_edit |
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
+| `multicam.select_angle` | implemented_unqualified | `unique_id`, `angle_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.remove` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by verify |
@@ -49,7 +50,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `retime.segments` | implemented_unqualified | `unique_id`, `segments` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `track.add` | implemented_unqualified | `track_type`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `track.add` | implemented_qualified | `track_type`, `name` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.delete` | implemented_unqualified | `track_type`, `track_index` | yes | yes | no | no | post-write snapshot checked by verify |
 | `track.rename` | implemented_unqualified | `track_type`, `track_index`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.reorder` | implemented_unqualified | `track_type`, `from_index`, `to_index`, `name` | yes | yes | no | no | post-write snapshot checked by _verify_track_reorder |

@@ -344,6 +344,7 @@ _EXAMPLE_OPS = {
                    "track": {"keyframes": [{"frame": 0,
                                             "Width": 0.5}]}},
     "multicam.angle": {"unique_id": "clip_1", "angle_index": 0},
+    "multicam.select_angle": {"unique_id": "clip_1", "angle_index": 0},
     "compound.create": {"unique_id": "clip_1",
                         "child_unique_ids": ["clip_2"]},
     "compound.flatten": {"unique_id": "clip_1"},

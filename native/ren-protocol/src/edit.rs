@@ -314,6 +314,9 @@ pub enum EditOp {
     /// A multicam angle change; the angle list re-read verifies.
     #[serde(rename = "multicam.angle")]
     MulticamAngle { unique_id: ClipId, angle_index: i64 },
+    /// Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.
+    #[serde(rename = "multicam.select_angle")]
+    MulticamSelectAngle { unique_id: ClipId, angle_index: i64 },
 
     // ── compound (domain: timeline_structure) ────────────────────────
     /// Nest clips into one compound item; flatten restores them.
@@ -484,6 +487,7 @@ impl EditOp {
             EditOp::MaskEdit { .. } => "mask.edit",
             EditOp::MaskTrack { .. } => "mask.track",
             EditOp::MulticamAngle { .. } => "multicam.angle",
+            EditOp::MulticamSelectAngle { .. } => "multicam.select_angle",
             EditOp::CompoundCreate { .. } => "compound.create",
             EditOp::CompoundFlatten { .. } => "compound.flatten",
             EditOp::TrackAdd { .. } => "track.add",

@@ -55,6 +55,9 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     elif op_id == "clip.replace":
         checks = ["target_identity", "requested_source_identity",
                   "record_span_preserved", "unrelated_items_unchanged"]
+    elif op_id == "multicam.select_angle":
+        checks = ["target_identity", "requested_angle_selected",
+                  "record_span_preserved", "unrelated_items_unchanged"]
     elif op_id in {"audio.gain", "audio.fade"}:
         checks = ["target_identity", "requested_audio_span",
                   "audio_parameters_match_request", "unrelated_items_unchanged",

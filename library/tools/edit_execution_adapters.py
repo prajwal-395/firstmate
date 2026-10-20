@@ -253,6 +253,33 @@ def _audio_gain(context) -> dict:
         "independent audio-render evidence for levels, clipping, and silence")
 
 
+def _multicam_select_angle(context) -> dict:
+    operation = context.operation
+    unique_id = str(operation.get("unique_id") or "")
+    if not unique_id:
+        raise ValueError("multicam.select_angle needs a target unique_id")
+    try:
+        angle_index = int(operation["angle_index"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "multicam.select_angle needs an integer angle_index "
+            f"({exc}) - nothing was written.") from exc
+    # Target identity revalidation before anything else: the prepared
+    # position must still resolve exactly once, and the prepared media
+    # identity must be complete. A stale or ambiguous target refuses
+    # here, before any Resolve contact.
+    _target_position_for_context(context, unique_id)
+    _target_identity_args(context, unique_id)
+    raise RuntimeError(
+        "multicam.select_angle is refused before mutation: the timeline "
+        f"inventory exposes no per-item angle, so angle {angle_index} on "
+        f"target {unique_id!r} could never be verified; the AXI dispatch "
+        "exposes no guarded set-angle verb (only the sense-switch "
+        "auto-cut and the pool multicam build/sync verbs); and the staged "
+        "replacement needs the assigned camera's synced source range, "
+        "which preparation does not supply. Nothing was written.")
+
+
 def _touchup(context) -> dict:
     from library.tools import project_registry, reel_proposal, reel_touchup
 
@@ -454,6 +481,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.trim", "resolve_axi"): _trim,
         ("clip.delete", "resolve_axi"): _delete,
         ("caption_fix", "resolve_axi"): _caption_fix,
+        ("multicam.select_angle", "resolve_axi"): _multicam_select_angle,
         ("clip.move", "reel_touchup"): _touchup,
         ("clip.ripple", "reel_touchup"): _touchup,
         ("clip.slip", "reel_touchup"): _touchup,

@@ -2249,6 +2249,20 @@ ALGEBRA: dict[str, AlgebraOp] = {
         merge="replace",
         inverse=_self("the inverse carries the previous angle"),
         note="A multicam angle change; the angle list re-read verifies."),
+    "multicam.select_angle": AlgebraOp(
+        id="multicam.select_angle", domain="picture_transform",
+        required=("unique_id", "angle_index"),
+        span=_item_span, item=True,
+        verify=lambda op, after: _verify_multicam_select_angle(op, after),
+        key=lambda op: ("clip", op["unique_id"], "angle"),
+        merge="replace",
+        inverse=_self("the inverse carries the previous angle"),
+        note="Show the camera assigned to the marked speaker for their "
+             "speaking turn, preserving the edit points: native angle "
+             "switching where the API exposes it, else the assigned "
+             "camera's synced source range. The timeline inventory "
+             "exposes no angle list, so the read-back refuses until "
+             "it does."),
 
     # ── compound (domain: timeline_structure) ────────────────────────
     "compound.create": AlgebraOp(
@@ -2744,6 +2758,24 @@ def _verify_replace(op, after):
     return None
 
 
+def _verify_multicam_select_angle(op, after):
+    """The turn shows the assigned camera; the edit points hold.
+
+    The timeline inventory exposes no per-item angle list, so a switch
+    the shadow cannot see is a failure, never a pass: the read-back
+    refuses until the inventory carries the angle. Presence alone never
+    claims the camera.
+    """
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    if not _same_value(clip.get("angle"), op["angle_index"]):
+        return (f"clip {op['unique_id']!r} carries no readable angle "
+                f"{op['angle_index']!r}; the timeline inventory exposes "
+                f"no angle list, so the switch cannot be verified")
+    return None
+
+
 def _verify_retime(op, after):
     clip = _clip(after, op["unique_id"])
     if clip is None:
@@ -3109,6 +3141,12 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/edit_execution_adapters.py:_caption_fix",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_title",
     ),
+    ("multicam.select_angle", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_multicam_select_angle",
+        "library/tools/resolve_axi_core_commands.py:cmd_sense_switch",
+        "library/tools/resolve_axi_core_commands.py:cmd_multicam_build",
+        "library/tools/resolve_axi_core_commands.py:cmd_multicam_sync",
+    ),
     ("overlay.add", "reel_touchup"): (
         "library/tools/reel_touchup.py:_is_native_still",
         "library/tools/reel_touchup.py:_place_still_insertions",
@@ -3161,6 +3199,10 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("one target source window shifts within measured source bounds; its record span stays fixed and the staged replacement must read back exactly",),
     ("caption_fix", "resolve_axi"):
         ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
+    ("multicam.select_angle", "resolve_axi"):
+        ("no guarded set-angle verb: only the sense-switch auto-cut and the pool build/sync verbs exist; "
+         "the timeline inventory exposes no per-item angle, so the switch cannot be verified; "
+         "the staged replacement needs the assigned camera's synced source range, which preparation does not supply",),
     ("clip.move", "reel_touchup"):
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):
@@ -3215,7 +3257,7 @@ def _executor_coverage() -> dict[str, set[str]]:
             # Existing AXI commands now have semantic EditRequest adapters.
             # They remain implemented/unqualified until operation-specific
             # live qualification records are added.
-            "clip.trim", "caption_fix",
+            "clip.trim", "caption_fix", "multicam.select_angle",
         },
         "reel_append_placement": {"clip.insert"},
         "reel_otio_placement": {"clip.insert"},
@@ -3733,6 +3775,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "color.qualifier.sample": SAFETY_UNREPRESENTABLE,
     "color.qualifier.adjust": SAFETY_UNREPRESENTABLE,
     "multicam.angle": SAFETY_UNREPRESENTABLE,
+    "multicam.select_angle": SAFETY_UNREPRESENTABLE,
 }
 
 VC20_TARGET_STRATEGY = {
@@ -3800,6 +3843,7 @@ _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "track.add", "track.delete", "track.rename", "track.reorder",
     "overlay.remove",
     "transform_override", "span_retime", "drop_fragment",
+    "multicam.select_angle",
 })
 
 #: Router labels that name the matrix backend they prove against. The

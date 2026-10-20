@@ -1469,6 +1469,28 @@
           ]
         },
         {
+          "description": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
+          "type": "object",
+          "properties": {
+            "angle_index": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "op": {
+              "type": "string",
+              "const": "multicam.select_angle"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id",
+            "angle_index"
+          ]
+        },
+        {
           "description": "Nest clips into one compound item; flatten restores them.",
           "type": "object",
           "properties": {

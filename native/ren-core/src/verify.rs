@@ -344,6 +344,24 @@ fn verify_replace(op: &EditOp, after: &Snapshot) -> Option<String> {
     None
 }
 
+fn verify_multicam_select_angle(op: &EditOp, after: &Snapshot) -> Option<String> {
+    let EditOp::MulticamSelectAngle {
+        unique_id,
+        angle_index,
+    } = op
+    else {
+        return None;
+    };
+    if after.clip(&unique_id.0).is_none() {
+        return Some(format!("clip {unique_id:?} is not on the timeline"));
+    }
+    // The snapshot model carries no per-item angle list, so a switch
+    // the read-back cannot see is a failure, never a pass.
+    Some(format!(
+        "clip {unique_id:?} carries no readable angle {angle_index}: the timeline inventory exposes no angle list, so the switch cannot be verified"
+    ))
+}
+
 fn verify_retime(op: &EditOp, after: &Snapshot) -> Option<String> {
     let (unique_id, duration) = match op {
         EditOp::Retime {
@@ -788,6 +806,9 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         | EditOp::MaskEdit { .. }
         | EditOp::MaskTrack { .. } => verify_mask(op, after),
         EditOp::MulticamAngle { .. } => None,
+        EditOp::MulticamSelectAngle { .. } => {
+            verify_multicam_select_angle(op, after)
+        }
         EditOp::CompoundCreate { .. } => verify_presence(op, after, true, "compound"),
         EditOp::CompoundFlatten { .. } => verify_presence(op, after, false, "compound"),
         EditOp::TrackAdd { .. } => verify_track_named(op, after),

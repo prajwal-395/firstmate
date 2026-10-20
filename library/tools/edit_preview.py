@@ -747,6 +747,7 @@ _EFFECTS = {
     "mask.edit": _effect_mask_edit,
     "mask.track": _effect_mask_track,
     "multicam.angle": _effect_multicam_angle,
+    "multicam.select_angle": _effect_multicam_angle,
     "compound.create": _effect_compound_create,
     "compound.flatten": _effect_compound_flatten,
     "track.add": _effect_track_add,
