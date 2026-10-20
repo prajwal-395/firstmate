@@ -41,9 +41,15 @@ so every existing subclass is coded without touching its file; a
 subclass that needs a code that survives a rename sets `CODE`
 explicitly, and a raise site that needs one for this instance passes
 `code=`. The human shape `render()` never carries the code - it stays
-out of prose a machine would parse - and `to_dict()` carries all six
-fields (`code`, `what`, `why`, `fix`, `user_message`,
-`recovery_class`).
+out of prose a machine would parse - and `to_dict()` carries all seven
+fields (`code`, `what`, `why`, `fix`, `user_message`, `recovery_class`,
+`conflict_class`).
+
+A refusal may also name the CONFLICT CLASS it came from - the kind of
+badness the refusal is about - so a host can act on the class without
+parsing the prose. The classes are enumerated by
+`library/tools/edit_conflict.py`; a refusal that is not about a
+conflict carries an empty string.
 """
 
 from __future__ import annotations
@@ -99,7 +105,8 @@ class RenRefusal(RuntimeError, ValueError):
     override this only when their safe recovery is known."""
 
     def __init__(self, what: str, why: str, fix: str, code: str = "",
-                 user_message: str = "", recovery_class: str = "") -> None:
+                 user_message: str = "", recovery_class: str = "",
+                 conflict_class: str = "") -> None:
         missing = [name for name, value in
                    (("what", what), ("why", why), ("fix", fix))
                    if not (isinstance(value, str) and value.strip())]
@@ -123,6 +130,7 @@ class RenRefusal(RuntimeError, ValueError):
                 "auto_recoverable", "needs_question", "blocked"}:
             raise ValueError("recovery_class must be auto_recoverable, "
                              "needs_question or blocked")
+        self.conflict_class = conflict_class.strip()
         super().__init__(self.render())
 
     def render(self) -> str:
@@ -137,7 +145,8 @@ class RenRefusal(RuntimeError, ValueError):
         return {"code": self.code, "what": self.what,
                 "why": self.why, "fix": self.fix,
                 "user_message": self.user_message,
-                "recovery_class": self.recovery_class}
+                "recovery_class": self.recovery_class,
+                "conflict_class": self.conflict_class}
 
 
 def _default_code(class_name: str) -> str:

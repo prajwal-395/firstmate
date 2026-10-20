@@ -83,7 +83,8 @@ def reconcile(*, approved_snapshot: Mapping, current_snapshot: Mapping,
         raise ReconciliationRefused("current generation must follow the approved generation")
     human = _human_changes(approved_snapshot, current_snapshot)
     safe, conflicting = [], []
-    for raw in ren_operations:
+    conflicts = []
+    for index, raw in enumerate(ren_operations):
         operation = dict(raw)
         uid, writes = _writes(operation)
         changes = human.get(uid, set()) if uid is not None else set()
@@ -92,7 +93,13 @@ def reconcile(*, approved_snapshot: Mapping, current_snapshot: Mapping,
             or (changes and ("*" in writes or "*" in changes
                              or "deleted" in changes or "inserted" in changes
                              or writes & changes)))
-        (conflicting if collision else safe).append(operation)
+        if collision:
+            conflicting.append(operation)
+            conflicts.append(_conflict(index, operation, uid, changes,
+                                        approved_snapshot,
+                                        current_snapshot))
+        else:
+            safe.append(operation)
     result = {
         "status": "ready" if not conflicting else "needs_creator_choice",
         "base_generation": current_generation,
@@ -102,14 +109,49 @@ def reconcile(*, approved_snapshot: Mapping, current_snapshot: Mapping,
         "variant": {"name": "Ren proposal", "base_generation": current_generation,
                     "operations": conflicting} if conflicting else None,
         "question": None,
+        "conflicts": conflicts,
     }
     if conflicting:
+        result["conflict_class"] = (
+            "concurrent_modification")
         targets = ", ".join(sorted({str(op.get("unique_id", "timeline"))
                                      for op in conflicting}))
         result["question"] = (
             f"Your timeline edit to {targets} is preserved. Should I also apply "
             "the conflicting Ren change as a separate variant?")
     return result
+
+
+def _conflict(index: int, operation: Mapping, uid: str | None,
+              changes: set, approved_snapshot: Mapping,
+              current_snapshot: Mapping) -> dict:
+    """Why one Ren operation conflicts, and whether its TARGET changed.
+
+    A conflict is not one thing. The clip may have moved in time, which
+    a rebase can follow; or it may now hold different material, which
+    means the operation means something else and needs renewed planning
+    (PRES-020). The row says which, so the caller asks the right
+    question.
+    """
+    from library.tools import edit_conflict
+
+    target = edit_conflict.target_changed(operation, approved_snapshot,
+                                           current_snapshot)
+    if target["changed"]:
+        reason = target["reason"]
+        renewal = True
+    else:
+        reason = (f"the operation and the change since the approved "
+                  f"generation both write {sorted(changes)}")
+        renewal = False
+    return {
+        "index": index,
+        "unique_id": uid or "",
+        "conflict_class": "concurrent_modification",
+        "target_changed": bool(target["changed"]),
+        "renewal_required": renewal,
+        "reason": reason,
+    }
 
 
 def reconcile_generations(*, store, project: str, timeline_id: str,

@@ -458,7 +458,8 @@ def refusal_payload(verb_name: str, what: str, why: str, fix: str) -> dict:
             "user_message": ("I couldn't safely finish this step. "
                              "The requested change has not been confirmed; "
                              "resolve the issue below before continuing."),
-            "recovery_class": "blocked", "verb": verb_name}
+            "recovery_class": "blocked", "conflict_class": "",
+            "verb": verb_name}
 
 
 def parse_ren_result(stderr_text: str) -> dict | None:

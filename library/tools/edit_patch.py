@@ -143,12 +143,23 @@ class StalePatch(PatchRefused):
     def __init__(self, patch: EditPatch, head: int, *, observed: bool,
                  rebase_possible: bool, reason: str,
                  manual_edit_recorded: bool = False) -> None:
+        from library.tools import edit_conflict
+
         self.head = head
         self.observed = observed
         self.rebase_possible = rebase_possible
         self.manual_edit_recorded = manual_edit_recorded
         self.recovery = transaction_receipt.recovery(
             "stale_generation", reason=reason)
+        # A change nobody recorded is a CONCURRENT MODIFICATION; a
+        # recorded one that simply moved on is a STALE PLAN. The class
+        # travels with the refusal so a host knows whether to rebase or
+        # to ask.
+        self.conflict = edit_conflict.classify(
+            observed_generation=observed,
+            manual_edit_recorded=manual_edit_recorded,
+            planned_base_generation=patch.base_generation,
+            head_generation=head)
         user_message = (
             "The timeline changed since I prepared this edit. Your recent "
             "work is preserved, and I refreshed my read. Should I apply "
@@ -170,7 +181,8 @@ class StalePatch(PatchRefused):
                  f"--project {patch.project!r} --timeline "
                  f"{patch.timeline!r}`)"),
             user_message=user_message,
-            recovery_class="needs_question")
+            recovery_class="needs_question",
+            conflict_class=self.conflict.conflict_class)
 
 
 # ── The patch ──────────────────────────────────────────────────────────
@@ -977,7 +989,8 @@ def apply_patch(patch, *, resolve, project, timeline,
                      "whether to keep or reverse the applied edit"),
                 user_message=("The edit may have landed. I saved the current "
                               "timeline state for review before continuing."),
-                recovery_class="needs_question")
+                recovery_class="needs_question",
+                conflict_class="uncertain_mutation")
     journal_errors = []
     try:
         observed_journaled = _emit_transaction_stage(

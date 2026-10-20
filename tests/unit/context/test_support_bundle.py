@@ -186,7 +186,7 @@ def test_refusal_code_explicit_wins_and_to_dict_carries_all_six():
     assert explicit.to_dict() == {
         "code": "REN_ONE_OFF", "what": "w", "why": "y", "fix": "f",
         "user_message": explicit.user_message,
-        "recovery_class": "blocked"}
+        "recovery_class": "blocked", "conflict_class": ""}
 
 
 def test_render_shape_is_unchanged():

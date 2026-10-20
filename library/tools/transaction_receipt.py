@@ -15,17 +15,21 @@ RECOVERY_ACTIONS = {
     "unexpected_insert": "remove_verified_unintended_item",
     "clamped_property": "replan_from_readback",
     "stale_generation": "rebase_if_provably_safe_else_replan",
+    "execution_failed": "apply_and_verify_inverse",
     "collateral_change": "apply_and_verify_inverse",
     "verification_failed": "preserve_readback_and_replan",
     "recovery_failed": "preserve_forensics_and_intervene",
 }
 
 
-def recovery(kind: str, *, reason: str = "") -> dict[str, str]:
+def recovery(kind: str, *, reason: str = "",
+             conflict_class: str = "") -> dict[str, str]:
     if kind not in RECOVERY_ACTIONS:
         raise ValueError(f"unknown transaction recovery type: {kind}")
-    return {"type": kind, "action": RECOVERY_ACTIONS[kind],
-            "reason": reason}
+    out = {"type": kind, "action": RECOVERY_ACTIONS[kind], "reason": reason}
+    if conflict_class:
+        out["conflict_class"] = conflict_class
+    return out
 
 
 def lifecycle(receipt: dict[str, Any], *, stage: str,
@@ -163,6 +167,10 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 operation_row["mutation_state"] = "uncertain"
             row["operations"][fields.get("index")] = operation_row
     return [{**row, "operations": list(row["operations"].values()),
-             "status": "recovery_required"}
+             "status": "recovery_required",
+             # A transaction with no terminal commit may have written:
+             # its outcome is not observable, so it is an uncertain
+             # mutation until the observed state is read.
+             "conflict_class": "uncertain_mutation"}
             for row in transactions.values()
             if row["last_stage"] not in {"committed", "delivered"}]

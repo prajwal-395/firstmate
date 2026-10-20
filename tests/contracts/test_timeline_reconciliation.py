@@ -112,3 +112,23 @@ def test_generation_comparison_attributes_observed_human_edit(tmp_path):
         "external_generations": [2], "agent_generations": [],
     }
     assert result["patch"]["base_generation"] == 2
+
+
+def test_a_conflict_says_whether_the_intended_target_changed():
+    """A conflict is not one thing. A clip that moved in time is still
+    the same clip, and a rebase can follow it; a clip that no longer
+    exists is a changed target, and the operation must be re-planned."""
+    moved = _run(_snapshot(), _snapshot(a_in=8, a_out=32, b_in=32),
+                 {"op": "clip.move", "unique_id": "a", "to_frame": 12})
+    gone = _run(_snapshot(), _snapshot(include_a=False),
+                {"op": "clip.move", "unique_id": "a", "to_frame": 12})
+
+    assert moved["conflicts"][0]["target_changed"] is False, (
+        "a clip that moved in time is still the same clip; reporting it "
+        "as a changed target would demand renewed planning for a rebase")
+    assert moved["conflicts"][0]["renewal_required"] is False
+    assert gone["conflicts"][0]["target_changed"] is True, (
+        "an operation aimed at a deleted clip has no target left, so it "
+        "must be re-planned rather than carried")
+    assert gone["conflicts"][0]["renewal_required"] is True
+    assert gone["conflicts"][0]["conflict_class"] == "concurrent_modification"
