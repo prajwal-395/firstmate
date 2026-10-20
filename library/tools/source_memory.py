@@ -278,15 +278,31 @@ def _slot_thread_lock(path: Path) -> threading.RLock:
 
 def _load_json(path: Path):
     from library.tools.cache_lifecycle import record_cache_metric
+    from library.tools.resource_leases import ResourceLeaseBusy
 
     is_source_slot = (len(path.parent.name) == 64
                       and all(char in "0123456789abcdef"
                               for char in path.parent.name))
     try:
         from library.tools.cache_lifecycle import cache_file_lease
-        with _slot_thread_lock(path), cache_file_lease(path), \
-                open(path, encoding="utf-8") as handle:
-            document = json.load(handle)
+        # Parallel M2/M1 tasks share digest slots (duplicate files) and
+        # race readers against writers on the same index file: a read
+        # that lands while a sibling holds the slot exclusive must wait
+        # like the writer does, not fail the clip. Both sides wait past
+        # a stale lease's heartbeat expiry (30 s) so a dead holder's
+        # leftover never surfaces as a ResourceLeaseBusy failure row;
+        # an uncontended read still answers on the first attempt.
+        document = None
+        for attempt in range(300):
+            try:
+                with _slot_thread_lock(path), cache_file_lease(path), \
+                        open(path, encoding="utf-8") as handle:
+                    document = json.load(handle)
+                break
+            except ResourceLeaseBusy:
+                if attempt == 299:
+                    raise
+                time.sleep(0.1)
         if is_source_slot:
             artifact_id = _register_source_memory_cache(path, document)
             from library.tools.cache_lifecycle import cache_artifact_id_from_environment
@@ -892,7 +908,10 @@ def write_json(path: Path, payload: dict) -> None:
     thread_lock = _slot_thread_lock(path)
     from library.tools.resource_leases import ResourceLeaseBusy
     with thread_lock:
-        for attempt in range(100):
+        # Match the reader: wait past a stale lease's heartbeat expiry
+        # (30 s) rather than failing the clip on a loaded machine or a
+        # dead holder's leftover. Uncontended writes still land first try.
+        for attempt in range(300):
             try:
                 with cache_file_lease(path, exclusive=True):
                     fd, staged_name = tempfile.mkstemp(
@@ -910,9 +929,9 @@ def write_json(path: Path, payload: dict) -> None:
                         raise
                 break
             except ResourceLeaseBusy:
-                if attempt == 99:
+                if attempt == 299:
                     raise
-                time.sleep(0.01)
+                time.sleep(0.1)
     digest = path.parent.name
     if (len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)):
         source_file = payload.get("source_file")

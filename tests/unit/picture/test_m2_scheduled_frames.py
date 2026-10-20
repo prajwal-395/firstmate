@@ -13,7 +13,23 @@ import os
 import threading
 from pathlib import Path
 
+import pytest
+
 from library.tools import source_memory
+
+
+@pytest.fixture(autouse=True)
+def _isolated_leases(tmp_path, monkeypatch):
+    """Leases of our own, never the machine's.
+
+    The frame builds fence per-digest cache files through the
+    machine-wide lease file; without isolation a parallel lane - or a
+    stale lease from a dead process - refuses these fixtures with
+    ResourceLeaseBusy and the failure reads as a product defect.
+    """
+    locks = tmp_path / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(locks))
 
 
 def _write(path: Path, payload):

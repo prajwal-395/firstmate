@@ -385,18 +385,31 @@ def _install_record(
 
 
 def _check_disk_space(free: int, needed: int, what: str) -> None:
-    """Refuse before a download when its estimate would consume the reserve."""
+    """Refuse before a download when its estimate would consume the reserve.
+
+    The `free` bytes are the caller's measurement (so `ren setup`'s own
+    gate and the pack pre-checks are testable without touching the live
+    disk); the reserve is the lifecycle's configured floor, so a disk
+    that holds the estimate but leaves no reserve still refuses.
+    """
     from library.tools import storage_lifecycle
 
-    try:
-        storage_lifecycle.require_free_space(needed, path=str(_home()))
-    except storage_lifecycle.lifecycle.LifecycleRefused as refused:
+    reserve = int(os.environ.get(
+        "REN_MIN_FREE_BYTES", storage_lifecycle.DEFAULT_FREE_RESERVE_BYTES))
+    if free - needed < reserve:
+        if free < needed:
+            short_text = f"short {doctor.gb(needed - free)}"
+        else:
+            short_text = (
+                f"short {doctor.gb(needed + reserve - free)} "
+                f"of the required reserve"
+            )
         raise SetupFailure(
             f"not enough free disk space for {what}: "
-            f"{doctor.gb(free)} free; {doctor.gb(needed)} estimated "
-            f"plus the configured reserve; {refused}; free up that space and "
-            f"re-run `ren setup`"
-        ) from refused
+            f"{doctor.gb(free)} free, {doctor.gb(needed)} needed - "
+            f"{short_text} plus {doctor.gb(reserve)} reserve; free up that "
+            f"space and re-run `ren setup`"
+        )
 
 
 def _run_packs(engine: Path, packs: list[str], python: Path, env: dict) -> None:

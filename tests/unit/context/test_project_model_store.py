@@ -709,11 +709,13 @@ def test_speech_interpretation_upsert_appends_record_changes(tmp_path):
     commit_project_model(project, FIXTURE, expected_revision=0)
     interpretation = {
         "id": "interpretation-sequence-1",
-        "kind": "narrative_relation",
+        "kind": "narrative_explanation",
         "author": "ignored-input-author",
         "certainty": "interpreted",
-        "evidence_ids": ["event-pickup"],
-        "scope": {"event_ids": ["event-pickup"]},
+        "uncertainty": 0.5,
+        "evidence_ids": ["speech:speech-1", "event-pickup"],
+        "scope": {"event_ids": ["event-pickup"],
+                  "speech_passage_ids": ["speech-1"]},
         "narrative_relation": {
             "event_ids": ["event-pickup"],
             "relation_type": "explanation",

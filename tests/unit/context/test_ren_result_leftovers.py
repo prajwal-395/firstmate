@@ -300,9 +300,9 @@ def test_run_pipeline_refused_summary_emits_one_line(tmp_path, monkeypatch,
     monkeypatch.setattr(project_format, "ensure_project_format",
                         lambda folder: None)
     monkeypatch.setattr(runner, "run_pipeline",
-                        lambda **kwargs: {"status": "REFUSED",
-                                          "reason": "first line\nrest",
-                                          "fix": "do the thing"})
+                        lambda *args, **kwargs: {"status": "REFUSED",
+                                                 "reason": "first line\nrest",
+                                                 "fix": "do the thing"})
     monkeypatch.setattr(runner, "notify_run_end",
                         lambda *args, **kwargs: None)
     monkeypatch.setattr(native_refresh, "ensure_current",

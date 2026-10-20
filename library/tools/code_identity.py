@@ -617,6 +617,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # camera/subject evidence reader, so a fix here changes what
         # the cached rows resolve through it.
         'library/tools/motion_evidence.py',
+        # Transitive closure: edit_algebra imports axi_qualification and
+        # retention imports storage_lifecycle, so a fix to either shared
+        # module changes what the cached segmentation rows resolve through.
+        'library/tools/axi_qualification.py',
+        'library/tools/storage_lifecycle.py',
     ),
     "step_1_01_scan_project": (
         "library/tools/safe_zone_guide.py",
@@ -1157,6 +1162,11 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_component_manifest.py',
         'library/tools/structural_patch.py',
         'library/tools/versions/reproducibility.py',
+        # Transitive closure: edit_algebra imports axi_qualification and
+        # retention imports storage_lifecycle, so a fix to either shared
+        # module changes what the cached scan rows resolve through.
+        'library/tools/axi_qualification.py',
+        'library/tools/storage_lifecycle.py',
     ),
     "step_1_02_catalog_footage": (
         # The catalog can commit timeline edit receipts and deliver audio
@@ -1729,6 +1739,11 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_component_manifest.py',
         'library/tools/structural_patch.py',
         'library/tools/versions/reproducibility.py',
+        # Transitive closure: edit_algebra imports axi_qualification and
+        # retention imports storage_lifecycle, so a fix to either shared
+        # module changes what the cached catalog rows resolve through.
+        'library/tools/axi_qualification.py',
+        'library/tools/storage_lifecycle.py',
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/artifact_lifecycle.py",
@@ -2288,6 +2303,11 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_component_manifest.py',
         'library/tools/structural_patch.py',
         'library/tools/versions/reproducibility.py',
+        # Transitive closure: edit_algebra imports axi_qualification and
+        # retention imports storage_lifecycle, so a fix to either shared
+        # module changes what the cached semantic-analysis rows resolve through.
+        'library/tools/axi_qualification.py',
+        'library/tools/storage_lifecycle.py',
     ),
     "step_1_04_temporal_index": (
         "library/tools/artifact_lifecycle.py",
@@ -2881,6 +2901,11 @@ STEP_IMPLEMENTATION_DEPS = {
         # session-local AST parse cache they read through, so a fix
         # here changes what the declared surveys parse.
         'library/tools/ast_cache.py',
+        # Transitive closure: edit_algebra imports axi_qualification and
+        # retention imports storage_lifecycle, so a fix to either shared
+        # module changes what the cached temporal-index rows resolve through.
+        'library/tools/axi_qualification.py',
+        'library/tools/storage_lifecycle.py',
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.
