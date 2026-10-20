@@ -1,0 +1,101 @@
+{
+  "schema": "ren-editorial-e2e-workflow-assessment/1",
+  "baseline": "2026-10-20",
+  "assessment": "repository evidence only; no live Resolve workflow was run",
+  "source_report": "editorial-acceptance-blind.json",
+  "completion_rule": "A workflow is complete only when the approved task reaches a verified delivered file and its unrelated timeline state is preserved.",
+  "live_run_required": true,
+  "live_lane": "vep-axc-live2",
+  "workflows": [
+    {
+      "id": "E2E-009",
+      "name": "dialogue cleanup",
+      "status": "incomplete",
+      "existing": ["library/tools/silence_reduction.py", "clip.trim", "EditPatch preservation and sync checks"],
+      "evidence": {"blind_task": "trim_pause", "result": "unsafe_failure"},
+      "remaining": "A live task must identify a retake or pause, shorten it safely, preserve linked audio/video synchronization, and pass delivery verification.",
+      "live_evidence": "Run the dialogue cleanup from an ordinary brief through delivered-file verification on a disposable Resolve project."
+    },
+    {
+      "id": "E2E-010",
+      "name": "B-roll replacement",
+      "status": "incomplete",
+      "existing": ["broll.resolve", "broll.splice", "broll.insert AXI primitive", "preservation invariant"],
+      "evidence": {"blind_tasks": ["insert_relevant_broll", "remove_broll"], "results": ["success", "success"]},
+      "remaining": "The measured tasks insert or remove coverage; they do not identify and replace an existing shot with a better source through verified delivery.",
+      "live_evidence": "Run a source-search-to-replacement workflow and verify dialogue continuity and unchanged downstream timing in the delivered file."
+    },
+    {
+      "id": "E2E-011",
+      "name": "multicam refinement",
+      "status": "incomplete",
+      "existing": ["multicam.select_angle operation declaration"],
+      "evidence": {"blind_task": "right_speaker_camera", "result": "missing_evidence"},
+      "remaining": "No evidence currently establishes speaker or demonstration angle selection from the brief or a synchronized replacement.",
+      "live_evidence": "Run a speaker-turn or demonstration-angle selection from ordinary instructions and verify source synchronization, edit points, and delivery."
+    },
+    {
+      "id": "E2E-012",
+      "name": "caption correction",
+      "status": "incomplete",
+      "existing": ["subtitles.splice", "subtitles.render_segment", "subtitles.rerender_swap", "caption.style"],
+      "evidence": {"blind_task": "restyle_captions", "result": "success"},
+      "remaining": "The measured task restyles captions while preserving text and timing; text and timing corrections together with surrounding-graphics preservation are not established end to end.",
+      "live_evidence": "Run text, timing, and style corrections and verify caption readback, neighboring graphics, and delivered output."
+    },
+    {
+      "id": "E2E-013",
+      "name": "opening improvement",
+      "status": "incomplete",
+      "existing": ["reel.opening planning operation", "EditorialIntent", "delivered-file editorial acceptance tools"],
+      "evidence": {"blind_task": "improve_opening", "result": "unsafe_failure"},
+      "remaining": "The ordinary-request acceptance run did not safely execute the opening revision; selection of a stronger hook and verified new opening remain unproven.",
+      "live_evidence": "Run an unfamiliar brief through hook selection, structural revision, and delivered-file editorial review."
+    },
+    {
+      "id": "E2E-014",
+      "name": "lower-third and logo revision",
+      "status": "incomplete",
+      "existing": ["overlay.position", "overlay.resize", "overlay.replace", "EditPatch scoped preservation"],
+      "evidence": {"blind_tasks": {"resize_logo": "success", "replace_graphic": "unsafe_failure"}},
+      "remaining": "Precise logo sizing is demonstrated, but approved graphic replacement and an end-to-end delivered result are not.",
+      "live_evidence": "Replace an approved lower third or logo on a disposable project and verify its requested properties and unchanged timeline items through delivery."
+    },
+    {
+      "id": "E2E-015",
+      "name": "mixed edit request",
+      "status": "incomplete",
+      "existing": ["assignment task plan and operation groups", "AXI transaction orchestration", "reversible partial-edit recovery"],
+      "evidence": {"blind_tasks": {"compound_move_and_resize": "success", "compound_trim_and_replace": "unsafe_failure"}},
+      "remaining": "A two-property graphic request succeeds, while the mixed dialogue and graphic request fails; a coherent structural, visual, caption, and audio transaction through delivery is not established.",
+      "live_evidence": "Run one multi-domain assignment, verify its transaction and preservation receipt, then verify the delivered file against its acceptance contract."
+    },
+    {
+      "id": "E2E-016",
+      "name": "resume project with human adjustments",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["assignment lifecycle checkpoint and resume", "project state capture", "timeline preservation invariant", "Project Model reconciliation"],
+      "evidence": {"code": ["library/tools/assignment_lifecycle.py", "library/tools/assignment_task.py", "library/tools/assignment_actions.py", "library/tools/resolve_axi_core.py"]},
+      "remaining": "The resume and preservation components exist; the complete workflow over a project with pre-existing human adjustments has no recorded live delivery evidence.",
+      "live_evidence": "Resume a disposable project containing human adjustments, finish the requested edit, and verify those adjustments survive the delivered workflow."
+    },
+    {
+      "id": "E2E-017",
+      "name": "revision after human feedback",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["durable assignment review and revision records", "explicit approved-variant application", "feedback recovery and resume"],
+      "evidence": {"code": ["library/tools/assignment_revision.py", "library/tools/assignment_interaction.py"]},
+      "remaining": "The revision cycle is implemented; repeated human feedback through a final verified delivery has no recorded live evidence.",
+      "live_evidence": "Apply at least two feedback cycles to one disposable assignment without recreating its project, then verify and deliver the final approved version."
+    },
+    {
+      "id": "E2E-018",
+      "name": "export, verify, and deliver requested output",
+      "status": "implemented_live_workflow_unverified",
+      "existing": ["accepted-plan output verification", "delivered-file technical and editorial evidence", "assignment delivery receipt and completion gate"],
+      "evidence": {"code": ["library/tools/deliverable_qc.py", "library/tools/editorial_acceptance/delivery.py", "library/tools/assignment_artifacts.py", "library/tools/assignment_contract.py"]},
+      "remaining": "Export verification and task-linked delivery are implemented; the complete requested-output workflow is not confirmed by the live blind acceptance report.",
+      "live_evidence": "Export the selected requested format, verify the actual file against the accepted plan and output spec, publish its task-linked receipt, and confirm the task completion gate."
+    }
+  ]
+}
