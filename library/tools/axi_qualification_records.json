@@ -1,8 +1,109 @@
 {
   "records": {
+    "clip.delete::edit_patch": {
+      "actual_state": {
+        "remaining_items": [],
+        "track_counts": {
+          "audio": 1,
+          "subtitle": 0,
+          "video": 3
+        }
+      },
+      "audio_verification": [
+        "not applicable: seeded clip carries video only"
+      ],
+      "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed",
+      "expected_state": {
+        "remaining_items": 0,
+        "removed_uid": "e7285af3-4699-4fa9-b1dd-99320fd9821a"
+      },
+      "media_types": [
+        "video"
+      ],
+      "preservation_checks": [
+        {
+          "check": "target_absent_on_readback",
+          "result": "passed"
+        },
+        {
+          "check": "no_collateral_items_or_tracks",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "seed is the only item; V2/V3 setup tracks stay"
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "single seeded fixture clip, empty baseline otherwise"
+      ],
+      "visual_verification": [
+        "seeded clip absent from the timeline inventory read-back"
+      ]
+    },
     "clip.set_property::edit_patch": {
-      "evidence": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-axi-live-qual/small-edit-after-add-video-assertion.json#results[9].observed; resolve-axi edit transform exited 1: no production-qualified executor is available for clip.set_property; target and timeline state unchanged",
-      "result": "failed"
+      "actual_state": {
+        "record_span": [
+          0,
+          48
+        ],
+        "track_counts": {
+          "audio": 1,
+          "subtitle": 0,
+          "video": 3
+        },
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": 0.0,
+          "ZoomX": 0.5,
+          "ZoomY": 0.5
+        }
+      },
+      "audio_verification": [
+        "not applicable: seeded clip carries video only"
+      ],
+      "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged",
+      "expected_state": {
+        "Scaling": 1,
+        "ZoomX": 0.5,
+        "ZoomY": 0.5,
+        "record_span": [
+          0,
+          48
+        ]
+      },
+      "media_types": [
+        "video"
+      ],
+      "preservation_checks": [
+        {
+          "check": "requested_properties_read_back",
+          "result": "passed"
+        },
+        {
+          "check": "record_span_and_tracks_unchanged",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "seed is the only item; V2/V3 setup tracks stay"
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "single seeded fixture clip, empty baseline otherwise"
+      ],
+      "visual_verification": [
+        "ZoomX/ZoomY 0.5 read back from the live item transform"
+      ]
     },
     "track.add::edit_patch": {
       "actual_state": {
