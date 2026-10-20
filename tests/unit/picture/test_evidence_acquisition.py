@@ -374,3 +374,91 @@ def test_full_run_lands_cached_evidence_and_requeries():
         refresh_model=lambda old: refreshed)
     assert report["landed"] is True
     assert report["requery"] is refreshed
+
+
+# ── PERF-009 / PERF-014: one acquisition per (lane, interval, producer) ──
+#
+# A requirement graph asks several questions of the same footage. Each
+# question used to schedule its OWN copy of the same producer call over
+# the same interval, so the producer ran N times for one measurement,
+# the plan's cost estimate counted N times one measurement, and the run
+# attributed the result to the LAST question - the earlier one paid for
+# the measurement and lost it.
+
+
+def test_two_questions_of_one_lane_schedule_one_acquisition():
+    plan, _ = _plan_for("footage with laughter and applause",
+                        {"observations": []})
+    assert len(plan["steps"]) == 1
+    assert plan["steps"][0]["requirement_ids"] == ["req-1", "req-2"]
+
+
+def test_a_batched_acquisition_is_costed_once():
+    # The detector's measured cost is 1.6 s per window. Twelve windows
+    # cost 19.2 s, whatever the number of questions that asked for them.
+    plan, _ = _plan_for("scene description and camera movement",
+                        {"observations": []},
+                        fidelity="exhaustive", allow_escalation=True)
+    assert len(plan["steps"]) == 12
+    assert plan["estimated_cost_seconds"] == pytest.approx(19.2)
+    assert plan["batching"]["duplicate_acquisitions_removed"] == 24
+    assert plan["batching"]["requirements_served"] == 36
+
+
+def test_the_batched_step_names_every_question_it_answers():
+    plan, _ = _plan_for("footage with laughter and applause",
+                        {"observations": []})
+    why = plan["steps"][0]["why"]
+    assert "req-1" in why and "req-2" in why
+
+
+def test_the_producer_is_paid_once_and_answers_every_question():
+    plan, _ = _plan_for("footage with laughter and applause",
+                        {"observations": []})
+    calls = []
+
+    def producer(**kwargs):
+        calls.append(kwargs)
+        return {"measured": True, "cost_seconds": 0.0, "peak_rss_gb": 0.1,
+                "producer_version": "sound-test-v1"}
+
+    report = ea.run_acquisition(
+        plan, cached=lambda **kw: None, producers={"m5": producer},
+        refresh_model=lambda old: {"observations": []})
+    assert len(calls) == 1
+    rows = report["acquisition"]["steps"]
+    assert len(rows) == 1
+    assert rows[0]["requirement_ids"] == ["req-1", "req-2"]
+
+
+def test_a_batched_acquisition_is_recorded_once_in_the_ledger():
+    plan, _ = _plan_for("footage with laughter and applause",
+                        {"observations": []})
+    ledger = {}
+
+    def producer(**kwargs):
+        return {"measured": True, "cost_seconds": 0.0, "peak_rss_gb": 0.1,
+                "producer_version": "sound-test-v1"}
+
+    ea.run_acquisition(plan, cached=lambda **kw: None,
+                       producers={"m5": producer}, ledger=ledger,
+                       refresh_model=lambda old: {"observations": []})
+    key = ea.ledger_key("digest1", "m5", {"start_s": 0.0, "end_s": 120.0},
+                        "m5-cached-events")
+    assert list(ledger) == [key]
+
+
+def test_escalation_batches_one_window_for_two_questions():
+    plan, _ = _plan_for("scene description and camera movement",
+                        {"observations": []},
+                        fidelity="exhaustive", allow_escalation=True)
+    answers = {"req-1": {"status": "inconclusive"},
+               "req-2": {"status": "inconclusive"},
+               "req-3": {"status": "inconclusive"}}
+    second = ea.plan_escalation(plan, answers)
+    windows = {(row["interval"]["start_s"], row["interval"]["end_s"])
+               for row in second["steps"]}
+    assert len(second["steps"]) == len(windows)
+    assert all(row["requirement_ids"] == ["req-1", "req-2", "req-3"]
+               for row in second["steps"])
+    assert second["batching"]["duplicate_acquisitions_removed"] > 0

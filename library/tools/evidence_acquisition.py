@@ -369,6 +369,78 @@ def _windows_for(scope: dict[str, Any], duration: float,
     return [{"start_s": round(start, 3), "end_s": round(end, 3)}]
 
 
+def _acquisition_identity(step: Mapping[str, Any]) -> tuple:
+    """What makes two scheduled steps THE SAME acquisition.
+
+    The ledger key is already the dedup identity of an acquisition
+    (ACQ-014): source, lane, interval and producer. Two requirements
+    that need the same lane over the same interval need the same
+    measurement, so the planner schedules that measurement ONCE and
+    names every requirement it serves.
+    """
+    interval = step["interval"]
+    return (step["catalog_lane"], step["lane"],
+            float(interval["start_s"]), float(interval["end_s"]),
+            step["producer"])
+
+
+def served_requirements(step: Mapping[str, Any]) -> list[str]:
+    """Every requirement one scheduled step answers.
+
+    A planned step names the requirements it serves in `requirement_ids`;
+    `requirement_id` is the first of them. A step written before that
+    key existed names exactly one, and is read as that one.
+    """
+    if "requirement_ids" in step:
+        ids = step["requirement_ids"]
+        if ids:
+            return list(ids)
+    return [step["requirement_id"]]
+
+def _coalesce_steps(steps: Sequence[Mapping[str, Any]],
+                    why_for: Callable[[Mapping[str, Any]], str],
+                    ) -> tuple[list[dict[str, Any]], int]:
+    """One step per acquisition, naming every requirement it serves.
+
+    A requirement graph routinely asks several questions of the same
+    lane over the same window: "a chart is visible" and "the camera
+    moves" both want the detector over the same ten seconds, and two
+    speech questions both want the transcript over the same source.
+    Each question used to schedule its own copy of that work, so the
+    producer ran N times over one interval, the plan's cost estimate
+    counted N times one measurement, and the run attributed the
+    result to the LAST requirement that asked - the earlier one paid
+    for the measurement and lost it.
+
+    The measurement is the same one either way, so the planner
+    schedules it once and every requirement it serves is named on the
+    step. Returns the coalesced steps and the number of duplicate
+    acquisitions that were removed.
+    """
+    order: list[tuple] = []
+    merged: dict[tuple, dict[str, Any]] = {}
+    duplicates = 0
+    for step in steps:
+        key = _acquisition_identity(step)
+        row = merged.get(key)
+        if row is None:
+            row = dict(step)
+            row["requirement_ids"] = [step["requirement_id"]]
+            merged[key] = row
+            order.append(key)
+            continue
+        duplicates += 1
+        if step["requirement_id"] not in row["requirement_ids"]:
+            row["requirement_ids"].append(step["requirement_id"])
+    out: list[dict[str, Any]] = []
+    for key in order:
+        row = merged[key]
+        row["requirement_id"] = row["requirement_ids"][0]
+        row["why"] = why_for(row)
+        out.append(row)
+    return out, duplicates
+
+
 def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
                      source_digest: str,
                      duration_seconds: float,
@@ -537,6 +609,8 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
                         float(picked["cost_seconds_per_window"]), 3),
                     "peak_rss_gb": float(picked["peak_rss_gb"]),
                     "measured_cost": bool(picked["measured"]),
+                    "producer_note": (picked.get("registry_note")
+                                      or picked.get("note") or ""),
                     "why": (f"{req_id} is {answers.get(req_id, {}).get('status', 'unverified')}; "
                             f"{picked['id']} is the cheapest eligible "
                             f"producer ({picked.get('registry_note') or picked.get('note')})"),
@@ -545,6 +619,19 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
                                                          priors.get(lane,
                                                                     0.0))),
                 })
+
+    def _why_for(row: Mapping[str, Any]) -> str:
+        """Why this acquisition runs, naming every requirement it serves."""
+        parts = [f"{req_id} is "
+                 f"{answers.get(req_id, {}).get('status', 'unverified')}"
+                 for req_id in row["requirement_ids"]]
+        return (f"{'; '.join(parts)}; {row['producer']} is the cheapest "
+                f"eligible producer ({row['producer_note']})")
+
+    # One acquisition per (lane, interval, producer): several questions
+    # of the same footage are answered by ONE producer call, and every
+    # question that asked for it is named on the step.
+    steps, duplicate_acquisitions = _coalesce_steps(steps, _why_for)
     # Information value first: selectivity per second of inference,
     # with zero-cost cached lookups always ahead of model passes
     # (ACQ-016/017/018).
@@ -564,6 +651,7 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
             else:
                 refused.append({
                     "requirement_id": step["requirement_id"],
+                    "requirement_ids": list(step["requirement_ids"]),
                     "lane": step["lane"],
                     "interval": step["interval"],
                     "reason": (f"latency budget {latency_budget_s}s "
@@ -591,7 +679,13 @@ def plan_acquisition(compiled: dict[str, Any], model: Mapping[str, Any], *,
             "estimated_cost_seconds": estimated,
             "latency_budget_s": latency_budget_s,
             "compiled": list(compiled.get("compiled", ())),
-            "narrowed_by_retrieval": bool(retrieval_candidates)}
+            "narrowed_by_retrieval": bool(retrieval_candidates),
+            "batching": {
+                "duplicate_acquisitions_removed": duplicate_acquisitions,
+                "requirements_served": sum(
+                    len(step["requirement_ids"]) for step in steps),
+                "acquisitions": len(steps),
+            }}
 
 
 def _conjunction_windows(
@@ -647,8 +741,8 @@ def plan_escalation(prior_plan: Mapping[str, Any],
 
     lane_of_requirement: dict[str, str] = {}
     for step in prior_plan.get("steps") or ():
-        lane_of_requirement.setdefault(step["requirement_id"],
-                                       step["lane"])
+        for req_id in served_requirements(step):
+            lane_of_requirement.setdefault(req_id, step["lane"])
 
     steps: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
@@ -698,12 +792,27 @@ def plan_escalation(prior_plan: Mapping[str, Any],
                     float(picked["cost_seconds_per_window"]), 3),
                 "peak_rss_gb": float(picked["peak_rss_gb"]),
                 "measured_cost": bool(picked["measured"]),
+                "producer_note": picked.get("note") or "",
                 "why": (f"{req_id} is still {status} after the "
                         f"{TIER_CHEAP} tier; {picked['id']} is the "
                         f"selective escalation ({picked.get('note')})"),
                 "ledger_key": key,
                 "selectivity": 0.0,
             })
+
+    def _why_for(row: Mapping[str, Any]) -> str:
+        """Why this escalation runs, naming every requirement it serves."""
+        parts = [f"{req_id} is still "
+                 f"{answers_after.get(req_id, {}).get('status', 'unverified')} "
+                 f"after the {TIER_CHEAP} tier"
+                 for req_id in row["requirement_ids"]]
+        return (f"{'; '.join(parts)}; {row['producer']} is the selective "
+                f"escalation ({row['producer_note']})")
+
+    # One acquisition per (lane, interval, producer), as in the first
+    # round: two questions the cheap tier left open over the same window
+    # are answered by ONE escalation call.
+    steps, duplicate_acquisitions = _coalesce_steps(steps, _why_for)
     estimated = round(sum(row["cost_budget_seconds"] for row in steps), 3)
     if latency_budget_s is not None and estimated > latency_budget_s:
         kept, running = [], 0.0
@@ -727,7 +836,13 @@ def plan_escalation(prior_plan: Mapping[str, Any],
             "fidelity": FIDELITY_EXHAUSTIVE, "escalation_round": True,
             "steps": steps, "refused": refused,
             "estimated_cost_seconds": estimated,
-            "latency_budget_s": latency_budget_s}
+            "latency_budget_s": latency_budget_s,
+            "batching": {
+                "duplicate_acquisitions_removed": duplicate_acquisitions,
+                "requirements_served": sum(
+                    len(step["requirement_ids"]) for step in steps),
+                "acquisitions": len(steps),
+            }}
 
 
 def ledger_key(source_digest: str, lane: str,
@@ -785,33 +900,45 @@ def run_acquisition(acq_plan: Mapping[str, Any], *,
         execution = execute_query_acquisition(
             compat, cached=cached, producers=dict(producers),
             max_cost_seconds=max_cost_seconds)
-        by_lane_interval = {(row["lane"], row["interval"]["start_s"],
-                             row["interval"]["end_s"]): row
-                            for row in measure_steps}
+        by_lane_interval: dict[tuple, list[dict[str, Any]]] = {}
+        for planned in measure_steps:
+            key = (planned["lane"], planned["interval"]["start_s"],
+                   planned["interval"]["end_s"])
+            by_lane_interval.setdefault(key, []).append(planned)
         for row in execution.get("steps", []):
             key = (row["lane"], row["start_s"], row["end_s"])
-            planned = by_lane_interval.get(key, {})
-            row["requirement_id"] = planned.get("requirement_id")
-            row["why"] = planned.get("why")
-            if row.get("status") in ("acquired", "cached") and (
-                    ledger is not None and planned.get("ledger_key")):
-                ledger[planned["ledger_key"]] = {
-                    "status": row["status"],
-                    "producer_version": row.get("model_version"),
-                    "cost_seconds": row.get("cost_seconds"),
-                }
+            planned_rows = by_lane_interval.get(key, [])
+            served: list[str] = []
+            for planned in planned_rows:
+                served.extend(served_requirements(planned))
+            row["requirement_ids"] = served
+            row["requirement_id"] = served[0] if served else None
+            row["why"] = planned_rows[0].get("why") if planned_rows else None
+            if (row.get("status") in ("acquired", "cached")
+                    and ledger is not None):
+                for planned in planned_rows:
+                    if not planned.get("ledger_key"):
+                        continue
+                    ledger[planned["ledger_key"]] = {
+                        "status": row["status"],
+                        "producer_version": row.get("model_version"),
+                        "cost_seconds": row.get("cost_seconds"),
+                    }
 
     verifiers = dict(verifiers or {})
     verify_rows: list[dict[str, Any]] = []
     for row in verify_steps:
+        served = served_requirements(row)
         verifier = verifiers.get(row["lane"])
         if verifier is None:
-            verify_rows.append({
-                "requirement_id": row["requirement_id"],
-                "lane": row["lane"], "interval": row["interval"],
-                "status": "deferred",
-                "reason": "no verifier supplied for this candidate lane",
-                "why": row.get("why")})
+            for req_id in served:
+                verify_rows.append({
+                    "requirement_id": req_id,
+                    "requirement_ids": list(served),
+                    "lane": row["lane"], "interval": row["interval"],
+                    "status": "deferred",
+                    "reason": "no verifier supplied for this candidate lane",
+                    "why": row.get("why")})
             continue
         try:
             verdict = dict(verifier(
@@ -819,19 +946,23 @@ def run_acquisition(acq_plan: Mapping[str, Any], *,
                 end_s=row["interval"]["end_s"],
                 budget_seconds=row["cost_budget_seconds"]))
         except Exception as exc:  # noqa: BLE001 - one verifier's failure is deferred work, not a run failure
-            verify_rows.append({
-                "requirement_id": row["requirement_id"],
-                "lane": row["lane"], "interval": row["interval"],
-                "status": "deferred",
-                "reason": f"verifier failed: {exc}",
-                "why": row.get("why")})
+            for req_id in served:
+                verify_rows.append({
+                    "requirement_id": req_id,
+                    "requirement_ids": list(served),
+                    "lane": row["lane"], "interval": row["interval"],
+                    "status": "deferred",
+                    "reason": f"verifier failed: {exc}",
+                    "why": row.get("why")})
             continue
-        verify_rows.append({
-            "requirement_id": row["requirement_id"],
-            "lane": row["lane"], "interval": row["interval"],
-            "status": ("acquired" if verdict.get("measured")
-                       else "deferred"),
-            "result": verdict, "why": row.get("why")})
+        for req_id in served:
+            verify_rows.append({
+                "requirement_id": req_id,
+                "requirement_ids": list(served),
+                "lane": row["lane"], "interval": row["interval"],
+                "status": ("acquired" if verdict.get("measured")
+                           else "deferred"),
+                "result": verdict, "why": row.get("why")})
         if verdict.get("measured") and ledger is not None:
             ledger[row["ledger_key"]] = {
                 "status": "acquired",

@@ -247,6 +247,37 @@ unused loads, not the initial integrity check or the actual editorial read.
 These were shared-machine measurements; CPU figures are included because
 other workers can affect wall time.
 
+## Acquisition planner: one acquisition per question set
+
+The L5 acquisition planner (`library/tools/evidence_acquisition.py`) schedules
+one step per (requirement, lane, window). A requirement graph routinely asks
+several questions of the same footage - "a chart is visible" and "the camera
+moves" both want the detector over the same ten seconds - and every question
+scheduled its OWN copy of that producer call. The producer therefore ran N
+times over one interval, the plan's cost estimate counted N times one
+measurement, and `run_acquisition` attributed the result to the LAST
+requirement that asked: the earlier one paid for the measurement and lost it.
+
+The planner now coalesces steps by acquisition identity (catalog lane, lane,
+interval, producer - the same identity the ledger key already carries) and
+names every requirement each acquisition serves, in `requirement_ids`. The
+measurement is unchanged; it is paid for once and answers every question that
+asked for it.
+
+Measured on the planner's own cost model, over a 120 s source, using the
+checked-in per-window costs (`segmentation-vision-nominations`, 1.6 s/window):
+
+| Plan | Before | After |
+| --- | ---: | ---: |
+| "scene description and camera movement" (3 requirements, 12 windows) | 36 steps, 57.6 s | 12 steps, 19.2 s |
+| the same plan escalated to the OWLv2 tier (36.4 s/window) | 36 steps, 1310.4 s | 12 steps, 436.8 s |
+| "footage with laughter and applause" (2 requirements, 1 window) | 2 steps | 1 step |
+
+These are the planner's own cost model over measured per-window costs, not a
+live run. A live run over the captain's footage is the live lane's evidence
+(`vep-axc-live2`), and this lane names that as the live measurement it still
+needs.
+
 ## Limits and remaining work
 
 - A completed full-main versus full-new timing comparison is not available.
