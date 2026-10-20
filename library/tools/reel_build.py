@@ -16481,6 +16481,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # Resolve reads only to establish a live decision. Preparation
             # and plan compilation happen after this short inspection hold.
             _state_started_at = time.time()
+            # The broker's job DESCRIPTION is at most 80 characters and
+            # refuses a longer one; the staging name carries a candidate
+            # token and the stage suffix, so it is 108 characters for a
+            # reel with a long name. The purpose names the decision and
+            # the description is capped where the lease sends it
+            # (`resolve_lock`), so the refusal no longer comes back as
+            # "Resolve is busy with another edit right now".
             with resolve_lease(
                     f"decide {name}", exclusive=True,
                     project=resolve_name, timeline=name,
@@ -16767,7 +16774,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     ending=_reel_ending.resolve_ending(
                         project_folder, name, moment, transcript),
                     locked_closing_positions=motion_record[
-                        "locked_closing_positions"])
+                        "locked_closing_positions"],
+                    # A full-frame span REPLACES the body picture, so the
+                    # manifest must describe the span's own segments: the
+                    # footage it replaced is not on the timeline, and a
+                    # comp planned for that footage reaches nothing.
+                    span_cards=[card
+                                for card in (prepared.cards or ())
+                                if str(getattr(card, "placement", "")) == "span"],
+                    freeze=prepared.freeze_tail)
             # When the watcher's soft flag says the captain may be
             # editing this reel, refuse before placement: a build must
             # not write beside a live hand edit.

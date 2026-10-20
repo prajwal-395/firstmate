@@ -594,6 +594,42 @@ def _picture(placements: Sequence[dict]) -> List[dict]:
     return out
 
 
+class _SpanClip:
+    """A full-frame element's segment, shaped like a placement's clip.
+
+    The Fusion manifest joins a planned clip to a timeline item by the
+    SOURCE PATH, and a span's segment carries the path of the file the
+    renderer drew it to.
+    """
+
+    track_type = "video"
+
+    def __init__(self, source_file: str) -> None:
+        self.source_file = source_file
+
+
+def _span_picture(cards: Sequence, fps: float) -> List[dict]:
+    """The full-frame elements as the reel's picture, in play order.
+
+    A span REPLACES the footage for the stretch it covers, so the reel's
+    picture IS the span's segments. The manifest has to say so, or the
+    Fusion pass looks for comps on footage that is not on the timeline
+    and the build refuses with "planned comp reaches no timeline item".
+    """
+    out = []
+    for card in sorted(cards or (),
+                       key=lambda c: int(getattr(c, "reel_start_frame", 0))):
+        path = str(getattr(card, "rendered_path", "") or "")
+        frames = int(getattr(card, "duration_frames", 0) or 0)
+        out.append({
+            "clip": _SpanClip(path),
+            "source_in": 0,
+            "source_out": frames,
+            "snapped_record": int(getattr(card, "reel_start_frame", 0)),
+        })
+    return out
+
+
 def _record_span(placement: dict, fps: float) -> Tuple[int, int]:
     start = int(placement["snapped_record"])
     return start, start + int(round(
@@ -2125,7 +2161,9 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
                     track_plan=None, angle_key=None,
                     grade_look: Optional[dict] = None,
                     ending=None,
-                    locked_closing_positions: Sequence[int] = ()) -> dict:
+                    locked_closing_positions: Sequence[int] = (),
+                    span_cards: Optional[Sequence] = None,
+                    freeze=None) -> dict:
     """The manifest `apply_fusion_comps` reads for one reel.
 
     Only the keys that pass actually reads: `tracks.V{row}.clips` in
@@ -2151,8 +2189,32 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
 
     `ending` is the reel's declared ending or None; it decides what
     draws over the LAST picture clip (`power_effects` above).
+
+    `span_cards` are the full-frame elements that REPLACE the body. A
+    span is the picture for the stretch it covers, so the manifest must
+    describe the span's own clips - the footage it replaced is not on
+    the timeline, and a comp planned for that footage reaches nothing
+    ("planned comp reaches no timeline item"). The drift planned for
+    the footage is DROPPED with it: a camera move on a shot the span
+    replaced has nothing to move, and landing it on the span's
+    segments by position would be a silent misplacement.
     """
     picture = _picture(placements)
+    if span_cards:
+        picture = _span_picture(span_cards, fps)
+        motion = ()
+        if freeze:
+            # The reel's declared HOLD is the last picture, and the tail
+            # element is armed on it. With a span replacing the body, the
+            # hold is still the last picture - so the hold is joined back
+            # on here, exactly as `_with_freeze` joins it onto the
+            # footage it replaces. Without it the tail element is armed
+            # on the span's last sentence, which is a few frames long and
+            # can never settle the animation.
+            from library.tools import reel_ending as _ending_owner
+
+            picture = list(picture) + [
+                _ending_owner.freeze_placement(freeze, fps)]
     rows = picture_rows(track_plan)
     first_row = min(rows.values()) if rows else 1
     by_row: Dict[int, list] = {}

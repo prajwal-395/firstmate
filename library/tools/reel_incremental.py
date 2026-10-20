@@ -808,10 +808,24 @@ def build_staged_incremental(
         raise IncrementalBroken(
             f"the final timeline could not be read ({exc}) - refusing"
         ) from exc
-    if not recorded_carried or live_carried != recorded_carried:
-        raise IncrementalStale(
+    if not recorded_carried:
+        # NO build record for this final: the reel was not built by this
+        # project (an imported reel, or one whose record was pruned).
+        # The incremental diff has no base, so this is a BACKEND-
+        # SELECTION refusal and the full build places the reel - which
+        # is what this same message has always said. It was raised as
+        # `IncrementalStale`, which the build does NOT fall through
+        # from, so a reel this project never built could not be
+        # rebuilt at all. Measured 2026-10-20 on the Ren Scratch -
+        # breaktest project: an imported reel refused every build with
+        # this message and never reached the full rebuild it names.
+        raise IncrementalRefused(
             "the final drifted since its build (or its record is gone) "
             "- only the full rebuild restores it")
+    if live_carried != recorded_carried:
+        raise IncrementalStale(
+            "the final drifted since its build - only the full rebuild "
+            "restores it")
 
     # VC-09: the strategy is selected before the candidate exists. The
     # stale/conflict checks above are the eligibility evidence; the

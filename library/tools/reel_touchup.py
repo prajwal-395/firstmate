@@ -3546,8 +3546,20 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
             "transition must be the only edit in a touch-up request",
             "the native transition is qualified only on an unchanged staged cut",
             "submit one exact-cut transition by itself")
-    if (qualification.gate_class == COMPOSED_STILL_RESIZE
-            and resolve_app is None):
+    # The rendered-pixel verification of an overlay resize or move needs a
+    # live Resolve handle, and the touch-up already opens its own
+    # connection to stage the reel - so the handle is connected here
+    # rather than refused at the verification. Measured 2026-10-20: an
+    # `overlay.resize` through `ren revise` reached the verification with
+    # no handle and raised "overlay.resize requires a Resolve handle for
+    # independent rendered-pixel verification; approved timeline remains
+    # intact" - a refusal for a handle this file could open.
+    needs_pixel_verification = any(
+        str(entry.get("kind")) in {"overlay_resize", "overlay_position"}
+        for entry in (qualification.in_place or ()))
+    if (resolve_app is None
+            and (qualification.gate_class == COMPOSED_STILL_RESIZE
+                 or needs_pixel_verification)):
         from library.tools.reel_build import _connect_resolve
         resolve_app = _connect_resolve()
     receipt["gate"] = {

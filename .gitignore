@@ -96,6 +96,7 @@ scripts/.resolve_memory_trial_state.json
 # Rust build artifacts
 native/target
 native/*/target
+library/native/target/
 
 # Firstmate-home legacy ownership snapshot (provenance retained outside the repo).
 /data/vep-legacy-ownership/legacy-classification.json

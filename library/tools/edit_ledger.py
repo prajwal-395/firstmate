@@ -1501,10 +1501,14 @@ def replay_on_timeline(name: str, rows: list, spans: list,
                                f"later rung and this build holds nothing "
                                f"for it. Stored, reported, not applied.")})
             elif op == "edit_program":
-                applied_p, unreplayable_p = _replay_program(
-                    row, timeline, applied, unreplayable, project)
-                applied.extend(applied_p)
-                unreplayable.extend(unreplayable_p)
+                # `_replay_program` appends to the SAME `applied` and
+                # `unreplayable` lists and returns them. Extending with
+                # the returned lists DOUBLED both, once per program row:
+                # 28 program rows grew the unreplayable report to 2^28
+                # records, and the build printed every one of them -
+                # 53 GB of stderr in 75 minutes, which filled the disk.
+                _replay_program(row, timeline, applied, unreplayable,
+                                project)
             else:  # pragma: no cover - validation refuses unknown ops
                 unreplayable.append({
                     "name": _row_name(row), "scope": "op",

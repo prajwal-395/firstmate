@@ -2997,6 +2997,9 @@ EXEMPT_IMPORTS = {
     # Edit routing selects an executor but does not measure footage; it
     # must not invalidate a cached catalog result.
     "library/tools/execution_router.py",
+    # The per-evidence model reuse terms: the licence provenance the
+    # diarization records, and the gate that reads them.
+    "library/tools/model_evidence_provenance.py",
     # The protected experimental routing policy: which unqualified
     # operation may run on a protected staged candidate, and under which
     # guarantees. It selects an executor and measures nothing, on the same

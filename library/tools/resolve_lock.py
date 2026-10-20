@@ -1060,10 +1060,19 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     if not client.serving():
         yield None
         return
+    # The broker's job description is one line of at most 80 characters,
+    # and it refuses a longer one. A lease whose purpose outgrew that
+    # (a staging name with a candidate token is 108 characters) was
+    # refused as "Resolve is busy with another edit right now" - a
+    # contention message for a malformed description, which sent the
+    # reader looking for another writer instead of at their own name.
+    described = description or purpose
+    if len(described) > 80:
+        described = described[:77].rstrip() + "..."
     granted = False
     try:
         with client.grant({"purpose": purpose, "exclusive": exclusive,
-                           "description": description or purpose,
+                           "description": described,
                            "progress": progress,
                            "interactive": interactive,
                            "project": project or qualification_project,
