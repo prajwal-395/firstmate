@@ -64,3 +64,54 @@ Thirty search windows at about 20 seconds each and twenty proposal decisions at
 about 30 seconds each take roughly 20 minutes of focused review. Allow 5 to 10
 minutes for playback/notes and breaks: **25 to 30 minutes total**. This is an
 estimate, not a measured labelling result.
+
+## A head-to-head against a professional editor's selection
+
+The kit above judges ONE proposal: is this decision acceptable? A second
+question asks something different - was REN'S choice the better one? - and it
+needs two treatments side by side, with the evaluator unable to tell which
+side is Ren's.
+
+`library/tools/blind_comparison.py` constructs that comparison:
+
+```python
+from library.tools import blind_comparison as eu
+
+record = eu.comparison(
+    "req-1", "the opening feels slow",
+    ren_treatment,        # {"treatment_id", "name", "plan_summary", "evaluation"}
+    professional_treatment,
+    criteria=[{"criterion": "the claim lands first"}])
+```
+
+The sides are SHUFFLED: the order is a deterministic function of the
+comparison id, not of which side is Ren's, so the same comparison always shows
+the same order and no order is systematically Ren's. `evaluator_view` is what
+the evaluator is shown - the request, each side's plan summary and its
+per-criterion verdicts, and no origin, no treatment id and no treatment name.
+A plan summary that names either treatment is refused, because a description
+that gives the answer away is not a blind comparison.
+
+`render_evaluator_page` writes the offline page (no scripts, stylesheets,
+fonts or network calls outside the file). The evaluator saves an answer JSON
+naming a SIDE, never an origin:
+
+```python
+preferences = eu.read_preferences(answers)          # {"labeller", "choices"}
+scored = eu.score_preferences([record], preferences)
+print(scored["agreement"]["ren_preferred_rate"])
+```
+
+`score_preferences` unblinds each preference and measures how often Ren's
+treatment was preferred over the professional's. A pair the evaluator could
+not decide on is reported as UNDECIDED, never as a loss for either side, and a
+preference for a comparison nobody built is reported rather than dropped.
+
+Nothing here decides which treatment is better; that is the evaluator's
+answer, and this module's job is to make the answer mean something.
+
+Judging a DELIVERED RENDER against its brief is a different measurement, and
+it lives in `library/tools/editorial_brief_scorer.py`: it keeps the editorial
+verdict separate from the technical gate, counts an unmeasured criterion as
+neither a pass nor a fail, and binds the score to one exact render by its
+SHA-256.
