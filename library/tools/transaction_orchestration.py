@@ -85,20 +85,50 @@ class ExecutionInput:
 
 @dataclass(frozen=True)
 class ExecutionRefusal:
-    """Normalized refusal vocabulary shared across physical backends."""
+    """Normalized refusal vocabulary shared across physical backends.
+
+    AXI-36/AXI-42: the VALUE every backend reports when it refuses, and
+    the one shape an exception is normalized into. It carries the next
+    action (`fix`) and the recorded backend limitations beside the
+    category, so a receipt states what to do about the refusal instead
+    of only that it happened.
+    """
 
     category: str
     reason: str
     retryable: bool = False
     recovery: Mapping = field(default_factory=dict)
+    fix: str = ""
+    limitations: tuple[str, ...] = ()
 
     CATEGORIES: ClassVar[frozenset[str]] = frozenset({
         "unsupported", "stale", "conflict", "backend_failure",
-        "verification_failed", "recovery_required"})
+        "verification_failed", "recovery_required", "broken"})
 
     def __post_init__(self) -> None:
         if self.category not in self.CATEGORIES:
             raise ValueError(f"unknown execution refusal category: {self.category}")
+
+    @classmethod
+    def from_exception(cls, exc: BaseException) -> ExecutionRefusal:
+        """Normalize a typed refusal exception into the shared value.
+
+        A refusal that carries the engine-wide shape (``RenRefusal``)
+        keeps its category, its next action and its limitations. Any
+        other exception is a ``backend_failure``: it is not a decision
+        Ren made, and calling it one would be a lie.
+        """
+        category = str(getattr(exc, "category", "") or "backend_failure")
+        if category not in cls.CATEGORIES:
+            category = "backend_failure"
+        return cls(
+            category=category,
+            reason=str(getattr(exc, "why", "") or str(exc)),
+            retryable=bool(getattr(exc, "retryable", False)),
+            recovery=dict(getattr(exc, "recovery", {}) or {}),
+            fix=str(getattr(exc, "fix", "") or ""),
+            limitations=tuple(getattr(exc, "limitations", ()) or ()),
+        )
 
     def as_dict(self) -> dict:
         return asdict(self)

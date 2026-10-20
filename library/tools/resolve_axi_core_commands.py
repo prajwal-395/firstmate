@@ -10497,6 +10497,33 @@ def main(argv=None) -> int:
     return result.exit_code
 
 
+def cli_boundary(main_impl, argv=None) -> int:
+    """The ONE place this verb renders a refusal.
+
+    A typed refusal leaves as exit 4 with its what/why/fix; an
+    unexpected error keeps its traceback and exit 1, because a fix
+    invented for a bug would be a lie.
+
+    AXI-42: a routing refusal is a `RenRefusal`, so it lands here as a
+    REFUSAL with a next action. It used to be a bare `RuntimeError`, so
+    every routing refusal that escaped a command reached the caller as
+    an unexpected error - a traceback and exit 1 - and the qualification
+    gap that caused it was never stated.
+    """
+    from library.tools.ren_refusal import (
+        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
+        report_unexpected)
+
+    try:
+        return int(main_impl(argv))
+    except RenRefusal as refused:
+        print(refused.render(), file=sys.stderr)
+        emit_refusal_result(refused)
+        return REFUSAL_EXIT_CODE
+    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
+        return report_unexpected(exc)
+
+
 if __name__ == "__main__":
     # ONE place renders every refusal on this verb's path, in the same
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
@@ -10504,18 +10531,8 @@ if __name__ == "__main__":
     # (LE-03). The verb's own `fail()` vocabulary (exit 1) is
     # untouched: only a `RenRefusal` escaping `main` and an uncaught
     # error land here.
-    from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
     _HERE = os.path.abspath(__file__)
     _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))
     if _ROOT not in sys.path:
         sys.path.insert(0, _ROOT)
-    try:
-        raise SystemExit(main())
-    except RenRefusal as refused:
-        print(refused.render(), file=sys.stderr)
-        emit_refusal_result(refused)
-        sys.exit(REFUSAL_EXIT_CODE)
-    except Exception as exc:  # noqa: BLE001 - unexpected errors are data too
-        sys.exit(report_unexpected(exc))
+    sys.exit(cli_boundary(main))

@@ -625,9 +625,16 @@ def route_request(compiled: CompiledEdit, *,
                   context: Mapping[str, Any] | None = None) -> dict:
     """Send compiled ops through the authoritative router (consumed).
 
-    The router internals stay its own; this is the single call every
-    mutation path makes so build, incremental, touch-up, AXI and
-    feedback paths share one routing contract (VC-09).
+    The router internals stay its own; this is the single call a
+    SEMANTIC mutation path makes, so the AXI dispatch, the revise path,
+    the touch-up path and the feedback path share one routing contract
+    (VC-09).
+
+    A STRATEGY request - the staged incremental diff or the full rebuild
+    - is not a semantic edit, so it carries no algebra operations and
+    does not compile into one of these. The paths that select a strategy
+    ask ``execution_router.route_compiled_edit`` for it directly, which
+    is the same router and the same rules.
     """
     from library.tools import execution_router
 

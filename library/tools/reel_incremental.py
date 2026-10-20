@@ -21,26 +21,96 @@ import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Mapping, Optional, Sequence
 
+from library.tools.ren_refusal import RenRefusal
 
-class IncrementalRefused(Exception):
-    """The incremental backend cannot apply this plan safely."""
+#: The closed category set of an incremental refusal. An unrecognised
+#: category is a defect, not a licence to fall back.
+INCREMENTAL_REFUSAL_CATEGORIES = ("unsupported", "stale", "conflict", "broken")
+
+#: How the host may proceed, per category. ``auto_recoverable`` permits
+#: only the named safe recovery, ``needs_question`` asks the smallest
+#: blocking question, ``blocked`` states what must be resolved first.
+INCREMENTAL_REFUSAL_RECOVERY_CLASSES = {
+    "unsupported": "auto_recoverable",
+    "stale": "needs_question",
+    "conflict": "needs_question",
+    "broken": "blocked",
+}
+
+#: The next action, per category. The category says what kind of refusal
+#: this is; the fix says the exact next step.
+INCREMENTAL_REFUSAL_FIXES = {
+    "unsupported": (
+        "This plan is not incrementally applicable. Route it to the "
+        "full rebuild, which places the reel from the plan; the router "
+        "decides whether that fallback is permitted."),
+    "stale": (
+        "The live reel drifted from the plan it was built from. "
+        "Rebuild the reel from the current plan, or resolve the drift "
+        "first; do not patch over a stale base."),
+    "conflict": (
+        "The live timeline disagrees with the plan. Preserve the live "
+        "timeline and resolve the difference before editing it."),
+    "broken": (
+        "The live timeline could not be read. Re-read it and retry; do "
+        "not rebuild over state nobody could read."),
+}
+
+
+class IncrementalRefused(RenRefusal):
+    """The incremental backend cannot apply this plan safely.
+
+    AXI-42: a typed refusal, not a bare exception. It carries the
+    category (which decides whether a rebuild may follow), the next
+    action and the recovery class, so this path refuses in the same
+    shape as every other refusal in Ren. The category set is CLOSED: an
+    unrecognised category is a defect, not a licence to fall back.
+    """
+
+    CODE = "REN_INCREMENTAL_REFUSED"
+    USER_MESSAGE = ("I couldn't patch this reel in place, so nothing on "
+                    "the timeline changed. The reason and the next step "
+                    "are named below.")
+
+    CATEGORIES = INCREMENTAL_REFUSAL_CATEGORIES
+    RECOVERY_CLASSES = INCREMENTAL_REFUSAL_RECOVERY_CLASSES
+    FIXES = INCREMENTAL_REFUSAL_FIXES
 
     category = "unsupported"
+
+    def __init__(self, why: str, *, what: str = "", fix: str = "",
+                 category: str = "", recovery_class: str = "") -> None:
+        resolved = category or type(self).category
+        if resolved not in self.CATEGORIES:
+            raise ValueError(
+                f"unknown incremental refusal category: {resolved!r}; one of "
+                f"{list(self.CATEGORIES)}")
+        self.category = resolved
+        super().__init__(
+            what or "the incremental route cannot apply this plan safely",
+            why,
+            fix or self.FIXES[resolved],
+            recovery_class=(recovery_class
+                            or self.RECOVERY_CLASSES[resolved]),
+        )
 
 
 class IncrementalStale(IncrementalRefused):
     """The recorded base no longer matches the live timeline."""
     category = "stale"
+    CODE = "REN_INCREMENTAL_STALE"
 
 
 class IncrementalConflict(IncrementalRefused):
     """A live edit conflicts with the planned incremental diff."""
     category = "conflict"
+    CODE = "REN_INCREMENTAL_CONFLICT"
 
 
 class IncrementalBroken(IncrementalRefused):
     """Live state could not be read or the staging operation malfunctioned."""
     category = "broken"
+    CODE = "REN_INCREMENTAL_BROKEN"
 
 
 class _RowInventory:
@@ -827,12 +897,23 @@ def build_staged_incremental(
             "the final drifted since its build - only the full rebuild "
             "restores it")
 
-    # VC-09: the strategy is selected before the candidate exists. The
-    # stale/conflict checks above are the eligibility evidence; the
-    # staging duplicate below is already backend-specific work.
-    from library.tools.execution_router import route_incremental
-    execution_routing = route_incremental(
-        reason="incremental eligibility checks passed for this staged diff")
+    # VC-09 / AXI-35: the strategy is selected before the candidate
+    # exists. The stale/conflict checks above are the eligibility
+    # evidence; the staging duplicate below is already backend-specific
+    # work. The route is asked of the ONE router entry point, with the
+    # eligibility result as its evidence, so this arm and the rebuild
+    # arm are decided by the same rule.
+    from library.tools.execution_router import (
+        STRATEGY_INCREMENTAL_ID,
+        route_compiled_edit,
+    )
+    execution_routing = route_compiled_edit(
+        {"operations": [{"op": STRATEGY_INCREMENTAL_ID}]},
+        context={
+            "incremental_eligibility": True,
+            "reason": ("incremental eligibility checks passed for this "
+                       "staged diff"),
+        })
 
     from library.tools.composed_edit import prepare_candidate
     try:

@@ -75,7 +75,9 @@ def test_caption_style_is_production_ready_only_on_its_live_evidence():
     in tests/live/reports/registry/caption.style__resolve_axi.json), so
     the operation IS production-enabled now. What this still names is
     the rule behind that state: the enablement comes from the evidence
-    record, and the record names the run it came from.
+    record, the record names the run it came from, no other backend
+    inherits it, and an operation with no such record is still
+    fail-closed.
     """
     entry = edit_algebra.status("caption.style", "resolve_axi")
     assert entry is not None and entry.compilable
@@ -88,6 +90,17 @@ def test_caption_style_is_production_ready_only_on_its_live_evidence():
     assert entry.qualification_predicates
     assert edit_algebra.status("caption.style").qualified
     assert edit_algebra.status("caption.style").production_enabled
+
+    # Only the recorded backend inherits the enablement.
+    assert [row.backend
+            for row in edit_algebra.status("caption.style").backends
+            if row.production_enabled] == ["resolve_axi"]
+
+    # An operation with no live record is still fail-closed.
+    marker = edit_algebra.status("marker.add", "edit_patch")
+    assert marker is not None
+    assert not marker.production_enabled
+    assert not edit_algebra.is_production_enabled("marker.add", "edit_patch")
     assert (edit_algebra.safety_class("caption.style")
             == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
     assert edit_algebra.has_independent_readback("caption.style")

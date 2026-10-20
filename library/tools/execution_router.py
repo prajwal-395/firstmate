@@ -32,6 +32,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 
+from library.tools.ren_refusal import RenRefusal
+
 #: VC-06: staging stays the production default. No router path promotes a
 #: direct-write default; gates may only observe candidates beside it.
 STAGING_IS_PRODUCTION_DEFAULT = True
@@ -52,12 +54,54 @@ DIRECT_BYPASS_FLAGS: tuple[str, ...] = (
 #: conflicting live edits and broken reads are not backend-selection hints;
 #: only ``unsupported`` may fall back to a rebuild, and only under an
 #: explicit caller policy.
+#:
+#: AXI-40: the set is CLOSED. A category outside it is never coerced into
+#: ``unsupported`` - that is the one category a rebuild may follow, so an
+#: unrecognised value coerced into it turns a broken read into a silent
+#: rebuild. ``broken`` (live state could not be read) is a category of its
+#: own: it is neither a stale base nor a conflicting edit, and it must not
+#: be rebuilt over either.
 ROUTING_REFUSAL_CATEGORIES = (
     "unsupported",
     "stale",
     "conflict",
     "backend_failure",
+    "broken",
 )
+
+#: AXI-42: what the caller does next, per category. The category says what
+#: kind of refusal this is; the fix says the exact next step. Both travel
+#: with the refusal, so a host never has to infer the action from prose.
+ROUTING_REFUSAL_FIXES: Mapping[str, str] = {
+    "unsupported": (
+        "Report the refusal and the qualification gap: a backend must be "
+        "qualified before this edit can run. Do not substitute another "
+        "backend or a full rebuild without an explicit authorization."),
+    "stale": (
+        "Re-read the timeline, resolve the target again and prepare a "
+        "fresh request against the current generation."),
+    "conflict": (
+        "Preserve the live state and ask for direction; the intended "
+        "result is no longer clear."),
+    "backend_failure": (
+        "Read the transaction receipt and its recovery result before "
+        "deciding whether another attempt is safe."),
+    "broken": (
+        "Re-read the live timeline state; do not rebuild over a timeline "
+        "nobody could read."),
+}
+
+#: AXI-42: how the host may proceed, per category. ``auto_recoverable``
+#: permits only the named safe recovery, ``needs_question`` asks the
+#: smallest blocking question, ``blocked`` states what must be resolved
+#: first.
+ROUTING_REFUSAL_RECOVERY_CLASSES: Mapping[str, str] = {
+    "unsupported": "blocked",
+    "stale": "auto_recoverable",
+    "conflict": "needs_question",
+    "backend_failure": "blocked",
+    "broken": "blocked",
+}
 
 #: Strategy-only request ids kept for callers that select a physical plan
 #: rather than algebra operations. They are not algebra ops and are never
@@ -65,27 +109,113 @@ ROUTING_REFUSAL_CATEGORIES = (
 STRATEGY_FULL_BUILD_ID = "reel.full_build"
 STRATEGY_INCREMENTAL_ID = "incremental.overlay_diff"
 
+#: AXI-39: the mutation scope of every route the router can select.
+#: `targeted` touches only what changed; `full_rebuild` reconstructs the
+#: timeline and therefore disturbs everything it does not carry over;
+#: `none` writes nothing. The decision records which one it chose, so a
+#: receipt can answer "was the rest of the reel preserved?" without
+#: reading the code that ran.
+ROUTE_MUTATION_SCOPE: Mapping[str, str] = {
+    "no_op": "none",
+    "incremental": "targeted",
+    "edit_patch": "targeted",
+    "edit_patch.property": "targeted",
+    "reel_touchup": "targeted",
+    "composed_edit.structural": "targeted",
+    "full_rebuild": "full_rebuild",
+}
+
+#: AXI-41: the one guard every route's ownership is enforced by.
+TRANSACTION_OWNERSHIP_ENFORCED_BY = "library/tools/resolve_lock.py"
+
+
+def _ownership(broker_kind: str, *, lease: str, writes: bool) -> dict:
+    """One route's transaction ownership, in the common shape."""
+    return {"broker_kind": broker_kind,
+            "lease": lease,
+            "writes": writes,
+            "single_instance": True,
+            "enforced_by": TRANSACTION_OWNERSHIP_ENFORCED_BY}
+
+
+#: AXI-41: who owns the mutation for each route. Every Resolve write runs
+#: under the single-instance broker and one transaction owner; a decision
+#: that does not say so has not said enough about the write it chose.
+#: `broker_kind` is the typed commit adapter that owns the route when AXI
+#: dispatches it, and is empty for the routes the reel build runs itself
+#: under its own exclusive lease.
+ROUTE_TRANSACTION_OWNERSHIP: Mapping[str, Mapping[str, object]] = {
+    "no_op": _ownership("", lease="none", writes=False),
+    "edit_patch": _ownership("timeline.apply_patch", lease="exclusive",
+                             writes=True),
+    "edit_patch.property": _ownership("timeline.apply_patch",
+                                      lease="exclusive", writes=True),
+    "reel_touchup": _ownership("timeline.semantic_edit", lease="exclusive",
+                               writes=True),
+    "composed_edit.structural": _ownership("timeline.semantic_edit",
+                                            lease="exclusive", writes=True),
+    "incremental": _ownership("", lease="exclusive", writes=True),
+    "full_rebuild": _ownership("", lease="exclusive", writes=True),
+}
+
 _PROPERTY_OPS = frozenset({"clip.set_property", "clip.set_enabled"})
 
 
-class RoutingRefused(RuntimeError):
-    """No executor can apply the requested semantics safely."""
+class RoutingRefused(RenRefusal):
+    """No executor can apply the requested semantics safely.
 
-    category = "unsupported"
+    AXI-42: this is the engine-wide refusal shape, not a bare exception.
+    It carries what happened, why, the next action, the recovery class
+    and the backend limitations that blocked the route, so it reaches the
+    `ren` / AXI boundary as a REFUSAL (exit 4, with a fix) instead of an
+    unexpected error (exit 1, with a traceback).
+
+    The category is a closed vocabulary member (``ROUTING_REFUSAL_CATEGORIES``)
+    and it is what decides whether a rebuild may follow: only
+    ``unsupported`` may.
+    """
+
+    CODE = "REN_ROUTING_REFUSED"
+    USER_MESSAGE = ("I couldn't find a safe execution route for this edit, "
+                    "so nothing on the timeline changed. The blocking "
+                    "limitation is named below.")
+
+    def __init__(self, why: str, *, what: str = "", fix: str = "",
+                 category: str = "unsupported",
+                 limitations: Sequence[str] = (),
+                 recovery_class: str = "") -> None:
+        if category not in ROUTING_REFUSAL_CATEGORIES:
+            raise ValueError(
+                f"unknown routing refusal category: {category!r}; one of "
+                f"{list(ROUTING_REFUSAL_CATEGORIES)}")
+        self.category = category
+        self.limitations = tuple(str(item) for item in limitations)
+        super().__init__(
+            what or "no eligible execution route for the requested edit",
+            why,
+            fix or ROUTING_REFUSAL_FIXES[category],
+            recovery_class=(recovery_class
+                            or ROUTING_REFUSAL_RECOVERY_CLASSES[category]),
+        )
 
     def as_dict(self) -> dict:
+        """The normalized refusal value every backend reports."""
         from library.tools.transaction_orchestration import ExecutionRefusal
 
-        return ExecutionRefusal(self.category, str(self)).as_dict()
+        return ExecutionRefusal.from_exception(self).as_dict()
 
 
 class IncrementalRoutingRefused(RoutingRefused):
     """Incremental refusal that must not be collapsed into a rebuild."""
 
     def __init__(self, category: str, reason: str):
-        self.category = category
         self.reason = reason
-        super().__init__(f"incremental {category}: {reason}")
+        super().__init__(
+            f"incremental {category}: {reason}",
+            what=("the incremental route refused this plan, and it may not "
+                  "be collapsed into a rebuild"),
+            category=category,
+        )
 
 
 @dataclass(frozen=True)
@@ -125,8 +255,32 @@ class ExecutionDecision:
             "cost": self.selection.get("cost", "unmeasured"),
             "minimum_mutation": self.selection.get("minimum_mutation", self.backend),
             "limitations": list(self.selection.get("limitations", ())),
+            # AXI-39: whether this route reconstructs the timeline or
+            # touches only what changed. A receipt that cannot say so
+            # cannot answer "was the rest of the reel preserved?".
+            "mutation_scope": self.selection.get("mutation_scope", "unknown"),
+            # AXI-41: who owns the write, and under which lease. The
+            # decision says so, not only the code path that runs it.
+            "transaction_ownership": dict(
+                self.selection.get("transaction_ownership", {})),
         }
         return value
+
+
+def _ownership_for(backend: str) -> dict:
+    """Who owns the write this route performs.
+
+    AXI-41: every Resolve mutation runs under the single-instance broker
+    and one transaction owner. The decision states which, so the receipt
+    carries the ownership instead of leaving it to be inferred from the
+    code path that runs it. A route the router does not know about
+    declares no ownership rather than borrowing another route's.
+    """
+    entry = ROUTE_TRANSACTION_OWNERSHIP.get(backend)
+    if entry is None:
+        return _ownership("", lease="unknown", writes=False) | {
+            "writes": None}
+    return dict(entry)
 
 
 def _selection_basis(operations: Sequence[Mapping], context: Mapping,
@@ -156,6 +310,11 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
         "cost": context.get("estimated_cost", "unmeasured"),
         "minimum_mutation": context.get("minimum_mutation", backend),
         "limitations": tuple(limitations) + tuple(context.get("limitations", ())),
+        # AXI-39: what this route does to the timeline - touches only
+        # what changed, or reconstructs it.
+        "mutation_scope": ROUTE_MUTATION_SCOPE.get(backend, "unknown"),
+        # AXI-41: who owns the write it performs.
+        "transaction_ownership": _ownership_for(backend),
     }
 
 
@@ -185,10 +344,18 @@ def _ops(compiled_edit) -> list[dict]:
     else:
         operations = compiled_edit
     if not isinstance(operations, Sequence) or isinstance(operations, (str, bytes)):
-        raise RoutingRefused("compiled edit must contain an operations sequence")
+        raise RoutingRefused(
+            "compiled edit must contain an operations sequence",
+            what="the compiled edit carries no operations to route",
+            fix="Pass the compiled algebra operations as a list; a request "
+                "with no operation list has nothing to route.")
     result = [dict(op) for op in operations]
     if not result:
-        raise RoutingRefused("compiled edit contains no operations")
+        raise RoutingRefused(
+            "compiled edit contains no operations",
+            what="the compiled edit carries no operations to route",
+            fix="Compile the request first; an empty operation list has "
+                "nothing to route.")
     return result
 
 
@@ -204,17 +371,50 @@ def _statuses(edit_algebra, ids: Sequence[str]) -> tuple[tuple[str, str], ...]:
     return tuple((op_id, _qualification_level(edit_algebra.status(op_id))) for op_id in ids)
 
 
+def _limitations_for(edit_algebra, op_ids: Sequence[str]) -> tuple[str, ...]:
+    """The recorded limitations of the named operations, by name.
+
+    AXI-42: a refusal that says only "no backend is proven" leaves the
+    caller to guess what would have to change. The matrix already records
+    why each backend cannot take an operation, so the refusal carries
+    those lines verbatim.
+    """
+    lines: list[str] = []
+    for op_id in op_ids:
+        entry = edit_algebra.status(op_id)
+        if entry is None:
+            lines.append(f"{op_id}: no algebra operation is declared for it")
+            continue
+        for backend in entry.backends:
+            for limitation in backend.limitations:
+                lines.append(f"{op_id} on {backend.backend}: {limitation}")
+    return tuple(dict.fromkeys(lines))
+
+
 def _refuse_unproven(edit_algebra, operations: Sequence[dict]) -> None:
     """Refuse unknown ids and ids no backend lists as compilable."""
     unknown = [str(op.get("op", "")) for op in operations
                if edit_algebra.status(str(op.get("op", ""))) is None]
     if unknown:
-        raise RoutingRefused("no backend is proven for operations: " + ", ".join(unknown))
+        raise RoutingRefused(
+            "no backend is proven for operations: " + ", ".join(unknown),
+            what=("these operations are not in the algebra vocabulary: "
+                  + ", ".join(unknown)),
+            fix=("Use an operation id the registry knows: "
+                 "`resolve-axi capabilities --search \"<effect>\"` lists the "
+                 "declared vocabulary and its evidence."),
+            limitations=_limitations_for(edit_algebra, unknown))
     uncompilable = [str(op.get("op", "")) for op in operations
                     if not edit_algebra.status(str(op.get("op", ""))).compilable]
     if uncompilable:
         raise RoutingRefused(
-            "no backend lists these operations as compilable: " + ", ".join(uncompilable))
+            "no backend lists these operations as compilable: " + ", ".join(uncompilable),
+            what=("no executor lists these operations as compilable: "
+                  + ", ".join(uncompilable)),
+            fix=("Qualify an executor for these operations before routing "
+                 "them; `resolve-axi capabilities <operation> --json` shows "
+                 "what each backend lists."),
+            limitations=_limitations_for(edit_algebra, uncompilable))
 
 
 def _check_op_conditions(edit_algebra, operations: Sequence[dict],
@@ -238,16 +438,30 @@ def _check_op_conditions(edit_algebra, operations: Sequence[dict],
                    if key not in op or op.get(key) is None]
         if missing:
             raise RoutingRefused(
-                f"{op_id} is missing required parameters: {', '.join(missing)}")
+                f"{op_id} is missing required parameters: {', '.join(missing)}",
+                what=f"{op_id} is missing required parameters: "
+                     + ", ".join(missing),
+                fix=(f"Supply {', '.join(missing)} on the {op_id} operation; "
+                     "the operation cannot be planned without them."))
         if spec.item and not op.get("unique_id"):
             raise RoutingRefused(
-                f"{op_id} targets an existing timeline item but names no unique_id")
+                f"{op_id} targets an existing timeline item but names no unique_id",
+                what=f"{op_id} names no target item",
+                fix=("Name the target item's unique_id (or resolve it in "
+                     "preparation) so the edit cannot land on the wrong "
+                     "clip."),
+                limitations=_limitations_for(edit_algebra, [op_id]))
         if media_type is not None:
             entry = edit_algebra.status(op_id)
             if entry is not None and entry.media_types and str(media_type) not in entry.media_types:
                 raise RoutingRefused(
                     f"{op_id} does not support media type {media_type!r} "
-                    f"(supports: {', '.join(entry.media_types)})")
+                    f"(supports: {', '.join(entry.media_types)})",
+                    what=f"{op_id} does not support media type {media_type!r}",
+                    fix=(f"Run the edit on a "
+                         f"{', '.join(entry.media_types)} item, or use an "
+                         "operation that supports this media type."),
+                    limitations=_limitations_for(edit_algebra, [op_id]))
         checked.append(f"{op_id}: required parameters present")
     return tuple(checked)
 
@@ -386,17 +600,31 @@ def _enforce_qualification_policy(gaps, context: Mapping) -> None:
         return
     policy = str(context.get("qualification_policy", "production"))
     if policy not in QUALIFICATION_POLICIES:
-        raise RoutingRefused(f"unknown qualification policy {policy!r}")
+        raise RoutingRefused(
+            f"unknown qualification policy {policy!r}",
+            what=f"the qualification policy {policy!r} is not one Ren speaks",
+            fix=(f"Use one of {sorted(QUALIFICATION_POLICIES)}; an unknown "
+                 "policy cannot widen support."))
     if policy == "production" or context.get("require_qualified"):
         names = ", ".join(op_id for op_id, _qualified, _production in gaps)
         refusals = context.get("qualification_refusals", {})
         details = [f"{op_id}: {refusals[op_id]['reason']}"
                    for op_id, _qualified, _production in gaps
                    if op_id in refusals]
+        from library.tools import edit_algebra as _algebra
+
         raise RoutingRefused(
             f"no production-qualified executor is available for: {names}; "
             "production routing fails closed"
-            + (" (" + "; ".join(details) + ")" if details else ""))
+            + (" (" + "; ".join(details) + ")" if details else ""),
+            what=("no production-qualified executor is available for: "
+                  + names),
+            fix=("Qualify the operation on a live Resolve timeline and "
+                 "import the evidence, or route it under the protected "
+                 "experimental policy with explicit staging, preservation "
+                 "and verification guarantees."),
+            limitations=_limitations_for(
+                _algebra, [op_id for op_id, _q, _p in gaps]))
     required_guards = (
         "protected_staging", "preserve_approved_state", "verify_after_write",
     )
@@ -404,7 +632,12 @@ def _enforce_qualification_policy(gaps, context: Mapping) -> None:
     if missing:
         raise RoutingRefused(
             "protected experimental routing requires explicit true guarantees: "
-            + ", ".join(missing))
+            + ", ".join(missing),
+            what=("the protected experimental route is missing its "
+                  "guarantees: " + ", ".join(missing)),
+            fix=("State each guarantee explicitly - protected_staging, "
+                 "preserve_approved_state and verify_after_write - or route "
+                 "under the production policy."))
 
 
 def _preflight_full_rebuild_operations(edit_algebra, operations, context) -> None:
@@ -458,9 +691,25 @@ def _proof_verification(blockers: Sequence[str]) -> tuple[str, ...]:
 
 
 def _normalize_category(context: Mapping) -> str:
+    """The refusal category this context names, or a refusal about it.
+
+    AXI-40: an UNKNOWN category is never coerced into ``unsupported``.
+    ``unsupported`` is the one category a rebuild may follow, so an
+    unrecognised value coerced into it turns a broken read or a typo into
+    a silent rebuild. The category set is closed; anything outside it
+    refuses the route instead of choosing one.
+    """
     category = str(context.get("ineligibility_category") or "unsupported")
     if category not in ROUTING_REFUSAL_CATEGORIES:
-        return "unsupported"
+        raise RoutingRefused(
+            f"the ineligibility category {category!r} is not one of "
+            f"{list(ROUTING_REFUSAL_CATEGORIES)}",
+            what=("the ineligibility category is unknown, so no route may "
+                  f"be chosen from it: {category!r}"),
+            fix=("Name the category from the closed vocabulary "
+                 f"{list(ROUTING_REFUSAL_CATEGORIES)}; an unknown category "
+                 "must not be treated as a rebuildable one."),
+            category="unsupported")
     return category
 
 
@@ -474,8 +723,20 @@ def route_full_rebuild(*, reason: str, ineligibility: str | None = None,
     ops = [dict(op) for op in (operations or [])]
     ids = [str(op.get("op", "")) for op in ops]
     statuses = _statuses(edit_algebra, ids) if ids else ()
-    rejected_reason = ineligibility or str(context.get("ineligibility_reason")
-                                           or "not requested or not eligible")
+    if ineligibility:
+        rejected_reason = ineligibility
+    elif context.get("incremental_eligibility") is True:
+        # AXI-39: the targeted route WAS eligible. Recording it as "not
+        # requested or not eligible" would be a lie in the receipt, and
+        # choosing a full reconstruction over an eligible targeted edit is
+        # exactly the choice a reader needs to see - a rebuild disturbs
+        # everything it does not carry over.
+        rejected_reason = (
+            "incremental was eligible; the rebuild was chosen for: "
+            + str(reason))
+    else:
+        rejected_reason = str(context.get("ineligibility_reason")
+                              or "not requested or not eligible")
     return ExecutionDecision(
         backend="full_rebuild",
         reasons=(reason,),
@@ -596,7 +857,12 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
             raise RoutingRefused(
                 f"direct execution is never selected by flag ({flag}): direct "
                 "needs the VC-11 per-op proof - reversible class, independent "
-                "read-back, qualified executor and proven inverse")
+                "read-back, qualified executor and proven inverse",
+                what=(f"the caller asked for a direct write with {flag!r}, "
+                      "which is never a selection"),
+                fix=("Remove the flag: direct execution is proven per "
+                     "operation, never requested. The router picks the "
+                     "mode the safety proof allows."))
     operations = _ops(compiled_edit)
     ids = tuple(str(op.get("op", "")) for op in operations)
 
@@ -616,11 +882,26 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
             return route_full_rebuild(
                 reason=str(context.get("reason") or "full build explicitly requested"),
                 operations=operations, context=context)
-        raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+        raise RoutingRefused(
+            "no backend is proven for operations: " + ", ".join(ids),
+            what=("the strategy request names no route: neither an "
+                  "incremental eligibility result nor an explicit rebuild "
+                  "was given"),
+            fix=("Establish incremental eligibility and pass it, or ask "
+                 "for the rebuild route explicitly with "
+                 "requested_backend=full_rebuild."))
     if set(ids) == {STRATEGY_INCREMENTAL_ID}:
         if context.get("incremental_eligibility") is True:
-            return route_incremental(operations=operations, context=context)
-        raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+            return route_incremental(
+                reason=str(context.get("reason")
+                           or "incremental eligibility checks passed"),
+                operations=operations, context=context)
+        raise RoutingRefused(
+            "no backend is proven for operations: " + ", ".join(ids),
+            what=("the incremental route was asked for without an "
+                  "affirmative eligibility result"),
+            fix=("Prove incremental eligibility before routing it; the "
+                 "route is selected on evidence, not on a request."))
 
     # VC-03: an explicit full rebuild never tries incremental, so it is
     # decided before eligibility or qualification can select another path.
@@ -641,7 +922,10 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     # affirmative result selects it before the algebra proof checks below.
     # Qualification levels are still recorded truthfully beside the choice.
     if context.get("incremental_eligibility") is True:
-        decision = route_incremental(operations=operations, context=context)
+        decision = route_incremental(
+            reason=str(context.get("reason")
+                       or "incremental eligibility checks passed"),
+            operations=operations, context=context)
         gaps = _qualification_gaps(edit_algebra, operations, context)
         _enforce_qualification_policy(gaps, context)
         return ExecutionDecision(
@@ -677,14 +961,24 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
         raise RoutingRefused(
             "plan deliveries, not timeline writes: " + ", ".join(read_only) +
             " - deliver them to their owning planners; the write router "
-            "takes no plan op")
+            "takes no plan op",
+            what=("these operations deliver a plan, they do not write: "
+                  + ", ".join(read_only)),
+            fix=("Send the plan operation to the planner that owns it; the "
+                 "write router does not take a plan op."))
     unproven = [op_id for op_id in ids
                 if edit_algebra.safety_class(op_id) == edit_algebra.SAFETY_UNREPRESENTABLE]
     if unproven:
         raise RoutingRefused(
             "no qualified executor proves: " + ", ".join(unproven) +
             " - refused under VC-11 unrepresentable_or_unqualified; stage "
-            "nothing until new qualification evidence lands")
+            "nothing until new qualification evidence lands",
+            what=("no qualified executor proves these operations: "
+                  + ", ".join(unproven)),
+            fix=("Qualify an executor for them on a live Resolve timeline "
+                 "and import the evidence; until then they are refused, "
+                 "not approximated."),
+            limitations=_limitations_for(edit_algebra, unproven))
     request_class = edit_algebra.request_safety_class(ids)
 
     # VC-04: refuse what no backend proves, and check op-specific
@@ -763,7 +1057,11 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
 
     if all(op_id in _PROPERTY_OPS for op_id in ids):
         if any(not op.get("unique_id") for op in operations):
-            raise RoutingRefused("property patch requires an existing-item unique_id")
+            raise RoutingRefused(
+                "property patch requires an existing-item unique_id",
+                what="a property change names no target item",
+                fix=("Name the target item's unique_id so the property "
+                     "change cannot land on the wrong clip."))
         blockers = edit_algebra.direct_blockers(ids, "edit_patch.property")
         return ExecutionDecision(
             backend="edit_patch.property",
@@ -813,7 +1111,15 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
                 limitations=tuple(f"{op_id} is not production-qualified"
                                   for op_id, _qualified, _production in gaps)),
         )
-    raise RoutingRefused("no backend is proven for operations: " + ", ".join(ids))
+    raise RoutingRefused(
+        "no backend is proven for operations: " + ", ".join(ids),
+        what=("no backend is proven for these operations: "
+              + ", ".join(ids)),
+        fix=("Look the operations up in the registry - "
+             "`resolve-axi capabilities <operation> --json` - and route "
+             "one that is qualified, or have the qualification evidence "
+             "produced first."),
+        limitations=_limitations_for(edit_algebra, ids))
 
 
 def route_axi_dispatch(operations: Sequence[dict], *,
@@ -906,19 +1212,30 @@ def route_structural_candidate(*, operations: Sequence[dict],
     if not ids or any(edit_algebra.safety_class(op_id)
                       != edit_algebra.SAFETY_STRUCTURAL for op_id in ids):
         raise RoutingRefused(
-            "structural candidate requires only VC-11 structural operations")
+            "structural candidate requires only VC-11 structural operations",
+            what="the structural candidate carries a non-structural operation",
+            fix=("Route each operation by its own safety class; the "
+                 "structural candidate takes structural operations only."))
     safety = edit_algebra.SAFETY_CLASS_POLICY[edit_algebra.SAFETY_STRUCTURAL]
     if (safety.direct_allowed or not safety.staged_allowed
             or not safety.requires_qualified_executor
             or not safety.requires_readback):
         raise RoutingRefused(
             "VC-11 structural policy does not permit a staged, qualified, "
-            "read-back verified executor")
+            "read-back verified executor",
+            what="the VC-11 structural policy forbids this route",
+            fix=("Structural writes need protected staging, a qualified "
+                 "executor and independent read-back; the policy does not "
+                 "permit it here."))
     plan = context.get("structural_patch")
     if not isinstance(plan, Mapping):
         raise RoutingRefused(
             "structural candidate has no dependency plan; full reconstruction "
-            "is required")
+            "is required",
+            what="the structural candidate has no dependency plan",
+            fix=("Prove which affected range can be reused before asking "
+                 "for a localized structural edit; without the plan the "
+                 "route is a full reconstruction."))
     if plan.get("full_reconstruction_required"):
         reason = str(plan.get("reason") or
                      "dependency graph cannot prove localized reuse")

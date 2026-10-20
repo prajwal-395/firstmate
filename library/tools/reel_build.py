@@ -144,6 +144,7 @@ from library.tools import reel_clock as _reel_clock
 from library.tools import resolve_bin_layout as bins
 from library.tools.ren_refusal import RenRefusal
 from library.tools.artifact_lifecycle import project_activity_lease
+from library.tools.transaction_orchestration import attach_routing
 from library.tools.resolve_lock import (
     ResolveBusy, assert_current_timeline, report_activity_progress,
     resolve_lease, under_lease)
@@ -9704,6 +9705,49 @@ def _create_sized_reel_timeline(project, pool, name, track_plan, width, height, 
     return timeline
 
 
+def strategy_after_incremental_refusal(refused) -> dict:
+    """The route the ROUTER selects after an incremental refusal.
+
+    AXI-35 / AXI-40: the router chooses the strategy, from the
+    refusal's own typed category, and this function only ASKS it. The
+    caller used to decide for itself and read the category with a
+    permissive default (`getattr(refused, 'category', 'unsupported')`),
+    so a category nobody recognised became the one category a rebuild
+    may follow - a silent fallback over an edit the captain had already
+    approved.
+
+    A refusal whose category is not `unsupported` is NOT rebuilt over:
+    the router refuses it and the refusal leaves with its category, so a
+    stale base, a conflicting live edit and an unreadable timeline stay
+    three different facts.
+    """
+    from library.tools.execution_router import (
+        STRATEGY_FULL_BUILD_ID,
+        IncrementalRoutingRefused,
+        route_compiled_edit,
+    )
+
+    try:
+        decision = route_compiled_edit(
+            {"operations": [{"op": STRATEGY_FULL_BUILD_ID}]},
+            context={
+                "request_incremental": True,
+                "allow_full_rebuild": True,
+                "ineligibility_category": refused.category,
+                # The refusal's own WHY, not its rendered shape: the
+                # receipt records the reason, not the whole refusal.
+                "ineligibility_reason": (str(getattr(refused, "why", "") or "")
+                                         or str(refused)),
+            })
+    except IncrementalRoutingRefused as router_refused:
+        # The router refused the fallback. The ORIGINAL refusal carries
+        # the condition's own type and its reel-specific next step, so
+        # it is what the caller sees; the router's refusal is the reason
+        # it was not rebuilt over.
+        raise refused from router_refused
+    return decision.as_dict()
+
+
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
                       draw_gain: float = FALLBACK_DRAW_GAIN,
                       edit_ledger_rows=None,
@@ -16936,32 +16980,26 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             transcript=transcript)
                         print(f"  {name}: patched staging incrementally",
                               flush=True)
-                    except (_incr.IncrementalStale,
-                            _incr.IncrementalConflict,
-                            _incr.IncrementalBroken):
-                        # Stale bases, concurrent edits and broken live reads
-                        # are not backend-selection hints. Rebuilding would
-                        # erase the evidence (or the edit) that caused refusal.
-                        raise
                     except _incr.IncrementalRefused as _refused:
                         _edit_performance["attempts"] += 1
-                        _edit_performance["full_rebuilds"] += 1
+                        # VC-09 / AXI-35: the ROUTER chooses the strategy,
+                        # from the refusal's own category, and the refusal
+                        # travels with it. The caller does not decide: it
+                        # used to read the category with a permissive
+                        # default (`getattr(..., 'unsupported')`), so a
+                        # category nobody recognised became the one
+                        # category a rebuild may follow - a silent
+                        # fallback (AXI-40). The router refuses anything
+                        # that is not `unsupported`, so a stale,
+                        # conflicting or broken base is never rebuilt
+                        # over; its refusal leaves here and the build
+                        # stops with the reason named.
+                        _full_rebuild_routing = strategy_after_incremental_refusal(
+                            _refused)
                         print(f"  {name}: incremental refused "
-                              f"({_refused}) - full rebuild",
-                              flush=True)
-                        # VC-09: the strategy is selected before the
-                        # backend-specific work below, and the refusal
-                        # category travels with it - the rebuild is an
-                        # explicit fallback, never a silent one.
-                        from library.tools.execution_router import (
-                            route_full_rebuild as _route_full_rebuild,
-                        )
-                        _full_rebuild_routing = _route_full_rebuild(
-                            reason="incremental eligibility rejected the plan",
-                            ineligibility=(
-                                f"{getattr(_refused, 'category', 'unsupported')}: "
-                                f"{_refused}"),
-                        )
+                              f"({getattr(_refused, 'why', '') or _refused}) "
+                              f"- full rebuild", flush=True)
+                        _edit_performance["full_rebuilds"] += 1
                         build_result = build_reel_timeline(
                             project=project,
                             **prepared_artifact.reel_inputs,
@@ -16985,8 +17023,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             placement_compatibility_checked=True,
                             resolve_app=resolve,
                         )
-                        build_result["execution_routing"] = (
-                            _full_rebuild_routing.as_dict())
+                        build_result = attach_routing(
+                            build_result, _full_rebuild_routing)
                     except _otio.OtioPlacementRefused as exc:
                         # The mismatch route was selected free but refused
                         # live (an unprovable switch, a wedged sizing): with
@@ -17016,8 +17054,31 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                             placement_compatibility_checked=True,
                             resolve_app=resolve,
                         )
+                        # AXI-40: the fallback was PRINTED, but the record
+                        # did not carry it - so a reader of the build
+                        # record could not tell which placement route
+                        # produced it. The route that actually ran is
+                        # recorded beside the one that was refused.
+                        build_result["placement_fallback"] = {
+                            "requested_route": "otio",
+                            "refused_route": "otio",
+                            "applied_route": "append",
+                            "reason": str(exc),
+                        }
                     _edit_performance["api_s"] = max(
                         0.0, time.time() - _api_started_at)
+                    # AXI-36 / AXI-37: the build publishes through the
+                    # COMMON execution contract, beside the other
+                    # backends: the same `execution_contract` block and
+                    # the same lifecycle vocabulary, with the build's own
+                    # measurements as the evidence and what it did not
+                    # measure named as missing.
+                    from library.tools import reel_execution_contract as _contract
+                    build_result = _contract.publish(
+                        build_result,
+                        backend=("incremental"
+                                 if build_result.get("transaction")
+                                 else "full_rebuild"))
                     _edit_performance["items_touched"] = sum(
                         len(build_result.get(field) or [])
                         for field in ("placements", "overlay_placements",
