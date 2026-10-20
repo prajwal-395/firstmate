@@ -4129,6 +4129,42 @@ def _print_structured(answer):
                   f"{os.path.basename(p['source_file'])}, {p['via']})")
 
 
+def _print_temporal(answer):
+    """A typed temporal answer as a person reads it.
+
+    The resolution comes first - it says how the event was chosen and
+    what stayed unresolved - because a bare interval invites the reader
+    to trust more than the answer measured.
+    """
+    print(f"query: {answer['query']!r}  mode=temporal  "
+          f"{answer['event_count']} typed event(s) in the project")
+    resolution = answer.get("resolution") or {}
+    if resolution:
+        print(f"  resolution: {resolution.get('status')}"
+              + (f" - {resolution['resolution']}"
+                 if resolution.get("resolution") else ""))
+        for note in resolution.get("unresolved") or []:
+            print(f"    unresolved: {note}")
+        for reason in resolution.get("reasons") or []:
+            print(f"    because: {reason}")
+    for event in answer.get("events") or []:
+        occurrence = (f" #{event['occurrence']}" if event.get("occurrence")
+                      else "")
+        print(f"\n  {event['event_type']}{occurrence}  "
+              f"{event['clip_id']}  {event['start_seconds']:.2f}-"
+              f"{event['end_seconds']:.2f}s"
+              + (f"  ({event['action']})" if event.get("action") else ""))
+        print(f"    {event['action_text'][:90]}")
+        print(f"    {event['status']}/{event['certainty']}  "
+              f"motion {event['motion']['status']}  "
+              f"continuity {event['continuity']['status']}")
+    for row in answer.get("causal_candidates") or []:
+        print(f"  may cause ({row['certainty']}): {row['from_event_id']} -> "
+              f"{row['to_event_id']}  {row['basis']}")
+    if answer.get("unmapped_kinds"):
+        print(f"  untyped event kinds: {', '.join(answer['unmapped_kinds'])}")
+
+
 def _print_sound_report(report):
     """A sound-event search as a person reads it: spans, or what IS there."""
     print(f"query: {report['query']!r}  mode=sound  "
@@ -4723,6 +4759,18 @@ def main(argv=None):
                           help="with --verify: maximum candidate tier sent to "
                                "the VLM (hand_near_mouth defaults to 0; use "
                                "1 to include marginal candidates)")
+    p_search.add_argument("--temporal", metavar="QUERY",
+                          help="TYPED TEMPORAL EVENTS instead of a ranked "
+                               "search: 'ren search --temporal \"the second "
+                               "time she opens the box\"' resolves the "
+                               "ordinal against the project's typed events "
+                               "(what happened, when, how sure) and reports "
+                               "the measured relations between the matches "
+                               "and the causality-LIKE candidates, which are "
+                               "always marked inferred")
+    p_search.add_argument("--temporal-max-priority", type=int, default=None,
+                          help="with --temporal: only events at or above this "
+                               "edit priority (lower is more important)")
     p_search.add_argument("--json", action="store_true",
                           help="print the whole answer as JSON: one hit "
                                "list on every mode (text, --sound, --ocr, "
@@ -4969,6 +5017,27 @@ def main(argv=None):
             frame_stats = footage_frames.build_frame_index(
                 args.project, index_dir=args.index_dir)
             print(json.dumps(frame_stats, indent=2))
+        return 0
+
+    if args.command == "search" and args.temporal:
+        if args.query:
+            raise RenRefusal(
+                "--temporal carries the question itself",
+                "a temporal query is one question; a bare query and a "
+                "--temporal question would be two",
+                f'ren search {args.project} --temporal "the second time '
+                f'she opens the box"')
+        from library.tools import temporal_events, temporal_query
+        started = time.perf_counter()
+        index = temporal_events.build_temporal_events(args.project)
+        answer = temporal_query.answer(index, args.temporal,
+                                       args.temporal_max_priority)
+        elapsed = time.perf_counter() - started
+        answer["elapsed_ms"] = round(elapsed * 1000, 1)
+        if args.json:
+            print(json.dumps(answer, indent=2))
+        else:
+            _print_temporal(answer)
         return 0
 
     if args.command == "search" and args.predicate:

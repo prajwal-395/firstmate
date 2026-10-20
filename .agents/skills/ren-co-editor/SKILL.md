@@ -191,6 +191,13 @@ it whenever the goal is about what is IN the footage.
   "..."` finds where in the footage something happens; `--person`
   restricts to one person's spans, `--visual` ranks sampled frames. A
   ranking cannot say "not here": below the dense floor is not-in-footage.
+- `ren search <project> --temporal "<question>"` asks the TYPED EVENT
+  layer instead of the ranking: "the second time she opens the box"
+  resolves to one event with its own interval, its uncertainty and how
+  sure the reading is. It reports what it could NOT read (a pronoun it
+  cannot turn into a person, an ordinal with no such repetition) rather
+  than the nearest plausible moment, and a causality-like pair is
+  always marked inferred.
 - `ren where <project> <person>` lists that person's region tracks
   (`--at <seconds>`: the region at that moment), so "where is Craig?"
   is answered off the footage memory, never a guess.
@@ -243,6 +250,7 @@ it whenever the goal is about what is IN the footage.
 |---|---|
 | State plus the next action, in one read | `ren now <project>` (`--json` for the structure); `ren reels <project>` for every reel's approval, build, sign-off and delivery |
 | Find a moment in the footage | `ren search` / `ren where` (section 3) |
+| Find WHEN it happened ("the second time she opens the box") | `ren search <project> --temporal "<question>"` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
 | What the brief asked for, and what Ren decided | `bin/vep -m library.tools.editorial_intent <project>` prints the canonical intent: what was required, what was preferred, what Ren inferred, and which evidence each request still needs. `bin/vep -m library.tools.editorial_decisions check <decisions.json>` checks a decision record; `... compile <decisions.json> --project <p> --timeline <t>` compiles the APPROVED decisions into the request AXI executes |
