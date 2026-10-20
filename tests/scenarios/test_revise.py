@@ -341,6 +341,56 @@ def test_an_ambiguous_note_asks_exactly_one_question_and_changes_nothing(
     assert "Answered: the price reveal" in request["prompt"]
 
 
+def test_executable_operation_can_ask_for_a_missing_timeline_target(
+        project, live):
+    """Catches: a missing target ID making an executable op fail its schema.
+
+    The editor gets the target question, and the unresolved program never
+    reaches classification or the guarded timeline apply.
+    """
+    from library.tools import edit_spec, llm_handshake, revise
+
+    started = revise.start(project, "lower the music on the missing clip")
+    timeline = edit_spec._reel_timeline(str(project), REEL)
+    listed_ids = {
+        item["unique_id"]
+        for row in timeline["rows"]
+        for item in row["items"]
+    }
+    missing_id = "audio-clip-not-in-timeline"
+    assert missing_id not in listed_ids
+    request = llm_handshake.read_request(started["llm_request"])
+    context = json.loads(request["context"])
+    supplied_ids = {
+        item["unique_id"]
+        for row in context["reel_timeline"]["rows"]
+        for item in row["items"]
+    }
+    assert missing_id not in supplied_ids
+    _answer(project, started, {
+        "request": "lower the music on the missing clip",
+        "program": {
+            "kind": "edit_program", "reel": REEL,
+            "base_generation": "1", "idempotency_key": "missing-audio",
+            "ops": [{
+                "op": "audio.gain",
+                "text": "Lower the music on the missing clip",
+                "params": {"unique_id": missing_id, "db": -6},
+            }],
+        },
+    })
+
+    result = revise.advance(project, started["revise_id"], **live.options)
+
+    assert result["status"] == revise.STATUS_QUESTION
+    assert result["question"]["missing_referent"] == (
+        f"timeline item {missing_id}")
+    assert result["reply"] == (
+        f"Which item on {REEL} did you mean by {missing_id!r}?")
+    assert live.applied == []
+    assert _ledger(project) == []
+
+
 def test_unqualified_program_does_not_touch_signed_off_work(project, live):
     """A refused program leaves approved work and its assignment untouched."""
     from library.tools import assignment_spine as spine

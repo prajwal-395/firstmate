@@ -260,6 +260,15 @@ def _validate_program(program) -> None:
                 f"{label}.op is {op_id!r}: not an algebra op. Known ops: "
                 f"{', '.join(edit_algebra.ALGEBRA)}.")
         _nonempty_string(op.get("text"), f"{label}.text")
+        status = op.get("status", "resolved")
+        if status not in STATUSES:
+            raise EditSpecError(
+                f"{label}.status must be one of {STATUSES}")
+        if status == "needs_clarification":
+            _nonempty_string(op.get("missing_referent"),
+                             f"{label}.missing_referent")
+            _nonempty_string(op.get("question"), f"{label}.question")
+            continue
         params = op.get("params")
         if params is not None and not isinstance(params, dict):
             raise EditSpecError(f"{label}.params must be an object")
@@ -270,7 +279,8 @@ def _validate_program(program) -> None:
                 raise EditSpecError(
                     f"{label} ({op_id}) is missing required params: "
                     f"{', '.join(missing)}.")
-    opening_ops = [op for op in ops if op.get("op") == "reel.opening"]
+    opening_ops = [op for op in ops if op.get("op") == "reel.opening"
+                   and op.get("status", "resolved") == "resolved"]
     if opening_ops:
         if kind != "edit_program" or len(ops) != 1:
             raise EditSpecError(
@@ -588,6 +598,14 @@ def questions_for_spec(spec: dict) -> list[dict]:
     validated = validate_spec(spec)
     questions = []
     if validated.get("program") is not None:
+        for index, op in enumerate(
+                validated["program"].get("ops") or []):
+            if op.get("status", "resolved") == "needs_clarification":
+                questions.append({
+                    "clause_id": f"program-op-{index + 1}",
+                    "missing_referent": op["missing_referent"],
+                    "question": op["question"],
+                })
         return questions
     alternatives = validated.get("opening_alternatives") or []
     if alternatives:
@@ -1366,6 +1384,9 @@ def _expected_schema() -> str:
                     "properties": {
                         "op": {"enum": list(edit_algebra.ALGEBRA)},
                         "text": {"type": "string", "minLength": 1},
+                        "status": {"enum": list(STATUSES)},
+                        "missing_referent": {"type": "string", "minLength": 1},
+                        "question": {"type": "string", "minLength": 1},
                         "params": {"type": "object"},
                         "anchor": anchor,
                     },
@@ -1782,6 +1803,12 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "implemented or production-enabled; the shared execution planner "
         "will refuse unsupported operations with its reason. Do not invent "
         "parameters absent from the request or observed timeline. "
+        "For an executable operation whose target id is not present in the "
+        "supplied `reel_timeline`, set that operation's `status` to "
+        "`needs_clarification`, name the missing target in "
+        "`missing_referent`, and ask one direct question in `question`; do "
+        "not substitute or guess a target id. A clarification operation "
+        "does not need executable params. "
         "Keep every stated number in its original unit and source it as "
         "requester; preserve feel words as named feels instead of making up "
         "a number. Attribute every value, anchor and reel to requester, "
@@ -1931,7 +1958,43 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
     if source_note_id:
         response["source_note_id"] = source_note_id
     response["available_reels"] = context.get("available_reels", [])
+    _clarify_unlisted_program_targets(
+        response, context.get("reel_timeline") or {})
     return validate_spec(response)
+
+
+def _clarify_unlisted_program_targets(spec: dict, timeline: dict) -> None:
+    """Turn an executable item op aimed off-timeline into a question.
+
+    A model supplied target is only a lookup hint. If the frozen timeline
+    does not contain that id, no executable operation may carry it forward.
+    """
+    program = spec.get("program")
+    if not isinstance(program, dict):
+        return
+    listed = {
+        str(item["unique_id"])
+        for row in timeline.get("rows") or []
+        for item in row.get("items") or []
+        if item.get("unique_id")
+    }
+    for index, op in enumerate(program.get("ops") or []):
+        if op.get("status", "resolved") != "resolved":
+            continue
+        algebra_op = edit_algebra.get(op.get("op"))
+        if algebra_op is None or not algebra_op.item:
+            continue
+        params = op.get("params") or {}
+        target = params.get("unique_id")
+        if not isinstance(target, str) or not target.strip():
+            continue
+        if target in listed:
+            continue
+        op["status"] = "needs_clarification"
+        op["missing_referent"] = f"timeline item {target}"
+        op["question"] = (
+            f"Which item on {program.get('reel') or 'the reel'} did you "
+            f"mean by {target!r}?")
 
 
 def proposal_for_spec(project_folder: str, spec_id: str) -> dict:

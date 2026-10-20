@@ -163,6 +163,31 @@ def test_opening_edit_program_requires_decided_grounded_structural_edits():
         "missing_referent"] == "which opening alternative to use"
 
 
+def test_executable_program_operation_can_name_a_missing_referent():
+    """Catches: an executable op's question being rejected as a schema error."""
+    spec = {
+        "format": edit_spec.FORMAT,
+        "request": "Lower the music on the missing clip",
+        "program": {
+            "kind": "edit_program", "reel": "Reel 01 - a",
+            "base_generation": "3", "idempotency_key": "missing-target",
+            "ops": [{
+                "op": "audio.gain", "text": "Lower the music",
+                "status": "needs_clarification",
+                "missing_referent": "timeline item audio-clip-404",
+                "question": "Which audio clip should I lower?",
+            }],
+        },
+    }
+
+    assert edit_spec.validate_spec(spec) == spec
+    assert edit_spec.questions_for_spec(spec) == [{
+        "clause_id": "program-op-1",
+        "missing_referent": "timeline item audio-clip-404",
+        "question": "Which audio clip should I lower?",
+    }]
+
+
 def test_every_edit_operation_reaches_a_prompt_or_declared_replayer():
     """Every typed operation has a live prompt owner or ledger replayer.
 
