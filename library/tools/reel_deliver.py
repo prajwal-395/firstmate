@@ -849,7 +849,8 @@ def _timeline_expected_seconds(timeline) -> float:
 
 def deliver_reel(project_folder: str, reel: Optional[int],
                  output_dir: str = "", file_name: str = "",
-                 timeout_seconds: int = 1800) -> dict:
+                 timeout_seconds: int = 1800,
+                 *, retention_job: bool = True) -> dict:
     """Render ONE approved, built reel to a file and verify the file.
 
     The ONLY path that renders a reel. Nothing calls this implicitly -
@@ -858,6 +859,10 @@ def deliver_reel(project_folder: str, reel: Optional[int],
 
     Touches nothing it is told not to: the render selects the reel's
     timeline and reads it; no timeline, marker or candidate is written.
+
+    `retention_job=False` says that somebody else owns the reclamation
+    for this render - the batch does, so one job covers the masters and
+    the variants together.
     """
     from library.tools.project_layout import Area, ProjectLayout
 
@@ -1010,4 +1015,19 @@ def deliver_reel(project_folder: str, reel: Optional[int],
             "read the sidecar report for the failing check, fix the "
             "timeline or the render settings, then deliver again - the "
             "file stays in exports but is not recorded as delivered")
+    # The delivery is an ACT, so the retention decision belongs here and
+    # not in the CLI wrapper: a programmatic delivery must obey the same
+    # per-user policy a sign-off does. The job is queued, not run - the
+    # worker starts once nothing is rendering, because the reclaim would
+    # otherwise race the render that is still reading its own scratch.
+    from library.tools import retention
+
+    full["retention_summary"] = ""
+    if retention_job:
+        full["retention_summary"] = retention.after_delivery(
+            project_folder,
+            lifecycle_event_id=retention.delivery_event_id(
+                project_folder, [report["output_path"]]),
+            outputs=[report["output_path"]],
+            start_worker=False)
     return full

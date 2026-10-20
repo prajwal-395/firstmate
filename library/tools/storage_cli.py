@@ -103,6 +103,32 @@ def _render(data: dict, as_json: bool) -> None:
             f"Legacy review only           {legacy['review_only']:,} "
             f"({legacy['review_only_physical_bytes']:,} bytes physical)"
         )
+    for project, totals in sorted(
+            (data.get("by_project") or {}).items(),
+            key=lambda item: item[1].get("physical_bytes", 0),
+            reverse=True):
+        legacy = totals.get("legacy") or {}
+        print(f"PROJECT {project}")
+        print(f"  registered                "
+              f"{totals.get('artifacts', 0):,} artifacts, "
+              f"{totals.get('physical_bytes', 0):,} bytes physical, "
+              f"{totals.get('logical_bytes', 0):,} bytes logical")
+        print(f"  reclaimable               "
+              f"{totals.get('reclaimable_bytes', 0):,} bytes")
+        print(f"  legacy                    "
+              f"{legacy.get('entries', 0):,} entries, "
+              f"{legacy.get('physical_bytes', 0):,} bytes physical")
+        analysis = totals.get("analysis") or {}
+        measured = (analysis.get("totals") or {})
+        print(f"  analysis wall / cpu       "
+              f"{measured.get('wall_s', 0):,.3f} s / "
+              f"{measured.get('cpu_s', 0):,.3f} s, peak "
+              f"{measured.get('peak_rss_mb', 0):,.1f} MB")
+        if measured.get("capability_bytes_measured"):
+            print(f"  analysis bytes written    "
+                  f"{measured.get('capability_bytes_written', 0):,} bytes")
+        else:
+            print("  analysis bytes written    not measured on this run")
     if data.get("manifest"):
         print(f"Manifest                    {data['manifest']}")
     if data.get("candidates"):
@@ -111,6 +137,16 @@ def _render(data: dict, as_json: bool) -> None:
             print(
                 f"  {row['kind']}: {row['path']} "
                 f"({row['identity']['size_bytes']:,} bytes)"
+            )
+    if data.get("refused_policy"):
+        print(
+            f"Refused by policy           {len(data['refused_policy'])} "
+            f"(the area protects them)"
+        )
+        for row in data["refused_policy"]:
+            print(
+                f"  {row['kind']}: {row['path']} "
+                f"({row['retention_class']}) - {row['reason']}"
             )
     for key, label in (
         ("quarantined", "Quarantined"),

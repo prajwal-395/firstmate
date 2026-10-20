@@ -3156,6 +3156,26 @@ def _parse_deliver_preset_flag(raw: str) -> dict:
     return {"format": halves[0].strip(), "codec": halves[1].strip()}
 
 
+def _start_delivery_cleanup(project_folder: str, summary: str = "") -> None:
+    """Start the retention worker a delivery queued, and say what it did.
+
+    The delivery ACT queues the durable job; the worker starts here,
+    after the render has returned, because the reclaim must not race the
+    render that is still reading its own scratch. Fail-soft: the job is
+    durable, so a refusal here costs nothing but a line of output.
+    """
+    if not summary:
+        return
+    print(f"  retention: {summary}")
+    try:
+        from library.tools import retention
+
+        retention.resume_cleanup_jobs(project_folder)
+    except Exception as exc:  # noqa: BLE001 - the delivery stands
+        print(f"  retention: cleanup worker not started ({exc!r}); the "
+              f"queued job resumes on the next run", file=sys.stderr)
+
+
 def _ensure_deliver_declaration(project_folder: str, args) -> None:
     """Ask the UNDECLARED question once, and record the answer once (T16).
 
@@ -3296,6 +3316,10 @@ def cmd_deliver_all(project_folder: str, args) -> None:
     else:
         revealed, reason = _batch.reveal_in_finder(report["exports_dir"])
         print(f"  exports: {report['exports_dir']} ({reason})")
+    # The delivery queued its retention job; the worker starts HERE,
+    # because the reclaim must not race the render that is still
+    # reading its own scratch.
+    _start_delivery_cleanup(project_folder, report.get("retention_summary"))
 
 
 def cmd_deliver_reel(args):
@@ -3439,6 +3463,10 @@ def cmd_deliver_reel(args):
               f"stands; re-record with "
               f"`python3 -m library.tools.reel_project_model maintain "
               f"{project_folder}`", file=sys.stderr)
+    # The delivery queued its retention job; the worker starts HERE,
+    # because the reclaim must not race the render that is still
+    # reading its own scratch.
+    _start_delivery_cleanup(project_folder, full.get("retention_summary"))
 
 
 def cmd_watch_reel(args):

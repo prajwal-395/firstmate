@@ -39,6 +39,7 @@ changed" - but it records the ledger, so the batch sees it.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -481,6 +482,22 @@ def _expected_seconds(deliver_report: dict, moment) -> float:
     return float(moment.total_duration)
 
 
+def _batch_renderer(deliver_one):
+    """The renderer the batch uses, with the reclamation left to the batch.
+
+    The batch owns the reclaim for every render inside it, so one job
+    covers the masters and the variants together. A stand-in renderer
+    is left exactly as it is: a double is not the real renderer, and
+    the real renderer's own contract is not the double's business.
+    """
+    from library.tools import reel_deliver
+
+    if deliver_one is reel_deliver.deliver_reel:
+        return functools.partial(reel_deliver.deliver_reel,
+                                 retention_job=False)
+    return deliver_one
+
+
 def deliver_all_approved(
         project_folder: str, *,
         platforms: tuple = (),
@@ -510,7 +527,7 @@ def deliver_all_approved(
     from library.tools.project_layout import Area, ProjectLayout
 
     project_folder = os.path.abspath(project_folder)
-    deliver_one = deliver_one or reel_deliver.deliver_reel
+    deliver_one = _batch_renderer(deliver_one or reel_deliver.deliver_reel)
     qc_one = qc_one or run_qc
     reframe_one = reframe_one or _variants.render_variant
 
@@ -751,6 +768,27 @@ def deliver_all_approved(
         project_folder, wanted, master_job, delivered, up_to_date,
         variant_ready, variant_missing, dest_dir, settings)
 
+    # The batch is a delivery ACT, so the retention decision belongs
+    # here and not in the CLI wrapper: a programmatic batch must obey the
+    # same per-user policy a single delivery does. The job is queued,
+    # not run - the worker starts once nothing is rendering, because the
+    # reclaim would otherwise race the batch that is still reading its
+    # own scratch.
+    delivered_outputs = [row["output_path"] for row in delivered
+                         if row.get("output_path")]
+    delivered_outputs += [row["output_path"] for row in up_to_date
+                          if row.get("output_path")]
+    delivered_outputs += [row["output_path"] for row in variants
+                          if row.get("output_path")]
+    from library.tools import retention
+
+    retention_summary = retention.after_delivery(
+        project_folder,
+        lifecycle_event_id=retention.delivery_event_id(
+            project_folder, delivered_outputs),
+        outputs=delivered_outputs,
+        start_worker=False)
+
     return {"platforms": wanted,
             "jobs": [{"serves": list(job["serves"]),
                       "spec": spec_summary(job["spec"]),
@@ -764,6 +802,7 @@ def deliver_all_approved(
             "variants_up_to_date": variants_up_to_date,
             "variant_failures": variant_failures,
             "variant_notes": variant_notes, "receipts": receipts,
+            "retention_summary": retention_summary,
             "exports_dir": dest_dir}
 
 

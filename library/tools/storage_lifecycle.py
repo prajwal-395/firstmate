@@ -3,6 +3,18 @@
 Inventory is read from the ownership event logs, never reconstructed by
 walking artifact directories. Unknown or changed identities are reported
 as protected and cannot enter an apply manifest.
+
+Two questions are answered here, per project and for the machine:
+
+- **How much disk does this project hold?** `status()` reports the
+  registered artifacts per project, the legacy entries each project
+  owns, and what may be reclaimed. The legacy part matters most: the
+  registered part is a fraction of what is on disk.
+- **What did this project's analysis consume?** `analysis_resources()`
+  reads the project's own performance ledger back - the wall, the CPU,
+  the peak memory and the bytes each capability wrote - and says
+  plainly when a measurement was absent rather than reporting the
+  absence as a zero.
 """
 
 from __future__ import annotations
@@ -16,6 +28,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import artifact_lifecycle as lifecycle
+from library.tools import artifact_policy
 from library.tools import git_guard as _git_guard
 from library.tools import project_registry
 
@@ -968,17 +981,162 @@ def pressure(free_bytes: int, reserve_bytes: int | None = None) -> str:
     return "normal"
 
 
+def analysis_resources(project_folder: str) -> dict:
+    """What a project's analysis consumed, read back from its own ledger.
+
+    The ledger is the measurement the run already took, so this reads
+    what is there and adds no walk of its own.
+
+    Two axes, because the ledger records two. The CAPABILITY rows are
+    the outer measurement: one row per capability execution, carrying
+    the wall, the CPU, the peak memory and - where the front door
+    measured it - the bytes the capability wrote. The SPAN rows are the
+    inner measurement: one row per named layer, carrying the lifecycle
+    phase and the bytes that layer read and wrote.
+
+    A measurement that was never taken is reported as NOT TAKEN. A
+    zero would read as "nothing was written", and that is a different
+    fact.
+    """
+    from library.tools import perf_ledger
+
+    path = perf_ledger.ledger_path(project_folder)
+    rows = perf_ledger.read_rows(project_folder)
+    capabilities: dict[str, dict] = {}
+    phases: dict[str, dict] = {}
+    capability_bytes_written = 0
+    capability_bytes_measured = False
+    phase_bytes_written = 0
+    phase_bytes_read = 0
+    phase_bytes_measured = False
+    wall = cpu = 0.0
+    peak_rss = 0.0
+    for row in rows:
+        kind = row.get("kind")
+        if kind == perf_ledger.CAPABILITY:
+            name = str(row.get("capability") or "")
+            if not name:
+                continue
+            item = capabilities.setdefault(name, {
+                "calls": 0, "wall_s": 0.0, "cpu_s": 0.0,
+                "peak_rss_mb": 0.0, "bytes_written": 0})
+            item["calls"] += 1
+            item["wall_s"] = round(item["wall_s"] + float(row.get("wall_s") or 0.0), 3)
+            item["cpu_s"] = round(item["cpu_s"] + float(row.get("cpu_s") or 0.0), 3)
+            item["peak_rss_mb"] = max(
+                item["peak_rss_mb"],
+                float(row.get("self_peak_rss_mb") or 0.0),
+                float(row.get("children_peak_rss_mb") or 0.0))
+            wall += float(row.get("wall_s") or 0.0)
+            cpu += float(row.get("cpu_s") or 0.0)
+            peak_rss = max(peak_rss, item["peak_rss_mb"])
+            if "bytes_written" in row:
+                capability_bytes_measured = True
+                written = int(row.get("bytes_written") or 0)
+                capability_bytes_written += written
+                item["bytes_written"] += written
+        elif kind == perf_ledger.SPAN:
+            phase = str(row.get("phase") or "")
+            if not phase:
+                continue
+            item = phases.setdefault(phase, {
+                "spans": 0, "wall_s": 0.0, "cpu_s": 0.0,
+                "bytes_written": 0, "bytes_read": 0})
+            item["spans"] += 1
+            item["wall_s"] = round(item["wall_s"] + float(row.get("wall_s") or 0.0), 3)
+            item["cpu_s"] = round(item["cpu_s"] + float(row.get("cpu_s") or 0.0), 3)
+            if "bytes_written" in row:
+                phase_bytes_measured = True
+                written = int(row.get("bytes_written") or 0)
+                phase_bytes_written += written
+                item["bytes_written"] += written
+            if "bytes_read" in row:
+                phase_bytes_measured = True
+                read = int(row.get("bytes_read") or 0)
+                phase_bytes_read += read
+                item["bytes_read"] += read
+    return {
+        "ledger": str(path),
+        "ledger_present": path.is_file(),
+        "rows": len(rows),
+        "totals": {
+            "wall_s": round(wall, 3),
+            "cpu_s": round(cpu, 3),
+            "peak_rss_mb": peak_rss,
+            "capability_bytes_written": capability_bytes_written,
+            "capability_bytes_measured": capability_bytes_measured,
+            "phase_bytes_written": phase_bytes_written,
+            "phase_bytes_read": phase_bytes_read,
+            "phase_bytes_measured": phase_bytes_measured,
+        },
+        "by_capability": capabilities,
+        "by_phase": phases,
+    }
+
+
+def _legacy_project_roots() -> dict[str, list[Path]]:
+    """The legacy roots each project owns, by the project's own path."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    owned: dict[str, list[Path]] = {}
+    for project in project_registry.list_projects():
+        layout = ProjectLayout(project.project_root)
+        owned[str(Path(project.project_root).resolve())] = [
+            layout.read_dir(Area.SCRATCH),
+            layout.read_dir(Area.QUARANTINE),
+            layout.read_dir(Area.REVIEW),
+        ]
+    return owned
+
+
+def _legacy_owner(path: str, roots: dict[str, list[Path]]) -> str:
+    """The project a legacy entry belongs to, or "" for the machine's.
+
+    Both sides are resolved: the same file reached through a symlinked
+    path is the same file, and a legacy entry that belongs to a project
+    must be counted against that project rather than against the
+    machine.
+    """
+    candidate = Path(path).resolve()
+    for project, owned in roots.items():
+        for root in owned:
+            try:
+                if candidate.is_relative_to(root.resolve()):
+                    return project
+            except (OSError, ValueError):
+                continue
+    return ""
+
+
 def status(projects: list[str], *, disk_path: str | None = None) -> dict:
-    """Summarize registered lifecycle artifacts and current disk pressure."""
+    """Summarize registered lifecycle artifacts and current disk pressure.
+
+    The report answers PER PROJECT as well as for the machine: which
+    project holds which bytes, which of them may be reclaimed, what its
+    legacy entries cost, and what its analysis consumed.
+    """
     entries = []
     by_kind: dict[str, dict[str, int]] = {}
+    by_project: dict[str, dict] = {}
     seen: set[tuple[int, int]] = set()
     logical = physical = reclaimable = 0
     active_bytes = protected_bytes = 0
     for project in projects:
+        resolved = str(Path(project).resolve())
+        project_totals = by_project.setdefault(resolved, {
+            "project": resolved,
+            "artifacts": 0,
+            "logical_bytes": 0,
+            "physical_bytes": 0,
+            "reclaimable_bytes": 0,
+            "active_bytes": 0,
+            "protected_bytes": 0,
+            "by_kind": {},
+        })
         snapshot = lifecycle.inventory(project)
         for row in snapshot["artifacts"]:
-            entries.append({**row, "project": str(Path(project).resolve())})
+            entries.append({**row, "project": resolved})
+            project_totals["artifacts"] += 1
             if not row["identity_matches"]:
                 continue
             identity = row.get("identity") or {}
@@ -987,14 +1145,22 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
             totals = by_kind.setdefault(
                 kind, {"artifacts": 0, "logical_bytes": 0, "physical_bytes": 0}
             )
+            project_kind = project_totals["by_kind"].setdefault(
+                kind, {"artifacts": 0, "logical_bytes": 0, "physical_bytes": 0}
+            )
             totals["artifacts"] += 1
             totals["logical_bytes"] += size
+            project_kind["artifacts"] += 1
+            project_kind["logical_bytes"] += size
+            project_totals["logical_bytes"] += size
             logical += size
             inode = (int(identity["device"]), int(identity["inode"]))
             if inode not in seen:
                 seen.add(inode)
                 physical += size
                 totals["physical_bytes"] += size
+                project_kind["physical_bytes"] += size
+                project_totals["physical_bytes"] += size
             if (
                 row.get("state") == lifecycle.DISPOSABLE
                 and row.get("ownership_known")
@@ -1007,14 +1173,19 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
                     Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES
                     and not _protected_project_artifact(project, row["path"])
                 )
-                if eligible_kind and eligible_path and identity.get("link_count") == 1:
+                eligible_area = not artifact_policy.is_protected_path(
+                    project, row["path"], row.get("retention_class", ""))
+                if (eligible_kind and eligible_path and eligible_area
+                        and identity.get("link_count") == 1):
                     reclaimable += size
+                    project_totals["reclaimable_bytes"] += size
             if row.get("state") in {
                 lifecycle.CREATED,
                 lifecycle.ACTIVE,
                 lifecycle.PURGING,
             }:
                 active_bytes += size
+                project_totals["active_bytes"] += size
             elif row.get("state") not in {
                 lifecycle.DISPOSABLE,
                 lifecycle.QUARANTINED,
@@ -1069,6 +1240,8 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
     )
     legacy_rows = _legacy_resources(legacy_sources, project_logs=legacy_owners)
     legacy_by_category: dict[str, dict[str, int]] = {}
+    legacy_roots_by_project = _legacy_project_roots()
+    legacy_by_project: dict[str, dict[str, int]] = {}
     for row in legacy_rows:
         totals = legacy_by_category.setdefault(
             row["category"],
@@ -1078,9 +1251,28 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
         totals["logical_bytes"] += row.get("logical_bytes", 0)
         totals["physical_bytes"] += row.get("physical_bytes", 0)
         totals["unverified"] += row.get("verification") == "unverified"
+        owner = _legacy_owner(str(row.get("path") or ""), legacy_roots_by_project)
+        if not owner:
+            continue
+        owned = legacy_by_project.setdefault(
+            owner,
+            {"entries": 0, "logical_bytes": 0, "physical_bytes": 0,
+             "unverified": 0},
+        )
+        owned["entries"] += 1
+        owned["logical_bytes"] += row.get("logical_bytes", 0)
+        owned["physical_bytes"] += row.get("physical_bytes", 0)
+        owned["unverified"] += row.get("verification") == "unverified"
+    for project, totals in by_project.items():
+        totals["legacy"] = legacy_by_project.get(
+            project,
+            {"entries": 0, "logical_bytes": 0, "physical_bytes": 0,
+             "unverified": 0})
+        totals["analysis"] = analysis_resources(project)
     return {
         "artifacts": entries,
         "by_kind": by_kind,
+        "by_project": by_project,
         "logical_bytes": logical,
         "physical_bytes": physical,
         "reclaimable_bytes": reclaimable,
@@ -1107,6 +1299,7 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
                 if row.get("verification") == "unverified"
             ),
             "by_category": legacy_by_category,
+            "by_project": legacy_by_project,
         },
     }
 
@@ -1262,13 +1455,13 @@ def plan_document(projects: list[str]) -> dict:
     """Build an exact-identity manifest without writing it."""
     report = status(projects)
     candidates = []
+    refused_policy = []
     for row in report["artifacts"]:
-        if (
+        if not (
             row["identity_matches"]
             and row["ownership_known"]
             and row.get("state") == lifecycle.DISPOSABLE
             and row.get("regenerable")
-            and row.get("retention_class") not in {"retained", "protected", "staging"}
             and not row.get("pinned")
             and not row.get("dependencies")
             and not _protected_project_artifact(row["project"], row["path"])
@@ -1276,20 +1469,36 @@ def plan_document(projects: list[str]) -> dict:
             and row.get("kind") not in PROTECTED_KINDS
             and Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES
         ):
-            candidates.append(
-                {
-                    key: row[key]
-                    for key in (
-                        "artifact_id",
-                        "project",
-                        "path",
-                        "identity",
-                        "kind",
-                        "run_id",
-                        "job_id",
-                    )
-                }
-            )
+            continue
+        # The AREA has the last word. A record that named a disposable
+        # class for a file in `exports/` does not make a delivered render
+        # disposable, and the refusal is reported rather than dropped.
+        if artifact_policy.is_protected_path(
+                row["project"], row["path"], row.get("retention_class", "")):
+            refused_policy.append({
+                "artifact_id": row["artifact_id"],
+                "path": row["path"],
+                "kind": row["kind"],
+                "retention_class": artifact_policy.effective_class(
+                    row["project"], row["path"], row.get("retention_class", "")),
+                "reason": artifact_policy.policy_for_path(
+                    row["project"], row["path"]).why,
+            })
+            continue
+        candidates.append(
+            {
+                key: row[key]
+                for key in (
+                    "artifact_id",
+                    "project",
+                    "path",
+                    "identity",
+                    "kind",
+                    "run_id",
+                    "job_id",
+                )
+            }
+        )
     cache_evictions = plan_cache_evictions(
         projects,
         pressure_state=report["disk_pressure"],
@@ -1312,6 +1521,7 @@ def plan_document(projects: list[str]) -> dict:
         "format": "ren-storage-plan/1",
         "candidates": candidates,
         "refused_git": refused_git,
+        "refused_policy": refused_policy,
         "cache_evictions": cache_evictions,
         "logical_bytes": sum(row["identity"]["size_bytes"] for row in candidates),
     }
@@ -1360,6 +1570,12 @@ def purge(manifest: str) -> dict:
             raise lifecycle.LifecycleRefused(
                 f"artifact is not eligible for permanent purge: {item['artifact_id']}"
             )
+        if artifact_policy.is_protected_path(
+                project, latest["path"], latest.get("retention_class", "")):
+            raise lifecycle.LifecycleRefused(
+                f"artifact area is protected from permanent purge: "
+                f"{item['artifact_id']}"
+            )
         fields = {
             key: latest[key] for key in lifecycle.ArtifactRecord.__dataclass_fields__
         }
@@ -1400,6 +1616,10 @@ def collect(manifest: str) -> dict:
                 f"artifact is no longer disposable: {item['artifact_id']}"
             )
         _assert_plan_binding(item, current)
+        if artifact_policy.is_protected_path(
+                project, current["path"], current.get("retention_class", "")):
+            raise lifecycle.LifecycleRefused(
+                f"artifact area is protected from cleanup: {item['artifact_id']}")
         fields = {
             key: current[key] for key in lifecycle.ArtifactRecord.__dataclass_fields__
         }

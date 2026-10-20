@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from library.tools import event_log, resource_leases, run_control
+from library.tools import artifact_policy
 from library.tools import git_guard as _git_guard
 from library.tools.resource_leases import LeaseDeclaration, ResourceRef
 
@@ -94,7 +95,7 @@ class ArtifactRecord:
     path: str
     created_at: str
     identity: FileIdentity
-    retention_class: str
+    retention_class: str = ""
     dependencies: tuple[str, ...] = ()
     pinned: bool = False
     regenerable: bool = False
@@ -132,10 +133,18 @@ def _latest_from_events(events) -> dict[str, dict]:
 
 
 def register_artifact(project_folder: str, record: ArtifactRecord) -> bool:
-    """Record an artifact once; missing ownership remains explicitly unknown."""
+    """Record an artifact once; missing ownership remains explicitly unknown.
+
+    A record that names no retention class takes the one its AREA has:
+    `library/tools/artifact_policy.py` owns that reading, so a file in
+    a named place is judged by the place and not by whichever writer
+    happened to register it.
+    """
     if not (record.project_id and record.run_id and record.job_id):
         raise LifecycleRefused("unknown artifact ownership is protected")
     payload = asdict(record)
+    payload["retention_class"] = record.retention_class or artifact_policy.effective_class(
+        project_folder, record.path)
     payload["state"] = CREATED
     _, created = event_log.emit_once(
         project_folder, ARTIFACT_REGISTERED, record.artifact_id,

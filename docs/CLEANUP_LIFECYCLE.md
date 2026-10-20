@@ -6,6 +6,16 @@ the file identity observed at registration, lifecycle state, leases, and
 guarded deletion. A file without a matching ownership record or exact identity
 is protected.
 
+What a file IS, and therefore what may happen to it, is decided in
+`library/tools/artifact_policy.py`. That is the one reading of the layout's
+areas: each of them has a retention class, a regenerability, and the command
+that brings its files back. A cleanup may name a file only when its AREA says
+the file is disposable, and where the area and the writer's own recorded class
+disagree, the more protective of the two wins. A file inside the project that
+sits in no named area is protected, because the project root holds
+`project.yaml`, `pipeline_data.json`, and `pipeline_run.json`. A refusal on
+those grounds is reported in the plan as `refused_policy`, not dropped.
+
 Use `ren storage status [PROJECT] --json` to inspect registered artifacts,
 storage by artifact kind, logical and physical bytes, cache budget use, and
 free-space pressure. The inventory reads lifecycle event logs; it does not
@@ -14,6 +24,13 @@ Ren-owned registered artifacts and a separately measured legacy summary.
 Legacy entries include logical bytes and allocated bytes, counted once per
 device/inode for hardlinks. The legacy summary does not make an unverified
 entry eligible for collection.
+
+The report answers PER PROJECT as well as for the machine. `by_project` gives
+each project's own registered bytes, what of them may be reclaimed, the legacy
+entries that project owns, and `analysis`: the wall, the CPU, the peak memory
+and the bytes each capability wrote, read back from that project's own
+performance ledger. A measurement that was never taken is reported as not
+taken; a zero would read as "nothing was written", which is a different fact.
 
 Use `ren storage legacy-inventory --manifest PATH` for a complete read-only
 inventory of known legacy roots. It records each file, directory, or symlink,
@@ -60,3 +77,40 @@ The MCP catalog exposes read-only `storage-status` and typed `storage-plan`,
 `storage-collect`, `storage-purge`, and `storage-restore` operations. Mutating
 operations call the same guarded lifecycle functions as the CLI and return
 structured refusals when ownership, manifest, or filesystem checks fail.
+
+## When the reclaim is queued
+
+Two ACTS queue the lean reclaim, and both write a durable job to the project
+event log before anything is planned or removed:
+
+- a reel **sign-off** (`library/tools/reel_signoff.py`), and
+- a successful reel **delivery** (`library/tools/reel_deliver.py` and
+  `library/tools/deliver_all.py`).
+
+The sign-off alone was not enough: the sign-off happens BEFORE the render, so
+the delivery's own intermediates - the pre-master render in `scratch/`, the
+variant work directories - were written after the sign-off's cleanup and
+survived it. The delivery is the act that finishes the run's work, so it owns
+the retention decision too, and a programmatic delivery obeys the same
+per-user policy as a sign-off.
+
+`REN_RETENTION` chooses the mode: `lean` queues the reclaim, `keep` keeps
+everything. A reclaim that lacks a complete storage lifecycle qualification
+record is refused and says so; the act that landed is never rolled back. The
+worker starts once the render has returned, because the reclaim must not race
+the render that is still reading its own scratch.
+
+## What is bounded
+
+Two stores grew without bound before this existed, and both are bounded now.
+
+- **The qualification media store.** Every distinct source copied in is a
+  whole video. A copy is freed when no retained or pinned run points at it;
+  a pinned run is a promise that the reproduction stays available, so the
+  pinned run and the media it points at are both retained.
+- **The scratch project's recovery export.** The scratch owner keeps the
+  newest five exports of one project and removes the older ones with their
+  receipts. This is separate from the rule that a `.drt`, `.drp` or `.otio`
+  is never purged in any class: that rule protects a project's RECOVERY
+  archive from a project cleanup, and this is a scratch project that no
+  longer exists. Only the exact shape the scratch owner writes is named.

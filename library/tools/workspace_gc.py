@@ -202,6 +202,80 @@ def _reference_text(roots: list[Path]):
                 f"cannot inspect retained fixture reference {path}: {exc}") from exc
 
 
+def _pinned_runs(runs: list[Path]) -> list[Path]:
+    """The runs a human pinned for reproduction.
+
+    A pin is a promise that the failed run stays available, so a pinned
+    run is RETAINED and the media copy it points at stays with it. The
+    pin lives in the run's own lifecycle event.
+    """
+    from library.tools import event_log
+
+    pinned = []
+    for run in runs:
+        latest: dict = {}
+        for event in event_log.read_events(str(run)):
+            if event.get("type") == "qualification_run_lifecycle":
+                latest = event.get("fields", {})
+        if latest.get("pinned"):
+            pinned.append(run)
+    return pinned
+
+
+def _referenced_qualification_copies(runs: list[Path]) -> set[Path]:
+    """The qualification media copies these runs still point at.
+
+    A copy is named by the run's own report, as the absolute path it was
+    written to. Both sides are resolved, because a path that differs by
+    a symlink is the same file and must be read as the same file.
+    """
+    referenced: set[Path] = set()
+    for run in runs:
+        report = run / "qualification-report.json"
+        if not report.is_file():
+            continue
+        try:
+            document = json.loads(report.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise WorkspaceGcRefused(
+                f"cannot read retained workflow run report {report}: {exc}") from exc
+        selection = document.get("source_selection") or {}
+        copy = selection.get("qualification_copy")
+        if copy:
+            referenced.add(Path(str(copy)).expanduser().resolve())
+    return referenced
+
+
+def _qualification_media_candidates(home: Path,
+                                    retained: list[Path]) -> list[Entry]:
+    """The qualification media copies no retained run references.
+
+    Every distinct source copied in is a whole video, and nothing ever
+    collected one: the media protection keeps these files out of every
+    other rule, so the store grew without bound. The reachability rule
+    is the only thing that frees one, and the run that points at it
+    decides.
+    """
+    media_root = qualification_project.real_media_dir()
+    if not media_root.is_dir():
+        return []
+    if not media_root.resolve().is_relative_to(
+            Path(home).expanduser().resolve()):
+        raise WorkspaceGcRefused(
+            f"qualification media root {media_root} is outside "
+            f"Ren's data home {home}; refusing cross-root collection")
+    referenced = _referenced_qualification_copies(retained)
+    candidates = []
+    for path in _files(media_root):
+        if path.stat().st_nlink != 1:
+            continue
+        if path.resolve() in referenced:
+            continue
+        candidates.append(_entry(
+            path, "qualification media copy no retained run references"))
+    return candidates
+
+
 def plan() -> dict:
     from library.tools.retention import KEEP, retention_mode
 
@@ -230,8 +304,9 @@ def plan() -> dict:
         if not complete:
             unfinished.append(run)
     recent = runs[:KEEP_WORKFLOW_RUNS]
+    pinned = _pinned_runs(runs)
     retained = (runs if mode == KEEP else
-                list(dict.fromkeys([*recent, *unfinished])))
+                list(dict.fromkeys([*recent, *unfinished, *pinned])))
     roots = _project_roots()
     digests = _referenced_digests(roots, retained)
     candidates: list[Entry] = []
@@ -292,6 +367,16 @@ def plan() -> dict:
                 break
     candidates = [entry for entry in candidates
                   if entry.path not in referenced]
+
+    # The qualification MEDIA copies. These are decided by their OWN
+    # rule, against the retained runs alone, and join the plan after the
+    # general scan: the general scan builds one alternation from every
+    # candidate path, and a store of whole videos would make that
+    # pattern enormous for no extra safety.
+    media_candidates: list[Entry] = []
+    if mode != KEEP:
+        media_candidates = _qualification_media_candidates(home, retained)
+    candidates = [*candidates, *media_candidates]
 
     unique = {entry.path: entry for entry in candidates}
     collectable, refused = _git_guard.partition(

@@ -28,6 +28,24 @@ from library.tools.resolve_lock import assert_current_timeline
 
 SCRATCH_PREFIX = "Ren Scratch - "
 
+SCRATCH_BACKUP_RETENTION = 5
+"""How many exports of ONE scratch project are kept.
+
+A scratch project is deleted, and the `.drp` written just before the
+deletion is how it comes back. Without a bound that export is a
+permanent addition: every scratch project the machine ever retired left
+one behind, and nothing ever collected them. The count is the bound, and
+the NEWEST exports are the ones kept - a restore wants the most recent
+shape of the project, not its first.
+
+This is the scratch owner's own policy, and it is deliberately separate
+from the project purge's rule that a `.drt`, `.drp` or `.otio` is never
+purged in any class: that rule protects a project's RECOVERY archive
+from a project cleanup, and this is a scratch project that no longer
+exists at all. Only files this module wrote are ever named, by the exact
+name it writes.
+"""
+
 
 class ScratchProjectError(RuntimeError):
     pass
@@ -434,6 +452,62 @@ def open_project(resolve, manager, name: str) -> dict:
             "restore_with": "resolve-axi project scratch restore --apply"}
 
 
+def _scratch_backup_name(safe_name: str) -> str:
+    """The exact prefix this module writes a scratch export under."""
+    return f"{safe_name}_"
+
+
+def _prune_scratch_backups(safe_name: str, *, keep: int = SCRATCH_BACKUP_RETENTION) -> list[dict]:
+    """Keep the newest exports of one scratch project, and name the rest.
+
+    Only files this module wrote are ever named: the name is the safe
+    project name, an underscore, a UTC stamp this module's format
+    writes, and `.drp` (with its `.json` receipt). A file that does not
+    match that shape is left alone, and so is a symlink.
+    """
+    from library.tools.shared_environment import vep_home
+
+    root = vep_home() / "resolve-scratch-backups"
+    if not root.is_dir():
+        return []
+    prefix = _scratch_backup_name(safe_name)
+    exports = []
+    for path in root.iterdir():
+        if path.is_symlink() or not path.is_file():
+            continue
+        if path.suffix.lower() != ".drp" or not path.name.startswith(prefix):
+            continue
+        stamp = path.name[len(prefix):-len(".drp")]
+        if not _is_own_stamp(stamp):
+            continue
+        exports.append((stamp, path))
+    exports.sort(reverse=True)
+    pruned = []
+    for stamp, path in exports[keep:]:
+        receipt = path.with_suffix(".json")
+        for victim in (path, receipt):
+            if victim.is_symlink() or not victim.is_file():
+                continue
+            try:
+                size = victim.stat().st_size
+                victim.unlink()
+            except OSError:
+                continue
+            pruned.append({"path": str(victim), "bytes": size})
+    return pruned
+
+
+def _is_own_stamp(stamp: str) -> bool:
+    """Whether a stamp is the one this module writes: 20261020T171234123456Z."""
+    if len(stamp) != 22 or not stamp.endswith("Z"):
+        return False
+    body = stamp[:-1]
+    if body[8:9] != "T":
+        return False
+    return (body[:8].isdigit() and body[9:15].isdigit()
+            and body[15:21].isdigit())
+
+
 def delete(resolve, manager, name: str, *, artifact_id: str = "") -> dict:
     name = str(name or "").strip()
     if name == "Podcast (field test)" or not name.startswith(SCRATCH_PREFIX):
@@ -503,8 +577,18 @@ def delete(resolve, manager, name: str, *, artifact_id: str = "") -> dict:
         _settle_after_lifecycle_call()
         if _listed(manager, name):
             raise ScratchProjectError(f"deleted project {name!r} remains in the project folder")
+        # The project is already gone, so bounding its exports must not
+        # fail the retirement: a prune that cannot run is reported, not
+        # raised over a deletion that already happened.
+        try:
+            pruned = _prune_scratch_backups(safe_name)
+            prune_error = ""
+        except OSError as exc:
+            pruned = []
+            prune_error = repr(exc)
         return {"verified": True, "project": name,
                 "backup": str(backup), "receipt": str(receipt_path),
+                "pruned_backups": pruned, "prune_error": prune_error,
                 "restored": {"project": state["project"],
                              "timeline": state["timeline"],
                              "page": state["page"], "verified": True}}

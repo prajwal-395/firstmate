@@ -278,6 +278,39 @@ live run. A live run over the captain's footage is the live lane's evidence
 (`vep-axc-live2`), and this lane names that as the live measurement it still
 needs.
 
+## Resource lifecycle and per-project consumption
+
+This document measures COMPUTE. The resource question - how much disk a
+project holds, and what its analysis consumed - is answered by
+`ren storage status`, and it is a different measurement.
+
+- **Ownership and retention.** `library/tools/artifact_policy.py` is the
+  one reading of what a layout area means: a retention class, a
+  regenerability, and the command that brings the files back, for every
+  area. A cleanup may name a file only when its area says the file is
+  disposable, and the more protective of the area and the writer's own
+  recorded class wins. See `docs/CLEANUP_LIFECYCLE.md`.
+- **Reclaiming after delivery.** A sign-off and a successful delivery
+  both queue the same durable lean cleanup. The delivery matters because
+  the sign-off happens BEFORE the render, so the delivery's own
+  intermediates were written after the sign-off's cleanup and survived
+  it.
+- **Bounded stores.** The qualification media store and the scratch
+  project's recovery exports are bounded: a qualification media copy is
+  freed when no retained or pinned run points at it, and the scratch
+  owner keeps the newest five exports of one project.
+- **Per-project visibility.** `ren storage status` reports each project's
+  own registered bytes, its own legacy entries, and its own analysis
+  consumption - the wall, the CPU, the peak memory and the bytes each
+  capability wrote, read back from the project's own performance ledger.
+  A measurement that was never taken is reported as not taken; a zero
+  would read as "nothing was written", which is a different fact.
+
+The companion benchmark `docs/benchmarks/2026-10-19-vc-02-reel-lifecycle.md`
+recorded that bytes were unmeasured on the reel lifecycle paths, because
+no byte-counting producer runs there. The report above says so rather
+than reporting the absence as a zero.
+
 ## Limits and remaining work
 
 - A completed full-main versus full-new timing comparison is not available.

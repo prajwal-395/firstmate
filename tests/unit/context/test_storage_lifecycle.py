@@ -9,8 +9,8 @@ from library.tools import artifact_lifecycle, retention, storage_lifecycle
 
 def test_changed_artifact_identity_invalidates_storage_plan(tmp_path):
     project = tmp_path / "project"
-    project.mkdir()
-    artifact = project / "generated.bin"
+    (project / "pipeline_output" / "scratch").mkdir(parents=True)
+    artifact = project / "pipeline_output" / "scratch" / "generated.bin"
     artifact.write_bytes(b"planned bytes")
     record = artifact_lifecycle.ArtifactRecord(
         artifact_id="artifact-one", kind="temporary_render",
@@ -38,8 +38,8 @@ def test_changed_artifact_identity_invalidates_storage_plan(tmp_path):
 
 def test_repeated_collect_is_idempotent_after_physical_quarantine(tmp_path):
     project = tmp_path / "project"
-    project.mkdir()
-    artifact = project / "generated.bin"
+    (project / "pipeline_output" / "scratch").mkdir(parents=True)
+    artifact = project / "pipeline_output" / "scratch" / "generated.bin"
     artifact.write_bytes(b"disposable bytes")
     record = artifact_lifecycle.ArtifactRecord(
         artifact_id="artifact-repeat", kind="temporary_render",

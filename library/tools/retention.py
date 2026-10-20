@@ -1359,14 +1359,19 @@ def resume_cleanup_jobs(project_folder: str, db_paths=None) -> None:
                      daemon=True).start()
 
 
-def after_signoff(project_folder: str, db_paths=None, *,
-                  lifecycle_event_id: str) -> str:
-    """What a sign-off does about retention. Returns the lines to print.
+def _queue_lean_cleanup(project_folder: str, db_paths, *, reason: str,
+                        lifecycle_event_id: str, job_id: str,
+                        landed: str, start_worker: bool = True) -> str:
+    """Queue the durable lean cleanup, and say plainly whether it went.
 
     `keep` does nothing. `lean` writes a deduplicated durable job to the
     project event log, then a worker waits for project activity and leases
     before planning and applying. A refusal is recorded on the job; the
-    sign-off already landed and is never rolled back.
+    act that landed is never rolled back.
+
+    `start_worker=False` queues without running it: the job is durable,
+    so it survives either way, and the caller that is still rendering
+    decides when nothing is rendering any more.
     """
     try:
         mode = retention_mode(project_folder=project_folder)
@@ -1378,18 +1383,83 @@ def after_signoff(project_folder: str, db_paths=None, *,
             return (
                 "Retention cleanup not queued: automatic destructive retirement "
                 "requires a complete storage lifecycle qualification record. "
-                "Sign-off remains recorded."
+                f"{landed} remains recorded."
             )
         from library.tools import artifact_lifecycle
         project_id = Path(project_folder).resolve().name
-        job_id = f"signoff-retention-{lifecycle_event_id}"
         artifact_lifecycle.schedule_cleanup_job(
             project_folder, event_id=lifecycle_event_id,
             project_id=project_id, run_id=lifecycle_event_id,
-            job_id=job_id, reason="successful reel sign-off")
-        resume_cleanup_jobs(project_folder, db_paths)
+            job_id=job_id, reason=reason)
+        if start_worker:
+            resume_cleanup_jobs(project_folder, db_paths)
         return f"Lean retention cleanup queued as durable job {job_id}."
     except (PurgeRefused, RetentionSettingInvalid, OSError, ValueError) as refused:
-        return f"Purge job not queued: {refused}. Sign-off remains recorded."
-    except Exception as unavailable:  # noqa: BLE001 - sign-off already landed
-        return f"Purge job not queued: {unavailable}. Sign-off remains recorded."
+        return f"Purge job not queued: {refused}. {landed} remains recorded."
+    except Exception as unavailable:  # noqa: BLE001 - the act already landed
+        return f"Purge job not queued: {unavailable}. {landed} remains recorded."
+
+
+def after_signoff(project_folder: str, db_paths=None, *,
+                  lifecycle_event_id: str) -> str:
+    """What a sign-off does about retention. Returns the lines to print.
+
+    `keep` does nothing. `lean` writes a deduplicated durable job to the
+    project event log, then a worker waits for project activity and leases
+    before planning and applying. A refusal is recorded on the job; the
+    sign-off already landed and is never rolled back.
+    """
+    return _queue_lean_cleanup(
+        project_folder, db_paths,
+        reason="successful reel sign-off",
+        lifecycle_event_id=lifecycle_event_id,
+        job_id=f"signoff-retention-{lifecycle_event_id}",
+        landed="Sign-off")
+
+
+def delivery_event_id(project_folder: str, outputs) -> str:
+    """A stable id for one delivery act, from the files it produced.
+
+    The files, not the reel number: a re-delivery writes a different
+    file, and that is a different act with a different set of
+    intermediates to reclaim. A delivery that produced nothing has no
+    id, because there is nothing to reclaim.
+    """
+    parts = [str(Path(project_folder).resolve())]
+    for path in sorted(str(item) for item in outputs):
+        try:
+            info = os.stat(path)
+        except OSError:
+            parts.append(f"{path}:absent")
+        else:
+            parts.append(f"{path}:{info.st_size}:{info.st_mtime_ns}")
+    digest = hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+    return f"delivery-{digest[:24]}"
+
+
+def after_delivery(project_folder: str, db_paths=None, *,
+                   lifecycle_event_id: str, outputs=(),
+                   start_worker: bool = True) -> str:
+    """What a successful delivery does about retention.
+
+    The sign-off's cleanup runs BEFORE the render, so the delivery's own
+    intermediates - the pre-master render in `scratch/`, the variant
+    work directories, the superseded caption and overlay segments - were
+    written after it and survived it. The delivery is the act that
+    finishes the run's work, so it queues the same durable lean cleanup
+    the sign-off does, against the files this delivery produced.
+
+    `keep` keeps everything, exactly as the sign-off does. A refusal is
+    recorded on the job; the delivery already landed and is never rolled
+    back.
+    """
+    if not outputs:
+        return ("Retention cleanup not queued: the delivery produced no "
+                "file, so it has no intermediates to reclaim.")
+    return _queue_lean_cleanup(
+        project_folder, db_paths,
+        reason="successful reel delivery",
+        lifecycle_event_id=lifecycle_event_id,
+        job_id=f"delivery-retention-{lifecycle_event_id}",
+        landed="Delivery",
+        start_worker=start_worker)
