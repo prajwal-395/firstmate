@@ -296,20 +296,16 @@ def state(project: str, assignment_id: str | None = None) -> dict:
     With no ``assignment_id`` the project's newest open assignment answers
     (``assignment_spine.current``), else the newest one of any state. The
     result carries the record, its history and the resume point - the
-    one verb the assignment is waiting on.
+    one verb the assignment is waiting on - and the task state: what Ren
+    understood, proposed, applied, could not determine, verified, and
+    which corrections are open. The task state is a projection of the
+    records the assignment already owns, so a host reads the answers
+    instead of deriving them from the machinery.
     """
     from library.tools import assignment_spine
+    from library.tools import assignment_view
     root = str(Path(project).expanduser().resolve())
-    if assignment_id:
-        record = lifecycle.load(root, assignment_id)
-        if record is None:
-            raise FileNotFoundError(f"assignment {assignment_id!r} has no checkpoint")
-    else:
-        records = lifecycle.list_records(root)
-        record = assignment_spine.current(root) or (
-            max(records, key=lambda r: (r.get("updated_at") or "",
-                                        r.get("created_at") or ""))
-            if records else None)
+    record = lifecycle.resolve(root, assignment_id)
     if record is None:
         return {"version": ENVELOPE_VERSION, "assignment_id": None,
                 "operation_id": "assignment.state", "stage": "understand",
@@ -326,7 +322,9 @@ def state(project: str, assignment_id: str | None = None) -> dict:
             "status": "completed",
             "progress": {"status": "completed", "fraction": 1.0,
                          "message": _summary_message(record, resume)},
-            "result": {**record, "resume_point": resume},
+            "result": {**record, "resume_point": resume,
+                       "task_state": assignment_view.task_state(
+                           root, record["assignment_id"])},
             "recovery": {"resumable": resume["command"] is not None,
                          "resume_with": resume}}
 

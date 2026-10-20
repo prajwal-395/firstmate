@@ -140,6 +140,30 @@ def list_records(project: str) -> list[dict]:
                                           r["assignment_id"]))
 
 
+def resolve(project: str, assignment_id: str | None = None) -> dict | None:
+    """The assignment a host means: the named one, or the open one.
+
+    One place, because two readers that each pick "the" assignment end up
+    reading different tasks - and a reader that guesses the newest record
+    while the writer guesses the open one is how a correction lands on the
+    wrong request. The named assignment must exist; the unnamed one is the
+    project's open assignment, else the newest of any state, else None.
+    """
+    if assignment_id:
+        record = load(project, assignment_id)
+        if record is None:
+            raise FileNotFoundError(
+                f"assignment {assignment_id!r} has no checkpoint")
+        return record
+    from library.tools import assignment_spine
+
+    records = list_records(project)
+    return assignment_spine.current(project) or (
+        max(records, key=lambda r: (r.get("updated_at") or "",
+                                    r.get("created_at") or ""))
+        if records else None)
+
+
 def create(project: str, assignment_id: str, brief=None, **fields) -> dict:
     """Create the checkpoint once; ``fields`` seed only a NEW record."""
     existing = load(project, assignment_id)

@@ -100,6 +100,46 @@ def _historical_medians(rows: list[dict], current_run_id: str | None) -> dict[st
             if len(values) >= 2}
 
 
+def capability_availability(project: str) -> tuple:
+    """What this project can use, and what it cannot - and what unblocks it.
+
+    One reading, in its own function, so the progress report and the task
+    state cannot disagree about which capability is missing. It reads the
+    project's own files and touches no broker: a reader asking what Ren
+    cannot do must not wake Resolve to find out.
+    """
+    root = Path(project).expanduser().resolve()
+    index_file = (root / "pipeline_output" / "scratch" / "footage_index"
+                  / "footage_index.json")
+    available = []
+    unavailable = []
+    if index_file.is_file():
+        available.append({"id": "footage.search",
+                          "label": "Search the indexed footage and dialogue "
+                                   "with `ren search`."})
+        return available, unavailable
+    from library.tools.project_layout import ProjectLayout
+    temporal_ready = ProjectLayout(root).step_dir(
+        "temporal_index", "output.json").is_file()
+    if temporal_ready:
+        available.append({"id": "footage.search_index",
+                          "label": "Dialogue analysis is available; build its "
+                                   "searchable index with `ren search-index`."})
+        unavailable.append({"id": "footage.search",
+                            "reason": "The searchable footage index has not "
+                                      "been built.",
+                            "next_action": "Run `ren search-index` when you "
+                                           "want searchable footage."})
+    else:
+        unavailable.append({"id": "footage.search",
+                            "reason": "Dialogue analysis and its searchable "
+                                      "index are not available in this project "
+                                      "yet.",
+                            "next_action": "Run the relevant analysis before "
+                                           "searching footage."})
+    return available, unavailable
+
+
 def progress_report(project: str, *, broker_reader=_broker) -> dict:
     """Return a compact report a host can relay without interpreting step ids."""
     root = Path(project).expanduser().resolve()
@@ -141,17 +181,7 @@ def progress_report(project: str, *, broker_reader=_broker) -> dict:
            if estimate_supported and remaining_ids else None)
 
     titles = lambda ids: [by_id[step]["name"] for step in ids]
-    index_file = root / "pipeline_output" / "scratch" / "footage_index" / "footage_index.json"
-    capabilities = []
-    if index_file.is_file():
-        capabilities.append({"id": "footage.search", "label": "Search the indexed footage and dialogue with `ren search`."})
-    else:
-        from library.tools.project_layout import ProjectLayout
-        temporal_output = ProjectLayout(root).step_dir(
-            "temporal_index", "output.json")
-        temporal_ready = temporal_output.is_file()
-    if not index_file.is_file() and temporal_ready:
-        capabilities.append({"id": "footage.search_index", "label": "Dialogue analysis is available; build its searchable index with `ren search-index`."})
+    capabilities, unavailable = capability_availability(project)
 
     state = str(status.get("status") or "not_started")
     if state == "running":
@@ -167,13 +197,6 @@ def progress_report(project: str, *, broker_reader=_broker) -> dict:
         message = "The run is paused at a step boundary."
     else:
         message = "No active run is recorded for this project."
-
-    unavailable = []
-    if not index_file.is_file():
-        if temporal_ready:
-            unavailable.append({"id": "footage.search", "reason": "The searchable footage index has not been built.", "next_action": "Run `ren search-index` when you want searchable footage."})
-        else:
-            unavailable.append({"id": "footage.search", "reason": "Dialogue analysis and its searchable index are not available in this project yet.", "next_action": "Run the relevant analysis before searching footage."})
 
     latest_event = (status.get(PROGRESS_EVENTS_KEY) or [])
     latest_event = latest_event[-1] if latest_event and isinstance(latest_event[-1], dict) else None

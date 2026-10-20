@@ -403,6 +403,7 @@ VERB_MODULES = [
     "library/tools/project_work_state.py",
     "library/tools/pending_asks.py",
     "library/tools/assignment_interaction.py",
+    "library/tools/assignment_view.py",
     "library/tools/run_wait.py",
     "library/tools/operations.py",
     "library/tools/perf_ledger.py",

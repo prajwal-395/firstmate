@@ -81,6 +81,15 @@ STATUS_INCOMPLETE = "incomplete"
 FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT,
             STATUS_UNVERIFIED, STATUS_REFUSED)
 
+#: The three buckets a revision's status falls into. `FINISHED` says which
+#: statuses END a revision; these say what the revision DID, which is a
+#: different question - a revision that ran and could not prove its
+#: outcome has finished, and has not landed. One vocabulary, here, so a
+#: reader cannot read a plan as an applied edit.
+LANDED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT)
+PLANNED = (STATUS_AWAITING, STATUS_QUESTION, STATUS_PROPOSED)
+NOT_APPLIED = (STATUS_REFUSED, STATUS_INCOMPLETE, STATUS_UNVERIFIED)
+
 ROUTE_PATCH = "patch"
 ROUTE_REBUILD = "rebuild"
 
