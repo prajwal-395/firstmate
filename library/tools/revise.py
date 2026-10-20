@@ -295,6 +295,7 @@ def _reprepare(project: str, record: dict, answer: str = "") -> None:
         project, request, reel=record["reel"], note_id=record["note_id"],
         decision_candidates=record["decision_candidates"])
     record.update(spec_id=spec_id, request_path=request_path, question=None)
+    record.pop("execution_receipt", None)
     _status(record, STATUS_AWAITING)
 
 
@@ -377,6 +378,37 @@ def _program_base(program: dict) -> int | None:
         return int(str((program or {}).get("base_generation")))
     except (TypeError, ValueError):
         return None
+
+
+def _verified_completion(receipt: dict) -> bool:
+    """Accept only the common receipt's committed, verified outcome.
+
+    A persisted read-back at stage VERIFIED is useful recovery evidence, but
+    it is not a completed edit.  The no-op path is the sole exception: AXI
+    proves the requested state was already present and no commit is needed.
+    """
+    contract = receipt.get("execution_contract") or {}
+    verification = contract.get("verification") or {}
+    checks = verification.get("checks") or []
+    checks_passed = bool(checks) and all(
+        isinstance(check, dict) and check.get("passed") is True
+        for check in checks)
+    if receipt.get("status") == "already_satisfied":
+        return (verification.get("status") == "verified" and checks_passed
+                and (receipt.get("lifecycle") or {}).get("stage")
+                in {"VERIFIED", "COMMITTED"})
+    committed = receipt.get("committed") or {}
+    applied = receipt.get("applied") or {}
+    return (
+        receipt.get("status") == "committed"
+        and (receipt.get("lifecycle") or {}).get("stage") == "COMMITTED"
+        and verification.get("status") == "verified"
+        and checks_passed
+        and committed.get("status") == "committed"
+        and committed.get("generation") is not None
+        and receipt.get("generation") is not None
+        and applied.get("complete") is True
+    )
 
 
 def _landed_revisions(project: str, reel: str) -> list[dict]:
@@ -640,22 +672,26 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
         prepared = resolve_axi_core.prepare_edit_request(request)
         record["edit_request"] = request.to_dict()
         record["preparation"] = prepared
+        _save(project, record)
         receipt = resolve_axi_core.submit_edit_request(
             request, authorized=True, owner="ren revise")
         if isinstance(receipt.get("result"), dict):
             receipt = receipt["result"]
-        lifecycle = receipt.get("lifecycle") or {}
-        stage = lifecycle.get("stage")
-        verified = (receipt.get("status") == "already_satisfied"
-                    or (receipt.get("status") == "committed"
-                        and stage in {"VERIFIED", "COMMITTED"}))
+        record["execution_receipt"] = receipt
+        _save(project, record)
+        verified = _verified_completion(receipt)
         if not verified:
+            _status(record, STATUS_INCOMPLETE,
+                    execution_receipt=receipt)
+            _save(project, record)
             raise ReviseRefused(
                 f"AXI returned without verified completion on {reel}: "
-                f"status={receipt.get('status')!r}, stage={stage!r}, "
+                f"status={receipt.get('status')!r}, "
+                f"stage={(receipt.get('lifecycle') or {}).get('stage')!r}, "
                 f"detail={receipt.get('error') or receipt.get('message') or ''}",
                 "ren revise completes only when AXI verifies the requested "
-                "postconditions and commits the result",
+                "postconditions and records a committed generation; partial "
+                "or uncommitted receipts remain unresolved",
                 f"inspect the AXI receipt, then run `ren revise "
                 f"{shlex.quote(project)} --id {record['revise_id']} "
                 "--retranslate` if the request needs replanning")
@@ -797,8 +833,11 @@ def _result(project: str, record: dict) -> dict:
         STATUS_UNVERIFIED: ("The scoped rebuild ran, but the requested "
                             "outcome has no request-specific verification."),
         STATUS_REFUSED: record.get("refusal"),
-        STATUS_INCOMPLETE: (f"The rebuild stopped at "
-                            f"`{record.get('failed_command')}`."),
+        STATUS_INCOMPLETE: (
+            f"The rebuild stopped at `{record.get('failed_command')}`."
+            if record.get("failed_command") else
+            "AXI did not return a committed, verified receipt; the note "
+            "remains unresolved."),
     }.get(status) or (record.get("change") or {}).get("summary")
     out = {key: record.get(key) for key in (
         "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
@@ -806,13 +845,15 @@ def _result(project: str, record: dict) -> dict:
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question", "failed_command",
         "landed_generation", "scope", "supersedes", "prior_bases",
-        "edit_request", "preparation")}
+        "edit_request", "preparation", "execution_receipt")}
     out["reply"] = reply
     if status == STATUS_AWAITING:
         out["llm_request"] = record["request_path"]
     if status in (STATUS_AWAITING, STATUS_INCOMPLETE):
+        suffix = (" --retranslate" if status == STATUS_INCOMPLETE
+                  and record.get("execution_receipt") else "")
         out["resume"] = (f"ren revise {shlex.quote(project)} --id "
-                         f"{record['revise_id']}")
+                         f"{record['revise_id']}{suffix}")
     if status == STATUS_QUESTION:
         out["answer_with"] = (f"ren revise {shlex.quote(project)} --id "
                               f"{record['revise_id']} --answer \"...\"")
@@ -831,6 +872,10 @@ def advance(project, revise_id: str, *, answer: str = "",
     if preview:
         record["preview_requested"] = True
     if record["status"] in FINISHED:
+        return _result(project, record)
+    if (record["status"] == STATUS_INCOMPLETE
+            and record.get("execution_receipt") and not retranslate
+            and not answer):
         return _result(project, record)
     if answer:
         if record["status"] != STATUS_QUESTION:
