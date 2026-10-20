@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -444,6 +445,47 @@ def test_a_missing_captain_timeline_id_never_recovers_by_name(monkeypatch):
     with pytest.raises(scratch.ScratchProjectError,
                        match="captain projects require exact identity"):
         scratch.restore(resolve, manager, state)
+
+
+def test_drt_restore_reopens_the_recorded_ren_origin_before_import(
+        monkeypatch, tmp_path):
+    """Catches: imports were refused while the recorded scratch was open."""
+    qualification = Project("Ren Qualification", [])
+    resolve = Resolve(qualification)
+    manager = resolve.manager
+    scratch_project = Project("Ren Scratch - breaktest", [
+        Timeline("Staging", "scratch-staging")])
+    manager.projects[scratch_project.name] = scratch_project
+    manager.current = scratch_project
+    prepare(monkeypatch, resolve)
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    state = {
+        "project": "Ren Qualification",
+        "scratch_project": scratch_project.name,
+        "timeline": None,
+        "timeline_id": None,
+        "page": "deliver",
+    }
+    origin.write_text(json.dumps(state), encoding="utf-8")
+    imported = [{"name": "fm-scratch qualify", "timeline_id": "new-id"}]
+    calls = []
+
+    def import_drts(project, archives):
+        calls.append((project.GetName(), tuple(archives)))
+        return imported
+
+    monkeypatch.setattr(scratch, "_import_qualification_drts", import_drts)
+
+    result = scratch.restore_recorded(resolve, manager,
+                                      timeline_drts=("fixture.drt",))
+
+    assert calls == [("Ren Qualification", ("fixture.drt",))]
+    assert manager.GetCurrentProject().GetName() == "Ren Qualification"
+    assert resolve.GetCurrentPage() == "deliver"
+    assert result["imported_timeline_drts"] == imported
+    assert result["verified"] is True
+    assert not origin.exists()
 
 
 def test_an_empty_untitled_project_does_not_block_the_scratch_lifecycle(

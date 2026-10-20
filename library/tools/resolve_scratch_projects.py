@@ -176,10 +176,17 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
             raise ScratchProjectError(
                 "DRT recovery imports are restricted to the Ren Qualification "
                 "origin project")
-        if current.GetName() != origin_name:
+        if current.GetName() == state.get("scratch_project"):
+            if not manager.SaveProject():
+                raise ScratchProjectError(
+                    "cannot restore: Resolve would not save the open scratch "
+                    "project; not leaving unsavable work behind")
+            current = switch_project(manager, origin_name)
+            _settle_after_lifecycle_call()
+        if not current or current.GetName() != origin_name:
             raise ScratchProjectError(
                 f"DRT recovery imports require {origin_name!r} open; "
-                f"found {current.GetName()!r}")
+                f"found {current.GetName() if current else None!r}")
         imported = _import_qualification_drts(current, timeline_drts)
         if imported and not manager.SaveProject():
             raise ScratchProjectError(
