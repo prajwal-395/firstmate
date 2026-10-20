@@ -20,6 +20,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `clip.join` | `clip.split` | False | none |
 | `clip.link` | `clip.unlink` | False | none |
 | `clip.move` | `none` | True | the inverse moves the clip back |
+| `clip.remove` | `clip.insert` | False | re-inserts the removed source range |
 | `clip.replace` | `none` | True | the inverse carries the previous source |
 | `clip.ripple` | `none` | True | the inverse carries the opposite delta |
 | `clip.roll` | `none` | True | the inverse carries the negated delta |

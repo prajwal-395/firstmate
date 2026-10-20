@@ -22,7 +22,8 @@ def _project_folder(context) -> str:
 # this adapter has a fresh live read-back after each command, a subsequent
 # positional write must refuse rather than reuse the prepared index.
 _POSITION_INVALIDATING_OPERATIONS = frozenset({
-    "clip.delete", "clip.trim", "clip.move", "clip.split", "clip.slide", "clip.roll",
+    "clip.delete", "clip.remove", "clip.trim", "clip.move", "clip.split",
+    "clip.slide", "clip.roll",
     "clip.ripple", "clip.insert", "track.add", "overlay.add",
     "overlay.remove",
 })
@@ -35,7 +36,7 @@ def _target_position_for_context(context, unique_id: str) -> tuple[str, int]:
              else ())
     invalidators = [str(operation["op"]) for operation in prior
                     if str(operation["op"]) in _POSITION_INVALIDATING_OPERATIONS]
-    live_identity_operations = {"clip.delete"}
+    live_identity_operations = {"clip.delete", "clip.remove"}
     if invalidators and str(context.operation["op"]) not in live_identity_operations:
         raise ValueError(
             "cannot safely reuse a prepared track/index after positional "
@@ -118,11 +119,24 @@ def _verified_command(context, command: list[str], operation: dict,
     elif operation_id == "clip.delete":
         evidence["target_absent"] = after_clip is None
         operation_matches = after_clip is None
+    elif operation_id == "clip.remove" and before_clip is not None:
+        evidence.update(_remove_readback_evidence(
+            before, after, target_id, before_clip, after_clip))
+        operation_matches = all(evidence.values())
     elif operation_id == "caption_fix" and before_clip and after_clip:
         # A timeline inventory does not expose rendered title text. Do not
         # turn command prose into evidence for this operation.
         operation_matches = None
-    unrelated = _unrelated_changes(before, after, target_id)
+    if operation_id == "clip.remove" and before_clip is not None:
+        # A ripple moves every later cut, so the collateral scan excuses
+        # the rippled range and judges predecessors strictly; the
+        # downstream rule above judges what moved.
+        affected: tuple = ((int(before_clip["record_in"]),
+                             int(before["end_frame"])),)
+    else:
+        affected = ()
+    unrelated = _unrelated_changes(before, after, target_id,
+                                   affected_spans=affected)
     evidence["unrelated_items_unchanged"] = not unrelated
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},
@@ -144,7 +158,7 @@ def _verified_command(context, command: list[str], operation: dict,
             "project_folder": _project_folder(context),
             "entry_id": journal_match.group(1),
         }
-    elif operation_id in {"clip.trim", "clip.delete"}:
+    elif operation_id in {"clip.trim", "clip.delete", "clip.remove"}:
         raise RuntimeError(
             f"AXI command for {operation_id} verified without a recovery "
             "journal reference")
@@ -194,12 +208,92 @@ def _verified_command(context, command: list[str], operation: dict,
     }
 
 
-def _unrelated_changes(before: Mapping, after: Mapping, target_id: str) -> list:
+def _unrelated_changes(before: Mapping, after: Mapping, target_id: str,
+                       *, affected_spans=()) -> list:
     from library.tools.transaction_orchestration import unrelated_clip_changes
 
     return unrelated_clip_changes(
-        operations=([{"unique_id": target_id}] if target_id else []),
-        affected_spans=(), id_map=None, before=before, after=after)
+        operations=([{"unique_id": target_id}] if target_id else ()),
+        affected_spans=affected_spans, id_map=None, before=before,
+        after=after)
+
+
+def _remove_readback_evidence(before: Mapping, after: Mapping,
+                              target_id: str, before_clip: Mapping,
+                              after_clip: Mapping | None) -> dict:
+    """Independent read-back postconditions for a ripple remove.
+
+    Measured off the before/after pair from the fresh live read: the
+    target is gone, its track shows no gap where it was, and every
+    surviving clip kept its content (source span and duration) while
+    sitting either where it was or exactly one removed-duration
+    earlier. Coextensive partners (the linked-audio signature: the same
+    record span on another track) must have gone with the picture;
+    anything else that vanished is reported, not excused.
+    """
+    target_in = int(before_clip["record_in"])
+    target_out = int(before_clip["record_out"])
+    duration = target_out - target_in
+    evidence = {"target_absent": after_clip is None}
+    after_clips = [clip for track in after["tracks"]
+                   for clip in track["clips"]]
+    after_by_id = {str(clip["unique_id"]): clip for clip in after_clips}
+    track_clips = [clip for track in after["tracks"]
+                   for clip in track["clips"]
+                   if (str(track["type"])
+                       == str(before_clip.get("track_type") or "video")
+                       and int(track["index"])
+                       == int(before_clip.get("track_index") or 1))]
+    successors = [clip for clip in track_clips
+                  if int(clip["record_in"]) >= target_in]
+    if successors:
+        evidence["gap_closed"] = (
+            min(int(clip["record_in"]) for clip in successors) == target_in)
+    else:
+        evidence["gap_closed"] = all(
+            int(clip["record_out"]) <= target_in for clip in track_clips)
+    downstream_ok = True
+    for track in before["tracks"]:
+        for clip in track["clips"]:
+            unique_id = str(clip["unique_id"])
+            if unique_id == target_id:
+                continue
+            after_match = after_by_id.get(unique_id)
+            if after_match is None:
+                if (int(clip["record_in"]) == target_in
+                        and int(clip["record_out"]) == target_out):
+                    continue
+                downstream_ok = False
+                continue
+            if (int(clip["record_in"]) >= target_in
+                    and int(clip["record_out"]) <= target_out):
+                # A survivor that lived entirely inside the removed span -
+                # an orphaned linked partner or a stacked item the ripple
+                # should have taken with the picture. (A successor the
+                # ripple moved INTO that span is judged by its shift
+                # below, not here.)
+                downstream_ok = False
+                continue
+            if (int(after_match["duration"]) != int(clip["duration"])
+                    or int(after_match["source_in_frame"])
+                    != int(clip["source_in_frame"])
+                    or int(after_match["source_out_frame"])
+                    != int(clip["source_out_frame"])):
+                downstream_ok = False
+                continue
+            shifted = (int(after_match["record_in"])
+                       - int(clip["record_in"]))
+            if shifted not in (0, -duration) or (
+                    int(clip["record_out"]) <= target_in
+                    and shifted != 0):
+                downstream_ok = False
+    new_ids = (set(after_by_id)
+               - {str(clip["unique_id"]) for track in before["tracks"]
+                  for clip in track["clips"]})
+    if new_ids:
+        downstream_ok = False
+    evidence["downstream_continuity_preserved"] = downstream_ok
+    return evidence
 
 
 def _trim(context) -> dict:
@@ -238,6 +332,27 @@ def _delete(context) -> dict:
         "--timeline", context.request.timeline,
     ], {**context.operation, "op": "clip.delete"},
        "AXI undo journal; verify exact item absence before recovery")
+
+
+def _remove(context) -> dict:
+    """Ripple a target off the reel through the measured delete command.
+
+    The physical write is `edit delete --ripple` with the same live
+    target identity the local delete carries; the read-back half is the
+    `clip.remove` acceptance contract (absence, gap close, downstream
+    continuity, collateral scan), not the local-delete absence alone.
+    """
+    row, index = _target_position_for_context(
+        context, str(context.operation["unique_id"]))
+    return _verified_command(context, [
+        "edit", "delete", "--track", row, "--index", str(index),
+        "--ripple",
+        *_target_identity_args(context, str(context.operation["unique_id"])),
+        "--project-folder", _project_folder(context), "--require-recovery",
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ], {**context.operation, "op": "clip.remove"},
+       "AXI undo journal; failed ripple restores the timeline snapshot")
 
 
 def _caption_fix(context) -> dict:
@@ -793,6 +908,7 @@ def register_builtin_edit_executors() -> None:
     desired = {
         ("clip.trim", "resolve_axi"): _trim,
         ("clip.delete", "resolve_axi"): _delete,
+        ("clip.remove", "resolve_axi"): _remove,
         ("caption_fix", "resolve_axi"): _caption_fix,
         ("multicam.select_angle", "resolve_axi"): _multicam_select_angle,
         ("caption.style", "resolve_axi"): _caption_style,

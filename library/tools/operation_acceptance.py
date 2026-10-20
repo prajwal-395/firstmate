@@ -55,6 +55,19 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
                   "requested_track", "unrelated_items_unchanged"]
     elif op_id in {"clip.delete", "overlay.remove"}:
         checks = ["target_absent", "unrelated_items_unchanged"]
+    elif op_id == "clip.remove":
+        # A ripple remove promises more than an absence: the gap it
+        # occupied closes, and the downstream continuity - surviving
+        # clips keeping their content and sitting either where they
+        # were or exactly one removed-duration earlier, coextensive
+        # linked-audio partners going with the picture - reads back
+        # from the fresh live snapshot. `gap_closed` and
+        # `downstream_continuity_preserved` are deliberately outside
+        # `_STRUCTURAL_CHECKS`, so they stay missing (never silently
+        # passed) until the executing adapter measures them.
+        checks = ["target_absent", "gap_closed",
+                  "downstream_continuity_preserved",
+                  "unrelated_items_unchanged"]
     elif op_id == "clip.replace":
         checks = ["target_identity", "requested_source_identity",
                   "record_span_preserved", "unrelated_items_unchanged"]

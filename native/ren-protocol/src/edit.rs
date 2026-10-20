@@ -62,6 +62,11 @@ pub enum EditOp {
     /// A local delete leaves a gap; `clip.ripple` closes it.
     #[serde(rename = "clip.delete")]
     ClipDelete { unique_id: ClipId },
+    /// A clip deleted with its gap closed: later clips move earlier by
+    /// the removed duration. Unlike `clip.delete`, no gap is left for
+    /// a separate `clip.ripple`.
+    #[serde(rename = "clip.remove")]
+    ClipRemove { unique_id: ClipId },
     /// Places a pool clip at a stated span; the inverse deletes it.
     #[serde(rename = "clip.insert")]
     ClipInsert {
@@ -464,6 +469,7 @@ impl EditOp {
             EditOp::ClipMarkerAdd { .. } => "clip_marker.add",
             EditOp::ClipMarkerDelete { .. } => "clip_marker.delete",
             EditOp::ClipDelete { .. } => "clip.delete",
+            EditOp::ClipRemove { .. } => "clip.remove",
             EditOp::ClipInsert { .. } => "clip.insert",
             EditOp::ClipSplit { .. } => "clip.split",
             EditOp::ClipJoin { .. } => "clip.join",

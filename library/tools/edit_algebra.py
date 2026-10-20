@@ -1574,6 +1574,25 @@ def _delete_clip_with_measured_retry(op, timeline, item, _project=None):
     return second if second else first
 
 
+def _remove_clip_with_measured_retry(op, timeline, item, _project=None):
+    """Ripple one delete shut, retrying once while its id reads back.
+
+    `clip.remove` is `clip.delete` plus the gap close: `DeleteClips`
+    with ripple moves every later cut earlier by the removed duration,
+    which is why the op's span (`_ripple_span`) covers the removed clip
+    through the timeline end. The one measured retry mirrors the local
+    delete - the first call can flop on some Resolve pages, and the
+    re-read says whether the item is still there.
+    """
+    first = timeline.DeleteClips([item], True)
+    handles = _live_handles(timeline)
+    unique_id = op["unique_id"]
+    if unique_id not in handles:
+        return first
+    second = timeline.DeleteClips([handles[unique_id]], True)
+    return second if second else first
+
+
 _insert_sources: ContextVar[dict | None] = ContextVar("insert_sources", default=None)
 
 
@@ -1794,6 +1813,25 @@ ALGEBRA: dict[str, AlgebraOp] = {
         inverse=_pair("clip.insert",
                        "re-inserts the deleted source range"),
         note="A local delete leaves a gap; `clip.ripple` closes it."),
+    "clip.remove": AlgebraOp(
+        id="clip.remove", domain="timeline_structure",
+        required=("unique_id",),
+        span=lambda op, base: _ripple_span(op, base),
+        item=True,
+        # Ripple: the gap closes by moving every later cut, so the span
+        # covers the removed clip through the timeline end - the range
+        # a patch validation must hold. The write is the measured
+        # ripple delete with the local delete's one retry.
+        apply=_remove_clip_with_measured_retry,
+        verify=lambda op, after: _verify_remove(op, after),
+        # The whole clip: it meets every write to it, in any domain.
+        key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
+        temporal="ripple",
+        inverse=_pair("clip.insert",
+                       "re-inserts the removed source range"),
+        note="A clip deleted with its gap closed: later clips move "
+             "earlier by the removed duration. Unlike `clip.delete`, no "
+             "gap is left for a separate `clip.ripple`."),
     "clip.insert": AlgebraOp(
         id="clip.insert", domain="timeline_structure",
         required=("unique_id", "track_type", "track_index",
@@ -2691,6 +2729,22 @@ def _verify_delete(op, after):
     return None
 
 
+def _verify_remove(op, after):
+    """The removed clip reads back nowhere; the gap close is judged by
+    the acceptance contract, not here.
+
+    The algebra verifier sees only the after-snapshot, so absence is
+    what it can judge. Whether the gap closed, the downstream
+    continuity held and the linked audio went with the picture is
+    measured from the before/after pair by `operation_acceptance`
+    (the `clip.remove` contract), supplied with evidence by the
+    executing adapter.
+    """
+    if _clip(after, op["unique_id"]) is not None:
+        return f"clip {op['unique_id']!r} still reads back"
+    return None
+
+
 def _verify_split(op, after):
     clip = _clip(after, op["unique_id"])
     if clip is None:
@@ -3185,6 +3239,13 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/edit_execution_adapters.py:_delete",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
     ),
+    ("clip.remove", "edit_patch"): (
+        "library/tools/edit_algebra.py:_remove_clip_with_measured_retry",
+    ),
+    ("clip.remove", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_remove",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
+    ),
     ("clip.trim", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
@@ -3267,6 +3328,10 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
     ("clip.delete", "resolve_axi"):
         ("local delete leaves a gap; ripple must be a separate explicitly requested staged operation",),
+    ("clip.remove", "edit_patch"):
+        ("ripple moves every later cut earlier by the removed duration; downstream continuity is verified from read-back, not assumed",),
+    ("clip.remove", "resolve_axi"):
+        ("ripple delete closes the gap by moving later clips earlier by the removed duration; linked audio partners and downstream continuity are verified from read-back, not assumed",),
     ("clip.ripple", "reel_touchup"):
         ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
     ("clip.slip", "reel_touchup"):
@@ -3329,7 +3394,8 @@ def _executor_coverage() -> dict[str, set[str]]:
         # AXI command adapters are registered only where an existing command
         # performs a guarded write with operation-specific read-back.
         "resolve_axi": {
-            "marker.add", "clip.delete", "clip.smart_reframe",
+            "marker.add", "clip.delete", "clip.remove",
+            "clip.smart_reframe",
             # Existing AXI commands now have semantic EditRequest adapters.
             # They remain implemented/unqualified until operation-specific
             # live qualification records are added.
@@ -3381,7 +3447,8 @@ def _media_types(op: AlgebraOp) -> tuple[str, ...]:
         return ("still", "video", "Fusion graphic")
     if op.domain in {"color", "picture_transform", "fusion"}:
         return ("video", "still")
-    if op.id in {"clip.insert", "clip.delete", "clip.move", "clip.trim",
+    if op.id in {"clip.insert", "clip.delete", "clip.remove",
+                 "clip.move", "clip.trim",
                  "clip.replace", "clip.split", "clip.join", "clip.roll",
                  "clip.slip", "clip.slide", "clip.ripple"}:
         return ("video", "audio", "still")
@@ -3565,6 +3632,7 @@ AXI_OPERATION_MAP: dict[str, tuple[str, ...]] = {
     # a cross-track request: that would silently change editorial semantics.
     "clip.move_across_tracks": (),
     "clip.delete": ("clip.delete",),
+    "clip.remove": ("clip.remove",),
     "clip.title": (),
     "clip.transition": (),
     "clip.speed": (),
@@ -3828,6 +3896,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "hold.repair_window": SAFETY_COMPLEX_LOCALIZED,
     # Topology, timing or identity effects: staged with dependent ranges.
     "clip.delete": SAFETY_STRUCTURAL,
+    "clip.remove": SAFETY_STRUCTURAL,
     "clip.insert": SAFETY_STRUCTURAL,
     "clip.split": SAFETY_STRUCTURAL,
     "clip.join": SAFETY_STRUCTURAL,
@@ -3911,7 +3980,8 @@ OP_STATUS = {
 #: half of a direct proof.
 _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "marker.add", "marker.delete", "clip_marker.add", "clip_marker.delete",
-    "clip.delete", "clip.insert", "clip.split", "clip.join", "clip.trim",
+    "clip.delete", "clip.remove", "clip.insert", "clip.split", "clip.join",
+    "clip.trim",
     "clip.ripple", "clip.roll", "clip.slip", "clip.slide", "clip.move",
     "clip.replace", "clip.set_enabled",
     "clip.smart_reframe", "clip.set_property",

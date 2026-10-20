@@ -278,6 +278,7 @@ _EXAMPLE_OPS = {
                         "color": "Blue", "name": "c"},
     "clip_marker.delete": {"unique_id": "clip_1", "frame": 10},
     "clip.delete": {"unique_id": "clip_1"},
+    "clip.remove": {"unique_id": "clip_1"},
     "clip.insert": {"unique_id": "clip_1", "track_type": "video",
                     "track_index": 1, "record_in": 0, "record_out": 48,
                     "media_pool_item": "pool_1"},

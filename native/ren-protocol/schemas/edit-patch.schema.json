@@ -492,6 +492,23 @@
           ]
         },
         {
+          "description": "A clip deleted with its gap closed: later clips move earlier by\nthe removed duration. Unlike `clip.delete`, no gap is left for\na separate `clip.ripple`.",
+          "type": "object",
+          "properties": {
+            "op": {
+              "type": "string",
+              "const": "clip.remove"
+            },
+            "unique_id": {
+              "$ref": "#/$defs/ClipId"
+            }
+          },
+          "required": [
+            "op",
+            "unique_id"
+          ]
+        },
+        {
           "description": "Places a pool clip at a stated span; the inverse deletes it.",
           "type": "object",
           "properties": {

@@ -219,6 +219,16 @@ fn verify_delete(op: &EditOp, after: &Snapshot) -> Option<String> {
     None
 }
 
+fn verify_remove(op: &EditOp, after: &Snapshot) -> Option<String> {
+    let EditOp::ClipRemove { unique_id } = op else {
+        return None;
+    };
+    if after.clip(&unique_id.0).is_some() {
+        return Some(format!("clip {unique_id:?} still reads back"));
+    }
+    None
+}
+
 fn verify_split(op: &EditOp, after: &Snapshot) -> Option<String> {
     let EditOp::ClipSplit {
         unique_id,
@@ -801,6 +811,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::ClipMarkerAdd { .. } => verify_clip_marker_add(op, after),
         EditOp::ClipMarkerDelete { .. } => verify_clip_marker_delete(op, after),
         EditOp::ClipDelete { .. } => verify_delete(op, after),
+        EditOp::ClipRemove { .. } => verify_remove(op, after),
         EditOp::ClipInsert { .. } => verify_presence(op, after, true, "clip"),
         EditOp::ClipSplit { .. } => verify_split(op, after),
         EditOp::ClipJoin { .. } => verify_join(op, after),
