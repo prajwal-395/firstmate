@@ -539,15 +539,24 @@ def _editorial_rows(report: dict) -> list:
     The text lane returns `results`; the frame lane returns `ranges`,
     because a frame search returns an interval rather than a still.
     Both are windows, so both are scored the same way.
+
+    The frame report carries BOTH keys: `results` holds the individual
+    STILLS (a `t`, not a `start`/`end` pair) and `ranges` holds the
+    merged intervals.  The stills are what the scorer must NOT read -
+    a row without an interval is a row the scorer cannot compare with a
+    ground-truth interval, and reading them crashed the benchmark on
+    every frame-lane query that returned a candidate (measured
+    2026-10-20, see docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+    So the presence of `ranges` decides, not the presence of `results`.
     """
-    if report.get("results"):
-        return report["results"]
-    return [{"clip_id": entry.get("clip_id"),
-             "start": entry.get("start"),
-             "end": entry.get("end"),
-             "score": entry.get("best_score"),
-             "text": ""}
-            for entry in report.get("ranges") or ()]
+    if "ranges" in report:
+        return [{"clip_id": entry.get("clip_id"),
+                 "start": entry.get("start"),
+                 "end": entry.get("end"),
+                 "score": entry.get("best_score"),
+                 "text": ""}
+                for entry in report.get("ranges") or ()]
+    return list(report.get("results") or ())
 
 
 # ── Coverage and time ───────────────────────────────────────────────

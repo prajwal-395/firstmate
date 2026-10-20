@@ -286,3 +286,52 @@ def test_the_decomposition_of_an_editorial_query_is_deterministic():
         r.key for r in second.requirements], (
         "a benchmark that measures a decomposition which changes between "
         "runs measures nothing")
+
+
+# ─── The frame lane's WINDOWS are scored, not its stills ───────────
+
+
+def test_the_frame_lane_is_scored_on_its_ranges_not_on_its_stills():
+    """The frame report carries BOTH lists, and only one of them is a window.
+
+    `search_ranges` returns the individual STILLS under `results` and
+    the merged intervals under `ranges`.  The scorer compares a window
+    with a ground-truth interval, so a still - which has a `t` and no
+    `start`/`end` - is not a window: reading the stills made the scorer
+    compare None with a number and crash the benchmark on every
+    frame-lane query that returned a candidate (measured 2026-10-20, see
+    docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+    """
+    report = {
+        "results": [{"clip_id": "clip_003", "filename": "LC4932.MXF",
+                     "t": 3562.4, "score": 0.21, "verified": False}],
+        "ranges": [{"clip_id": "clip_003", "filename": "LC4932.MXF",
+                    "start": 3562.1, "end": 3610.9, "best_score": 0.21,
+                    "n_frames": 3, "verified": False}],
+    }
+    rows = retrieval_eval._editorial_rows(report)
+    assert len(rows) == 1
+    assert rows[0]["start"] == 3562.1
+    assert rows[0]["end"] == 3610.9
+    assert rows[0]["score"] == 0.21
+
+
+def test_a_refused_frame_lane_scores_as_a_refusal_and_not_as_an_absence():
+    """A lane that refused has not observed anything.
+
+    The held-out set carries an action query the frame lane refuses by
+    design (H10).  The scorer reads that refusal as the answer it is;
+    it must not be counted as a query that searched and found nothing.
+    """
+    payload = _load(HELD_OUT_SET)
+    query = next(q for q in payload["queries"] if q["id"] == "H10")
+    rules = payload["scoring"]["editorial"]
+    corpus = retrieval_eval.Corpus.__new__(retrieval_eval.Corpus)
+    corpus.name_of_clip = {}
+    refusal = {"matched": "gesturing", "reason": "frame search covers "
+               "objects, people and scenes", "hint": "the event pipeline"}
+    scored = retrieval_eval.score_editorial(
+        query, {"results": [], "refused": refusal}, corpus, rules)
+    assert scored["kind"] == "refusal"
+    assert scored["refused"] is True
+    assert scored["abstained"] is True
