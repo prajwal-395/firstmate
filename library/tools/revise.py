@@ -1081,7 +1081,14 @@ def _record_ruling(project: str, record: dict, spec: dict,
                       or treatment_rulings.SCOPE_PROJECT),
             editor_words=str(row.get("editor_words") or ""),
             preference_slot=str(row.get("preference_slot") or ""),
-            stated_by=str(row.get("stated_by") or ""))
+            stated_by=str(row.get("stated_by") or ""),
+            correction_kind=str(row.get("correction_kind")
+                                or treatment_rulings.UNDETERMINED),
+            capability_id=str(row.get("capability_id") or ""),
+            evidence_ids=row.get("evidence_ids") or (),
+            diagnosis=str(row.get("diagnosis") or "unknown"),
+            criteria_before=row.get("criteria_before") or (),
+            criteria_after=row.get("criteria_after") or ())
     except treatment_rulings.RulingError:
         return
     ruling["decision_revision"] = revision_id
@@ -1093,6 +1100,9 @@ def _record_ruling(project: str, record: dict, spec: dict,
         "reason": ruling["reason"],
         "scope": ruling["scope"],
         "generalizable": ruling["generalizable"],
+        "correction_kind": ruling["correction_kind"],
+        "capability_id": ruling["capability_id"],
+        "acceptance_effect": ruling["acceptance_effect"],
         "learning_id": (recorded.get("learning") or {}).get("id") or "",
     }
 

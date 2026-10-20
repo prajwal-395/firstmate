@@ -415,7 +415,14 @@ def _validate_ruling(row) -> None:
             outcome, reason, scope=scope,
             editor_words=words or "",
             preference_slot=row.get("preference_slot") or "",
-            stated_by=row.get("stated_by") or "")
+            stated_by=row.get("stated_by") or "",
+            correction_kind=row.get("correction_kind") or
+                treatment_rulings.UNDETERMINED,
+            capability_id=row.get("capability_id") or "",
+            evidence_ids=row.get("evidence_ids") or (),
+            diagnosis=row.get("diagnosis") or "unknown",
+            criteria_before=row.get("criteria_before") or (),
+            criteria_after=row.get("criteria_after") or ())
     except treatment_rulings.RulingError as exc:
         raise EditSpecError(f"ruling: {exc}") from exc
 

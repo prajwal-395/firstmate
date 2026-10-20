@@ -51,6 +51,15 @@ from typing import Any
 
 FORMAT = "treatment_rulings/1"
 
+# Keep defect and taste distinct, and make an unknown classification
+# explicit instead of teaching it as fact.
+OBJECTIVE_ERROR = "objective_error"
+SUBJECTIVE_PREFERENCE = "subjective_preference"
+UNDETERMINED = "undetermined"
+CORRECTION_KINDS = (OBJECTIVE_ERROR, SUBJECTIVE_PREFERENCE, UNDETERMINED)
+DIAGNOSES = ("more_evidence", "better_reasoning", "unknown")
+CRITERION_STATES = ("passed", "failed", "unmeasured")
+
 # ── The outcomes ─────────────────────────────────────────────────────
 
 ACCEPTED = "accepted"
@@ -87,7 +96,9 @@ def _nonempty(value, field: str) -> str:
 
 def ruling(outcome: str, reason: str = "", *, scope: str = SCOPE_PROJECT,
            editor_words: str = "", preference_slot: str = "",
-           stated_by: str = "") -> dict[str, Any]:
+           stated_by: str = "", correction_kind: str = UNDETERMINED,
+           capability_id: str = "", evidence_ids=(), diagnosis: str = "unknown",
+           criteria_before=(), criteria_after=()) -> dict[str, Any]:
     """One ruling on a proposed treatment.
 
     `outcome` is what the editor decided, `reason` is why they decided
@@ -101,6 +112,17 @@ def ruling(outcome: str, reason: str = "", *, scope: str = SCOPE_PROJECT,
     if scope not in SCOPES:
         raise RulingError(
             f"unknown ruling scope {scope!r}; known scopes: {list(SCOPES)}")
+    if correction_kind not in CORRECTION_KINDS:
+        raise RulingError(f"unknown correction kind {correction_kind!r}")
+    if diagnosis not in DIAGNOSES:
+        raise RulingError(f"unknown correction diagnosis {diagnosis!r}")
+    before = _criteria(criteria_before, "criteria_before")
+    after = _criteria(criteria_after, "criteria_after")
+    if before and after and {row["id"] for row in before} != {
+            row["id"] for row in after}:
+        raise RulingError(
+            "criteria_before and criteria_after must name the same "
+            "acceptance criteria")
     why = str(reason or "").strip()
     if outcome in CORRECTIONS and not why:
         raise RulingError(
@@ -123,6 +145,11 @@ def ruling(outcome: str, reason: str = "", *, scope: str = SCOPE_PROJECT,
     else:
         generalizable = scope == SCOPE_EDITOR
         why_not = ""
+    if not isinstance(evidence_ids, (list, tuple)):
+        raise RulingError("evidence_ids must be a list of evidence identifiers")
+    if any(not isinstance(item, str) or not item.strip()
+           for item in evidence_ids):
+        raise RulingError("evidence_ids must contain non-empty strings")
     return {
         "format": FORMAT,
         "outcome": outcome,
@@ -131,9 +158,56 @@ def ruling(outcome: str, reason: str = "", *, scope: str = SCOPE_PROJECT,
         "editor_words": str(editor_words or "").strip(),
         "preference_slot": slot_name,
         "stated_by": str(stated_by or "").strip(),
+        "correction_kind": correction_kind,
+        "capability_id": str(capability_id or "").strip(),
+        "evidence_ids": list(dict.fromkeys(item.strip()
+                                            for item in evidence_ids)),
+        "diagnosis": diagnosis,
+        "criteria_before": before,
+        "criteria_after": after,
+        "acceptance_effect": acceptance_effect(before, after),
         "generalizable": generalizable,
         "generalizable_reason": why_not,
     }
+
+
+def _criteria(rows, field: str) -> list[dict[str, str]]:
+    """Validate a snapshot of the original acceptance criteria."""
+    result = []
+    seen = set()
+    for row in rows or ():
+        if not isinstance(row, Mapping):
+            raise RulingError(f"{field} entries must be mappings")
+        criterion_id = str(row.get("id") or "").strip()
+        status = str(row.get("status") or "")
+        if not criterion_id or criterion_id in seen:
+            raise RulingError(f"{field} needs unique, non-empty criterion ids")
+        if status not in CRITERION_STATES:
+            raise RulingError(f"{field}[{criterion_id!r}].status is invalid")
+        seen.add(criterion_id)
+        result.append({"id": criterion_id, "status": status})
+    return result
+
+
+def acceptance_effect(before, after) -> str:
+    """Compare like-for-like criteria; missing measurements stay unknown."""
+    if not before or not after:
+        return "unmeasured"
+    old = {row["id"]: row["status"] for row in before}
+    new = {row["id"]: row["status"] for row in after}
+    if old.keys() != new.keys():
+        return "unmeasured"
+    improved = any(old[key] == "failed" and new[key] == "passed" for key in old)
+    regressed = any(old[key] == "passed" and new[key] == "failed" for key in old)
+    if improved and not regressed:
+        return "improved"
+    if regressed and not improved:
+        return "regressed"
+    if improved and regressed:
+        return "mixed"
+    if any("unmeasured" in (old[key], new[key]) for key in old):
+        return "unmeasured"
+    return "unchanged"
 
 
 def describe(row: Mapping[str, Any]) -> str:
@@ -155,6 +229,13 @@ def _approval(row: Mapping[str, Any]) -> dict[str, Any]:
         "why": str(row.get("reason") or ""),
         "by": str(row.get("stated_by") or "the editor"),
         "scope": str(row.get("scope") or SCOPE_PROJECT),
+        "correction_kind": str(row.get("correction_kind") or UNDETERMINED),
+        "capability_id": str(row.get("capability_id") or ""),
+        "evidence_ids": list(row.get("evidence_ids") or ()),
+        "diagnosis": str(row.get("diagnosis") or "unknown"),
+        "criteria_before": list(row.get("criteria_before") or ()),
+        "criteria_after": list(row.get("criteria_after") or ()),
+        "acceptance_effect": str(row.get("acceptance_effect") or "unmeasured"),
     }
 
 
@@ -176,6 +257,20 @@ def record(project: os.PathLike | str, revision_id: str,
     if str(row.get("outcome") or "") not in OUTCOMES:
         raise RulingError(
             f"unknown ruling outcome {row.get('outcome')!r}")
+    row = ruling(
+        str(row.get("outcome") or ""), str(row.get("reason") or ""),
+        scope=str(row.get("scope") or SCOPE_PROJECT),
+        editor_words=str(row.get("editor_words") or ""),
+        preference_slot=str(row.get("preference_slot") or ""),
+        stated_by=str(row.get("stated_by") or ""),
+        correction_kind=str(row.get("correction_kind") or UNDETERMINED),
+        capability_id=str(row.get("capability_id") or ""),
+        evidence_ids=row.get("evidence_ids") or (),
+        diagnosis=str(row.get("diagnosis") or "unknown"),
+        criteria_before=row.get("criteria_before") or (),
+        criteria_after=row.get("criteria_after") or ())
+    row["decision_revision"] = str(
+        row.get("decision_revision") or revision_id)
     revision = creative_revision.create(
         project, revision_id=str(revision_id),
         author=str(author or "ren"),
@@ -204,7 +299,14 @@ def _learn(project: os.PathLike | str, row: Mapping[str, Any]) -> dict | None:
                  + (f" The editor said: {words}" if words else ""))
     source = {"outcome": str(row.get("outcome") or ""),
               "scope": str(row.get("scope") or SCOPE_PROJECT),
-              "decision_revision": str(row.get("decision_revision") or "")}
+              "decision_revision": str(row.get("decision_revision") or ""),
+              "correction_kind": str(row.get("correction_kind") or UNDETERMINED),
+              "capability_id": str(row.get("capability_id") or ""),
+              "evidence_ids": list(row.get("evidence_ids") or ()),
+              "diagnosis": str(row.get("diagnosis") or "unknown"),
+              "acceptance_effect": acceptance_effect(
+                  row.get("criteria_before") or (),
+                  row.get("criteria_after") or ())}
     try:
         return learned_context.record(
             str(project), learned_context.CORRECTION, statement,
@@ -235,6 +337,13 @@ def read_rulings(project: os.PathLike | str) -> list[dict[str, Any]]:
             "editor_words": row.get("editor_words"),
             "preference_slot": row.get("preference_slot"),
             "generalizable": row.get("generalizable"),
+            "correction_kind": row.get("correction_kind", UNDETERMINED),
+            "capability_id": row.get("capability_id", ""),
+            "evidence_ids": list(row.get("evidence_ids") or ()),
+            "diagnosis": row.get("diagnosis", "unknown"),
+            "criteria_before": list(row.get("criteria_before") or ()),
+            "criteria_after": list(row.get("criteria_after") or ()),
+            "acceptance_effect": row.get("acceptance_effect", "unmeasured"),
             "status": revision.get("status"),
         })
     return rows

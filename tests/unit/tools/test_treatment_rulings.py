@@ -159,3 +159,57 @@ def test_an_acceptance_teaches_nothing(tmp_path):
     recorded = tr.record(tmp_path, "rev-1",
                          tr.ruling("accepted", "the claim lands first"))
     assert recorded["learning"] is None
+
+
+def test_a_correction_keeps_objective_error_separate_from_taste():
+    objective = tr.ruling(
+        "rejected", "caption misses the required name",
+        correction_kind=tr.OBJECTIVE_ERROR, capability_id="captions.render",
+        evidence_ids=["brief-criterion-1"], diagnosis="more_evidence")
+    subjective = tr.ruling(
+        "rejected", "the opening feels too restrained",
+        correction_kind=tr.SUBJECTIVE_PREFERENCE)
+
+    assert objective["correction_kind"] == tr.OBJECTIVE_ERROR
+    assert objective["capability_id"] == "captions.render"
+    assert objective["evidence_ids"] == ["brief-criterion-1"]
+    assert objective["diagnosis"] == "more_evidence"
+    assert subjective["correction_kind"] == tr.SUBJECTIVE_PREFERENCE
+
+
+def test_a_correction_measures_the_original_criteria_after_revision():
+    row = tr.ruling(
+        "modified", "the cut missed its opening criterion",
+        criteria_before=[{"id": "opening", "status": "failed"},
+                         {"id": "duration", "status": "passed"}],
+        criteria_after=[{"id": "opening", "status": "passed"},
+                        {"id": "duration", "status": "passed"}])
+
+    assert row["acceptance_effect"] == "improved"
+    assert tr.acceptance_effect(
+        [{"id": "opening", "status": "failed"}], []) == "unmeasured"
+
+
+def test_correction_criteria_must_be_the_same_contract():
+    with pytest.raises(tr.RulingError, match="same acceptance criteria"):
+        tr.ruling(
+            "modified", "the cut needs work",
+            criteria_before=[{"id": "opening", "status": "failed"}],
+            criteria_after=[{"id": "duration", "status": "passed"}])
+
+
+def test_recorded_correction_metadata_is_readable_back(tmp_path):
+    row = tr.ruling(
+        "rejected", "the required quote is absent",
+        correction_kind=tr.OBJECTIVE_ERROR, capability_id="speech_sequence",
+        evidence_ids=["brief-quote"], diagnosis="more_evidence",
+        criteria_before=[{"id": "quote", "status": "failed"}],
+        criteria_after=[{"id": "quote", "status": "passed"}])
+    tr.record(tmp_path, "rev-correction", row)
+
+    [saved] = [item for item in tr.read_rulings(tmp_path)
+               if item["revision_id"] == "rev-correction"]
+    assert saved["correction_kind"] == tr.OBJECTIVE_ERROR
+    assert saved["capability_id"] == "speech_sequence"
+    assert saved["evidence_ids"] == ["brief-quote"]
+    assert saved["acceptance_effect"] == "improved"
