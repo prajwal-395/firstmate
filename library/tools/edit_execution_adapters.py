@@ -401,6 +401,12 @@ def _touchup(context) -> dict:
         elif operation_id == "overlay.swap_pixels":
             edit = {"op": "swap_pixels", "row": row, "item": index,
                     "media": str(operation["file"])}
+        elif operation_id == "overlay.replace":
+            # The named replace reuses the swap_pixels physical path:
+            # the approved file lands at the target's own record span
+            # with its position, timing and transform carried across.
+            edit = {"op": "swap_pixels", "row": row, "item": index,
+                    "media": str(operation["file"])}
         elif operation_id == "clip.set_property":
             edit = {"op": "set_properties", "row": row, "item": index,
                     "properties": {str(operation["key"]): operation["value"]}}
@@ -461,6 +467,7 @@ def register_builtin_edit_executors() -> None:
         ("overlay.add", "reel_touchup"): _touchup,
         ("overlay.remove", "reel_touchup"): _touchup,
         ("overlay.swap_pixels", "reel_touchup"): _touchup,
+        ("overlay.replace", "reel_touchup"): _touchup,
         ("clip.set_property", "reel_touchup"): _touchup,
         ("clip.set_enabled", "reel_touchup"): _touchup,
         ("track.add", "reel_touchup"): _touchup,

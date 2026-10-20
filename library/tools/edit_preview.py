@@ -756,6 +756,7 @@ _EFFECTS = {
     "overlay.add": _effect_overlay_add,
     "overlay.remove": _effect_overlay_remove,
     "overlay.swap_pixels": _effect_overlay_swap_pixels,
+    "overlay.replace": _effect_overlay_swap_pixels,
     "overlay.resize": _effect_overlay_resize,
     "overlay.entry_motion": _effect_overlay_entry_motion,
     "transform_override": _effect_transform_override,

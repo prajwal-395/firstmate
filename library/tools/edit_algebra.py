@@ -2340,6 +2340,17 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("overlay", op["unique_id"]), merge="replace",
         inverse=_self("the inverse carries the previous file"),
         note="An overlay's pixels for a re-rendered file."),
+    "overlay.replace": AlgebraOp(
+        id="overlay.replace", domain="fusion",
+        required=("unique_id", "file"),
+        span=_item_span, item=True,
+        verify=lambda op, after: None,
+        key=lambda op: ("overlay", op["unique_id"]), merge="replace",
+        inverse=_self("the inverse carries the previous file"),
+        note="Replace the selected overlay with the supplied approved "
+             "file, preserving its position and timing; staged through "
+             "the swap_pixels physical path with identity and "
+             "preservation read-back."),
     "overlay.resize": AlgebraOp(
         id="overlay.resize", domain="fusion",
         required=("unique_id", "width", "height"),
@@ -3181,7 +3192,7 @@ def _executor_coverage() -> dict[str, set[str]]:
     # These are operation handlers in reel_touchup, not every name accepted
     # by the caller-facing touch-up vocabulary.
     touchup = {
-        "clip.move", "overlay.swap_pixels", "overlay.add", "overlay.remove",
+        "clip.move", "overlay.swap_pixels", "overlay.replace", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
         "audio.fade", "audio.gain", "transition", "overlay.resize", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
     }
@@ -3679,6 +3690,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "overlay.add": SAFETY_COMPLEX_LOCALIZED,
     "overlay.remove": SAFETY_COMPLEX_LOCALIZED,
     "overlay.swap_pixels": SAFETY_COMPLEX_LOCALIZED,
+    "overlay.replace": SAFETY_COMPLEX_LOCALIZED,
     "overlay.resize": SAFETY_COMPLEX_LOCALIZED,
     "overlay.entry_motion": SAFETY_COMPLEX_LOCALIZED,
     "audio.gain": SAFETY_COMPLEX_LOCALIZED,

@@ -29,7 +29,8 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     operation = operation or {}
     op_id = operation.get("acceptance_op", op_id)
     if op_id in {"overlay.add", "overlay.move", "overlay.resize",
-                 "overlay.swap_pixels", "overlay.entry_motion"}:
+                  "overlay.swap_pixels", "overlay.replace",
+                  "overlay.entry_motion"}:
         checks = ["target_identity", "requested_timeline_span",
                   "unrelated_items_unchanged", *_OVERLAY_VISUAL]
         if op_id == "overlay.add":
