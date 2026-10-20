@@ -138,7 +138,56 @@ def _registered_batch_supported(backend_id: str,
         targets = [str(operation.get("unique_id") or "")
                    for operation in operations]
         return bool(targets[0]) and targets[0] == targets[1]
+    if (backend_id == "reel_touchup" and len(operations) == 2
+            and operation_set in ({"clip.trim", "clip.insert"},
+                                  {"clip.replace", "caption.style"})):
+        targets = [str(operation.get("unique_id") or "")
+                   for operation in operations]
+        return bool(all(targets) and targets[0] != targets[1])
     return len(operations) <= 1
+
+
+def _verify_registered_full_request(*, operations: Sequence[Mapping],
+                                    before: Mapping,
+                                    after: Mapping,
+                                    affected_spans: Sequence[Sequence[int]],
+                                    receipts: Sequence[Mapping]
+                                    ) -> dict:
+    """Judge the whole request against one fresh post-write snapshot."""
+    from library.tools import edit_algebra
+    from library.tools.transaction_orchestration import unrelated_clip_changes
+
+    failures = edit_algebra.verifies(operations, after)
+    checks = [
+        {"operation_index": index, "operation": str(operation["op"]),
+         "passed": failure is None, "failure": failure}
+        for index, (operation, failure) in enumerate(zip(operations, failures))
+    ]
+    acceptance_checks = []
+    for index, row in enumerate(receipts):
+        contracts = row["receipt"].get("acceptance_contracts") or []
+        acceptance_checks.append({
+            "operation_index": int(row["operation_index"]),
+            "operation": str(operations[index]["op"]),
+            "passed": bool(contracts)
+            and all(contract.get("passed") is True
+                    for contract in contracts),
+            "acceptance_contracts": contracts,
+        })
+    collateral = unrelated_clip_changes(
+        operations=operations, affected_spans=affected_spans,
+        id_map=None, before=before, after=after)
+    return {
+        "status": ("verified" if all(row["passed"] for row in checks)
+                   and len(acceptance_checks) == len(operations)
+                   and all(row["passed"] for row in acceptance_checks)
+                   and not collateral else "failed"),
+        "checks": checks,
+        "operation_acceptance": acceptance_checks,
+        "unrelated_items_unchanged": not collateral,
+        "collateral_changes": collateral,
+        "snapshot_source": "fresh_live_timeline",
+    }
 
 
 def register_edit_executor(operation_id: str, backend_id: str,
@@ -399,6 +448,159 @@ def _execute_registered_delete_batch(*, request, compiled, generation,
     }
 
 
+def _execute_protected_compound_touchup(*, request, preparation, compiled,
+                                        generation, snapshot, owner: str
+                                        ) -> dict:
+    """Run one of the two experimental compound shapes on a candidate."""
+    from library.tools import project_registry, reel_proposal, reel_touchup
+    from library.tools.edit_execution_adapters import (
+        EditExecutionContext,
+        _caption_style_props,
+        _caption_style_revalidate_live,
+        _resolve_named_caption_style,
+    )
+
+    operations = [dict(operation) for operation in compiled.operations]
+    operation_ids = {str(operation["op"]) for operation in operations}
+    if operation_ids not in ({"clip.trim", "clip.insert"},
+                             {"clip.replace", "caption.style"}):
+        raise ValueError("no protected compound adapter matches this request")
+    project_path = project_registry.resolve_project_path(request.project)
+    if project_path is None:
+        project_config = project_registry.get_project(request.project)
+        project_folder = str(project_config.project_root)
+    else:
+        project_folder = str(project_path.parent)
+    moments = [moment for moment in reel_proposal.read_proposal(
+        str(reel_proposal.proposal_path(project_folder)))
+        if moment.timeline_name == request.timeline]
+    if len(moments) != 1:
+        raise ValueError(
+            f"protected compound timeline {request.timeline!r} matched "
+            f"{len(moments)} built reels; staging requires one proposal row")
+
+    spec = {
+        "reel": int(moments[0].number),
+        "transaction_id": request.id,
+        "transaction_operations": operations,
+    }
+    rendered_files = {}
+    rendered_styles = {}
+    style_operations = [operation for operation in operations
+                        if operation["op"] == "caption.style"]
+    if style_operations:
+        if len(style_operations) != 1:
+            raise ValueError("the protected compound accepts one caption.style")
+        operation = style_operations[0]
+        context = EditExecutionContext(
+            execution=None, request=request, preparation=preparation,
+            compiled=compiled, generation=generation, snapshot=snapshot,
+            operation=operation, operation_index=operations.index(operation),
+            owner=owner)
+        unique_id = str(operation["unique_id"])
+        _track, clip = _caption_style_target(context, unique_id)
+        _caption_style_revalidate_live(context, dict(clip))
+        old_file = str(clip["source_file"])
+        old_props = _caption_style_props(old_file)
+        old_style = (old_props.get("style")
+                     if isinstance(old_props.get("style"), Mapping) else {})
+        new_style = _resolve_named_caption_style(
+            project_folder, str(operation["style"]))
+        if "captionMaxWidth" in old_style:
+            new_style = {**new_style,
+                         "captionMaxWidth": old_style["captionMaxWidth"]}
+        if old_style == new_style:
+            raise ValueError(
+                f"caption {unique_id!r} already renders style "
+                f"{operation['style']!r}")
+        new_props = dict(old_props)
+        new_props["style"] = new_style
+        if ({key: new_props[key] for key in new_props if key != "style"}
+                != {key: old_props[key] for key in old_props
+                    if key != "style"}):
+            raise ValueError("caption restyle would change text or timing")
+        from library.tools import operations as pipeline_operations
+        report = pipeline_operations.get("subtitles.rerender_swap").run(
+            project_folder,
+            [{"old_mov": old_file, "timeline_label": request.timeline,
+              "props": new_props}], swap=False)
+        if not report.get("ok"):
+            raise RuntimeError(
+                f"caption style render failed: {report.get('error') or report}")
+        new_file = dict(report.get("map") or {}).get(old_file)
+        if not new_file:
+            raise RuntimeError("caption style render returned no new asset")
+        rendered_files[unique_id] = str(new_file)
+        rendered_styles[unique_id] = dict(new_style)
+        spec["rendered_caption_files"] = rendered_files
+        spec["rendered_caption_styles"] = rendered_styles
+
+    touchup = reel_touchup.apply_touchup(project_folder, spec)
+    full_verification = touchup.get("semantic_full_request_verification") or {}
+    if (not touchup.get("promoted")
+            or full_verification.get("status") != "verified"):
+        raise RuntimeError(
+            "protected candidate did not complete full-request verification "
+            "and guarded promotion")
+    from library.tools.timeline_shadow import ShadowStore
+
+    heads = [head for head, _live in ShadowStore().current_snapshots(request.project)
+             if head.timeline_name == request.timeline]
+    if len(heads) != 1 or heads[0].generation <= generation.generation:
+        raise RuntimeError(
+            "promoted compound has no newer recorded timeline generation")
+    return {
+        "status": "committed", "request_id": request.id,
+        "transaction_id": request.id, "project": request.project,
+        "timeline": request.timeline, "backend": "reel_touchup",
+        "selected_backend": "reel_touchup", "atomic": False,
+        "atomicity": "single_verified_candidate_promotion",
+        "base_generation": generation.generation,
+        "generation": heads[0].generation, "mutated": True,
+        "operations": [dict(operation) for operation in operations],
+        "operation_count": len(operations),
+        "expected_changes": operations,
+        "actual_changes": touchup.get("semantic_writes", []),
+        "full_request_verification": full_verification,
+        "acceptance_contracts": touchup.get("acceptance_contracts", []),
+        "staging_receipt": touchup,
+        "execution_routing": (touchup.get("routing")
+                              or {"backend": "reel_touchup",
+                                  "mode": "staged",
+                                  "policy": "protected_experimental"}),
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": full_verification.get("operation_failures", []),
+                "evidence": full_verification,
+            },
+            "recovery": {
+                "status": "available",
+                "action": "undo the promoted staged candidate through its touch-up journal",
+                "reference": {"kind": "undo_journal_entry",
+                              "project_folder": project_folder,
+                              "entry_id": str(touchup["journal"])},
+            },
+        },
+    }
+
+
+def _caption_style_target(context, unique_id: str) -> tuple:
+    """Resolve one caption target from the already prepared snapshot."""
+    hits = [(track, clip) for track in context.snapshot["tracks"]
+            for clip in track["clips"]
+            if str(clip.get("unique_id")) == unique_id]
+    if len(hits) != 1:
+        raise ValueError(
+            f"caption.style target {unique_id!r} matched {len(hits)} items")
+    track, clip = hits[0]
+    if track.get("name") != "Subtitles" or not clip.get("source_file"):
+        raise ValueError(
+            f"caption.style target {unique_id!r} is not a rendered Ren "
+            "caption on the Subtitles row")
+    return hits[0]
+
+
 def _revalidate_registered_targets(*, request, operations, snapshot) -> list[dict]:
     """Check each stable item and media identity before a batch starts."""
     from library.tools import timeline_addressing
@@ -510,6 +712,12 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     backend_id = backend.removesuffix(".structural")
     operations = [dict(row) for row in compiled.operations]
     decision = plan.get("routing") or {}
+    compound_touchup = (
+        backend_id == "reel_touchup"
+        and len(operations) == 2
+        and {str(operation["op"]) for operation in operations}
+        in ({"clip.trim", "clip.insert"},
+            {"clip.replace", "caption.style"}))
     routed_backend = str(decision.get("backend") or "")
     if routed_backend != backend:
         raise ValueError(
@@ -517,6 +725,8 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             f"{routed_backend or 'no backend'!r}")
     executors: list[tuple[int, EditExecutor]] = []
     for index, operation in enumerate(operations):
+        if compound_touchup:
+            break
         operation_id = str(operation["op"])
         status = edit_algebra.status(operation_id)
         row = status.for_backend(backend_id) if status is not None else None
@@ -546,7 +756,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 f"registered for {operation_id} on {backend_id}")
         executors.append((index, executor))
 
-    if not executors:
+    if not executors and not compound_touchup:
         raise ValueError("routed semantic request contains no executable operations")
     if not _registered_batch_supported(backend_id, operations):
         raise ValueError(
@@ -679,6 +889,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     from library.tools.resolve_lock import resolve_lease
 
     batch_receipt = None
+    full_request_verification = None
     # Hold the broker lease across the entire batch so another Ren
     # transaction cannot interleave between its operations.
     with resolve_lease(
@@ -698,6 +909,21 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             refusal = refused(
                 "stale", "timeline generation changed after preparation; "
                 "the batch was not applied", failed_index=0)
+        elif compound_touchup:
+            try:
+                batch_receipt = _execute_protected_compound_touchup(
+                    request=request, preparation=preparation,
+                    compiled=compiled, generation=generation,
+                    snapshot=snapshot, owner=owner)
+                refusal = None
+            except Exception as exc:  # noqa: BLE001 - candidate owns cleanup
+                refusal = refused(
+                    "backend_failure",
+                    f"protected compound staging failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    failed_index=0,
+                    evidence={"mutation_state": "unknown", "mutated": True,
+                              "operation_index": 0, "error": repr(exc)})
         elif (len(operations) > 1
               and all(str(operation["op"]) == "clip.delete"
                       for operation in operations)):
@@ -731,6 +957,31 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                               "operation_index": 0, "error": repr(exc)})
         else:
             refusal = run_operations()
+        if (refusal is None and batch_receipt is None
+                and len(operations) > 1):
+            try:
+                after = read_live_timeline(
+                    request.project, request.timeline)
+                full_request_verification = _verify_registered_full_request(
+                    operations=operations, before=snapshot, after=after,
+                    affected_spans=compiled.affected_spans,
+                    receipts=receipts)
+                if full_request_verification["status"] != "verified":
+                    refusal = refused(
+                        "verification_failed",
+                        "the complete request did not verify on one fresh "
+                        "timeline snapshot", failed_index=len(operations),
+                        evidence={"mutated": True,
+                                  "full_request_verification":
+                                      full_request_verification})
+            except Exception as exc:  # noqa: BLE001 - verify before success
+                refusal = refused(
+                    "verification_failed",
+                    f"full-request read-back failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    failed_index=len(operations),
+                    evidence={"mutated": True,
+                              "error": repr(exc)})
         if refusal is not None and receipts:
             recovery = compensate_completed(refusal.get("failure_evidence"))
             recovery["failure_reason"] = refusal["refusal"]["reason"]
@@ -765,14 +1016,17 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         backend=backend, plan=plan, request=request,
         operations=operations, receipts=receipts,
         base_generation=generation.generation,
-        committed_generation=committed_generation)
+        committed_generation=committed_generation,
+        full_request_verification=full_request_verification)
 
 
 def _registered_execution_receipt(*, backend: str, plan: Mapping,
                                   request: Any, operations: Sequence[Mapping],
                                   receipts: Sequence[Mapping],
                                   base_generation: int,
-                                  committed_generation: int) -> dict:
+                                  committed_generation: int,
+                                  full_request_verification: Mapping | None = None
+                                  ) -> dict:
     """Normalize a registered-backend batch with operation evidence."""
     from library.tools.transaction_orchestration import standardize_receipt
 
@@ -824,6 +1078,8 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "readback": [result.get("receipt", result).get("readback")
                      for result in receipts],
         "verification_evidence": acceptance_contracts,
+        "full_request_verification": dict(
+            full_request_verification or {}),
         "operations": receipts,
         "requested_operation_count": len(operations),
         "acceptance_contracts": acceptance_contracts,
@@ -1000,13 +1256,18 @@ def _prepare_request_plan(request):
             (request.originator or {}).get("name", "")).strip().casefold()
         operation_ids = tuple(
             str(operation.get("op", "")) for operation in compiled.operations)
+        protected_compounds = (
+            len(operation_ids) == 2
+            and set(operation_ids) in ({"clip.trim", "clip.insert"},
+                                       {"clip.replace", "caption.style"}))
+        protected_single = (
+            len(operation_ids) == 1
+            and operation_ids[0] in {
+                "audio.gain", "audio.fade", "transition",
+                "overlay.resize", "overlay.position",
+                "clip.split", "clip.slide", "clip.roll"})
         if (originator_name in {"ren revise", "ren touch"}
-                and len(operation_ids) == 1
-                and operation_ids[0] in {
-                    "audio.gain", "audio.fade", "transition",
-                    "overlay.resize", "overlay.position",
-                    "clip.split", "clip.slide",
-                    "clip.roll"}):
+                and (protected_single or protected_compounds)):
             route_context = {
                 "qualification_policy": "protected_experimental",
                 "protected_staging": True,

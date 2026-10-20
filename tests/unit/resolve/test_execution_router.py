@@ -147,6 +147,38 @@ def test_unqualified_compound_requests_remain_refused_before_execution(
         route_compiled_edit(operations)
 
 
+@pytest.mark.parametrize("operations", [
+    [
+        {"op": "clip.trim", "unique_id": "clip-1",
+         "in_frame": 10, "out_frame": 20},
+        {"op": "clip.insert", "unique_id": "new-clip",
+         "track_type": "video", "track_index": 1,
+         "record_in": 20, "record_out": 30,
+         "media_pool_item": "pool-item"},
+    ],
+    [
+        {"op": "clip.replace", "unique_id": "clip-1",
+         "source_file": "/media/replacement.mov"},
+        {"op": "caption.style", "unique_id": "caption-1",
+         "style": "minimal"},
+    ],
+], ids=("trim-plus-insert", "replace-plus-restyle"))
+def test_protected_compound_routes_to_one_staging_transaction(operations):
+    decision = route_compiled_edit(operations, context={
+        "qualification_policy": "protected_experimental",
+        "protected_staging": True,
+        "preserve_approved_state": True,
+        "verify_after_write": True,
+    })
+
+    assert decision.backend == "reel_touchup"
+    assert decision.mode == "staged"
+    assert "production routing remains closed pending live evidence" in " ".join(
+        decision.reasons)
+    assert decision.as_dict()["selection"]["qualification_policy"] == (
+        "protected_experimental")
+
+
 def test_production_route_requires_inspected_state_matching_fixture_predicates():
     operation = [{"op": "clip.set_property", "unique_id": "item-1",
                   "key": "ZoomX", "value": 1.25}]

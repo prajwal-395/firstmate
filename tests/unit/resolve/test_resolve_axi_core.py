@@ -1,5 +1,7 @@
 """The CLI and in-process AXI SDK share one dispatcher and typed receipts."""
 
+import pytest
+
 from library.tools import resolve_axi
 from library.tools.resolve_axi_core import (
     AxiOperation,
@@ -424,6 +426,62 @@ def test_touchup_move_resize_batch_requires_one_stable_overlay_identity():
         "reel_touchup", [operations[0],
                          {**operations[1], "unique_id": "overlay-2"}])
     assert not _registered_batch_supported("resolve_axi", operations)
+
+
+@pytest.mark.parametrize("operations", [
+    [
+        {"op": "clip.trim", "unique_id": "clip-1",
+         "in_frame": 10, "out_frame": 20},
+        {"op": "clip.insert", "unique_id": "new-clip",
+         "track_type": "video", "track_index": 1,
+         "record_in": 20, "record_out": 30,
+         "media_pool_item": "pool-item"},
+    ],
+    [
+        {"op": "clip.replace", "unique_id": "clip-1",
+         "source_file": "/media/replacement.mov"},
+        {"op": "caption.style", "unique_id": "caption-1",
+         "style": "minimal"},
+    ],
+], ids=("trim-plus-insert", "replace-plus-restyle"))
+def test_protected_compound_batch_requires_distinct_stable_targets(operations):
+    """Defect: protected compound paths need a recoverable identity for each write."""
+    from library.tools.resolve_axi_core import _registered_batch_supported
+
+    assert _registered_batch_supported("reel_touchup", operations)
+    repeated = [operations[0], {**operations[1],
+                                "unique_id": operations[0]["unique_id"]}]
+    assert not _registered_batch_supported("reel_touchup", repeated)
+    assert not _registered_batch_supported("resolve_axi", operations)
+
+
+def test_registered_full_request_verification_catches_late_operation_loss():
+    """Defect: individually verified writes can still miss the compound ask."""
+    from library.tools.resolve_axi_core import _verify_registered_full_request
+
+    operations = [
+        {"op": "clip.delete", "unique_id": "clip-1"},
+        {"op": "clip.delete", "unique_id": "clip-2"},
+    ]
+    before = {"tracks": [{"type": "video", "index": 1, "clips": [
+        {"unique_id": "clip-1", "record_in": 0, "record_out": 10},
+        {"unique_id": "clip-2", "record_in": 10, "record_out": 20},
+    ]}]}
+    after = {"tracks": [{"type": "video", "index": 1, "clips": [
+        {"unique_id": "clip-2", "record_in": 10, "record_out": 20},
+    ]}]}
+    receipts = [{"operation_index": index, "receipt": {
+        "acceptance_contracts": [{"passed": True}],
+    }} for index in range(2)]
+
+    result = _verify_registered_full_request(
+        operations=operations, before=before, after=after,
+        affected_spans=((0, 20),), receipts=receipts)
+
+    assert result["status"] == "failed"
+    assert result["checks"][0]["passed"] is True
+    assert result["checks"][1]["passed"] is False
+    assert result["snapshot_source"] == "fresh_live_timeline"
 
 
 def test_registered_compensation_refuses_unverified_undo_receipt(monkeypatch):

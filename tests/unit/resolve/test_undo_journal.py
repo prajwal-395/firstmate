@@ -27,12 +27,14 @@ REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from library.tools import reel_read  # noqa: E402
-from library.tools import reel_touchup as tu  # noqa: E402
-from library.tools import undo_journal as uj  # noqa: E402
-from library.tools.versions import reel_versions  # noqa: E402
-from library.tools.versions import rounds  # noqa: E402
-from tests.composed_edit_harness import (  # noqa: E402
+from library.tools import reel_read
+from library.tools import reel_touchup as tu
+from library.tools import undo_journal as uj
+from library.tools.versions import (
+    reel_versions,
+    rounds,
+)
+from tests.composed_edit_harness import (
     FakeComp,
     FakeTool,
     build_reel,
@@ -42,8 +44,8 @@ from tests.composed_edit_harness import (  # noqa: E402
     media_pool,
     pool_clip,
 )
-from tests.composed_edit_harness import item as make_item  # noqa: E402
-from tests.resolve_double import FakeResolve  # noqa: E402
+from tests.composed_edit_harness import item as make_item
+from tests.resolve_double import FakeResolve
 
 FINAL = "Reel 01 - lab"
 
@@ -540,7 +542,9 @@ def _mark_undone(folder, staged, entry):
     rows = reel_read.rows_of({"tracks": reel_read.read_tracks(staged)})
     version = reel_versions.record(str(folder), entry["final"],
                                    kind=reel_versions.KIND_UNDO, rows=rows,
-                                   undoes=entry["version"], journal=entry["id"])
+                                   undoes=entry["version"], journal=entry["id"],
+                                   axi_transaction_id=(entry.get("spec") or {}).get(
+                                       "transaction_id"))
     reel_versions.mark_undone(str(folder), entry["final"],
                               int(entry["version"]), int(version["version"]))
     entry = uj.read_entry(str(folder), entry["id"])
@@ -634,9 +638,13 @@ def test_undo_a_non_newest_touch_by_id_when_the_timeline_still_reads_as_its_afte
 
 def test_undo_then_redo_restores_the_touch(tmp_path, monkeypatch):
     spec = {"reel": 1, "edits": [{"op": "move", "row": "V4", "item": 0,
-                                  "to_row": "V4", "to_record": 1300}]}
+                                  "to_row": "V4", "to_record": 1300}],
+            "transaction_id": "axi-touch-undo-redo"}
     folder, approved, staged, entry, by_path = _touch(
         tmp_path, spec, monkeypatch=monkeypatch)
+    touch_version = next(version for version in reel_versions.versions_of(
+        str(folder), FINAL) if int(version["version"]) == int(entry["version"]))
+    assert touch_version["axi_transaction_id"] == spec["transaction_id"]
     before = uj.projection(reel_read.read_tracks(approved))
     after_touch = uj.projection(reel_read.read_tracks(staged))
     assert after_touch != before
@@ -658,6 +666,13 @@ def test_undo_then_redo_restores_the_touch(tmp_path, monkeypatch):
 
     assert receipt["redo"] is True
     assert uj.projection(reel_read.read_tracks(staged)) == after_touch
+    history = reel_versions.versions_of(str(folder), FINAL)
+    undo_version = next(version for version in history
+                        if version["kind"] == reel_versions.KIND_UNDO)
+    redo_version = next(version for version in history
+                        if version["kind"] == reel_versions.KIND_REDO)
+    assert undo_version["axi_transaction_id"] == spec["transaction_id"]
+    assert redo_version["axi_transaction_id"] == spec["transaction_id"]
 
 
 def test_undo_then_redo_restores_the_rebuild(tmp_path):

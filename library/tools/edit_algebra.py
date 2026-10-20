@@ -987,7 +987,7 @@ def _fusion_media_dimensions(item):
     try:
         resolution = pool_item.GetClipProperty("Resolution")
     except Exception:  # noqa: BLE001 - Resolve facade versions vary
-        pass
+        resolution = None
     if resolution and "x" in str(resolution).lower():
         try:
             width, height = (int(part.strip())
@@ -3590,6 +3590,10 @@ def _executor_coverage() -> dict[str, set[str]]:
         "clip.move", "overlay.swap_pixels", "overlay.replace", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
         "audio.fade", "audio.gain", "transition", "overlay.resize", "overlay.position", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
+        # Protected compound-only staged adapters. The router admits these
+        # only in the two exact multi-operation shapes handled by the shared
+        # candidate transaction path below.
+        "clip.trim", "clip.insert", "clip.replace", "caption.style",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but

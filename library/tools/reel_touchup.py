@@ -666,6 +666,32 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
     Raises `TouchupRefused` for anything unclassifiable, naming why.
     Never falls back to a rebuild.
     """
+    transaction_operations = list(
+        (spec or {}).get("transaction_operations") or ())
+    if transaction_operations:
+        operation_ids = tuple(str(op["op"])
+                              for op in transaction_operations)
+        operation_set = set(operation_ids)
+        supported = (
+            len(operation_ids) == 2
+            and operation_set in ({"clip.trim", "clip.insert"},
+                                  {"clip.replace", "caption.style"}))
+        targets = [str(op.get("unique_id") or "")
+                   for op in transaction_operations]
+        if not supported or not all(targets) or targets[0] == targets[1]:
+            raise TouchupRefused(
+                "the semantic transaction is not one of the qualified "
+                "protected compound shapes",
+                "staging accepts trim+insert or replace+caption.style with "
+                "distinct stable targets only",
+                "re-prepare the request as one supported compound")
+        return Qualification(
+            gate_class=COMPOSED,
+            cost_statement=("protected experimental semantic transaction: "
+                            "one staging candidate, full-request read-back, "
+                            "then guarded promotion"),
+            notes=["operations: " + " + ".join(operation_ids)])
+
     edits = list((spec or {}).get("edits") or ())
     if not edits:
         raise TouchupRefused(
@@ -3458,6 +3484,16 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         }
     except Exception:  # noqa: BLE001 - annotation must not fail the edit
         receipt["edit_request"] = None
+    if spec.get("transaction_operations"):
+        receipt["edit_request"] = {
+            "id": str(spec.get("transaction_id") or ""),
+            "operations": [
+                {"op": str(operation["op"]), "kind": "direct",
+                 "expected_effect": str(operation.get("expected_effect")
+                                         or operation["op"]),
+                 "description": str(operation["op"])}
+                for operation in spec["transaction_operations"]],
+        }
 
     project = connect(resolve_name)
     pool = project.GetMediaPool()
@@ -3532,9 +3568,14 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         fps = source.GetSetting("timelineFrameRate")
     except Exception:  # noqa: BLE001 - judged by dirty_from_spec
         fps = None
-    receipt["dirty"] = _dirty_regions.dirty_from_spec(
-        spec, tracks, first_frame=_live_prop(source, "GetStartFrame"),
-        end_frame=_live_prop(source, "GetEndFrame"), fps=fps)
+    receipt["dirty"] = (
+        {"basis": "semantic_transaction",
+         "operations": [str(operation["op"])
+                        for operation in spec["transaction_operations"]]}
+        if spec.get("transaction_operations") else
+        _dirty_regions.dirty_from_spec(
+            spec, tracks, first_frame=_live_prop(source, "GetStartFrame"),
+            end_frame=_live_prop(source, "GetEndFrame"), fps=fps))
 
     # VC-16: the no-op path as the cheapest successful edit. A pure
     # in-place spec whose requested values the live timeline already
@@ -4100,6 +4141,360 @@ def _apply_in_place(project: Any, staged: Any,
     return applied
 
 
+def _apply_semantic_transaction_staged(
+        project_folder: str, project: Any, source: Any, staged: Any,
+        staging: str, final: str, qualification: Qualification,
+        receipt: dict, declared_drops, declared_supersede,
+        accept_editor_changes, journal: Mapping, spec: Mapping,
+        candidate_lifecycle=None) -> None:
+    """Apply one supported semantic compound to staging and verify it whole."""
+    import json as _json
+    import os as _os
+
+    from library.tools import edit_algebra, edit_patch, operation_acceptance
+    from library.tools import reel_read as _read
+    from library.tools import transaction_orchestration as _orchestration
+
+    operations = [dict(row) for row in spec["transaction_operations"]]
+    original_target_ids = [str(operation["unique_id"])
+                           for operation in operations]
+    source_tracks = _read.read_tracks(source)
+    before_tracks = _read.read_tracks(staged)
+    before = {"tracks": before_tracks}
+    source_by_id = {
+        str(clip["unique_id"]): (track, clip)
+        for track in source_tracks for clip in (track.get("clips") or ())
+        if clip.get("unique_id")
+    }
+    staged_by_row = {
+        _ce.row_label(track["type"], int(track["index"])): track
+        for track in before_tracks
+    }
+    target_ids = {}
+    for operation in operations:
+        source_id = str(operation["unique_id"])
+        if operation["op"] == "clip.insert":
+            target_ids[source_id] = source_id
+            continue
+        source_hit = source_by_id.get(source_id)
+        if source_hit is None:
+            raise TouchupError(
+                f"semantic transaction target {source_id!r} is absent "
+                "from the approved source snapshot")
+        source_track, source_clip = source_hit
+        row = _ce.row_label(source_track["type"], int(source_track["index"]))
+        staged_track = staged_by_row.get(row)
+        candidates = [clip for clip in (staged_track or {}).get("clips", ())
+                      if str(clip.get("source_file") or "")
+                      == str(source_clip.get("source_file") or "")
+                      and int(clip["record_in"]) == int(source_clip["record_in"])
+                      and int(clip["record_out"]) == int(source_clip["record_out"])
+                      and int(clip["source_in_frame"])
+                      == int(source_clip["source_in_frame"])
+                      and int(clip["source_out_frame"])
+                      == int(source_clip["source_out_frame"])]
+        if len(candidates) != 1:
+            raise TouchupError(
+                f"staging target {source_id!r} matched {len(candidates)} "
+                "items by source and span; no positional guess is allowed")
+        target_ids[source_id] = str(candidates[0]["unique_id"])
+    rendered_files = {
+        target_ids[source_id]: path
+        for source_id, path in (spec.get("rendered_caption_files") or {}).items()
+        if source_id in target_ids
+    }
+    rendered_styles = {
+        target_ids[source_id]: style
+        for source_id, style in (spec.get("rendered_caption_styles") or {}).items()
+        if source_id in target_ids
+    }
+
+    mapped_operations = [
+        {**operation, "unique_id": target_ids[str(operation["unique_id"])]}
+        for operation in operations
+    ]
+    patch_operations = []
+    style_expectations = {}
+    for operation in mapped_operations:
+        if operation["op"] == "clip.trim":
+            continue
+        if operation["op"] == "caption.style":
+            rendered = rendered_files.get(str(operation["unique_id"]))
+            if not rendered or not _os.path.isfile(str(rendered)):
+                raise TouchupError(
+                    "caption.style has no rendered asset for the staged swap")
+            old = next(clip for track in before_tracks
+                       for clip in track.get("clips", ())
+                       if str(clip["unique_id"])
+                       == str(operation["unique_id"]))
+            old_props_path = str(old["source_file"]).removesuffix(".mov") + "_props.json"
+            new_props_path = str(rendered).removesuffix(".mov") + "_props.json"
+            try:
+                with open(old_props_path, encoding="utf-8") as handle:
+                    old_props = _json.load(handle)
+                with open(new_props_path, encoding="utf-8") as handle:
+                    new_props = _json.load(handle)
+            except (OSError, ValueError) as exc:
+                raise TouchupError(
+                    f"caption.style render props are unreadable: {exc}") from exc
+            if ({key: value for key, value in old_props.items()
+                 if key != "style"}
+                    != {key: value for key, value in new_props.items()
+                        if key != "style"}):
+                raise TouchupError(
+                    "caption.style render changed text, bounds or timing")
+            style_expectations[str(operation["unique_id"])] = {
+                "source_file": str(rendered),
+                "text_preserved": True,
+                "style_applied": (new_props.get("style")
+                                  == rendered_styles.get(
+                                      str(operation["unique_id"]))),
+            }
+            patch_operations.append({
+                "op": "clip.replace", "unique_id": operation["unique_id"],
+                "source_file": str(rendered),
+            })
+        else:
+            patch_operations.append(dict(operation))
+
+    writes = []
+    for index, operation in enumerate(mapped_operations):
+        if operation["op"] != "clip.trim":
+            continue
+        source_clip = next(clip for track in before_tracks
+                           for clip in track.get("clips", ())
+                           if str(clip["unique_id"])
+                           == str(operation["unique_id"]))
+        source_in = (int(source_clip["source_in_frame"])
+                     + int(operation["in_frame"])
+                     - int(source_clip["record_in"]))
+        source_out = (int(source_clip["source_out_frame"])
+                      - int(source_clip["record_out"])
+                      + int(operation["out_frame"]))
+        track = next(track for track in before_tracks
+                     if any(str(clip["unique_id"])
+                            == str(operation["unique_id"])
+                            for clip in track.get("clips", ())))
+        row = _ce.row_label(track["type"], int(track["index"]))
+        item_index = next(i for i, clip in enumerate(track["clips"])
+                          if str(clip["unique_id"])
+                          == str(operation["unique_id"]))
+        from library.tools import resolve_axi_core
+
+        result = resolve_axi_core.execute([
+            "edit", "trim", "--track", row, "--index", str(item_index),
+            "--source-in", str(source_in), "--source-out", str(source_out),
+            "--target-unique-id", str(operation["unique_id"]),
+            "--expected-source-file", str(source_clip["source_file"]),
+            "--expected-source-in-frame",
+            str(source_clip["source_in_frame"]),
+            "--expected-source-out-frame",
+            str(source_clip["source_out_frame"]),
+            "--expected-record-in-frame", str(source_clip["record_in"]),
+            "--expected-record-out-frame", str(source_clip["record_out"]),
+            "--project-folder", project_folder, "--require-recovery",
+            "--apply", "--project", str(project.GetName()),
+            "--timeline", staging,
+        ])
+        if not result.ok:
+            raise TouchupError(
+                result.stderr.strip() or result.stdout.strip()
+                or "staged clip.trim command failed")
+        after_trim = _read.read_tracks(staged)
+        row_hits = [clip for candidate_track in after_trim
+                    if _ce.row_label(candidate_track["type"],
+                                     int(candidate_track["index"])) == row
+                    for clip in candidate_track.get("clips", ())
+                    if str(clip.get("source_file") or "")
+                    == str(source_clip.get("source_file") or "")
+                    and int(clip["record_in"]) == int(operation["in_frame"])
+                    and int(clip["record_out"]) == int(operation["out_frame"])]
+        if len(row_hits) != 1:
+            raise TouchupError(
+                f"staged clip.trim read back {len(row_hits)} matching items")
+        operation["unique_id"] = str(row_hits[0]["unique_id"])
+        writes.append({"operation_index": index, "command": "edit.trim",
+                       "verified": True, "receipt": result.stdout})
+        for patch_operation in patch_operations:
+            if patch_operation.get("unique_id") == operation["unique_id"]:
+                patch_operation["unique_id"] = operation["unique_id"]
+
+    if patch_operations:
+        domains = tuple(sorted({edit_algebra.get(operation["op"]).domain
+                                for operation in patch_operations}))
+        patch_receipt = edit_patch.apply_live_patch(
+            project=project, timeline=staged, capability="reel.touchup",
+            operations=patch_operations, conflict_domains=domains,
+            idempotency_key=(str(spec.get("transaction_id") or journal["id"])
+                             + ":semantic-compound"),
+            project_folder=project_folder)
+        if patch_receipt.get("status") != "committed":
+            raise TouchupError(
+                f"staged compound EditPatch did not commit: {patch_receipt}")
+        receipt.setdefault("edit_patches", []).append(patch_receipt)
+        writes.append({"command": "EditPatch", "verified": True,
+                       "receipt": patch_receipt})
+
+    after_tracks = _read.read_tracks(staged)
+    after = {"tracks": after_tracks}
+    # The compiled operations remain the user's request. Only target IDs
+    # are rebound to this staging copy; inserts receive their resolved ID
+    # from the EditPatch receipt.
+    for operation, mapped in zip(operations, mapped_operations):
+        operation["unique_id"] = mapped["unique_id"]
+    for operation in operations:
+        if operation["op"] != "clip.insert":
+            continue
+        from library.tools import edit_algebra as _algebra
+        pool_item = _algebra._find_pool_item_by_id(
+            project.GetMediaPool(), operation["media_pool_item"])
+        expected_file = (None if pool_item is None else
+                         pool_item.GetClipProperty("File Path"))
+        track = next(track for track in after_tracks
+                     if str(track["type"]).lower()
+                     == str(operation["track_type"]).lower()
+                     and int(track["index"]) == int(operation["track_index"]))
+        matches = [clip for clip in track.get("clips", ())
+                   if str(clip.get("source_file")) == str(expected_file)
+                   and int(clip["record_in"]) == int(operation["record_in"])
+                   and int(clip["record_out"]) == int(operation["record_out"])]
+        if len(matches) != 1:
+            raise TouchupError(
+                f"clip.insert read back {len(matches)} matching placements")
+        operation["unique_id"] = str(matches[0]["unique_id"])
+    failures = edit_algebra.verifies(operations, after)
+    spans = [span for span in edit_algebra.spans(operations, before)
+             if span is not None]
+    collateral = _orchestration.unrelated_clip_changes(
+        operations=operations, affected_spans=spans, id_map=None,
+        before=before, after=after)
+    audio_before = [clip for track in before_tracks
+                    if str(track["type"]).lower().startswith("audio")
+                    for clip in track.get("clips", ())]
+    audio_after = [clip for track in after_tracks
+                   if str(track["type"]).lower().startswith("audio")
+                   for clip in track.get("clips", ())]
+    acceptances = []
+    for index, (operation, failure) in enumerate(zip(operations, failures)):
+        evidence = {"target_identity": failure is None,
+                    "unrelated_items_unchanged": not collateral}
+        if operation["op"] == "clip.trim":
+            before_target = next(clip for track in before_tracks
+                                 for clip in track.get("clips", ())
+                                 if str(clip["unique_id"])
+                                 == original_target_ids[index])
+            after_target = next((clip for track in after_tracks
+                                 for clip in track.get("clips", ())
+                                 if str(clip["unique_id"])
+                                 == str(operation["unique_id"])), None)
+            evidence.update({
+                "requested_source_in_out": failure is None,
+                "requested_record_span": failure is None,
+                "approved_edits_preserved": (
+                    after_target is not None
+                    and isinstance(before_target.get("transform"), dict)
+                    and isinstance(after_target.get("transform"), dict)
+                    and before_target["transform"]
+                    == after_target["transform"]),
+                "linked_audio_preserved": audio_before == audio_after,
+            })
+        elif operation["op"] == "clip.insert":
+            clip = next((clip for track in after_tracks
+                         for clip in track.get("clips", ())
+                         if str(clip["unique_id"])
+                         == str(operation["unique_id"])), None)
+            from library.tools import edit_algebra as _algebra
+            pool_item = _algebra._find_pool_item_by_id(
+                project.GetMediaPool(), operation["media_pool_item"])
+            expected_file = (None if pool_item is None else
+                             pool_item.GetClipProperty("File Path"))
+            track = next((track for track in after_tracks
+                          if str(track["type"]).lower()
+                          == str(operation["track_type"]).lower()
+                          and int(track["index"])
+                          == int(operation["track_index"])), None)
+            evidence.update({
+                "source_identity": (clip is not None and expected_file
+                                    and str(clip.get("source_file"))
+                                    == str(expected_file)),
+                "requested_record_span": (
+                    clip is not None
+                    and int(clip["record_in"]) == int(operation["record_in"])
+                    and int(clip["record_out"]) == int(operation["record_out"])),
+                "requested_track": (track is not None and clip is not None
+                                    and any(str(item["unique_id"])
+                                            == str(clip["unique_id"])
+                                            for item in track.get("clips", ()))),
+            })
+        elif operation["op"] == "clip.replace":
+            before_target = next(clip for track in before_tracks
+                                 for clip in track.get("clips", ())
+                                 if str(clip["unique_id"])
+                                 == original_target_ids[index])
+            after_target = next((clip for track in after_tracks
+                                 for clip in track.get("clips", ())
+                                 if str(clip["unique_id"])
+                                 == str(operation["unique_id"])), None)
+            evidence.update({
+                "requested_source_identity": (after_target is not None
+                    and after_target.get("source_file")
+                    == operation["source_file"]),
+                "record_span_preserved": (after_target is not None
+                    and int(after_target["record_in"])
+                    == int(before_target["record_in"])
+                    and int(after_target["record_out"])
+                    == int(before_target["record_out"])),
+            })
+        elif operation["op"] == "caption.style":
+            style = style_expectations[str(operation["unique_id"])]
+            evidence.update({
+                "requested_record_span": failure is None,
+                "caption_text_preserved": style["text_preserved"],
+                "caption_style_applied": (
+                    style["style_applied"]
+                    and any(str(clip.get("unique_id"))
+                            == str(operation["unique_id"])
+                            and str(clip.get("source_file"))
+                            == style["source_file"]
+                            for track in after_tracks
+                            for clip in track.get("clips", ()))),
+            })
+        acceptance = operation_acceptance.evaluate(
+            operation, readback_passed=failure is None and not collateral,
+            evidence=evidence)
+        acceptances.append(acceptance)
+    if collateral or any(row.get("passed") is not True
+                         for row in acceptances):
+        raise TouchupError(
+            "full semantic compound verification failed before promotion: "
+            f"operations={failures}, collateral={collateral}, "
+            f"acceptance={acceptances}")
+    receipt["semantic_writes"] = writes
+    receipt["acceptance_contracts"] = acceptances
+    receipt["verification_read"] = _summarise_rows(after_tracks)
+    receipt["in_place"] = {}
+    request_checks = [
+        {"operation_index": index, "operation": str(operation["op"]),
+         "passed": failure is None, "failure": failure}
+        for index, (operation, failure) in enumerate(zip(operations, failures))
+    ]
+    receipt["semantic_full_request_verification"] = {
+        "status": "verified", "checks": request_checks,
+        "operation_acceptance": acceptances,
+        "unrelated_items_unchanged": not collateral,
+        "collateral_changes": collateral,
+        "snapshot_source": "staged_live_readback",
+        "operation_count": len(operations),
+    }
+    if candidate_lifecycle is not None:
+        candidate_lifecycle.mark_applying()
+        candidate_lifecycle.mark_applied()
+    _promote(project_folder, project, project.GetMediaPool(), final, staging,
+             declared_drops, declared_supersede, accept_editor_changes,
+             receipt, dict(journal), spec, qualification,
+             candidate_lifecycle=candidate_lifecycle)
+
+
 def _repair_hold_window(staged: Any, entry: Mapping,
                         comp_dir: str) -> dict:
     """Rebind the staged hold item's comp windows, verified by re-read.
@@ -4298,6 +4693,14 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # cost separately from what the composition cost.
     receipt["stage_seconds"] = round(time.time() - stage_started,
                                      3)
+
+    if spec.get("transaction_operations"):
+        _apply_semantic_transaction_staged(
+            project_folder, project, source, staged, staging, final,
+            qualification, receipt, declared_drops, declared_supersede,
+            accept_editor_changes, journal, spec,
+            candidate_lifecycle=candidate_lifecycle)
+        return
 
     # In-place writes land FIRST, before anything is deleted: the
     # composition's capture reads the staged item as it stands, so a

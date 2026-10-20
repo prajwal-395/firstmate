@@ -566,6 +566,12 @@ def record_touch_commit(project_folder, *, journal: Mapping,
         "journal": journal.get("id"),
         "reel": timeline,
     }
+    transaction_id = str((spec or {}).get("transaction_id") or "").strip()
+    if transaction_id:
+        # AXI's transaction ledger uses the request id as its durable
+        # identity. Carry that reference into the creative revision so a
+        # promoted touch can be audited back to its execution receipt.
+        artifacts["axi_transaction_id"] = transaction_id
     if journal.get("fps"):
         artifacts["fps"] = journal["fps"]
     if version is not None:
@@ -2347,6 +2353,7 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_TOUCH,
         rows=rows, journal=entry["id"], batch=entry.get("batch") or None,
+        axi_transaction_id=(entry.get("spec") or {}).get("transaction_id"),
         component_manifest=component_manifest,
         revision_id=entry.get("revision_id"),
         intent=(entry.get("accepted_edit") or {}).get("intent") or "touch-up",
@@ -2376,6 +2383,8 @@ def close_entry(project_folder, entry: dict, *, after_timeline: Any,
                   "revision_id": version["revision_id"],
                   "journal": entry["id"],
                   "rows_digest_after": version.get("rows_digest"),
+                  **({"axi_transaction_id": version["axi_transaction_id"]}
+                     if version.get("axi_transaction_id") else {}),
                   **({"batch": entry["batch"]} if entry.get("batch")
                      else {})})
     except Exception:  # noqa: BLE001, S110 - history never fails a touch
@@ -3212,7 +3221,9 @@ def _undo_touch_connected(project_folder, entry, connect,
     version = reel_versions.record(project_folder, final,
                                    kind=reel_versions.KIND_UNDO, rows=rows,
                                    undoes=entry.get("version"),
-                                   journal=entry["id"])
+                                   journal=entry["id"],
+                                   axi_transaction_id=(entry.get("spec") or {}).get(
+                                       "transaction_id"))
     if entry.get("version"):
         reel_versions.mark_undone(project_folder, final,
                                   int(entry["version"]),
@@ -3237,7 +3248,9 @@ def _undo_touch_connected(project_folder, entry, connect,
             refs={"version": version["version"],
                   "undoes": entry.get("version"),
                   "journal": entry["id"],
-                  "rows_digest_after": version.get("rows_digest")})
+                  "rows_digest_after": version.get("rows_digest"),
+                  **({"axi_transaction_id": version["axi_transaction_id"]}
+                     if version.get("axi_transaction_id") else {})})
     except Exception:  # noqa: BLE001, S110 - history never fails an undo
         pass
     entry["status"] = STATUS_UNDONE
@@ -3719,7 +3732,9 @@ def redo_touch(project_folder: str, entry_id: str, *, connect=None,
         project_folder, connect))(entry["final"])
     version = reel_versions.record(
         project_folder, entry["final"], kind=reel_versions.KIND_REDO,
-        rows=rows, redoes=undo_version, journal=entry["id"])
+        rows=rows, redoes=undo_version, journal=entry["id"],
+        axi_transaction_id=(entry.get("spec") or {}).get(
+            "transaction_id"))
     try:
         from library.tools import reel_edit_history as _history
         _history.try_record_ren_act(
@@ -3731,7 +3746,9 @@ def redo_touch(project_folder: str, entry_id: str, *, connect=None,
                      f"{undo_version})"),
             refs={"version": version["version"], "redoes": undo_version,
                   "journal": entry["id"],
-                  "rows_digest_after": version.get("rows_digest")})
+                  "rows_digest_after": version.get("rows_digest"),
+                  **({"axi_transaction_id": version["axi_transaction_id"]}
+                     if version.get("axi_transaction_id") else {})})
     except Exception:  # noqa: BLE001, S110 - history never fails a redo
         pass
     return {"entry": entry["id"], "version": version["version"],

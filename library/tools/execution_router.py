@@ -646,6 +646,33 @@ def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Exe
     statuses = _statuses(edit_algebra, ids)
     gap_reasons = _gap_reasons(gaps)
 
+    protected_compound = (
+        len(ids) == 2
+        and set(ids) in ({"clip.trim", "clip.insert"},
+                         {"clip.replace", "caption.style"}))
+    if (protected_compound
+            and context.get("qualification_policy")
+            == "protected_experimental"):
+        return ExecutionDecision(
+            backend="reel_touchup",
+            reasons=("the exact compound has a shared staged transaction adapter",
+                     "one candidate is verified against the complete request",
+                     "production routing remains closed pending live evidence",
+                     *checked, *gap_reasons),
+            rejected_alternatives=(
+                RejectedBackend("edit_patch", "the approved timeline is not the protected staging target"),
+                RejectedBackend("full_rebuild", "a targeted staged transaction is available"),
+            ),
+            verification=("verify every requested operation on one staged read-back",
+                          "verify unrelated timeline state remains unchanged",
+                          "retain the source timeline until guarded promotion"),
+            algebra_status=statuses, mode="staged",
+            qualification_gaps=gaps,
+            selection=_selection_basis(
+                operations, context, "reel_touchup",
+                limitations=("protected experimental compound; live qualification deferred",)),
+        )
+
     # These audio adapters already execute on protected staged candidates and
     # independently verify their requested native/OTIO state. Keep them
     # available to semantic requests through that route while their live

@@ -27,8 +27,8 @@ REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from library.tools import timeline_diff  # noqa: E402
-from library.tools import undo_journal as uj  # noqa: E402
+from library.tools import timeline_diff
+from library.tools import undo_journal as uj
 
 
 def _project(tmp_path) -> str:
@@ -117,8 +117,8 @@ def test_recording_the_same_commit_twice_returns_the_same_commit(tmp_path):
     returns the existing commit, not a new one.
     """
     project = _project(tmp_path)
-    kwargs = dict(parent=None, intent="tighten opening", changes=_changes(),
-                  agent="reel_touchup")
+    kwargs = {"parent": None, "intent": "tighten opening",
+              "changes": _changes(), "agent": "reel_touchup"}
     first = uj.record_commit(project, **kwargs)
     second = uj.record_commit(project, **kwargs)
     assert first["id"] == second["id"]
@@ -188,6 +188,23 @@ def test_two_reels_produce_two_independent_chains(tmp_path):
     commit_03_again = uj.record_touch_commit(
         project, journal=journal_reel_03_again, spec={"edits": []})
     assert commit_03_again["parent"] == commit_03["id"]
+
+
+def test_promoted_axi_touch_revision_links_its_execution_transaction(tmp_path):
+    """Defect: a durable creative revision could not be traced to its AXI receipt."""
+    project = _project(tmp_path)
+    transaction_id = "axi-request-9f21"
+    journal = {"id": "touch-journal-1", "final": "Reel 03 - lab",
+               "before": {"tracks": []}, "after": {"tracks": []}}
+
+    commit = uj.record_touch_commit(
+        project, journal=journal,
+        spec={"edits": [], "transaction_id": transaction_id},
+        version=2)
+
+    assert commit["artifacts"]["axi_transaction_id"] == transaction_id
+    assert commit["artifacts"]["journal"] == journal["id"]
+    assert commit["artifacts"]["version"] == 2
 
 
 def test_read_commit_refuses_a_foreign_format(tmp_path):
