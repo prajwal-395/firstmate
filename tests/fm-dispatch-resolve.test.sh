@@ -662,7 +662,7 @@ PAID_FIRST_RULES="$TMP_ROOT/paid-first-rules.json"
 cat > "$PAID_FIRST_RULES" <<'JSON'
 {"rules": [{"when": "Any task at all.", "use": {"harness": "claude", "model": "opus"}}],
  "default": [
-   {"harness": "opencode", "model": "opencode/muse-spark-1.3-contributor-free", "provider": "opencode"},
+   {"harness": "opencode", "model": "opencode-go/minimax-m3.1-flash-free", "provider": "opencode"},
    {"harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "provider": "opencode-go"}
  ]}
 JSON
@@ -688,7 +688,7 @@ JSON
 cp "$PAID_FIRST_RULES" "$RULES"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PAID_BETTER" run code out err "$BRIEF"
 assert_contains "$out" '  status: default' "a free-first default still resolves"
-assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode/muse-spark-1.3-contributor-free'" "the free rung wins despite better paid quota"
+assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/minimax-m3.1-flash-free'" "the free rung wins despite better paid quota"
 assert_not_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/muse-spark-1.3-contributor'" "the paid rung is never named ahead of free"
 cp "$BASE_RULES" "$RULES"
 write_response "$RESPONSE" rule_4 0.9

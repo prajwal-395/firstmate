@@ -13,10 +13,11 @@
 # OPENCODE_DB points one launch at a different file. A pinned database holds
 # only the migrated schema plus the account rows, with its own active
 # workspace id, so the pinned launch fetches that workspace's console config
-# and attributes its inference there. The model id is unchanged
-# (`opencode-go/muse-spark-1.3-contributor` on both rungs); the workspace a
-# lane runs on is recorded per task as `opencode_workspace=secondary` in its
-# meta, absent meaning the main workspace exactly as today.
+# and attributes its inference there. The paid Go model is
+# `opencode-go/muse-spark-1.3-contributor`; the free Minimax model also uses
+# the `opencode-go` provider but does not bill or pin a Go workspace. The
+# workspace a paid Go lane runs on is recorded per task as
+# `opencode_workspace=secondary` in its meta, absent meaning main.
 #
 # BOTH WORKSPACES ARE PINNED. A main-workspace Go launch that rides no pin
 # inherits the machine-wide active workspace, so the moment that active
@@ -26,10 +27,12 @@
 # alike, and a Go launch that cannot prove its pin is refused rather than run
 # unpinned. The pin applies only to launches that actually bill a Go
 # workspace (bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
-# that test): the free model and every other non-Go model launch exactly as
-# before outside the workspace pin flow, so discovering or requiring a
-# workspace never blocks them. Unpinned standalone launches receive an empty
-# per-task database for their event data. A home with no second workspace
+# that test): the free model and every other non-Go model launch outside the
+# workspace pin flow, so discovering or requiring a workspace never blocks
+# them. The free Minimax model still requires console sign-in; its unpinned
+# per-task database is seeded from the verified main pin or live console
+# database. Other unpinned standalone launches may start with an empty task
+# database. A home with no second workspace
 # runs the main workspace without a workspace pin.
 #
 # Verified 2026-10-06 on opencode 1.18.34: a main-pinned launch resolves the
@@ -397,6 +400,15 @@ fm_opencode_unpinned_seed() {  # <destination-db> [config-dir]
     return 1
   fi
   return 0
+}
+
+# fm_opencode_db_has_console_login <db>: 0 when the database contains an
+# OpenCode console access token, as required by the free Minimax provider.
+fm_opencode_db_has_console_login() {  # <db>
+  local count
+  [ -f "${1:-}" ] && command -v sqlite3 >/dev/null 2>&1 || return 1
+  count=$(sqlite3 "$1" 'SELECT COUNT(*) FROM account WHERE access_token <> "";' 2>/dev/null) || return 1
+  [ "${count:-0}" -gt 0 ] 2>/dev/null
 }
 
 # fm_opencode_attempt_count [override] [default]: the bounded retry count.

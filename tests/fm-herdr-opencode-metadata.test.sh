@@ -28,7 +28,7 @@ assert_short() {
 }
 
 # Known OpenCode model IDs from opencode models output.
-assert_short "muse-spark-1.3-contributor-free" "muse 1.3 free"
+assert_short "minimax-m3.1-flash-free" "minimax m3.1 flash free"
 assert_short "muse-spark-1.2-contributor-free" "muse 1.2 free"
 assert_short "big-pickle" "big pickle"
 assert_short "nemotron-3-ultra-free" "nemotron 3 ultra free"
@@ -40,7 +40,7 @@ assert_short "mimo-v2.5-free" "mimo v2.5 free"
 assert_short "" ""
 
 # Verify the script exits cleanly when called with no pane (no herdr call).
-output=$("$SCRIPT" "" "muse-spark-1.3-contributor-free" 2>&1) || true
+output=$("$SCRIPT" "" "minimax-m3.1-flash-free" 2>&1) || true
 [ -z "$output" ] || fail "script with empty pane should produce no output, got: $output"
 
 # Verify the script exits cleanly when called with no model.

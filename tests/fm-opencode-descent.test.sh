@@ -78,7 +78,7 @@ unset FM_CONFIG_OVERRIDE
 RETRY="$ROOT/bin/fm-opencode-retry.sh"
 BUSY="$ROOT/bin/fm-busy-event.sh"
 
-FREE='opencode/muse-spark-1.3-contributor-free'
+FREE='opencode-go/minimax-m3.1-flash-free'
 GO='opencode-go/muse-spark-1.3-contributor'
 PLUS='gpt-6-luna'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
@@ -87,7 +87,7 @@ PLUS='gpt-6-luna'
 # regressions below speak them - a fixture in the gate's prefixed vocabulary
 # would be blind to a producer-side mismatch by construction. The bare free
 # id is the captured specimen's model token verbatim.
-FREE_BARE='muse-spark-1.3-contributor-free'
+FREE_BARE='minimax-m3.1-flash-free'
 GO_BARE='muse-spark-1.3-contributor'
 
 now_s() { date +%s; }
