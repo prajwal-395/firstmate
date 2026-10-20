@@ -53,4 +53,4 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `track.delete` | implemented_unqualified | `track_type`, `track_index` | yes | yes | no | no | post-write snapshot checked by verify |
 | `track.rename` | implemented_unqualified | `track_type`, `track_index`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.reorder` | implemented_unqualified | `track_type`, `from_index`, `to_index`, `name` | yes | yes | no | no | post-write snapshot checked by _verify_track_reorder |
-| `transition` | planning_only | `carrier`, `transition` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `transition` | implemented_unqualified | `carrier`, `transition` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

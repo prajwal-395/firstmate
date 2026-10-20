@@ -82,6 +82,6 @@ The contract names the operation's read-back verifier. A successful API return a
 | `track.rename` | implemented_unqualified | `track_type`, `track_index`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.reorder` | implemented_unqualified | `track_type`, `from_index`, `to_index`, `name` | yes | yes | no | no | post-write snapshot checked by _verify_track_reorder |
 | `transform_override` | no_executor | `unique_id`, `key`, `value` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `transition` | planning_only | `carrier`, `transition` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `transition` | implemented_unqualified | `carrier`, `transition` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `visual_effect` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `voice_isolation` | no_executor | `track_index` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

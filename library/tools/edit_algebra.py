@@ -58,6 +58,7 @@ from dataclasses import dataclass, replace
 
 from library.tools import edit_backend
 from library.tools import timeline_shadow as shadow
+from library.tools.axi_qualification import load_qualification_records
 
 #: How close a re-read float must be to what was written.
 FLOAT_TOLERANCE = 1e-6
@@ -2983,6 +2984,11 @@ _BACKEND_LIMITATIONS = {
 # the current production contract.
 _BACKEND_QUALIFICATIONS = {}
 
+# The importer writes only observed live-run records. Qualification status is
+# derived below from the record's completed evidence fields; this file never
+# stores an operator-selected ``qualified`` or ``production_enabled`` flag.
+_BACKEND_QUALIFICATIONS.update(load_qualification_records())
+
 # Route research is reported to discovery so a missing adapter does not
 # silently imply that UI control is the next attempt. Inspection is not
 # qualification; each gap remains fail-closed.
@@ -3246,13 +3252,18 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
     for backend, operation_ids in coverage.items():
         if op.id not in operation_ids:
             continue
-        evidence = _LIVE_QUALIFICATION.get((op.id, backend), ())
         qualification = _BACKEND_QUALIFICATIONS.get((op.id, backend), {})
+        evidence = tuple(qualification.get(
+            "evidence", _LIVE_QUALIFICATION.get((op.id, backend), ())))
         qualification_complete = bool(
-            evidence and qualification.get("resolve_version")
+            evidence and qualification.get("result") == "passed"
+            and qualification.get("resolve_version")
             and qualification.get("media_types")
             and qualification.get("timeline_conditions")
+            and qualification.get("expected_state")
+            and qualification.get("actual_state")
             and qualification.get("preservation_limits")
+            and qualification.get("preservation_checks")
             and qualification.get("recovery")
             and "visual_verification" in qualification
             and "audio_verification" in qualification)
@@ -3282,11 +3293,11 @@ def _make_op_status(op: AlgebraOp, coverage: dict[str, set[str]]) -> OpStatus:
             implementation_evidence=_IMPLEMENTATION_EVIDENCE.get((op.id, backend), ()),
         ))
     workflow_evidence = _WORKFLOW_EVIDENCE.get(op.id, ())
-    if op.id in _PLANNING_OPERATION_IDS:
-        implementation_status = "planning_only"
-    elif backends:
+    if backends:
         implementation_status = ("implemented_qualified" if any(
             row.qualified for row in backends) else "implemented_unqualified")
+    elif op.id in _PLANNING_OPERATION_IDS:
+        implementation_status = "planning_only"
     elif workflow_evidence:
         implementation_status = "workflow_only"
     else:

@@ -176,6 +176,11 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     backend_id = backend.removesuffix(".structural")
     operations = [dict(row) for row in compiled.operations]
     decision = plan.get("routing") or {}
+    routed_backend = str(decision.get("backend") or "")
+    if routed_backend != backend:
+        raise ValueError(
+            f"dispatcher received {backend!r}, but router selected "
+            f"{routed_backend or 'no backend'!r}")
     executors: list[tuple[int, EditExecutor]] = []
     for index, operation in enumerate(operations):
         operation_id = str(operation["op"])
@@ -199,12 +204,6 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 raise ValueError(
                     f"router omitted the qualification gap for "
                     f"{operation_id} on reel_touchup")
-        if backend_id in _ROUTER_QUALIFIED_BACKENDS:
-            routed_backend = str(decision.get("backend") or backend)
-            if routed_backend != backend:
-                raise ValueError(
-                    f"{backend_id} adapter refused a mismatched routing decision "
-                    f"({routed_backend!r})")
         with _EDIT_EXECUTOR_LOCK:
             executor = _EDIT_EXECUTORS.get((operation_id, backend_id))
         if executor is None:
