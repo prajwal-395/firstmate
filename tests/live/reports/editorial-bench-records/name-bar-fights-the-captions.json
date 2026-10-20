@@ -1,0 +1,58 @@
+{
+  "brief_id": "name-bar-fights-the-captions",
+  "delivery": {},
+  "execution": {
+    "attempts": 3,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "reel_touchup",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "The engine has no route to move this name bar. overlay.position refuses the media: 'edit 0 (position_overlay) targets unsupported media 'b-soft-focus-craig.mov' - the first route is limited to a native PNG still without a drawing Fusion comp'. The transform route fails closed on the recorded qualification predicates: 'runtime state does not satisfy recorded qualification predicates: timeline_density is 'dense', not 'light'; project_settings is 'portrait_1080x1920', not 'landscape_1920x1080'; frame_rate is '23.976', not '24'; existing_effects is 'transforms+retiming', not one of ['none', 'transforms']'. Nothing on the timeline changed.",
+      "recovery_class": "blocked"
+    },
+    "route": "overlay.position -> reel_touchup (protected experimental); clip.set_property -> edit_patch (production); resolve-axi edit transform -> edit_patch (production)"
+  },
+  "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+  "interpretation": {
+    "resolved_targets": [
+      {
+        "resolved": true,
+        "role": "name_lower_third",
+        "target": "the speaker name bar - the lower third 'b-soft-focus-craig.mov' on the Motion Graphics row (V6), unique_id c71c3d10-cc65-4764-b567-82b1f6222b66, frames 0-84"
+      }
+    ],
+    "restated_outcome": "Move the name bar so it stops colliding with the captions, and leave the rest of the graphics alone.",
+    "selected_operations": [
+      "overlay.position"
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "overlay.position",
+        "target_role": "name_lower_third"
+      }
+    ],
+    "requirements_covered": [
+      "collision-gone",
+      "inside-safe-area"
+    ]
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "name-bar-fights-the-captions"
+}

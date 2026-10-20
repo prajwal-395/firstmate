@@ -1,0 +1,1638 @@
+{
+  "brief_set": {
+    "brief_count": 8,
+    "coverage": {
+      "acceptance_criterion_count": 30,
+      "brief_count": 8,
+      "briefs_with_existing_adjustments": [
+        "open-with-the-cost",
+        "two-voices-at-once",
+        "no-extra-footage",
+        "logo-not-in-the-project",
+        "keep-it-but-tighten-it",
+        "the-wrong-caption",
+        "name-bar-fights-the-captions",
+        "the-whole-job"
+      ],
+      "briefs_with_imperfect_media": [
+        "open-with-the-cost",
+        "two-voices-at-once",
+        "no-extra-footage",
+        "logo-not-in-the-project",
+        "keep-it-but-tighten-it",
+        "the-wrong-caption",
+        "name-bar-fights-the-captions",
+        "the-whole-job"
+      ],
+      "edge_case_briefs": {
+        "conflicting_instruction": [
+          "keep-it-but-tighten-it"
+        ],
+        "overlapping_speech": [
+          "two-voices-at-once"
+        ],
+        "sparse_footage": [
+          "no-extra-footage"
+        ],
+        "unavailable_asset": [
+          "logo-not-in-the-project"
+        ]
+      },
+      "edge_case_counts": {
+        "conflicting_instruction": 1,
+        "overlapping_speech": 1,
+        "sparse_footage": 1,
+        "unavailable_asset": 1
+      },
+      "edge_cases_missing": [],
+      "footage_profile_counts": {
+        "interview_with_broll": 2,
+        "product_demo": 1,
+        "talking_head_with_graphics": 3,
+        "two_camera_interview": 2
+      },
+      "refusal_briefs": [
+        "no-extra-footage",
+        "logo-not-in-the-project",
+        "keep-it-but-tighten-it"
+      ]
+    },
+    "demonstration_brief": "the-whole-job",
+    "path": "/Users/prajwal/.treehouse/video-editing-pilot-9487f5/62/video-editing-pilot/library/tools/editorial_acceptance/brief_set.json",
+    "sha256": "cad217b56da1ad16bbfac0793316724c8889ff480aa3aa0771f37ab115facd0e"
+  },
+  "demonstration": {
+    "assessment": {
+      "editorial_status": null,
+      "judge": null,
+      "technical_status": null
+    },
+    "brief_id": "the-whole-job",
+    "delivery": {
+      "duration_seconds": null,
+      "sha256": null
+    },
+    "evidence": [
+      {
+        "established": true,
+        "id": "interpreted",
+        "proves": "the run stated what it understood and named the work itself",
+        "statement": "The brief is interpreted without evaluator-supplied edit commands."
+      },
+      {
+        "established": false,
+        "id": "evidence-backed",
+        "proves": "every retrieved moment carries at least one evidence id",
+        "statement": "All selected source moments are supported by recorded evidence."
+      },
+      {
+        "established": true,
+        "id": "plan-valid",
+        "proves": "the plan covers what the request asked for and names nothing it did not",
+        "statement": "The edit plan is semantically valid."
+      },
+      {
+        "established": false,
+        "id": "qualified-route",
+        "proves": "the receipt reached a verified state and the route is named",
+        "statement": "Every requested operation is routed through qualified execution."
+      },
+      {
+        "established": false,
+        "id": "unrelated-unchanged",
+        "proves": "no collateral change was recorded and the preservation check passed",
+        "statement": "Unrelated approved state remains unchanged."
+      },
+      {
+        "established": true,
+        "id": "no-open-transaction",
+        "proves": "the run recorded no pending recovery, or a verified one",
+        "statement": "No unresolved transaction or recovery state remains."
+      },
+      {
+        "established": false,
+        "id": "export-carries-changes",
+        "proves": "the file carries a digest and the judge read the changes in it",
+        "statement": "The exported video contains the requested changes."
+      },
+      {
+        "established": false,
+        "id": "technical-pass",
+        "proves": "every technical check that ran passed, and none was left unmeasured",
+        "statement": "Technical audio/video constraints pass."
+      },
+      {
+        "established": false,
+        "id": "independent-judgment",
+        "proves": "a named judge read the file and passed the brief",
+        "statement": "An independent editor judges the resulting treatment acceptable against the brief."
+      },
+      {
+        "established": false,
+        "id": "latency-and-resource",
+        "proves": "the run recorded its wall time and its peak resident size",
+        "statement": "Total latency and peak resource usage are measured."
+      }
+    ],
+    "evidence_established": 3,
+    "evidence_total": 10,
+    "execution": {
+      "receipt_status": "refused",
+      "route": "per operation, through the engine's own router"
+    },
+    "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+    "latency": {
+      "instruction_to_verified_seconds": null,
+      "wall_seconds": null
+    },
+    "milestone": false,
+    "milestone_rule": "every obligation established, every piece of evidence produced, and the independent judge passed the delivered file against the brief - not the plan, and not the commands that ran",
+    "obligations": [
+      {
+        "detail": "the plan opens the reel on a moment",
+        "established": true,
+        "id": "opening",
+        "statement": "Identify the most engaging opening moment."
+      },
+      {
+        "detail": "the plan removes pauses or repetition",
+        "established": true,
+        "id": "pauses",
+        "statement": "Remove unnecessary pauses and repetition."
+      },
+      {
+        "detail": "the plan replaces a camera angle",
+        "established": true,
+        "id": "angle",
+        "statement": "Replace one weak camera angle."
+      },
+      {
+        "detail": "the plan inserts cutaway material",
+        "established": true,
+        "id": "broll",
+        "statement": "Choose and insert relevant B-roll."
+      },
+      {
+        "detail": "the plan corrects a caption",
+        "established": true,
+        "id": "caption",
+        "statement": "Correct an inaccurate caption."
+      },
+      {
+        "detail": "the plan adjusts the lower third",
+        "established": true,
+        "id": "lower-third",
+        "statement": "Adjust a lower-third graphic."
+      },
+      {
+        "detail": "the plan balances the audio",
+        "established": true,
+        "id": "levels",
+        "statement": "Balance relevant audio levels."
+      },
+      {
+        "detail": "no unrelated state changed and the preservation check passed",
+        "established": false,
+        "id": "preservation",
+        "statement": "Preserve existing grading, transitions, transforms, linked audio, and unrelated human edits."
+      },
+      {
+        "detail": "a file was delivered, with its digest",
+        "established": false,
+        "id": "export",
+        "statement": "Export the finished reel."
+      },
+      {
+        "detail": "the delivered file was inspected",
+        "established": false,
+        "id": "verify",
+        "statement": "Verify the actual exported video."
+      }
+    ],
+    "obligations_established": 7,
+    "obligations_total": 10,
+    "resource": {
+      "peak_rss_bytes": null
+    },
+    "schema": "ren-editorial-demonstration/1"
+  },
+  "evaluation": {
+    "agent_receives_editorial_decision": false,
+    "agent_receives_expected_operation": false,
+    "agent_receives_expected_target": false,
+    "level": 4,
+    "name": "editorial_acceptance"
+  },
+  "evaluation_levels": [
+    {
+      "evidence_status": "live_backend_qualification_suites",
+      "level": 1,
+      "name": "primitive_qualification",
+      "question": "Can the backend perform a specified operation?"
+    },
+    {
+      "evidence_status": "evaluator_directed_semantic_acceptance",
+      "level": 2,
+      "name": "semantic_execution",
+      "question": "Can AXI safely execute a typed request?"
+    },
+    {
+      "evidence_status": "blind_runner_implemented_live_agent_run_pending",
+      "level": 3,
+      "name": "autonomous_orchestration",
+      "question": "Can Ren infer operations and targets from an instruction?"
+    },
+    {
+      "evidence_status": "scorer_implemented_judgment_run_pending",
+      "level": 4,
+      "name": "editorial_acceptance",
+      "question": "Does the completed video satisfy the creative brief?"
+    }
+  ],
+  "failed": 5,
+  "failure_causes": {
+    "bottleneck": "interpretation",
+    "by_cause": {
+      "execution.backend_refused": 1,
+      "interpretation.target_unresolved": 3,
+      "retrieval.unavailable_asset": 1
+    },
+    "by_stage": {
+      "execution": 1,
+      "interpretation": 3,
+      "retrieval": 1
+    },
+    "dominant_cause": "interpretation.target_unresolved",
+    "dominant_cause_summary": "the run could not say which item the request meant",
+    "failed_tasks": 5,
+    "schema": "ren-editorial-failure-causes/1",
+    "unattributed": 0,
+    "unsafe_failures": 0
+  },
+  "not_run": 0,
+  "passed": 3,
+  "results": [
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "keep-it-but-tighten-it",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": "conflicting_instruction",
+      "expected_refusal": true,
+      "failure": {
+        "cause": null,
+        "failed": false,
+        "severity": "none",
+        "stage": null,
+        "stage_outcomes": {
+          "execution": "pass",
+          "final_quality": "not_measured",
+          "interpretation": "pass",
+          "planning": "pass",
+          "retrieval": "not_measured"
+        },
+        "summary": "no stage failed",
+        "task_id": "keep-it-but-tighten-it"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human replaced one answer with the better take and left it there"
+        ],
+        "media_conditions": [
+          "the b-roll is handheld and drifts out of frame"
+        ],
+        "profile": "interview_with_broll",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 1,
+            "checks": {},
+            "collateral_changes": [],
+            "expected_statuses": [
+              "refused",
+              "rejected",
+              "needs_input",
+              "blocked"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Said that keeping every word and tightening the cut are two different requests, and asked which one is meant; nothing on the timeline changed, so the interview's words and their order are exactly as they were.",
+            "route": "none - the run reported back instead of writing"
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the brief expected no delivery",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected": "understood the request and planned nothing",
+            "expected_operations": [],
+            "expected_target_roles": [],
+            "missing_operations": [],
+            "restated_outcome": "Leave the interview word for word exactly as it is, and tighten the cut so it holds attention - two requests that cannot both be obeyed.",
+            "selected_operations": [],
+            "unexpected_operations": [],
+            "unresolved_roles": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "conflict-surfaced",
+              "nothing-changed"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "conflict-surfaced",
+              "nothing-changed"
+            ],
+            "declared_requirements_covered": [],
+            "expected": "no operation planned",
+            "expected_operations": [],
+            "missing_operations": [],
+            "planned_operations": [],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [],
+            "missing_moment_ids": [],
+            "moments_without_evidence": [],
+            "retrieval_recall": null,
+            "retrieved_moment_ids": [],
+            "unavailable": []
+          },
+          "passed": null,
+          "reason": "the brief declares no retrieval expectation",
+          "status": "not_measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "keep-it-but-tighten-it"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "logo-not-in-the-project",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": "unavailable_asset",
+      "expected_refusal": true,
+      "failure": {
+        "cause": null,
+        "failed": false,
+        "severity": "none",
+        "stage": null,
+        "stage_outcomes": {
+          "execution": "pass",
+          "final_quality": "not_measured",
+          "interpretation": "pass",
+          "planning": "pass",
+          "retrieval": "not_measured"
+        },
+        "summary": "no stage failed",
+        "task_id": "logo-not-in-the-project"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human re-typed the end card copy by hand",
+          "the human set a lower third that the caption renderer must not restyle"
+        ],
+        "media_conditions": [
+          "the end card is a still with a soft edge"
+        ],
+        "profile": "talking_head_with_graphics",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 1,
+            "checks": {},
+            "collateral_changes": [],
+            "expected_statuses": [
+              "refused",
+              "rejected",
+              "needs_input",
+              "blocked"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Said the named logo is not in the project, and that standing another mark in for it would be a different edit needing the creator's word. The end card, the reel around it and every other graphic are unchanged.",
+            "route": "none - the run reported back instead of writing"
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the brief expected no delivery",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected": "understood the request and planned nothing",
+            "expected_operations": [],
+            "expected_target_roles": [],
+            "missing_operations": [],
+            "restated_outcome": "Swap the end card for the new logo sent this morning, or say so if the project does not hold it.",
+            "selected_operations": [],
+            "unexpected_operations": [],
+            "unresolved_roles": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "named-asset-only",
+              "says-so",
+              "end-card-intact"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "named-asset-only",
+              "says-so",
+              "end-card-intact"
+            ],
+            "declared_requirements_covered": [],
+            "expected": "no operation planned",
+            "expected_operations": [],
+            "missing_operations": [],
+            "planned_operations": [],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [],
+            "missing_moment_ids": [],
+            "moments_without_evidence": [],
+            "retrieval_recall": null,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "The project does not hold the named logo. Its media pool carries the series' own marks only - the corner logo 'Lucie Social Bug 2024 (NEW) - tight.png' and the end-card motion 'logo_bulb_lines_safe_23976.mov' - and no other mark was supplied. The request names a logo ('the one I sent you this morning') that is not in the project."
+            ]
+          },
+          "passed": null,
+          "reason": "the brief declares no retrieval expectation",
+          "status": "not_measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "logo-not-in-the-project"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "name-bar-fights-the-captions",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": null,
+      "expected_refusal": false,
+      "failure": {
+        "cause": "execution.backend_refused",
+        "failed": true,
+        "severity": "wrong",
+        "stage": "execution",
+        "stage_outcomes": {
+          "execution": "fail",
+          "final_quality": "not_measured",
+          "interpretation": "pass",
+          "planning": "pass",
+          "retrieval": "not_measured"
+        },
+        "summary": "the backend refused an operation the plan needed",
+        "task_id": "name-bar-fights-the-captions"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human sized the name bar by hand and set its text to two lines"
+        ],
+        "media_conditions": [
+          "the captions run long, so several of them reach the lower third's row"
+        ],
+        "profile": "talking_head_with_graphics",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 3,
+            "checks": {},
+            "collateral_changes": [],
+            "expected": "the run reported back instead of mutating",
+            "expected_statuses": [
+              "verified",
+              "committed",
+              "delivered"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "The engine has no route to move this name bar. overlay.position refuses the media: 'edit 0 (position_overlay) targets unsupported media 'b-soft-focus-craig.mov' - the first route is limited to a native PNG still without a drawing Fusion comp'. The transform route fails closed on the recorded qualification predicates: 'runtime state does not satisfy recorded qualification predicates: timeline_density is 'dense', not 'light'; project_settings is 'portrait_1080x1920', not 'landscape_1920x1080'; frame_rate is '23.976', not '24'; existing_effects is 'transforms+retiming', not one of ['none', 'transforms']'. Nothing on the timeline changed.",
+            "route": "overlay.position -> reel_touchup (protected experimental); clip.set_property -> edit_patch (production); resolve-axi edit transform -> edit_patch (production)"
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the delivered file carries no digest",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected_operations": [
+              "overlay.position"
+            ],
+            "expected_target_roles": [
+              "name_lower_third"
+            ],
+            "missing_operations": [],
+            "restated_outcome": "Move the name bar so it stops colliding with the captions, and leave the rest of the graphics alone.",
+            "selected_operations": [
+              "overlay.position"
+            ],
+            "unexpected_operations": [],
+            "unresolved_roles": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "collision-gone",
+              "inside-safe-area",
+              "others-untouched"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "others-untouched"
+            ],
+            "declared_requirements_covered": [
+              "collision-gone",
+              "inside-safe-area"
+            ],
+            "expected_operations": [
+              "overlay.position"
+            ],
+            "missing_operations": [],
+            "planned_operations": [
+              "overlay.position"
+            ],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [],
+            "missing_moment_ids": [],
+            "moments_without_evidence": [],
+            "retrieval_recall": null,
+            "retrieved_moment_ids": [],
+            "unavailable": []
+          },
+          "passed": null,
+          "reason": "the brief declares no retrieval expectation",
+          "status": "not_measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "name-bar-fights-the-captions"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "no-extra-footage",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": "sparse_footage",
+      "expected_refusal": true,
+      "failure": {
+        "cause": null,
+        "failed": false,
+        "severity": "none",
+        "stage": null,
+        "stage_outcomes": {
+          "execution": "pass",
+          "final_quality": "not_measured",
+          "interpretation": "pass",
+          "planning": "pass",
+          "retrieval": "not_measured"
+        },
+        "summary": "no stage failed",
+        "task_id": "no-extra-footage"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human set a music bed under the whole demo by hand"
+        ],
+        "media_conditions": [
+          "the demo was filmed on a phone with a rolling shutter and visible noise"
+        ],
+        "profile": "product_demo",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "Put a shot of the workshop bench over the bit where she explains the tooling. I know we never filmed that - use whatever you have, I trust your judgement.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 1,
+            "checks": {},
+            "collateral_changes": [],
+            "expected_statuses": [
+              "refused",
+              "rejected",
+              "needs_input",
+              "blocked"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Said the requested coverage does not exist: there is no workshop-bench footage in this project, and passing off another shot as the bench would be a different edit. Her explanation of the tooling is untouched.",
+            "route": "none - the run reported back instead of writing"
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the brief expected no delivery",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected": "understood the request and planned nothing",
+            "expected_operations": [],
+            "expected_target_roles": [],
+            "missing_operations": [],
+            "restated_outcome": "Cover her explanation of the tooling with a shot of the workshop bench, or say so if that coverage does not exist.",
+            "selected_operations": [],
+            "unexpected_operations": [],
+            "unresolved_roles": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "no-invented-footage",
+              "says-so",
+              "speech-intact"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "no-invented-footage",
+              "says-so",
+              "speech-intact"
+            ],
+            "declared_requirements_covered": [],
+            "expected": "no operation planned",
+            "expected_operations": [],
+            "missing_operations": [],
+            "planned_operations": [],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [],
+            "missing_moment_ids": [],
+            "moments_without_evidence": [],
+            "retrieval_recall": null,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "The project holds no workshop-bench footage. The scratch copy's media pool carries 56 items and every one of them is interview picture, a caption card, a motion-graphics card, the lower third, the end card, the post header or the corner logo: two camera masters (LC4932.MXF, LCATL0013.MXF), 45 rendered caption cards, two rendered graphics cards, b-soft-focus-craig.mov, logo_bulb_lines_safe_23976.mov, ph_still.png and the Lucie corner logo."
+            ]
+          },
+          "passed": null,
+          "reason": "the brief declares no retrieval expectation",
+          "status": "not_measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "no-extra-footage"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "open-with-the-cost",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": null,
+      "expected_refusal": false,
+      "failure": {
+        "cause": "retrieval.unavailable_asset",
+        "failed": true,
+        "severity": "wrong",
+        "stage": "retrieval",
+        "stage_outcomes": {
+          "execution": "fail",
+          "final_quality": "not_measured",
+          "interpretation": "pass",
+          "planning": "pass",
+          "retrieval": "fail"
+        },
+        "summary": "the material was not available to the run",
+        "task_id": "open-with-the-cost"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human panned the second camera eight percent left on the host shot",
+          "the caption style was set by hand on the first three captions"
+        ],
+        "media_conditions": [
+          "one take carries a visible jump cut at 00:12"
+        ],
+        "profile": "two_camera_interview",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 1,
+            "checks": {},
+            "collateral_changes": [],
+            "expected": "the run reported back instead of mutating",
+            "expected_statuses": [
+              "verified",
+              "committed",
+              "delivered"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Asked which moment to open on instead: this reel's footage never states what the problem costs, so the request's own referent does not exist here, and the only cost statement in the project belongs to a different recording. Nothing on the timeline changed.",
+            "route": "none - the run reported back instead of writing"
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the delivered file carries no digest",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected_operations": [
+              "reel.opening"
+            ],
+            "expected_target_roles": [
+              "opening_section"
+            ],
+            "missing_operations": [],
+            "restated_outcome": "Open the reel on the moment she names what the problem actually costs, let her argument run from there, lose no word, and leave the grade and her framing exactly as they are.",
+            "selected_operations": [
+              "reel.opening"
+            ],
+            "unexpected_operations": [],
+            "unresolved_roles": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "hook-first",
+              "nothing-lost",
+              "grade-untouched"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "nothing-lost",
+              "grade-untouched"
+            ],
+            "declared_requirements_covered": [
+              "hook-first"
+            ],
+            "expected_operations": [
+              "reel.opening"
+            ],
+            "missing_operations": [],
+            "planned_operations": [
+              "reel.opening"
+            ],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [
+              "cost-statement"
+            ],
+            "missing_moment_ids": [
+              "cost-statement"
+            ],
+            "moments_without_evidence": [],
+            "retrieval_recall": 0.0,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "The reel's own footage carries no statement of what it costs. Every one of the reel's 45 caption cards was read in full (the rendered card text is the reel's spoken word); they run from 'and that's what happened with that company, why they came back as a healthcare company' to 'the link's in our bio' and name a cost nowhere.",
+              "The only cost statement in the project's other session - Craig's 'It's something that's going to continually eat into their budget' at 00:13.9-00:16.5 of the master timeline 'GEO Podcast - Synced' - is a DIFFERENT recording (the master reads LC4930/LC4931 and LCATL0011/12; this reel is cut from LC4932/LCATL0013) and is not in this reel at all."
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "open-with-the-cost"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "the-whole-job",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": null,
+      "expected_refusal": false,
+      "failure": {
+        "cause": "interpretation.target_unresolved",
+        "failed": true,
+        "severity": "wrong",
+        "stage": "interpretation",
+        "stage_outcomes": {
+          "execution": "fail",
+          "final_quality": "not_measured",
+          "interpretation": "fail",
+          "planning": "pass",
+          "retrieval": "fail"
+        },
+        "summary": "the run could not say which item the request meant",
+        "task_id": "the-whole-job"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human applied a grade to two of the interview clips",
+          "the human added a transition between the answer and the cutaway",
+          "the human corrected the caption timings on the first minute by hand"
+        ],
+        "media_conditions": [
+          "one interview source is a soft, low-light take",
+          "the music bed was mixed by hand and sits too high under the second answer"
+        ],
+        "profile": "interview_with_broll",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 7,
+            "checks": {},
+            "collateral_changes": [],
+            "expected": "the run reported back instead of mutating",
+            "expected_statuses": [
+              "verified",
+              "committed",
+              "delivered"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "None of the seven operations could be carried on this timeline, and each refusal was measured: reel.opening and clip.trim have no eligible route (production routing fails closed and the protected experimental policy does not cover them); multicam.select_angle has no qualified executor on any backend; broll.insert and caption_fix are refused by the router; overlay.position refuses a .mov lower third ('limited to a native PNG still without a drawing Fusion comp'); clip.set_property fails closed on the recorded qualification predicates (portrait 1080x1920 at 23.976, dense, transforms present); audio.gain has no music bed to act on in this reel. Nothing on the timeline changed and nothing was exported.",
+            "route": "per operation, through the engine's own router"
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the delivered file carries no digest",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected_operations": [
+              "reel.opening",
+              "clip.trim",
+              "multicam.select_angle",
+              "broll.insert",
+              "caption_fix",
+              "overlay.position",
+              "audio.gain"
+            ],
+            "expected_target_roles": [
+              "opening_section",
+              "repeated_passages",
+              "weak_angle_turn",
+              "broll_cover_range",
+              "wrong_caption_card",
+              "name_lower_third",
+              "music_bed"
+            ],
+            "missing_operations": [],
+            "restated_outcome": "Do the whole launch reel: open on the strongest moment, cut the pauses and the repeated statements, swap the camera angle that adds nothing for the other angle of the same moment, insert the cutaway that matches the words, fix the caption that gets the number wrong, move the name bar off the captions, and let her voice sit above the music - leaving the grade, the transitions, the framing, the linked audio and every human edit alone, then export and check the export.",
+            "selected_operations": [
+              "reel.opening",
+              "clip.trim",
+              "multicam.select_angle",
+              "broll.insert",
+              "caption_fix",
+              "overlay.position",
+              "audio.gain"
+            ],
+            "unexpected_operations": [],
+            "unresolved_roles": [
+              "repeated_passages",
+              "weak_angle_turn",
+              "broll_cover_range",
+              "wrong_caption_card",
+              "music_bed"
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "hook-chosen",
+              "pauses-removed",
+              "angle-replaced",
+              "broll-chosen",
+              "caption-corrected",
+              "lower-third-adjusted",
+              "levels-balanced",
+              "human-work-preserved",
+              "exported",
+              "export-verified"
+            ],
+            "acceptance_criteria_not_declared_covered": [],
+            "declared_requirements_covered": [
+              "hook-chosen",
+              "pauses-removed",
+              "angle-replaced",
+              "broll-chosen",
+              "caption-corrected",
+              "lower-third-adjusted",
+              "levels-balanced",
+              "human-work-preserved",
+              "exported",
+              "export-verified"
+            ],
+            "expected_operations": [
+              "reel.opening",
+              "clip.trim",
+              "multicam.select_angle",
+              "broll.insert",
+              "caption_fix",
+              "overlay.position",
+              "audio.gain"
+            ],
+            "missing_operations": [],
+            "planned_operations": [
+              "reel.opening",
+              "clip.trim",
+              "multicam.select_angle",
+              "broll.insert",
+              "caption_fix",
+              "overlay.position",
+              "audio.gain"
+            ],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [
+              "hook-moment",
+              "repeated-passage",
+              "weak-angle-turn",
+              "tooling-explanation"
+            ],
+            "missing_moment_ids": [
+              "hook-moment",
+              "repeated-passage",
+              "weak-angle-turn",
+              "tooling-explanation"
+            ],
+            "moments_without_evidence": [],
+            "retrieval_recall": 0.0,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "Four of the seven targets the request names are absent from this footage: there is no repeated passage, no second angle of a moment, no caption with a wrong number, and no music bed. The reel's whole audio content is the two dialogue channels (Akshita CH1 and Craig CH1).",
+              "The reel has no 'hook-moment' beyond its own opening: the strongest statement it makes is the hallucination at frames 657-744, which the reel already carries."
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "the-whole-job"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "the-wrong-caption",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": null,
+      "expected_refusal": false,
+      "failure": {
+        "cause": "interpretation.target_unresolved",
+        "failed": true,
+        "severity": "wrong",
+        "stage": "interpretation",
+        "stage_outcomes": {
+          "execution": "fail",
+          "final_quality": "not_measured",
+          "interpretation": "fail",
+          "planning": "pass",
+          "retrieval": "fail"
+        },
+        "summary": "the run could not say which item the request meant",
+        "task_id": "the-wrong-caption"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human restyled every caption but the last three by hand"
+        ],
+        "media_conditions": [
+          "the caption font is small and two captions sit low in frame"
+        ],
+        "profile": "talking_head_with_graphics",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 2,
+            "checks": {},
+            "collateral_changes": [],
+            "expected": "the run reported back instead of mutating",
+            "expected_statuses": [
+              "verified",
+              "committed",
+              "delivered"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Two reasons, both measured. The card that names the wrong word does not exist in this reel. And the operation could not have rewritten it anyway: caption_fix is limited to 'Resolve text/title items exposing a supported text property; rendered caption images require regeneration', and every caption in this reel is a rendered .mov card. Nothing on the timeline changed.",
+            "route": "caption_fix (Resolve text/title route) then clip.replace (media swap) - neither carried out"
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the delivered file carries no digest",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected_operations": [
+              "caption_fix"
+            ],
+            "expected_target_roles": [
+              "wrong_caption_card"
+            ],
+            "missing_operations": [],
+            "restated_outcome": "Fix the one caption whose text names the wrong word, and change nothing else - not its timing, not the other captions.",
+            "selected_operations": [
+              "caption_fix"
+            ],
+            "unexpected_operations": [],
+            "unresolved_roles": [
+              "wrong_caption_card"
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "caption-text-right",
+              "timing-kept",
+              "others-untouched"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "timing-kept",
+              "others-untouched"
+            ],
+            "declared_requirements_covered": [
+              "caption-text-right"
+            ],
+            "expected_operations": [
+              "caption_fix"
+            ],
+            "missing_operations": [],
+            "planned_operations": [
+              "caption_fix"
+            ],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [
+              "churn-caption"
+            ],
+            "missing_moment_ids": [
+              "churn-caption"
+            ],
+            "moments_without_evidence": [],
+            "retrieval_recall": 0.0,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "No caption names the wrong word. All 45 caption cards' rendered text was read, and every one of them matches the spoken word it covers (the cards are rendered from the transcript). The reel contains no 'revenue' card and no 'churn' speech, and the project's only 'revenue' caption card belongs to a different reel of the same session."
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "the-wrong-caption"
+    },
+    {
+      "assessment": {
+        "editorial_status": null,
+        "independence": null,
+        "judge": null,
+        "technical_status": null
+      },
+      "brief_id": "two-voices-at-once",
+      "delivery": {
+        "duration_seconds": null,
+        "path": null,
+        "sha256": null,
+        "technical_not_checked": [],
+        "technical_verification": {}
+      },
+      "edge_case": "overlapping_speech",
+      "expected_refusal": false,
+      "failure": {
+        "cause": "interpretation.target_unresolved",
+        "failed": true,
+        "severity": "wrong",
+        "stage": "interpretation",
+        "stage_outcomes": {
+          "execution": "fail",
+          "final_quality": "not_measured",
+          "interpretation": "fail",
+          "planning": "pass",
+          "retrieval": "fail"
+        },
+        "summary": "the run could not say which item the request meant",
+        "task_id": "two-voices-at-once"
+      },
+      "footage": {
+        "existing_adjustments": [
+          "the human trimmed the first ten seconds by hand and left the gap closed"
+        ],
+        "media_conditions": [
+          "the room tone changes between the two cameras",
+          "one angle is a soft focus take"
+        ],
+        "profile": "two_camera_interview",
+        "project": {
+          "footage": "",
+          "resolve_project": "Ren Scratch - breaktest",
+          "substrate": "",
+          "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+        }
+      },
+      "instruction": "In the middle the two of them talk over each other and you lose the point. I need a viewer to be able to follow who is making the claim, but I do not want either of them cut out of the reel.",
+      "record_problems": [],
+      "stages": {
+        "execution": {
+          "detail": {
+            "attempts": 1,
+            "checks": {},
+            "collateral_changes": [],
+            "expected": "the run reported back instead of mutating",
+            "expected_statuses": [
+              "verified",
+              "committed",
+              "delivered"
+            ],
+            "failed_checks": [],
+            "receipt_status": "refused",
+            "refusal_reason": "Reported that the moment the request names does not exist in this footage: the reel has no overlapping speech and no second angle of the same moment, so neither voice could be made followable by an angle change. Nothing on the timeline changed.",
+            "route": "none - the run reported back instead of writing"
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "final_quality": {
+          "detail": {
+            "assessed": true,
+            "criteria_failed": null,
+            "criteria_not_measured": null,
+            "criteria_passed": null,
+            "delivered": true,
+            "duration_seconds": null,
+            "editorial_score": null,
+            "editorial_status": null,
+            "sha256": null,
+            "technical_checks": {},
+            "technical_not_checked": [],
+            "technical_status": null
+          },
+          "passed": null,
+          "reason": "the delivered file carries no digest",
+          "status": "not_measured"
+        },
+        "interpretation": {
+          "detail": {
+            "expected_operations": [
+              "multicam.select_angle"
+            ],
+            "expected_target_roles": [
+              "overlapping_turn"
+            ],
+            "missing_operations": [],
+            "restated_outcome": "Make it possible for a viewer to follow who is making the claim where the two of them talk over each other, without cutting either of them out of the reel.",
+            "selected_operations": [
+              "multicam.select_angle"
+            ],
+            "unexpected_operations": [],
+            "unresolved_roles": [
+              "overlapping_turn"
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        },
+        "planning": {
+          "detail": {
+            "acceptance_criteria": [
+              "claim-followable",
+              "both-voices-kept",
+              "sync-held"
+            ],
+            "acceptance_criteria_not_declared_covered": [
+              "both-voices-kept",
+              "sync-held"
+            ],
+            "declared_requirements_covered": [
+              "claim-followable"
+            ],
+            "expected_operations": [
+              "multicam.select_angle"
+            ],
+            "missing_operations": [],
+            "planned_operations": [
+              "multicam.select_angle"
+            ],
+            "unauthorised_operations": []
+          },
+          "passed": true,
+          "reason": null,
+          "status": "measured"
+        },
+        "retrieval": {
+          "detail": {
+            "abstained": false,
+            "expected_moment_ids": [
+              "overlap-claim"
+            ],
+            "missing_moment_ids": [
+              "overlap-claim"
+            ],
+            "moments_without_evidence": [],
+            "retrieval_recall": 0.0,
+            "retrieved_moment_ids": [],
+            "unavailable": [
+              "There is no overlapping speech in this reel. The two dialogue tracks are disjoint: Akshita CH1 runs 00:03.13-00:75.68 and Craig CH1 runs 00:00.00-00:03.13 and 00:37.33-00:43.29, so no moment carries two voices at once.",
+              "There is no second angle of the same moment either. The reel's two camera rows are the two SPEAKERS (Akshita on V1, Craig on V2), not two angles of one person, so there is no angle that could be swapped into an overlapping turn."
+            ]
+          },
+          "passed": false,
+          "reason": null,
+          "status": "measured"
+        }
+      },
+      "status": "scored",
+      "task_id": "two-voices-at-once"
+    }
+  ],
+  "run_state": "scored",
+  "run_state_reason": null,
+  "schema": "ren-editorial-acceptance/3",
+  "scored": 8,
+  "stage_metrics": {
+    "note": "Each stage is measured on its own denominator. A stage with no evidence is not_measured, never a zero. There is no combined score: the stages are not the same unit.",
+    "schema": "ren-editorial-stage-metrics/1",
+    "stages": {
+      "execution": {
+        "failed": 5,
+        "measured": 8,
+        "not_measured": 0,
+        "passed": 3,
+        "question": "Did the plan run through a qualified route, verify, and leave the rest of the project alone?",
+        "status": "measured",
+        "total": 8,
+        "value": 0.375
+      },
+      "final_quality": {
+        "failed": 0,
+        "measured": 0,
+        "not_measured": 8,
+        "passed": 0,
+        "question": "Does the delivered file satisfy the brief, and pass its technical checks?",
+        "status": "not_measured",
+        "total": 8,
+        "value": null
+      },
+      "interpretation": {
+        "failed": 3,
+        "measured": 8,
+        "not_measured": 0,
+        "passed": 5,
+        "question": "Did Ren read the request as the user meant it, and name the work it implies?",
+        "status": "measured",
+        "total": 8,
+        "value": 0.625
+      },
+      "planning": {
+        "failed": 0,
+        "measured": 8,
+        "not_measured": 0,
+        "passed": 8,
+        "question": "Is the plan a valid answer to the request - covering what was asked, and nothing the user did not ask for?",
+        "status": "measured",
+        "total": 8,
+        "value": 1.0
+      },
+      "retrieval": {
+        "failed": 4,
+        "measured": 4,
+        "not_measured": 4,
+        "passed": 0,
+        "question": "Did Ren find the source moments the work needs, each with evidence behind it?",
+        "status": "measured",
+        "total": 8,
+        "value": 0.0
+      }
+    },
+    "stages_are_not_combined": true,
+    "task_count": 8
+  },
+  "task_count": 8
+}

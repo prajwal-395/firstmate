@@ -141,6 +141,16 @@ def validate_brief_set(raw: Mapping[str, Any]) -> list[str]:
     briefs = raw.get("briefs")
     if not isinstance(briefs, list) or not briefs:
         return problems + ["the brief set declares no briefs"]
+    demonstration = raw.get("demonstration_brief")
+    if demonstration is not None:
+        if not isinstance(demonstration, str) or not demonstration.strip():
+            problems.append("demonstration_brief must name a brief")
+        elif not any(isinstance(brief, Mapping)
+                     and brief.get("id") == demonstration
+                     for brief in briefs):
+            problems.append(
+                f"demonstration_brief names {demonstration!r}, which the set "
+                "does not carry")
     seen: set[str] = set()
     for index, brief in enumerate(briefs):
         label = f"briefs[{index}]"
@@ -393,6 +403,14 @@ def coverage(brief_set: Mapping[str, Any]) -> dict[str, Any]:
 def briefs_by_id(brief_set: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
     """Every brief, keyed by id."""
     return {str(brief["id"]): brief for brief in brief_set["briefs"]}
+
+
+def demonstration_brief_id(brief_set: Mapping[str, Any]) -> str | None:
+    """Which brief in the set is the recurring demonstration, if any."""
+    named = brief_set.get("demonstration_brief")
+    if named is None:
+        return None
+    return str(named)
 
 
 def brief(brief_set: Mapping[str, Any], brief_id: str) -> Mapping[str, Any]:

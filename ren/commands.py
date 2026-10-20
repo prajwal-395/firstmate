@@ -687,6 +687,17 @@ VERBS = (
          effects=("read", "project_write", "resolve_read", "resolve_write", "render", "heavy_lock", "network"),
          module_argv=("library.tools.eval_harness",)),
 
+    Verb("accept", "Eval", "Score a run of unfamiliar editorial briefs against their expectations",
+         effects=("read", "project_write"), json=True,
+         module_argv=("library.tools.editorial_acceptance",),
+         detail="`ren accept --list` prints the briefs, their edge cases and the "
+                "set's coverage. `ren accept --records <path>` measures every "
+                "task record of a run against its brief - interpretation, "
+                "retrieval, planning, execution and final quality measured "
+                "separately - and writes the acceptance report. `--judge "
+                "module:attribute` names the independent judge; without one the "
+                "editorial half is not_measured rather than scored."),
+
     Verb("worker", "Fabric", "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it",
          effects=("read", "resolve_read"),
          module_argv=("library.tools.worker_manifest",),

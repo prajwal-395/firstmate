@@ -272,6 +272,18 @@ def test_a_run_that_delivered_nothing_leaves_final_quality_unmeasured():
     assert measured["final_quality"]["status"] == "not_measured"
 
 
+def test_a_delivered_file_that_could_not_be_read_is_a_failure():
+    """The defect: the run named a file, the file could not be read, and
+    the harness calls the task unmeasured - so nothing reports it."""
+    record = _record()
+    record["delivery"] = {"path": "/tmp/gone.mp4",
+                          "evidence_error": "no delivered file at /tmp/gone.mp4"}
+    measured = stages.measure(record, _brief(), _key())
+    assert measured["final_quality"]["status"] == "measured"
+    assert measured["final_quality"]["passed"] is False
+    assert measured["final_quality"]["detail"]["delivered"] is False
+
+
 def test_an_ordinary_request_row_reads_in_the_same_vocabulary():
     """The connection: the Level 2 and Level 3 reports measure a typed
     request, and their rows are readable in the five-stage vocabulary

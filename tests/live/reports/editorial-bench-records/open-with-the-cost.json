@@ -1,0 +1,60 @@
+{
+  "brief_id": "open-with-the-cost",
+  "delivery": {},
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "none",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "Asked which moment to open on instead: this reel's footage never states what the problem costs, so the request's own referent does not exist here, and the only cost statement in the project belongs to a different recording. Nothing on the timeline changed.",
+      "recovery_class": "needs_question"
+    },
+    "route": "none - the run reported back instead of writing"
+  },
+  "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+  "interpretation": {
+    "resolved_targets": [
+      {
+        "resolved": true,
+        "role": "opening_section",
+        "target": "the reel's first picture (video1 frame 75-129, video2 frame 0-75 of Reel 13)"
+      }
+    ],
+    "restated_outcome": "Open the reel on the moment she names what the problem actually costs, let her argument run from there, lose no word, and leave the grade and her framing exactly as they are.",
+    "selected_operations": [
+      "reel.opening"
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "reel.opening",
+        "target_role": "opening_section"
+      }
+    ],
+    "requirements_covered": [
+      "hook-first"
+    ]
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The reel's own footage carries no statement of what it costs. Every one of the reel's 45 caption cards was read in full (the rendered card text is the reel's spoken word); they run from 'and that's what happened with that company, why they came back as a healthcare company' to 'the link's in our bio' and name a cost nowhere.",
+      "The only cost statement in the project's other session - Craig's 'It's something that's going to continually eat into their budget' at 00:13.9-00:16.5 of the master timeline 'GEO Podcast - Synced' - is a DIFFERENT recording (the master reads LC4930/LC4931 and LCATL0011/12; this reel is cut from LC4932/LCATL0013) and is not in this reel at all."
+    ]
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "open-with-the-cost"
+}

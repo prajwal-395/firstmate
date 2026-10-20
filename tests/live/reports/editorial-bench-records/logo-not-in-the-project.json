@@ -1,0 +1,44 @@
+{
+  "brief_id": "logo-not-in-the-project",
+  "delivery": {},
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "none",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "Said the named logo is not in the project, and that standing another mark in for it would be a different edit needing the creator's word. The end card, the reel around it and every other graphic are unchanged.",
+      "recovery_class": "needs_question"
+    },
+    "route": "none - the run reported back instead of writing"
+  },
+  "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
+  "interpretation": {
+    "resolved_targets": [],
+    "restated_outcome": "Swap the end card for the new logo sent this morning, or say so if the project does not hold it.",
+    "selected_operations": []
+  },
+  "planning": {
+    "operations": [],
+    "requirements_covered": []
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "The project does not hold the named logo. Its media pool carries the series' own marks only - the corner logo 'Lucie Social Bug 2024 (NEW) - tight.png' and the end-card motion 'logo_bulb_lines_safe_23976.mov' - and no other mark was supplied. The request names a logo ('the one I sent you this morning') that is not in the project."
+    ]
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "logo-not-in-the-project"
+}

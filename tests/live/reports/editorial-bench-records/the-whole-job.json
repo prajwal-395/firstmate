@@ -1,0 +1,129 @@
+{
+  "brief_id": "the-whole-job",
+  "delivery": {},
+  "execution": {
+    "attempts": 7,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "none",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "None of the seven operations could be carried on this timeline, and each refusal was measured: reel.opening and clip.trim have no eligible route (production routing fails closed and the protected experimental policy does not cover them); multicam.select_angle has no qualified executor on any backend; broll.insert and caption_fix are refused by the router; overlay.position refuses a .mov lower third ('limited to a native PNG still without a drawing Fusion comp'); clip.set_property fails closed on the recorded qualification predicates (portrait 1080x1920 at 23.976, dense, transforms present); audio.gain has no music bed to act on in this reel. Nothing on the timeline changed and nothing was exported.",
+      "recovery_class": "blocked"
+    },
+    "route": "per operation, through the engine's own router"
+  },
+  "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+  "interpretation": {
+    "resolved_targets": [
+      {
+        "resolved": true,
+        "role": "opening_section",
+        "target": "the reel's first picture (frames 0-129)"
+      },
+      {
+        "resolved": false,
+        "role": "repeated_passages",
+        "target": "not found - the reel's 45 caption cards state each answer once"
+      },
+      {
+        "resolved": false,
+        "role": "weak_angle_turn",
+        "target": "not found - the two camera rows are two speakers, not two angles of one moment"
+      },
+      {
+        "resolved": false,
+        "role": "broll_cover_range",
+        "target": "not found - the reel's one b-roll card covers the opening only"
+      },
+      {
+        "resolved": false,
+        "role": "wrong_caption_card",
+        "target": "not found - no caption names a word the speech does not"
+      },
+      {
+        "resolved": true,
+        "role": "name_lower_third",
+        "target": "the lower third 'b-soft-focus-craig.mov' (V6, frames 0-84)"
+      },
+      {
+        "resolved": false,
+        "role": "music_bed",
+        "target": "not found - the reel carries no music bed (its audio rows are the two dialogue channels only)"
+      }
+    ],
+    "restated_outcome": "Do the whole launch reel: open on the strongest moment, cut the pauses and the repeated statements, swap the camera angle that adds nothing for the other angle of the same moment, insert the cutaway that matches the words, fix the caption that gets the number wrong, move the name bar off the captions, and let her voice sit above the music - leaving the grade, the transitions, the framing, the linked audio and every human edit alone, then export and check the export.",
+    "selected_operations": [
+      "reel.opening",
+      "clip.trim",
+      "multicam.select_angle",
+      "broll.insert",
+      "caption_fix",
+      "overlay.position",
+      "audio.gain"
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "reel.opening",
+        "target_role": "opening_section"
+      },
+      {
+        "op": "clip.trim",
+        "target_role": "repeated_passages"
+      },
+      {
+        "op": "multicam.select_angle",
+        "target_role": "weak_angle_turn"
+      },
+      {
+        "op": "broll.insert",
+        "target_role": "broll_cover_range"
+      },
+      {
+        "op": "caption_fix",
+        "target_role": "wrong_caption_card"
+      },
+      {
+        "op": "overlay.position",
+        "target_role": "name_lower_third"
+      },
+      {
+        "op": "audio.gain",
+        "target_role": "music_bed"
+      }
+    ],
+    "requirements_covered": [
+      "hook-chosen",
+      "pauses-removed",
+      "angle-replaced",
+      "broll-chosen",
+      "caption-corrected",
+      "lower-third-adjusted",
+      "levels-balanced",
+      "human-work-preserved",
+      "exported",
+      "export-verified"
+    ]
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "Four of the seven targets the request names are absent from this footage: there is no repeated passage, no second angle of a moment, no caption with a wrong number, and no music bed. The reel's whole audio content is the two dialogue channels (Akshita CH1 and Craig CH1).",
+      "The reel has no 'hook-moment' beyond its own opening: the strongest statement it makes is the hallucination at frames 657-744, which the reel already carries."
+    ]
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "the-whole-job"
+}

@@ -1,6 +1,7 @@
 {
   "schema": "ren-editorial-brief-set/1",
   "description": "Unfamiliar editorial briefs for the acceptance set. Each brief is a user's request in the user's words; the oracle beside it is the evaluator's answer key and is never shown to the agent.",
+  "demonstration_brief": "the-whole-job",
   "briefs": [
     {
       "id": "open-with-the-cost",

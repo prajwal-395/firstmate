@@ -270,6 +270,10 @@ def _measure_final_quality(record: Mapping[str, Any],
             delivery.get("technical_verification") or {})
         detail["technical_not_checked"] = list(
             delivery.get("technical_not_checked") or [])
+        if delivery.get("evidence_error"):
+            detail["evidence_error"] = str(delivery["evidence_error"])
+            detail["delivered"] = False
+            return _measured(False, **detail)
     if assessment is not None:
         editorial = assessment.get("editorial")
         editorial = editorial if isinstance(editorial, Mapping) else {}

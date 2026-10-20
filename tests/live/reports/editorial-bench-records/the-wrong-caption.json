@@ -1,0 +1,59 @@
+{
+  "brief_id": "the-wrong-caption",
+  "delivery": {},
+  "execution": {
+    "attempts": 2,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "none",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "Two reasons, both measured. The card that names the wrong word does not exist in this reel. And the operation could not have rewritten it anyway: caption_fix is limited to 'Resolve text/title items exposing a supported text property; rendered caption images require regeneration', and every caption in this reel is a rendered .mov card. Nothing on the timeline changed.",
+      "recovery_class": "needs_question"
+    },
+    "route": "caption_fix (Resolve text/title route) then clip.replace (media swap) - neither carried out"
+  },
+  "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+  "interpretation": {
+    "resolved_targets": [
+      {
+        "resolved": false,
+        "role": "wrong_caption_card",
+        "target": "not found - no caption in the reel names a word the speech does not"
+      }
+    ],
+    "restated_outcome": "Fix the one caption whose text names the wrong word, and change nothing else - not its timing, not the other captions.",
+    "selected_operations": [
+      "caption_fix"
+    ]
+  },
+  "planning": {
+    "operations": [
+      {
+        "op": "caption_fix",
+        "target_role": "wrong_caption_card"
+      }
+    ],
+    "requirements_covered": [
+      "caption-text-right"
+    ]
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": [
+      "No caption names the wrong word. All 45 caption cards' rendered text was read, and every one of them matches the spoken word it covers (the cards are rendered from the transcript). The reel contains no 'revenue' card and no 'churn' speech, and the project's only 'revenue' caption card belongs to a different reel of the same session."
+    ]
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "the-wrong-caption"
+}

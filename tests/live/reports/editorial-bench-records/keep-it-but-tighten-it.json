@@ -1,0 +1,42 @@
+{
+  "brief_id": "keep-it-but-tighten-it",
+  "delivery": {},
+  "execution": {
+    "attempts": 1,
+    "checks": {},
+    "collateral_changes": [],
+    "receipt": {
+      "backend": "none",
+      "stage": "PLANNED",
+      "status": "refused"
+    },
+    "refusal": {
+      "reason": "Said that keeping every word and tightening the cut are two different requests, and asked which one is meant; nothing on the timeline changed, so the interview's words and their order are exactly as they were.",
+      "recovery_class": "needs_question"
+    },
+    "route": "none - the run reported back instead of writing"
+  },
+  "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+  "interpretation": {
+    "resolved_targets": [],
+    "restated_outcome": "Leave the interview word for word exactly as it is, and tighten the cut so it holds attention - two requests that cannot both be obeyed.",
+    "selected_operations": []
+  },
+  "planning": {
+    "operations": [],
+    "requirements_covered": []
+  },
+  "project": {
+    "footage": "",
+    "resolve_project": "Ren Scratch - breaktest",
+    "substrate": "",
+    "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+  },
+  "retrieval": {
+    "abstained": false,
+    "moments": [],
+    "unavailable": []
+  },
+  "schema": "ren-editorial-task-record/1",
+  "task_id": "keep-it-but-tighten-it"
+}
