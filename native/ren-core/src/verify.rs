@@ -326,7 +326,11 @@ fn verify_reel_opening(op: &EditOp, after: &Snapshot) -> Option<String> {
             }
         };
         match nested.op_id() {
-            "clip.trim" | "clip.delete" | "clip.ripple" => {}
+            // The vocabulary the Python algebra declares
+            // (`edit_algebra.REEL_OPENING_STRUCTURAL_OPS`): a trim, and
+            // the verified ripple-delete. A local `clip.delete` would
+            // leave a gap and does not satisfy an opening tighten.
+            "clip.trim" | "clip.remove" => {}
             other => {
                 return Some(format!(
                     "reel.opening edit {index} names {other:?}, not a structural opening edit"

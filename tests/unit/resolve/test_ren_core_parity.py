@@ -421,7 +421,7 @@ def _op_cases():
                     "brief": "open on the claim, not the throat-clearing",
                     "edits": [{"op": "clip.trim", "unique_id": "a",
                                "in_frame": 10, "out_frame": 100},
-                              {"op": "clip.delete", "unique_id": "b"}]}
+                              {"op": "clip.remove", "unique_id": "b"}]}
     transform_override = {"op": "transform_override", "unique_id": "a",
                          "key": "Tilt", "value": -870.0}
     span_retime = {"op": "span_retime", "unique_id": "a",

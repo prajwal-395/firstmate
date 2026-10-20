@@ -1634,6 +1634,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::OverlayAdd { .. } => None,
         EditOp::OverlayRemove { .. } => None,
         EditOp::OverlaySwapPixels { .. } => None,
+        EditOp::OverlayReplace { .. } => None,
         EditOp::OverlayResize { .. } => None,
         EditOp::OverlayPosition { .. } => None,
         EditOp::OverlayEntryMotion { .. } => None,
