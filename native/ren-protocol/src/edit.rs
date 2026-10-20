@@ -458,6 +458,23 @@ pub enum EditOp {
     BrandAsset { plan: Value },
     #[serde(rename = "end_card")]
     EndCard { plan: Value },
+
+    // ── reel opening ─────────────────────────────────────────────
+    //
+    // A planning-level operation that compiles to existing structural
+    // edits (trim, remove, ripple) through EditRequest. `unique_id`
+    // anchors the opening clip being tightened, `brief` is the supplied
+    // brief the opening is tightened to, and `edits` are the model's
+    // decided structural edits in execution order. Unqualified until
+    // the live-requests lane records qualifying evidence.
+    /// Tighten the opening to the supplied brief while preserving the
+    /// speaker's meaning and approved edits.
+    #[serde(rename = "reel.opening")]
+    ReelOpening {
+        unique_id: ClipId,
+        brief: String,
+        edits: Value,
+    },
 }
 
 impl EditOp {
@@ -545,6 +562,7 @@ impl EditOp {
             EditOp::MotionGraphic { .. } => "motion_graphic",
             EditOp::BrandAsset { .. } => "brand_asset",
             EditOp::EndCard { .. } => "end_card",
+            EditOp::ReelOpening { .. } => "reel.opening",
         }
     }
 }

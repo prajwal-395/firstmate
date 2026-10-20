@@ -705,6 +705,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         item: false, has_apply: false,
         inverse: Inverse { op: None, self_inverse: false, reason: String::from("a planner re-run has no timeline inverse (C-04)") },
     },
+    OpDeclaration {
+        id: "reel.opening", domain: "timeline_structure",
+        required: &["unique_id", "brief", "edits"],
+        merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Ripple,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the pre-tighten opening spans") },
+    },
     ])
 }
 
@@ -763,6 +770,24 @@ fn union_span(spans: &[Option<(i64, i64)>]) -> Option<(i64, i64)> {
 fn ripple_span(base: &Snapshot, unique_id: &str) -> Option<(i64, i64)> {
     let clip = base.clip(unique_id)?;
     Some((clip.record_in, base.end_frame))
+}
+
+/// The item ids a reel.opening's carried edits name, in order. Read off
+/// the raw values - exactly what the Python span reads - so an edit no
+/// typed parse accepts still spans the clip it names.
+fn reel_opening_item_uids(edits: &serde_json::Value) -> Vec<String> {
+    match edits.as_array() {
+        Some(list) => list
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .get("unique_id")?
+                    .as_str()
+                    .map(String::from)
+            })
+            .collect(),
+        None => Vec::new(),
+    }
 }
 
 fn slide_span(base: &Snapshot, unique_id: &str, to_frame: i64) -> Option<(i64, i64)> {
@@ -935,6 +960,14 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         EditOp::MotionGraphic { .. } => None,
         EditOp::BrandAsset { .. } => None,
         EditOp::EndCard { .. } => None,
+
+        // ── reel opening: the frames its carried edits touch ────
+        EditOp::ReelOpening { edits, .. } => union_span(
+            &reel_opening_item_uids(edits)
+                .iter()
+                .map(|uid| item_span(base, uid))
+                .collect::<Vec<_>>(),
+        ),
     }
 }
 
@@ -1384,6 +1417,13 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         EditOp::MotionGraphic { .. } => plan_key("motion_graphic"),
         EditOp::BrandAsset { .. } => plan_key("brand_asset"),
         EditOp::EndCard { .. } => plan_key("end_card"),
+
+        // ── reel opening: one opening tighten writes one opening ────
+        EditOp::ReelOpening { unique_id } => vec![
+            KeyPart::Text("reel".to_string()),
+            KeyPart::Text("opening".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+        ],
     }
 }
 
@@ -1503,6 +1543,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::MotionGraphic { .. } => None,
         EditOp::BrandAsset { .. } => None,
         EditOp::EndCard { .. } => None,
+        EditOp::ReelOpening { unique_id } => Some(unique_id.0.clone()),
     }
 }
 
@@ -1592,5 +1633,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::MotionGraphic { .. } => None,
         EditOp::BrandAsset { .. } => None,
         EditOp::EndCard { .. } => None,
+        // An opening tighten addresses clips, never one frame.
+        EditOp::ReelOpening { .. } => None,
     }
 }

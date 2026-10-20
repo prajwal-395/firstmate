@@ -301,6 +301,56 @@ fn verify_ripple(op: &EditOp, after: &Snapshot) -> Option<String> {
     None
 }
 
+/// Every carried structural edit reads back on the after-snapshot: a
+/// trim at its declared span, a remove by its absence. The first
+/// failing edit names itself; wording is diagnostic, None-ness is the
+/// verdict - the same contract as the Python `_verify_reel_opening`.
+fn verify_reel_opening(op: &EditOp, after: &Snapshot) -> Option<String> {
+    let edits = match op {
+        EditOp::ReelOpening { edits, .. } => edits,
+        _ => {
+            return Some(
+                "reel.opening verifier reached a non-opening op".to_string(),
+            )
+        }
+    };
+    let Some(list) = edits.as_array() else {
+        return Some(
+            "reel.opening carries no structural edits to read back".to_string(),
+        );
+    };
+    if list.is_empty() {
+        return Some(
+            "reel.opening carries no structural edits to read back".to_string(),
+        );
+    }
+    for (index, entry) in list.iter().enumerate() {
+        let nested: EditOp = match serde_json::from_value(entry.clone()) {
+            Ok(nested) => nested,
+            Err(_) => {
+                return Some(format!(
+                    "reel.opening edit {index} does not parse as a structural edit"
+                ))
+            }
+        };
+        match nested.op_id() {
+            "clip.trim" | "clip.delete" | "clip.ripple" => {}
+            other => {
+                return Some(format!(
+                    "reel.opening edit {index} names {other:?}, not a structural opening edit"
+                ))
+            }
+        }
+        if let Some(failure) = verify(&nested, after) {
+            return Some(format!(
+                "reel.opening edit {index} ({}): {failure}",
+                nested.op_id()
+            ));
+        }
+    }
+    None
+}
+
 fn verify_slide(op: &EditOp, after: &Snapshot) -> Option<String> {
     // `clip.move` is judged by the same read-back as `clip.slide`
     // (`edit_algebra`: both verify with `_verify_slide`).
@@ -891,6 +941,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::MotionGraphic { .. } => None,
         EditOp::BrandAsset { .. } => None,
         EditOp::EndCard { .. } => None,
+        EditOp::ReelOpening { .. } => verify_reel_opening(op, after),
     }
 }
 

@@ -74,6 +74,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `plan_change` | planning_only | `node`, `note` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `redraw_closer` | no_executor | `unique_id`, `start` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `reel.opening` | implemented_unqualified | `unique_id`, `brief`, `edits` | yes | yes | no | no | post-write snapshot checked by _verify_reel_opening |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `retime.segments` | implemented_unqualified | `unique_id`, `segments` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `shot_selection` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

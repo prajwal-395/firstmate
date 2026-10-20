@@ -412,6 +412,11 @@ def _op_cases():
     overlay_remove = {"op": "overlay.remove", "unique_id": "ov:1"}
     hold_repair_window = {"op": "hold.repair_window",
                           "unique_id": "hold:1"}
+    reel_opening = {"op": "reel.opening", "unique_id": "a",
+                    "brief": "open on the claim, not the throat-clearing",
+                    "edits": [{"op": "clip.trim", "unique_id": "a",
+                               "in_frame": 10, "out_frame": 100},
+                              {"op": "clip.delete", "unique_id": "b"}]}
     transform_override = {"op": "transform_override", "unique_id": "a",
                          "key": "Tilt", "value": -870.0}
     span_retime = {"op": "span_retime", "unique_id": "a",
@@ -607,6 +612,10 @@ def _op_cases():
         ("overlay.entry_motion", {"op": "overlay.entry_motion",
                                   "unique_id": "ov:1", "frames": 30}, base),
         ("hold.repair_window", hold_repair_window, base),
+        ("reel.opening", reel_opening,
+         _without_clip(_with_clip_replaced(base, _clip("a", 10, 100)),
+                       "b")),
+        ("reel.opening-unapplied", reel_opening, base),
 
         # ── projected captain edits ────────────────────────────
         ("transform_override", transform_override,

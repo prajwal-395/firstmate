@@ -52,6 +52,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `overlay.resize` | implemented_unqualified | `unique_id`, `width`, `height` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.swap_pixels` | implemented_unqualified | `unique_id`, `file` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `reel.opening` | implemented_unqualified | `unique_id`, `brief`, `edits` | yes | yes | no | no | post-write snapshot checked by _verify_reel_opening |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `retime.segments` | implemented_unqualified | `unique_id`, `segments` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.add` | implemented_qualified | `track_type`, `name` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |

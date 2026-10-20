@@ -1741,6 +1741,83 @@ def _apply_track_add(op, tl, _item, _project=None):
     return bool(tl.SetTrackName(track_type, index, op["name"]))
 
 
+# ── Reel opening (a planning-level structural op) ───────────────────
+#
+# Tightening an opening to a supplied brief while preserving the
+# speaker's meaning and approved edits. The op carries the model's
+# DECIDED edits - the adapter never invents trim points - and compiles
+# them to existing structural edits through EditRequest. `clip.delete`
+# is the remove primitive; a sibling `clip.remove` from the
+# ordinary-request vocabulary is deliberately not referenced, so this
+# op stays independent of the lane that owns it.
+
+
+#: The structural edits a `reel.opening` may carry. Ripple stays
+#: declared-but-refused: no ripple executor qualifies today (the
+#: staged adapter raises for `clip.ripple`), so an edit naming it is
+#: refused before the first write.
+REEL_OPENING_STRUCTURAL_OPS = ("clip.trim", "clip.delete", "clip.ripple")
+
+
+def _reel_opening_edit_list(op) -> list:
+    """The op's carried edits as plain dicts; anything else reads as none.
+
+    Total: span and verify judge read-backs, they never raise, so an
+    op carrying no readable edits fails closed as "no structural edits"
+    instead of throwing mid-judgement.
+    """
+    edits = op.get("edits")
+    if not isinstance(edits, (list, tuple)):
+        return []
+    return [dict(edit) for edit in edits if isinstance(edit, dict)]
+
+
+def _reel_opening_span(op, base):
+    """The frames the carried edits touch: the union of their item spans.
+
+    Each edit is judged by the clip it names on the base snapshot, the
+    same read the nested structural verifiers judge afterwards. A ripple
+    edit spans its item here, not to the timeline end: this span covers
+    what the op touches, while the ripple's own propagation is the
+    reason the op is temporally a ripple and stays staged.
+    """
+    return _union_span([
+        _item_span({"unique_id": edit.get("unique_id")}, base)
+        if edit.get("unique_id") else None
+        for edit in _reel_opening_edit_list(op)])
+
+
+def _verify_reel_opening(op, after):
+    """Every carried structural edit reads back on the after-snapshot.
+
+    Each edit is judged by its own structural verifier - a trim by its
+    declared in/out, a delete by its absence - so the opening's
+    read-back postconditions are exactly the postconditions of the
+    edits it compiled to. The first failing edit names itself; wording
+    is diagnostic, None-ness is the verdict.
+    """
+    edits = _reel_opening_edit_list(op)
+    if not edits:
+        return "reel.opening carries no structural edits to read back"
+    for index, edit in enumerate(edits):
+        edit_id = edit.get("op")
+        if edit_id not in REEL_OPENING_STRUCTURAL_OPS:
+            return (f"reel.opening edit {index} names {edit_id!r}, "
+                    f"not a structural opening edit")
+        spec = ALGEBRA.get(edit_id)
+        if spec is None or spec.verify is None:
+            return (f"reel.opening edit {index} ({edit_id}) has no "
+                    f"read-back verifier")
+        try:
+            failure = spec.verify(dict(edit), after)
+        except Exception as exc:  # noqa: BLE001 - an unreadable edit is a failed read-back, never a thrown judgement
+            return (f"reel.opening edit {index} ({edit_id}) does not "
+                    f"read back ({type(exc).__name__}: {exc})")
+        if failure is not None:
+            return f"reel.opening edit {index} ({edit_id}): {failure}"
+    return None
+
+
 # ── The union ──────────────────────────────────────────────────────────
 #
 # Every op in all five vocabularies, plus the review's missing terms.
@@ -2639,6 +2716,31 @@ ALGEBRA: dict[str, AlgebraOp] = {
         verify=lambda op, after: None,
         key=lambda op: ("plan", "end_card"), merge="ordered",
         inverse=_never("a planner re-run has no timeline inverse (C-04)")),
+
+    # ── reel opening (domain: timeline_structure) ────────────────────
+    #
+    # A planning-level operation that compiles to existing structural
+    # edits (trim, remove, ripple) through EditRequest. `unique_id`
+    # anchors the opening clip being tightened, `brief` is the supplied
+    # brief the opening is tightened to, and `edits` are the model's
+    # decided structural edits in execution order. The adapter runs
+    # those through their own executors with a fresh live read-back
+    # after each write - never a full rebuild. Unqualified until the
+    # live-requests lane records qualifying evidence, so every backend
+    # fails it closed until then.
+    "reel.opening": AlgebraOp(
+        id="reel.opening", domain="timeline_structure",
+        required=("unique_id", "brief", "edits"),
+        span=_reel_opening_span, item=True,
+        verify=_verify_reel_opening,
+        key=lambda op: ("reel", "opening", op["unique_id"]),
+        merge="exclusive",
+        temporal="ripple",
+        inverse=_self("the inverse carries the pre-tighten opening spans"),
+        note="Tighten the opening to the supplied brief while preserving "
+             "the speaker's meaning and approved edits; executes as its "
+             "carried trim/remove edits, each with its own undo journal "
+             "entry and read-back."),
 }
 
 
@@ -3276,6 +3378,11 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/caption_swap.py:swap_files",
         "library/tools/subtitle_style.py:resolve_subtitle_style",
     ),
+    ("reel.opening", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_reel_opening",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
+    ),
     ("overlay.add", "reel_touchup"): (
         "library/tools/reel_touchup.py:_is_native_still",
         "library/tools/reel_touchup.py:_place_still_insertions",
@@ -3344,6 +3451,8 @@ _BACKEND_OPERATION_LIMITATIONS = {
          "the staged replacement needs the assigned camera's synced source range, which preparation does not supply",),
     ("caption.style", "resolve_axi"):
         ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
+    ("reel.opening", "resolve_axi"):
+        ("supplied brief plus decided trim/remove edits only; ripple edits refuse until a ripple executor qualifies; every executed edit carries its own undo journal entry and independent read-back; live Resolve qualification remains deferred",),
     ("clip.move", "reel_touchup"):
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):
@@ -3401,6 +3510,10 @@ def _executor_coverage() -> dict[str, set[str]]:
             # live qualification records are added.
             "clip.trim", "caption_fix", "multicam.select_angle",
             "caption.style",
+            # Planning-level: no command of its own, executed through the
+            # trim/delete commands its carried edits name. Unqualified
+            # until the live-requests lane records qualifying evidence.
+            "reel.opening",
         },
         "reel_append_placement": {"clip.insert"},
         "reel_otio_placement": {"clip.insert"},
@@ -3424,6 +3537,10 @@ def _resolve_capabilities(op: AlgebraOp) -> tuple[str, ...]:
     if op.id.startswith(("marker.", "clip_marker.")):
         return ("timeline markers",) if not op.id.startswith("clip_") else ("timeline item markers",)
     if op.id.startswith("clip."):
+        return ("timeline item read/write",)
+    if op.id.startswith("reel."):
+        # A reel op compiles to timeline-item structural edits, so it
+        # reads and writes exactly what those edits do - no wider claim.
         return ("timeline item read/write",)
     if op.id.startswith("overlay."):
         return ("media pool", "timeline placement", "Fusion or item properties")
@@ -3450,7 +3567,7 @@ def _media_types(op: AlgebraOp) -> tuple[str, ...]:
     if op.id in {"clip.insert", "clip.delete", "clip.remove",
                  "clip.move", "clip.trim",
                  "clip.replace", "clip.split", "clip.join", "clip.roll",
-                 "clip.slip", "clip.slide", "clip.ripple"}:
+                 "clip.slip", "clip.slide", "clip.ripple", "reel.opening"}:
         return ("video", "audio", "still")
     return ("timeline",)
 
@@ -3913,6 +4030,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "track.delete": SAFETY_STRUCTURAL,
     "track.reorder": SAFETY_STRUCTURAL,
     "drop_fragment": SAFETY_STRUCTURAL,
+    "reel.opening": SAFETY_STRUCTURAL,
     # No executor proves these: refuse or an approved alternative.
     "audio.pan": SAFETY_UNREPRESENTABLE,
     "grade.node_reorder": SAFETY_UNREPRESENTABLE,
@@ -3941,6 +4059,7 @@ VC20_TARGET_STRATEGY = {
     "caption_fix": "targeted caption regeneration",
     "caption.style": "targeted caption regeneration in the requested style",
     "clip.ripple": "dependency-aware structural transaction",
+    "reel.opening": "compiled structural edits with dependent-range verification",
     "grade.node_set": "native grade transaction once qualified",
     "grade.node_add": "native grade transaction once qualified",
     "grade.node_remove": "native grade transaction once qualified",
@@ -3995,6 +4114,7 @@ _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "transform_override", "span_retime", "drop_fragment",
     "multicam.select_angle",
     "caption.style",
+    "reel.opening",
 })
 
 #: Router labels that name the matrix backend they prove against. The

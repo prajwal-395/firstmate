@@ -72,6 +72,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `picture.keyframe` | `none` | True | the inverse carries the previous keyframes |
 | `plan_change` | `none` | False | a carrier delivered to a planning node; its inverse is the previous plan (C-04) |
 | `redraw_closer` | `none` | True | the inverse carries the previous start |
+| `reel.opening` | `none` | True | the inverse carries the pre-tighten opening spans |
 | `retime` | `none` | True | the inverse carries the previous speed |
 | `retime.segments` | `none` | True | the inverse carries the previous speed |
 | `shot_selection` | `none` | False | a planner re-run has no timeline inverse (C-04) |

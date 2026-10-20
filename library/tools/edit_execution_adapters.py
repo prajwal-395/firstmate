@@ -26,6 +26,10 @@ _POSITION_INVALIDATING_OPERATIONS = frozenset({
     "clip.slide", "clip.roll",
     "clip.ripple", "clip.insert", "track.add", "overlay.add",
     "overlay.remove",
+    # A planning-level opening tighten executes its carried trim/remove
+    # edits against live state; a later positional write in the same
+    # batch must not reuse the addresses it was prepared against.
+    "reel.opening",
 })
 
 
@@ -699,7 +703,298 @@ def _multicam_select_angle(context) -> dict:
         "exposes no guarded set-angle verb (only the sense-switch "
         "auto-cut and the pool multicam build/sync verbs); and the staged "
         "replacement needs the assigned camera's synced source range, "
-        "which preparation does not supply. Nothing was written.")
+            "which preparation does not supply. Nothing was written.")
+
+
+def _reel_opening_decided(operation: Mapping) -> tuple[str, list[dict]]:
+    """The validated brief and structural edits a reel.opening carries.
+
+    The model decides the edits; this adapter never invents trim points.
+    A ripple edit is refused before the first write: no ripple executor
+    qualifies today, so executing around it would leave a half-tightened
+    opening behind.
+    """
+    from library.tools import edit_algebra
+
+    brief = operation.get("brief")
+    if not isinstance(brief, str) or not brief.strip():
+        raise ValueError(
+            "reel.opening carries no supplied brief - tightening an "
+            "opening without one would invent the target")
+    edits = operation.get("edits")
+    if not isinstance(edits, (list, tuple)) or not edits:
+        raise ValueError(
+            "reel.opening carries no structural edits - nothing decided "
+            "is nothing to execute")
+    allowed = edit_algebra.REEL_OPENING_STRUCTURAL_OPS
+    decided = []
+    for index, edit in enumerate(edits):
+        if not isinstance(edit, Mapping):
+            raise TypeError(
+                f"reel.opening edit {index} must be a mapping")
+        edit = dict(edit)
+        edit_id = str(edit.get("op") or "")
+        if edit_id not in allowed:
+            raise ValueError(
+                f"reel.opening edit {index} names {edit_id!r}; one of "
+                f"{list(allowed)}")
+        decided.append(edit)
+    if any(str(edit.get("op")) == "clip.ripple" for edit in decided):
+        raise ValueError(
+            "reel.opening refuses a ripple edit before mutation: no "
+            "qualified ripple executor exists (the staged adapter raises "
+            "for clip.ripple) - re-plan the close as trim/remove, or "
+            "qualify ripple first")
+    return brief, decided
+
+
+def _compensate_opening_edits(context, sub_receipts: list) -> dict:
+    """Undo committed opening edits in reverse order, verifying each.
+
+    The outer batch compensator only sees this adapter's aggregate
+    receipt, so a mid-sequence failure restores here before the raise -
+    nothing half-tightened escapes the adapter.
+    """
+    from library.tools import undo_journal
+
+    actions = []
+    for receipt in reversed(sub_receipts):
+        reference = ((receipt.get("execution_contract") or {})
+                     .get("recovery", {}).get("reference", {}))
+        try:
+            result = undo_journal.undo(
+                str(reference["project_folder"]),
+                final=context.request.timeline,
+                act=str(reference["entry_id"]))
+            ok = (isinstance(result, list) and len(result) == 1
+                  and (not isinstance(result[0], Mapping)
+                       or result[0].get("verified") is not False))
+        except Exception as exc:  # noqa: BLE001 - preserve partial state
+            return {
+                "status": "recovery_required", "actions": actions,
+                "failed_entry": reference.get("entry_id"),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        if not ok:
+            return {
+                "status": "recovery_required", "actions": actions,
+                "failed_entry": reference.get("entry_id"),
+                "error": "undo journal did not return one verified restoration",
+            }
+        actions.append({"entry_id": reference.get("entry_id"),
+                        "verified": True})
+    return {"status": "restored_original_verified", "actions": actions}
+
+
+def _opening_preserved(before: Mapping, live: Mapping,
+                       ordered: list) -> bool:
+    """Whether every retained clip kept what the edits did not decide.
+
+    Removed clips must be exactly the decided delete list and nothing
+    may have appeared. Retained non-targets must read identical on
+    their stable fields; retained targets must keep source file,
+    transform, switch and speed - their spans are judged by the
+    opening-span read-back instead. A linked companion the executor
+    moved without a decided edit fails here: that is collateral, not
+    sync.
+    """
+    def rows(snapshot: Mapping) -> dict:
+        return {str(clip["unique_id"]): clip
+                for track in (snapshot.get("tracks") or [])
+                for clip in (track.get("clips") or [])}
+
+    stable = ("source_file", "source_in_frame", "source_out_frame",
+              "record_in", "record_out", "transform", "enabled",
+              "speed", "name", "track_type", "track_index")
+    target_stable = ("source_file", "transform", "enabled", "speed",
+                     "name")
+    old, new = rows(before), rows(live)
+    removed = {str(edit["unique_id"]) for edit in ordered
+               if str(edit.get("op")) == "clip.delete"}
+    targets = {str(edit.get("unique_id")) for edit in ordered
+               if edit.get("unique_id")}
+    if {uid for uid in old if uid not in new} != removed:
+        return False
+    if any(uid not in old for uid in new):
+        return False
+    for uid, clip in old.items():
+        if uid in removed:
+            continue
+        kept = new[uid]
+        keys = target_stable if uid in targets else stable
+        if any(clip.get(key) != kept.get(key) for key in keys):
+            return False
+    return True
+
+
+def _reel_opening(context) -> dict:
+    """Tighten a reel opening through its decided structural edits.
+
+    A planning-level operation: the carried trim/remove edits are
+    compiled through EditRequest (dependency order, affected spans,
+    conflict domains - never a full rebuild) and each runs through its
+    own existing executor against a fresh live snapshot, so no
+    positional address goes stale between writes. Targets are
+    revalidated before the first write; every edit needs its own undo
+    journal entry and read-back; the aggregate carries the opening's
+    own acceptance contract with the collateral check.
+    """
+    import dataclasses
+
+    from library.tools import edit_algebra, operation_acceptance, resolve_axi_core
+    from library.tools.edit_request import compile_request, from_algebra_ops
+    from library.tools.transaction_orchestration import (
+        unrelated_clip_changes,
+    )
+
+    operation = dict(context.operation)
+    anchor_id = str(operation.get("unique_id") or "")
+    if not anchor_id:
+        raise ValueError(
+            "reel.opening names no anchor clip unique_id")
+    brief, decided = _reel_opening_decided(operation)
+
+    stated = [
+        {**edit, "expected_effect": str(
+            edit.get("expected_effect")
+            or f"tighten opening: apply {edit.get('op')} "
+               f"to {edit.get('unique_id')}")}
+        for edit in decided
+    ]
+    generation = getattr(context, "generation", None)
+    base_generation = (None if generation is None else getattr(
+        generation, "generation", None))
+    request = from_algebra_ops(
+        stated,
+        project=context.request.project, timeline=context.request.timeline,
+        expected_base_generation=(
+            None if base_generation is None
+            else int(base_generation)),
+        originator={"kind": "agent", "name": "reel.opening"},
+        preconditions=[{
+            "preserves": "speaker meaning and approved edits outside "
+                         "the decided edits"}],
+    )
+    compiled = compile_request(request, context.snapshot)
+    ordered = [dict(op) for op in compiled.operations]
+
+    resolve_axi_core._revalidate_registered_targets(
+        request=context.request, operations=ordered,
+        snapshot=context.snapshot)
+
+    executors = {"clip.trim": _trim, "clip.delete": _delete}
+    before = context.snapshot
+    live = before
+    sub_receipts: list = []
+    journal_refs: list = []
+    try:
+        for edit in ordered:
+            sub_context = dataclasses.replace(
+                context, operation=edit, snapshot=live,
+                operation_index=0, compiled=None)
+            receipt = executors[str(edit["op"])](sub_context)
+            if (receipt.get("status") != "committed"
+                    or (receipt.get("execution_contract") or {})
+                    .get("verification", {}).get("status") != "verified"):
+                raise RuntimeError(
+                    f"reel.opening edit {edit.get('op')} returned no "
+                    f"verified commit")
+            reference = ((receipt.get("execution_contract") or {})
+                         .get("recovery", {}).get("reference", {}))
+            if reference.get("kind") != "undo_journal_entry":
+                raise RuntimeError(
+                    f"reel.opening edit {edit.get('op')} verified without "
+                    f"an undo journal reference")
+            sub_receipts.append(receipt)
+            journal_refs.append(reference)
+            live = resolve_axi_core.read_live_timeline(
+                context.request.project, context.request.timeline)
+
+        opening_ok = edit_algebra.get("reel.opening").verify(
+            {**operation, "edits": ordered}, live) is None
+        anchor_before = [clip for track in before["tracks"]
+                         for clip in track["clips"]
+                         if str(clip["unique_id"]) == anchor_id]
+        anchor_live = [clip for track in live["tracks"]
+                       for clip in track["clips"]
+                       if str(clip["unique_id"]) == anchor_id]
+        evidence = {
+            "target_identity": (
+                len(anchor_before) == 1 and len(anchor_live) == 1
+                and anchor_before[0].get("source_file")
+                == anchor_live[0].get("source_file")),
+            "requested_opening_span": opening_ok,
+            "approved_edits_preserved": _opening_preserved(
+                before, live, ordered),
+            "unrelated_items_unchanged": not unrelated_clip_changes(
+                operations=([{**operation, "unique_id": anchor_id}]
+                            + [{"unique_id": edit["unique_id"]}
+                               for edit in ordered
+                               if edit.get("unique_id")]),
+                affected_spans=[tuple(span)
+                                for span in compiled.affected_spans],
+                id_map=None, before=before, after=live),
+        }
+        acceptance = operation_acceptance.evaluate(
+            {**operation, "op": "reel.opening"},
+            readback_passed=opening_ok, evidence=evidence)
+        if not acceptance["passed"]:
+            missing = ", ".join(acceptance["missing"]) or "none"
+            failed = ", ".join(acceptance["failed"]) or "none"
+            raise RuntimeError(
+                "AXI read-back acceptance failed for reel.opening: "
+                f"missing evidence [{missing}], failed checks [{failed}]")
+    except Exception as exc:
+        compensation = (
+            {"status": "not_required", "actions": []}
+            if not sub_receipts
+            else _compensate_opening_edits(context, sub_receipts))
+        raise RuntimeError(
+            f"reel.opening failed after {len(sub_receipts)} committed "
+            f"edit(s) ({type(exc).__name__}: {exc}); "
+            f"compensation: {compensation['status']}") from exc
+
+    target_identity = {
+        key: operation[key]
+        for key in ("unique_id", "client_unique_id")
+        if key in operation
+    }
+    target_identity["brief"] = brief
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": "reel.opening",
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": target_identity,
+        "readback": {"snapshot": live,
+                     "operation_receipts": sub_receipts},
+        "acceptance_contracts": [acceptance],
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": (
+                    *({"operation": str(edit.get("op")),
+                       "passed": True} for edit in ordered),
+                    {"operation": "reel.opening", "passed": True},
+                ),
+                "evidence": {
+                    "acceptance": acceptance,
+                    "snapshot_source": "fresh_live_timeline",
+                    "compiled_spans": [list(span)
+                                       for span in compiled.affected_spans],
+                    "conflict_domains": list(compiled.conflict_domains),
+                },
+            },
+            "recovery": {
+                "status": "available",
+                "action": "undo each listed journal entry in reverse "
+                          "execution order and verify restoration",
+                "references": journal_refs,
+            },
+        },
+    }
 
 
 def _touchup(context) -> dict:
@@ -909,6 +1204,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.trim", "resolve_axi"): _trim,
         ("clip.delete", "resolve_axi"): _delete,
         ("clip.remove", "resolve_axi"): _remove,
+        ("reel.opening", "resolve_axi"): _reel_opening,
         ("caption_fix", "resolve_axi"): _caption_fix,
         ("multicam.select_angle", "resolve_axi"): _multicam_select_angle,
         ("caption.style", "resolve_axi"): _caption_style,

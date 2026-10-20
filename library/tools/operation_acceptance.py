@@ -68,6 +68,17 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
         checks = ["target_absent", "gap_closed",
                   "downstream_continuity_preserved",
                   "unrelated_items_unchanged"]
+    elif op_id == "reel.opening":
+        # The opening's own read-back postconditions: every carried trim
+        # reads back at its declared span and every carried remove is
+        # absent (`requested_opening_span`), retained clips keep their
+        # source identity and transforms (`approved_edits_preserved`),
+        # and nothing outside the decided edits moved
+        # (`unrelated_items_unchanged`). All four arrive as explicit
+        # adapter evidence off a fresh live read-back; anything missing
+        # fails the contract rather than passing it.
+        checks = ["target_identity", "requested_opening_span",
+                  "approved_edits_preserved", "unrelated_items_unchanged"]
     elif op_id == "clip.replace":
         checks = ["target_identity", "requested_source_identity",
                   "record_span_preserved", "unrelated_items_unchanged"]

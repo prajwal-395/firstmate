@@ -1818,6 +1818,29 @@
         "op",
         "plan"
       ]
+    },
+    {
+      "description": "Tighten the opening to the supplied brief while preserving the\nspeaker's meaning and approved edits.",
+      "type": "object",
+      "properties": {
+        "brief": {
+          "type": "string"
+        },
+        "edits": true,
+        "op": {
+          "type": "string",
+          "const": "reel.opening"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "brief",
+        "edits"
+      ]
     }
   ],
   "$defs": {
