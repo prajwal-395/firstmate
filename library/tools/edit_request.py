@@ -283,6 +283,39 @@ class EditOperation:
 # ── The request ───────────────────────────────────────────────────────
 
 
+def _generation_pin(value: int | str | None, name: str) -> int | None:
+    """The generation pin as an int, or None when there is no pin.
+
+    A pin is a NUMBER and the staleness check compares it with a
+    recorded generation, which is an int. It arrives as a STRING from
+    the sources that speak in strings - the `edit_spec` schema declares
+    `base_generation` a non-empty string, and `ren revise` carries the
+    model's program straight through - and a string that is compared
+    with an int is never equal, so every request pinned to the head
+    was refused as "stale" while the recorded head WAS the pin.
+
+    The pin is converted HERE, where the request's own invariant
+    lives, so every way in gets one meaning. A string that is not a
+    number is refused rather than dropped: a pin nobody can read is a
+    pin that cannot protect the base.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise EditRequestError(
+            f"{name} must be a generation number, not {value!r}")
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError as exc:
+        raise EditRequestError(
+            f"{name} {value!r} is not a generation number") from exc
+
+
 @dataclass(frozen=True)
 class EditRequest:
     """Structured intent before physical method (VC-07).
@@ -322,6 +355,14 @@ class EditRequest:
     version: int = REQUEST_VERSION
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "expected_base_generation",
+            _generation_pin(self.expected_base_generation,
+                            "expected_base_generation"))
+        object.__setattr__(
+            self, "expected_model_revision",
+            _generation_pin(self.expected_model_revision,
+                            "expected_model_revision"))
         if not self.id:
             raise EditRequestError("an edit request needs an id")
         if not self.idempotency_key:

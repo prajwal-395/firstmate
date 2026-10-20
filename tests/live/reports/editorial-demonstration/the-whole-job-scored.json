@@ -1,0 +1,155 @@
+{
+  "assessment": {
+    "editorial_status": "fail",
+    "judge": "the crewmate agent, reading the DELIVERED FILE only: the brief's public half, the file's digest, four stills and the file's own measurements",
+    "technical_status": "fail"
+  },
+  "brief_id": "the-whole-job",
+  "delivery": {
+    "duration_seconds": 79.573333,
+    "sha256": "04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f"
+  },
+  "evidence": [
+    {
+      "established": true,
+      "id": "interpreted",
+      "proves": "the run stated what it understood and named the work itself",
+      "statement": "The brief is interpreted without evaluator-supplied edit commands."
+    },
+    {
+      "established": true,
+      "id": "evidence-backed",
+      "proves": "every retrieved moment carries at least one evidence id",
+      "statement": "All selected source moments are supported by recorded evidence."
+    },
+    {
+      "established": true,
+      "id": "plan-valid",
+      "proves": "the plan covers what the request asked for and names nothing it did not",
+      "statement": "The edit plan is semantically valid."
+    },
+    {
+      "established": false,
+      "id": "qualified-route",
+      "proves": "the receipt reached a verified state and the route is named",
+      "statement": "Every requested operation is routed through qualified execution."
+    },
+    {
+      "established": true,
+      "id": "unrelated-unchanged",
+      "proves": "no collateral change was recorded and the preservation check passed",
+      "statement": "Unrelated approved state remains unchanged."
+    },
+    {
+      "established": true,
+      "id": "no-open-transaction",
+      "proves": "the run recorded no pending recovery, or a verified one",
+      "statement": "No unresolved transaction or recovery state remains."
+    },
+    {
+      "established": false,
+      "id": "export-carries-changes",
+      "proves": "the file carries a digest and the judge read the changes in it",
+      "statement": "The exported video contains the requested changes."
+    },
+    {
+      "established": false,
+      "id": "technical-pass",
+      "proves": "every technical check that ran passed, and none was left unmeasured",
+      "statement": "Technical audio/video constraints pass."
+    },
+    {
+      "established": false,
+      "id": "independent-judgment",
+      "proves": "a named judge read the file and passed the brief",
+      "statement": "An independent editor judges the resulting treatment acceptable against the brief."
+    },
+    {
+      "established": true,
+      "id": "latency-and-resource",
+      "proves": "the run recorded its wall time and its peak resident size",
+      "statement": "Total latency and peak resource usage are measured."
+    }
+  ],
+  "evidence_established": 6,
+  "evidence_total": 10,
+  "execution": {
+    "receipt_status": "refused",
+    "route": "reel_touchup (protected experimental) - the route the lower-third move was given before the write was refused"
+  },
+  "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+  "latency": {
+    "instruction_to_verified_seconds": null,
+    "wall_seconds": 3309.0
+  },
+  "milestone": false,
+  "milestone_rule": "every obligation established, every piece of evidence produced, and the independent judge passed the delivered file against the brief - not the plan, and not the commands that ran",
+  "obligations": [
+    {
+      "detail": "the plan opens the reel on a moment",
+      "established": true,
+      "id": "opening",
+      "statement": "Identify the most engaging opening moment."
+    },
+    {
+      "detail": "the plan removes pauses or repetition",
+      "established": true,
+      "id": "pauses",
+      "statement": "Remove unnecessary pauses and repetition."
+    },
+    {
+      "detail": "the plan replaces a camera angle",
+      "established": true,
+      "id": "angle",
+      "statement": "Replace one weak camera angle."
+    },
+    {
+      "detail": "the plan inserts cutaway material",
+      "established": true,
+      "id": "broll",
+      "statement": "Choose and insert relevant B-roll."
+    },
+    {
+      "detail": "the plan corrects a caption",
+      "established": true,
+      "id": "caption",
+      "statement": "Correct an inaccurate caption."
+    },
+    {
+      "detail": "the plan adjusts the lower third",
+      "established": true,
+      "id": "lower-third",
+      "statement": "Adjust a lower-third graphic."
+    },
+    {
+      "detail": "the plan balances the audio",
+      "established": true,
+      "id": "levels",
+      "statement": "Balance relevant audio levels."
+    },
+    {
+      "detail": "no unrelated state changed and the preservation check passed",
+      "established": true,
+      "id": "preservation",
+      "statement": "Preserve existing grading, transitions, transforms, linked audio, and unrelated human edits."
+    },
+    {
+      "detail": "a file was delivered, with its digest",
+      "established": true,
+      "id": "export",
+      "statement": "Export the finished reel."
+    },
+    {
+      "detail": "the delivered file was inspected",
+      "established": true,
+      "id": "verify",
+      "statement": "Verify the actual exported video."
+    }
+  ],
+  "obligations_established": 10,
+  "obligations_total": 10,
+  "resource": {
+    "peak_rss_bytes": 379944960
+  },
+  "schema": "ren-editorial-demonstration/1"
+}
