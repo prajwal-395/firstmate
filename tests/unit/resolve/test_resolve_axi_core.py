@@ -360,6 +360,47 @@ def test_registered_batch_keeps_recovery_required_for_unknown_failed_write(
     assert recovery["remaining_operations"] == [1]
 
 
+def test_touchup_move_resize_batch_requires_one_stable_overlay_identity():
+    """Defect: move+resize had no declared, recoverable compound path."""
+    from library.tools.resolve_axi_core import _registered_batch_supported
+
+    operations = [
+        {"op": "overlay.position", "unique_id": "overlay-1",
+         "dx": 10, "dy": 4},
+        {"op": "overlay.resize", "unique_id": "overlay-1",
+         "width": 640, "height": 360},
+    ]
+
+    assert _registered_batch_supported("reel_touchup", operations)
+    assert not _registered_batch_supported(
+        "reel_touchup", [operations[0],
+                         {**operations[1], "unique_id": "overlay-2"}])
+    assert not _registered_batch_supported("resolve_axi", operations)
+
+
+def test_registered_compensation_refuses_unverified_undo_receipt(monkeypatch):
+    """Defect: an undo receipt without a positive verdict looked recovered."""
+    from library.tools import undo_journal
+    from library.tools.resolve_axi_core import _compensate_registered_operations
+
+    monkeypatch.setattr(undo_journal, "undo", lambda *_args, **_kwargs: [
+        {"entry_id": "entry-0"}])
+    receipts = [{
+        "operation_index": 0,
+        "receipt": {"execution_contract": {"recovery": {
+            "reference": {"kind": "undo_journal_entry",
+                          "project_folder": "/project",
+                          "entry_id": "entry-0"}}}},
+    }]
+
+    recovery = _compensate_registered_operations(
+        receipts, timeline="Reel 01")
+
+    assert recovery["status"] == "recovery_required"
+    assert recovery["actions"] == []
+    assert recovery["remaining_operations"] == [0]
+
+
 def test_compatible_delete_batch_uses_one_editpatch_commit(monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace

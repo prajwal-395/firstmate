@@ -117,6 +117,30 @@ class RegisteredBatchPreflightRefused(ValueError):
     """A multi-operation batch refused before its first write."""
 
 
+def _registered_batch_supported(backend_id: str,
+                                operations: Sequence[Mapping]) -> bool:
+    """Whether the existing adapters can recover this exact batch shape.
+
+    Keep this deliberately narrower than operation compatibility in the
+    abstract algebra: a batch is supported only when its physical executor
+    and its compensation path are both already available.
+    """
+    operation_ids = tuple(str(operation["op"]) for operation in operations)
+    operation_set = set(operation_ids)
+    if (backend_id == "resolve_axi"
+            and operation_set <= {"clip.trim", "clip.delete"}):
+        return True
+    if backend_id == "resolve_axi" and operation_set == {"caption.style"}:
+        return True
+    if (backend_id == "reel_touchup"
+            and operation_set == {"overlay.position", "overlay.resize"}
+            and len(operations) == 2):
+        targets = [str(operation.get("unique_id") or "")
+                   for operation in operations]
+        return bool(targets[0]) and targets[0] == targets[1]
+    return len(operations) <= 1
+
+
 def register_edit_executor(operation_id: str, backend_id: str,
                            executor: EditExecutor, *, replace: bool = False
                            ) -> None:
@@ -238,10 +262,11 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
                 str(reference["project_folder"]), final=timeline,
                 act=str(reference["entry_id"]))
             if (not isinstance(result, list) or len(result) != 1
-                    or (isinstance(result[0], Mapping)
-                        and result[0].get("verified") is False)):
+                    or not isinstance(result[0], Mapping)
+                    or result[0].get("verified") is not True):
                 raise RuntimeError(
-                    "undo journal did not return one verified restoration")
+                    "undo journal did not return one explicitly verified "
+                    "restoration")
         except Exception as exc:  # noqa: BLE001 - preserve partial state
             completed = {action["operation_index"] for action in actions}
             return {
@@ -523,11 +548,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     if not executors:
         raise ValueError("routed semantic request contains no executable operations")
-    operation_ids = {str(operation["op"]) for operation in operations}
-    supported_batch = (operation_ids <= {"clip.trim", "clip.delete"}
-                       or operation_ids == {"caption.style"})
-    if len(operations) > 1 and (
-            backend_id != "resolve_axi" or not supported_batch):
+    if not _registered_batch_supported(backend_id, operations):
         raise ValueError(
             f"{backend_id} has no verified batch recovery strategy for this "
             "multi-operation request; no operation was applied")

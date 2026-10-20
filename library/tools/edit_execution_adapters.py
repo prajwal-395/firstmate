@@ -1556,8 +1556,15 @@ def _touchup(context) -> dict:
                 "evidence": {"acceptance_contract": contracts[0],
                              "touchup_receipt": receipt},
             },
-            "recovery": {"status": "recorded",
-                         "action": "staged touch-up journal and backup"},
+            "recovery": {
+                "status": "available",
+                "action": "undo the touch-up journal entry and verify its read-back",
+                "reference": {
+                    "kind": "undo_journal_entry",
+                    "project_folder": _project_folder(context),
+                    "entry_id": str(receipt["journal"]),
+                },
+            },
         },
     }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 STAGES = ("PLANNED", "VALIDATED", "EXECUTING", "APPLIED", "VERIFIED",
@@ -144,12 +145,19 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         row = transactions.setdefault(transaction_id, {
             "transaction_id": transaction_id, "last_stage": None,
-            "last_event": None, "operations": []})
+            "last_event": None, "operations": {}})
         row["last_stage"] = fields.get("stage")
         row["last_event"] = event
-        if fields.get("stage") == "operation_applied":
-            row["operations"].append({"index": fields.get("index"),
-                                      "op": fields.get("op")})
-    return [{**row, "status": "recovery_required"}
+        if fields.get("stage") in {"operation_applying", "operation_applied"}:
+            operation = fields.get("operation", fields.get("op"))
+            operation_id = (operation.get("op")
+                            if isinstance(operation, Mapping) else operation)
+            operation_row = {"index": fields.get("index"),
+                             "op": operation_id}
+            if fields.get("stage") == "operation_applying":
+                operation_row["mutation_state"] = "uncertain"
+            row["operations"][fields.get("index")] = operation_row
+    return [{**row, "operations": list(row["operations"].values()),
+             "status": "recovery_required"}
             for row in transactions.values()
             if row["last_stage"] not in {"committed", "delivered"}]
