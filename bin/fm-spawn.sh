@@ -4089,22 +4089,26 @@ freshen_spawn_worktree_base() { # <worktree> [<base-branch>]
 # resolved to the wrong remote, or where a non-pool worktree (Orca, relaunch) was
 # created from a stale or wrong base.
 #
-# The assertion is: the tracked upstream commit must be an ancestor of HEAD.
+# The assertion is: the selected base commit must be an ancestor of HEAD.
 # - If the tracked upstream ref is not locally resolvable: warn and proceed
 #   (unreadable = unknown, not wrong; see fm-startup-network.sh rationale).
 # - If HEAD is not a descendant: refuse loudly and leave the copy untouched
 #   (AGENTS.md hard rule 1 forbids writing to a project, hard rule 3 forbids
 #   touching unlanded work).
-assert_spawn_tracked_base() {  # <worktree>
-  local worktree=$1 default upstream tracked_sha head_sha
-  default=$(default_branch "$worktree") || {
-    echo "warning: could not determine the default branch for worktree '$worktree'; skipping tracked-base assertion" >&2
-    return 0
-  }
-  upstream=$(git -C "$worktree" rev-parse --abbrev-ref "${default}@{upstream}" 2>/dev/null) || {
-    echo "warning: default branch '$default' has no upstream tracking in worktree '$worktree'; skipping tracked-base assertion" >&2
-    return 0
-  }
+assert_spawn_tracked_base() {  # <worktree> [<base-branch>]
+  local worktree=$1 base_branch=${2:-} default upstream tracked_sha head_sha
+  if [ -n "$base_branch" ]; then
+    upstream="origin/$base_branch"
+  else
+    default=$(default_branch "$worktree") || {
+      echo "warning: could not determine the default branch for worktree '$worktree'; skipping tracked-base assertion" >&2
+      return 0
+    }
+    upstream=$(git -C "$worktree" rev-parse --abbrev-ref "${default}@{upstream}" 2>/dev/null) || {
+      echo "warning: default branch '$default' has no upstream tracking in worktree '$worktree'; skipping tracked-base assertion" >&2
+      return 0
+    }
+  fi
   tracked_sha=$(git -C "$worktree" rev-parse --verify --quiet "$upstream^{commit}" 2>/dev/null) || {
     echo "warning: tracked upstream '$upstream' is not locally resolvable in worktree '$worktree'; skipping tracked-base assertion (unreadable upstream)" >&2
     return 0
@@ -5156,7 +5160,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   freshen_spawn_worktree_base "$WT" "$BASE_BRANCH" || exit 1
-  assert_spawn_tracked_base "$WT" || exit 1
+  assert_spawn_tracked_base "$WT" "$BASE_BRANCH" || exit 1
   # Name this slot's surviving ignored files for this task id in the launch
   # brief before the worker ever reads it. Never refuses and never deletes.
   spawn_annotate_stale_task_artifacts "$WT" "$ID" "$BRIEF" || true
