@@ -251,3 +251,81 @@ def record_repair_measurement(report: Report, finding_id: str,
     attempt["verification"] = {
         "passed": bool(measured_result.passed), "detail": measured_result.detail}
     return updated
+
+
+def record_repair_measurements(report: Report, finding_id: str,
+                               measured_results: Sequence[Any]) -> dict:
+    """Reconcile the complete post-repair detector pass with the report.
+
+    A repair can resolve its target and still regress another criterion.
+    The same complete detector set is therefore required after the write;
+    missing or duplicate measurements refuse to close the repair.  The
+    report is updated in place and the receipt names every newly failing
+    metric so the caller cannot present target-only success as clean.
+    """
+    target = next((finding for finding in report.findings
+                   if finding.id == finding_id), None)
+    if target is None:
+        raise CreativeQAError("unknown finding")
+    if not measured_results:
+        raise CreativeQAError("repair recheck returned no measurements")
+    by_metric: dict[str, Any] = {}
+    for result in measured_results:
+        metric = str(result.metric)
+        if metric in by_metric:
+            raise CreativeQAError(
+                f"repair recheck duplicated measurement {metric!r}")
+        by_metric[metric] = result
+    expected = {finding.metric for finding in report.findings
+                if finding.kind == DETERMINISTIC}
+    if set(by_metric) != expected:
+        missing = sorted(expected - set(by_metric))
+        unexpected = sorted(set(by_metric) - expected)
+        raise CreativeQAError(
+            "repair recheck must cover the original detector set; "
+            f"missing={missing}, unexpected={unexpected}")
+    if target.metric not in by_metric:
+        raise CreativeQAError("repair must recheck the original finding")
+
+    prior_failures = {
+        finding.metric for finding in report.findings
+        if finding.kind == DETERMINISTIC and not finding.passed
+    }
+    updated = []
+    for finding in list(report.findings):
+        if finding.kind != DETERMINISTIC:
+            continue
+        result = by_metric[finding.metric]
+        revised = Finding(
+            id=finding.id, kind=finding.kind, metric=finding.metric,
+            passed=bool(result.passed), severity=result.severity,
+            detail=result.detail, span=finding.span, intent=finding.intent,
+            action=("none" if result.passed else
+                    finding.action if finding.metric in prior_failures else
+                    "block_delivery"),
+            repair_class=finding.repair_class,
+            reversible=finding.reversible)
+        report.findings[report.findings.index(finding)] = revised
+        updated.append(revised)
+
+    attempt = next((row for row in report.repair_attempts
+                    if row.get("finding_id") == finding_id), None)
+    if attempt is None:
+        raise CreativeQAError("finding has no recorded repair attempt")
+    regressions = sorted(
+        finding.metric for finding in updated
+        if finding.metric not in prior_failures and not finding.passed)
+    all_criteria_passed = not report.blocks_delivery and not regressions
+    attempt["verification"] = {
+        "passed": bool(by_metric[target.metric].passed),
+        "detail": by_metric[target.metric].detail,
+        "all_criteria_passed": all_criteria_passed,
+        "regressions": regressions,
+        "measurements": {
+            metric: {"passed": bool(result.passed), "detail": result.detail}
+            for metric, result in by_metric.items()
+        },
+    }
+    return {"target": next(f for f in report.findings if f.id == finding_id),
+            "regressions": regressions,
+            "all_criteria_passed": all_criteria_passed}

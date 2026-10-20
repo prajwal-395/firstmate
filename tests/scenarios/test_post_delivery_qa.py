@@ -49,7 +49,7 @@ def _result(metric, passed, detail="measured"):
     )
 
 
-def _verdict(loudness_passed=True):
+def _verdict(loudness_passed=True, grade_passed=True):
     return SimpleNamespace(
         duration=_result("duration", True),
         black_frames=_result("black_frames", True),
@@ -61,7 +61,7 @@ def _verdict(loudness_passed=True):
             else "LUFS: -20.94, True Peak: -1.62 - integrated -20.94 LUFS is "
             "6.94 dB off the -14.0 target (tolerance +/-1.0)",
         ),
-        grade=_result("grade", True),
+        grade=_result("grade", grade_passed),
         captions=None,
     )
 
@@ -138,6 +138,9 @@ def test_loudness_defect_gets_one_repair_remeasure_and_receipt(project, loudness
         intent_by_metric=INTENT,
         render_review={},
         repair=repair,
+        reexport=lambda _attempt: {
+            "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
+        },
     )
 
     assert len(repairs) == 1, "exactly one repair attempt"
@@ -154,10 +157,51 @@ def test_loudness_defect_gets_one_repair_remeasure_and_receipt(project, loudness
     assert result["repair"]["verified"] == {
         "passed": True,
         "detail": "LUFS: -14.02, True Peak: -1.62",
+        "all_criteria_passed": True,
+        "regressions": [],
     }
     stored = json.loads(qa.store_path(str(project)).read_text(encoding="utf-8"))
     assert stored["receipts"][-1]["repair"]["attempt"] == attempt
     assert stored["receipts"][-1]["repair"]["verified"]["passed"] is True
+
+
+def test_repair_that_fixes_loudness_but_regresses_grade_stays_blocked(
+    project, monkeypatch
+):
+    """Catches: target-only success hiding a new failed detector."""
+    from library.tools import deliverable_qc
+    from library.tools import post_delivery_qa as qa
+
+    calls = []
+
+    def measure(*_args, **_kwargs):
+        calls.append(True)
+        return _verdict(loudness_passed=len(calls) > 1,
+                        grade_passed=len(calls) == 1)
+
+    monkeypatch.setattr(deliverable_qc, "run_deliverable_qc", measure)
+    result = qa.run_for_deliverable(
+        str(project), timeline=TIMELINE, video_path="fixture.mp4",
+        spec=SPEC, expected_duration=12.0, render_id="render-regression",
+        intent_by_metric=INTENT, render_review={},
+        repair=lambda _finding: {
+            "receipt": {"operation": "loudness_normalize"},
+            "inverse": {"operation": "restore_prior_gain"},
+        },
+        reexport=lambda _attempt: {
+            "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
+        },
+    )
+
+    assert len(calls) == 2
+    assert result["status"] == "repair_failed"
+    assert result["repair"]["verified"] == {
+        "passed": True,
+        "detail": "LUFS: -14.02, True Peak: -1.62",
+        "all_criteria_passed": False,
+        "regressions": ["grade"],
+    }
+    assert result["report"]["deterministic"][-1]["passed"] is False
 
 
 def test_a_repair_that_still_fails_remeasure_is_reported_not_closed(
@@ -185,6 +229,9 @@ def test_a_repair_that_still_fails_remeasure_is_reported_not_closed(
         repair=lambda finding: {
             "receipt": {"operation": "x"},
             "inverse": {"operation": "un-x"},
+        },
+        reexport=lambda _attempt: {
+            "video_path": "fixture-fresh.mp4", "expected_duration": 12.0,
         },
     )
 
@@ -302,8 +349,8 @@ def test_default_loudness_repair_travels_the_revise_path(project, monkeypatch):
         started.append({"note": note, "options": options})
         return {
             "revise_id": "revise_abc123",
-            "status": "awaiting_translation",
-            "reply": "Translating the note.",
+            "status": "patched",
+            "reply": "The verified change was applied.",
         }
 
     monkeypatch.setattr(revise, "start", fake_start)
@@ -327,6 +374,25 @@ def test_default_loudness_repair_travels_the_revise_path(project, monkeypatch):
     assert out["receipt"]["route"] == "ren revise"
     assert out["receipt"]["revise_id"] == "revise_abc123"
     assert "ren undo" in out["inverse"]["undo"]
+
+
+def test_an_untranslated_revision_is_not_recorded_as_an_applied_correction(
+    project, monkeypatch
+):
+    """Catches: a translation request passing as an AXI edit receipt."""
+    from library.tools import creative_qa, revise
+    from library.tools import post_delivery_qa as qa
+
+    monkeypatch.setattr(revise, "start", lambda *a, **k: {
+        "revise_id": "revise_waiting", "status": "awaiting_translation",
+        "reply": "Translating the note.",
+    })
+    report = creative_qa.from_measurements(
+        "assignment-1", "render-7", [_result("lufs", False, "LUFS: -20.94")],
+        duration=12, intent_by_metric={"lufs": INTENT["lufs"]})
+
+    with pytest.raises(qa.PostDeliveryQARefused, match="not an AXI-verified"):
+        qa.revise_routed_repair(str(project), TIMELINE)(report.findings[0])
 
 
 def test_qa_verb_is_registered_in_both_front_doors():

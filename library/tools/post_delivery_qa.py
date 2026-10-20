@@ -159,6 +159,11 @@ def revise_routed_repair(project: str, timeline: str):
     def repair(finding) -> dict:
         note = mechanical_note(finding, platform=_platform_hint(project, timeline))
         result = revise.start(project, note, reel=timeline)
+        if result.get("status") not in revise.LANDED:
+            raise PostDeliveryQARefused(
+                "the QA correction is not an AXI-verified timeline edit "
+                f"(ren revise status={result.get('status')!r}); "
+                "it remains a request for translation or review")
         return {
             "receipt": {
                 "route": "ren revise",
@@ -191,25 +196,18 @@ def _platform_hint(project: str, timeline: str) -> str:
 
 
 def _recheck(video_path: str, spec, expected_duration: float, metric: str):
-    """The same deliverable check, re-run on the file after repair."""
+    """Re-run every deliverable detector after repair, not just its target."""
     from library.tools.deliverable_qc import run_deliverable_qc
 
     verdict = run_deliverable_qc(video_path, spec, expected_duration)
-    by_metric = {
-        row.metric: row
-        for row in (
-            verdict.duration,
-            verdict.black_frames,
-            verdict.loudness,
-            verdict.grade,
-            *(verdict.captions or []),
-        )
-    }
+    results = [verdict.duration, verdict.black_frames, verdict.loudness,
+               verdict.grade, *(verdict.captions or [])]
+    by_metric = {row.metric: row for row in results}
     if metric not in by_metric:
         raise PostDeliveryQARefused(
             f"re-measure found no {metric!r} check in deliverable QC"
         )
-    return by_metric[metric]
+    return results
 
 
 def open_questions(project: str) -> list[dict]:
@@ -277,14 +275,16 @@ def run_for_deliverable(
     render_review: dict | None = None,
     repair=None,
     repair_budget: int | None = None,
+    reexport=None,
 ) -> dict:
     """QA one delivered file: report, at most one repair, questions.
 
     `repair` is the `creative_qa.attempt_repair` callable's repair half -
     `repair(finding)` returning `{"receipt", "inverse"}`; the default
-    routes through `ren revise`. The re-measure always re-runs the same
-    deliverable check on the file. Both are injectable so the suite
-    proves the flow without Resolve, a render, or a model.
+    routes through `ren revise`. A landed edit must be followed by
+    `reexport(attempt)`, returning a fresh `video_path` and optional
+    `expected_duration`, before any detector is allowed to close it.
+    Both seams are injectable, so tests need no Resolve or render.
     """
     from library.tools import creative_qa
 
@@ -334,6 +334,7 @@ def run_for_deliverable(
             spec,
             float(expected_duration),
             repair=repair,
+            reexport=reexport,
         )
 
     questions = []
@@ -346,14 +347,18 @@ def run_for_deliverable(
                 continue
             questions.append(_question_for(project, timeline, finding))
 
+    verified_export = (repair_record.get("reexport") or {}).get("video_path")
+    if verified_export:
+        video_path = verified_export
+
     if repair_record.get("attempt") and repair_record.get("verified"):
-        status = (
-            STATUS_CLEAN
-            if report.passed
-            else STATUS_REPAIRED
-            if repair_record["verified"].get("passed")
-            else STATUS_REPAIR_FAILED
-        )
+        regressions = repair_record["verified"].get("regressions") or []
+        status = (STATUS_CLEAN if report.passed and not regressions else
+                  STATUS_REPAIR_FAILED if (
+                      report.blocks_delivery
+                      or regressions) else
+                  STATUS_CREATOR_REVIEW if report.needs_creator else
+                  STATUS_REPAIRED)
     elif repair_record.get("error"):
         status = STATUS_REPAIR_FAILED
     elif report.blocks_delivery:
@@ -397,6 +402,7 @@ def _repair_once(
     spec,
     expected_duration: float,
     repair=None,
+    reexport=None,
 ) -> dict:
     """The single bounded repair: first `repair_once` finding, then re-QC."""
     from library.tools import creative_qa
@@ -416,16 +422,46 @@ def _repair_once(
             "repair_class": finding.repair_class,
             "error": f"{type(exc).__name__}: {exc}",
         }
+    fresh_path = ""
+    fresh_duration = expected_duration
     try:
-        fresh = _recheck(video_path, spec, expected_duration, finding.metric)
+        if reexport is None:
+            raise PostDeliveryQARefused(
+                "the AXI correction has no fresh re-export callback; "
+                "the prior file cannot verify a timeline change")
+        export = reexport(attempt)
+        if not isinstance(export, dict) or not export.get("video_path"):
+            raise PostDeliveryQARefused(
+                "the correction re-export did not identify a fresh deliverable")
+        fresh_path = str(export["video_path"])
+        fresh_duration = float(export.get("expected_duration", expected_duration))
+        fresh = _recheck(fresh_path, spec, fresh_duration, finding.metric)
     except Exception as exc:  # noqa: BLE001 - an unmeasured repair is reported
         return {
             "finding_id": finding.id,
             "repair_class": finding.repair_class,
             "attempt": attempt,
+            **({"reexport": {"video_path": fresh_path,
+                              "expected_duration": fresh_duration}}
+               if fresh_path else {}),
             "error": f"re-measure failed: {type(exc).__name__}: {exc}",
         }
-    updated = creative_qa.record_repair_measurement(report, finding.id, fresh)
+    try:
+        verification = creative_qa.record_repair_measurements(
+            report, finding.id, fresh)
+    except Exception as exc:  # noqa: BLE001 - incomplete evidence stays open
+        return {
+            "finding_id": finding.id,
+            "repair_class": finding.repair_class,
+            "attempt": attempt,
+            "reexport": {"video_path": fresh_path,
+                         "expected_duration": fresh_duration},
+            "error": f"re-measure evidence is incomplete: {type(exc).__name__}: {exc}",
+        }
+    try:
+        report.render_id = f"{timeline}@{os.stat(fresh_path).st_mtime_ns}"
+    except OSError:
+        report.render_id = f"{timeline}@{Path(fresh_path).name}"
     attempt = next(
         entry for entry in report.repair_attempts if entry["finding_id"] == finding.id
     )
@@ -433,7 +469,14 @@ def _repair_once(
         "finding_id": finding.id,
         "repair_class": finding.repair_class,
         "attempt": attempt,
-        "verified": {"passed": bool(updated.passed), "detail": updated.detail},
+        "reexport": {"video_path": fresh_path,
+                     "expected_duration": fresh_duration},
+        "verified": {
+            "passed": bool(verification["target"].passed),
+            "detail": verification["target"].detail,
+            "all_criteria_passed": verification["all_criteria_passed"],
+            "regressions": verification["regressions"],
+        },
     }
 
 
@@ -500,6 +543,27 @@ def run_for_project(project, *, reel: int | None = None) -> dict:
             render_id = f"{timeline}@{stat.st_mtime_ns}"
         except OSError:
             render_id = f"{timeline}@{Path(output).name}"
+
+        reel_number = entry.get("reel")
+        recorded_output = output
+
+        def reexport(_attempt, reel=reel_number,
+                     output_path=recorded_output):
+            if reel is None:
+                raise PostDeliveryQARefused(
+                    "the delivery ledger does not name the reel number; "
+                    "cannot re-export the corrected timeline")
+            from library.tools.reel_deliver import deliver_reel
+
+            delivered = deliver_reel(
+                project, int(reel), output_dir=os.path.dirname(output_path),
+                file_name=os.path.basename(output_path))
+            return {
+                "video_path": delivered["render"]["output_path"],
+                "expected_duration": delivered["timeline_seconds"],
+                "delivery": delivered,
+            }
+
         ran.append(
             run_for_deliverable(
                 project,
@@ -510,6 +574,7 @@ def run_for_project(project, *, reel: int | None = None) -> dict:
                 assignment_id=str(entry.get("assignment_id") or ""),
                 render_id=render_id,
                 render_review=review,
+                reexport=reexport,
             )
         )
     return {"platforms": wanted, "deliverables": ran, "skipped": skipped}
