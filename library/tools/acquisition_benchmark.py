@@ -96,7 +96,15 @@ def _aggregate(rows: list[dict]) -> dict:
     return {"status": "measured", "task_count": n,
             "mean_utility": round(sum(r["utility"] for r in rows) / n, 4),
             "miss_rate": round(sum(r["miss"] for r in rows) / n, 4),
-            "mean_cost_seconds": round(sum(r["cost_seconds"] for r in rows) / n, 4),
+            # Six decimals, not four.  The acceptance criterion compares
+            # this number against another one to decide which policy is
+            # CHEAPER, and four decimals erases every difference below
+            # 0.1 ms: a candidate measured at 54 us and a baseline at
+            # 106 us both round to 0.0001 and the comparison the
+            # criterion exists to make becomes undecidable (measured
+            # 2026-10-20, see
+            # docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+            "mean_cost_seconds": round(sum(r["cost_seconds"] for r in rows) / n, 6),
             "quality_per_second": round(sum(r["utility"] for r in rows) /
                                          max(sum(r["cost_seconds"] for r in rows), 1e-9), 6),
             "peak_rss_mb": round(max(r["peak_rss_mb"] for r in rows), 2),

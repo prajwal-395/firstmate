@@ -2,7 +2,7 @@ import copy
 
 import pytest
 
-from library.tools.acquisition_benchmark import calibrate, evaluate
+from library.tools.acquisition_benchmark import _aggregate, calibrate, evaluate
 
 
 def _dataset():
@@ -120,3 +120,24 @@ def test_calibration_records_winning_config_paired_baseline():
     assert calibration["paired_baseline_cost_seconds"] == 15
     assert fitted["by_lane"]["objects"]["baseline_utility"][
         "mean_cost_seconds"] == 15
+
+
+def test_the_aggregate_keeps_the_cost_precision_the_comparison_needs():
+    """The acceptance criterion compares one cost with another.
+
+    `_aggregate` rounds the mean cost to four decimals, so a candidate
+    measured at 54 us and a baseline measured at 106 us both round to
+    0.0001 and the "cheaper" comparison the criterion exists to make
+    becomes undecidable (measured 2026-10-20, see
+    docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+    """
+    rows = [{"task_id": "t", "lane": "speech", "utility": 1.0,
+             "precision": 1.0, "recall": 1.0, "miss": False,
+             "cost_seconds": 0.000054, "quality_per_second": 1.0,
+             "peak_rss_mb": 1.0, "budget_refused": False,
+             "status": "completed"}]
+    aggregate = _aggregate(rows)
+    assert aggregate["mean_cost_seconds"] < 0.0001, (
+        "a cost measured in microseconds must not round up to the same "
+        "number as a cost twice as large")
+    assert aggregate["mean_cost_seconds"] == pytest.approx(0.000054, abs=1e-9)
