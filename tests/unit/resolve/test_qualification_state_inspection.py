@@ -99,16 +99,36 @@ def test_a_measured_runtime_that_matches_routes_the_promoted_operation():
 
 
 def test_a_measured_runtime_that_does_not_match_names_the_predicate():
-    """The refusal says WHICH condition the runtime is not in."""
+    """The refusal says WHICH condition the runtime is not in.
+
+    The condition it names is a DIMENSION now, not a project: a
+    predicate that named the fixture project restricted the operation to
+    the place the evidence was earned, so a runtime in a different
+    project but the same state was refused for the wrong reason.
+    """
     state = _qualified_state()
-    state["project_name"] = "Ren Scratch - breaktest"
+    state["media_type"] = "still"
     with pytest.raises(RoutingRefused) as refusal:
         route_compiled_edit(_promoted_operation(), context={
             "qualification_state": {"inspected": True, "state": state}})
     message = str(refusal.value)
-    assert "project_name is 'Ren Scratch - breaktest'" in message
-    assert "not 'Ren Qualification'" in message
+    assert "media_type is 'still'" in message
     assert "runtime qualification state was not inspected" not in message
+
+
+def test_a_predicate_no_longer_names_the_project_it_was_earned_in():
+    """The recorded predicates are a property of a STATE.
+
+    A predicate that names a project or a timeline restricts an operation
+    to the place the evidence was earned - which is not a qualification
+    boundary, and is what the v2 evidence format refuses.
+    """
+    records = axi_qualification.load_qualification_records()
+    for (op_id, backend), record in records.items():
+        fields = {predicate["field"]
+                  for predicate in record["qualification_predicates"]}
+        assert "project_name" not in fields, (op_id, backend)
+        assert "timeline_name" not in fields, (op_id, backend)
 
 
 def test_an_unreadable_runtime_is_refused_and_says_why():
@@ -229,10 +249,6 @@ def test_the_axi_command_dispatch_measures_the_runtime(monkeypatch):
     """
     from library.tools import resolve_axi_core_commands as commands
 
-    class _Timeline:
-        def GetName(self):
-            return "fm-scratch qualify"
-
     class _Project:
         def GetName(self):
             return "Ren Qualification"
@@ -243,12 +259,9 @@ def test_the_axi_command_dispatch_measures_the_runtime(monkeypatch):
 
     monkeypatch.setattr(
         "library.tools.reel_read.read_tracks",
-        lambda timeline: [{"type": "video", "index": 1, "name": "Video 1",
-                           "clips": [{"unique_id": "item-1",
-                                      "media_type": "Video",
-                                      "linked_unique_ids": []}]}])
+        lambda timeline: _fake_tracks(*_fake_rows()))
     context = commands._qualification_context(
-        _Resolve(), _Project(), _Timeline(),
+        _Resolve(), _Project(), _fake_timeline(),
         [{"op": "clip.delete", "unique_id": "item-1"}])
     assert context["qualification_state"]["inspected"] is True
     decision = route_compiled_edit(
@@ -275,15 +288,108 @@ def _fake_rows(*, media_type: str = "Video", linked=(), extra: int = 0):
     return rows
 
 
+def _fake_tracks(*rows):
+    """The row shape `reel_read.read_tracks` produces."""
+    return [{"type": "video", "index": 1, "name": "Video 1",
+             "clips": list(rows)}]
+
+
+def _fake_timeline(name="fm-scratch qualify"):
+    """A timeline that answers the settings the measurement reads."""
+
+    class _Timeline:
+        def GetName(self):
+            return name
+
+        def GetSetting(self, key):
+            return {"timelineFrameRate": "24",
+                    "timelineResolutionWidth": "1920",
+                    "timelineResolutionHeight": "1080"}.get(key)
+
+        def GetTrackCount(self, track_type):
+            return 0
+
+    return _Timeline()
+
+
 def test_the_measurement_describes_the_runtime_it_read(monkeypatch):
     """The measurement speaks the vocabulary the predicates are written in."""
     from library.tools import axi_qualification_state
 
     rows = _fake_rows()
 
+    class _Project:
+        def GetName(self):
+            return "Ren Qualification"
+
+    class _Resolve:
+        def GetVersionString(self):
+            return "DaVinci Resolve 21.1.0.14"
+
+    monkeypatch.setattr(
+        "library.tools.reel_read.read_tracks", lambda timeline: [])
+    state = axi_qualification_state.inspect_handles(
+        resolve=_Resolve(), resolve_project=_Project(),
+        timeline=_fake_timeline(),
+        operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
+    assert state["inspected"] is True
+    assert state["state"]["resolve_version"] == "DaVinci Resolve 21.1.0.14"
+
+    # The vocabulary, measured from the rows.
+    assert axi_qualification_state._media_type(rows, []) == "video"
+    assert axi_qualification_state._clip_composition(rows) == \
+        "single_video_clip"
+    assert axi_qualification_state._linked_audio(
+        rows, {"item-1": rows[0]}) == "no_linked_audio"
+    assert axi_qualification_state._timeline_structure(_fake_tracks(*rows)) \
+        == "single_item_timeline"
+
+
+def test_the_measurement_reports_every_dimension_a_predicate_may_name(
+        monkeypatch):
+    """A predicate never compares against a field the runtime did not read.
+
+    The dimensions are the ONE enumeration the predicates are written
+    in, so the measurement has to answer every one of them - and a
+    dimension that cannot be read refuses rather than reporting a
+    default as though it had been measured.
+    """
+    from library.tools import axi_qualification_dimensions as dimensions
+    from library.tools import axi_qualification_state
+
+    class _Project:
+        def GetName(self):
+            return "Ren Qualification"
+
+    class _Resolve:
+        def GetVersionString(self):
+            return "DaVinci Resolve 21.1.0.14"
+
+    monkeypatch.setattr(
+        "library.tools.reel_read.read_tracks",
+        lambda timeline: _fake_tracks(*_fake_rows()))
+    state = axi_qualification_state.inspect_handles(
+        resolve=_Resolve(), resolve_project=_Project(),
+        timeline=_fake_timeline(),
+        operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
+
+    assert state["inspected"] is True
+    assert set(state["state"]) == set(dimensions.DIMENSIONS)
+
+
+def test_an_unreadable_setting_refuses_the_measurement(monkeypatch):
+    """A frame rate the timeline did not say is not a frame rate."""
+    from library.tools import axi_qualification_state
+
     class _Timeline:
         def GetName(self):
             return "fm-scratch qualify"
+
+        def GetSetting(self, key):
+            return None
+
+        def GetTrackCount(self, track_type):
+            return 0
 
     class _Project:
         def GetName(self):
@@ -304,19 +410,9 @@ def test_the_measurement_describes_the_runtime_it_read(monkeypatch):
         resolve=_Resolve(), resolve_project=_Project(),
         timeline=_Timeline(),
         operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
-    assert state["inspected"] is True
-    assert state["state"]["resolve_version"] == "21.1.0.14"
-    assert state["state"]["project_name"] == "Ren Qualification"
-    assert state["state"]["timeline_name"] == "fm-scratch qualify"
 
-    # The vocabulary, measured from the rows.
-    assert axi_qualification_state._media_type(rows, []) == "video"
-    assert axi_qualification_state._clip_composition(rows) == \
-        "single_video_clip"
-    assert axi_qualification_state._linked_audio(
-        rows, {"item-1": rows[0]}) == "no_linked_audio"
-    assert axi_qualification_state._timeline_structure(rows) == \
-        "single_seeded_clip_empty_baseline"
+    assert state["inspected"] is False
+    assert "timelineFrameRate" in state["reason"]
 
 
 def test_the_measured_fixture_satisfies_the_recorded_predicates(monkeypatch):
@@ -327,10 +423,6 @@ def test_the_measured_fixture_satisfies_the_recorded_predicates(monkeypatch):
     timeline the evidence was earned on.
     """
     from library.tools import axi_qualification_state
-
-    class _Timeline:
-        def GetName(self):
-            return "fm-scratch qualify"
 
     class _Project:
         def GetName(self):
@@ -343,11 +435,10 @@ def test_the_measured_fixture_satisfies_the_recorded_predicates(monkeypatch):
     rows = _fake_rows()
     monkeypatch.setattr(
         "library.tools.reel_read.read_tracks",
-        lambda timeline: [{"type": "video", "index": 1, "name": "Video 1",
-                           "clips": rows}])
+        lambda timeline: _fake_tracks(*rows))
     measured = axi_qualification_state.inspect_handles(
         resolve=_Resolve(), resolve_project=_Project(),
-        timeline=_Timeline(),
+        timeline=_fake_timeline(),
         operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
 
     assert measured["inspected"] is True
@@ -424,15 +515,23 @@ def test_the_state_the_live_run_measured_now_satisfies_the_recorded_conditions()
     This is that measurement, as the refusal printed it, replayed against
     the recorded conditions. The conditions the evidence was earned under
     have to be satisfiable by the runtime the evidence was earned on.
+
+    The conditions are DIMENSIONS now, so the measurement is replayed in
+    the dimension vocabulary - the same measurement, read the way the
+    router reads it.
     """
     measured = {
         "resolve_version": "21.1.0.14",
-        "project_name": "Ren Qualification",
-        "timeline_name": "fm-scratch qualify",
-        "media_type": "video + audio",
+        "media_type": "video",
         "clip_composition": "linked_video_clip",
         "linked_audio_configuration": "linked_audio_present",
+        "track_layout": "video+audio",
+        "track_occupancy": "mixed",
+        "timeline_density": "light",
         "timeline_structure": "multi_item_timeline",
+        "project_settings": "landscape_1920x1080",
+        "frame_rate": "24",
+        "existing_effects": "none",
     }
     inspected = {"inspected": True, "state": measured}
 
@@ -454,10 +553,6 @@ def test_the_measurement_reads_the_version_in_the_one_reading(monkeypatch):
     """
     from library.tools import axi_qualification_state
 
-    class _Timeline:
-        def GetName(self):
-            return "fm-scratch qualify"
-
     class _Project:
         def GetName(self):
             return "Ren Qualification"
@@ -468,11 +563,10 @@ def test_the_measurement_reads_the_version_in_the_one_reading(monkeypatch):
 
     monkeypatch.setattr(
         "library.tools.reel_read.read_tracks",
-        lambda timeline: [{"type": "video", "index": 1, "name": "Video 1",
-                           "clips": _fake_rows()}])
+        lambda timeline: _fake_tracks(*_fake_rows()))
     measured = axi_qualification_state.inspect_handles(
         resolve=_Resolve(), resolve_project=_Project(),
-        timeline=_Timeline(),
+        timeline=_fake_timeline(),
         operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
 
     assert measured["state"]["resolve_version"] == "21.1.0.14"
@@ -485,9 +579,10 @@ def test_a_timeline_with_more_than_the_seeded_clip_is_its_own_structure():
     from library.tools import axi_qualification_state
 
     rows = _fake_rows(extra=1)
-    assert axi_qualification_state._timeline_structure(rows) == \
-        "multi_item_timeline"
-    assert axi_qualification_state._timeline_structure([]) == "empty_fixture"
+    assert axi_qualification_state._timeline_structure(_fake_tracks(*rows)) \
+        == "multi_item_timeline"
+    assert axi_qualification_state._timeline_structure([]) == \
+        "empty_timeline"
 
 
 def test_a_clip_with_linked_audio_says_so():
@@ -502,3 +597,4 @@ def test_a_clip_with_linked_audio_says_so():
         "linked_audio_present"
     assert axi_qualification_state._clip_composition(rows) == \
         "linked_video_clip"
+

@@ -7,6 +7,29 @@ from pathlib import Path
 import pytest
 
 from library.tools import axi_qualification, edit_algebra
+from library.tools import axi_qualification_dimensions as dimensions
+
+
+def _coverage(**overrides) -> dict:
+    """A coverage that names every dimension, with measured values."""
+    measured = {field: ["video"] for field in dimensions.DIMENSIONS}
+    measured.update({
+        "resolve_version": ["21.1.0"],
+        "media_type": ["video"],
+        "clip_composition": ["single_video_clip"],
+        "linked_audio_configuration": ["no_linked_audio"],
+        "track_layout": ["video"],
+        "track_occupancy": ["all_populated"],
+        "timeline_density": ["light"],
+        "timeline_structure": ["single_item_timeline"],
+        "project_settings": ["landscape_1920x1080"],
+        "frame_rate": ["24"],
+        "existing_effects": ["none"],
+    })
+    measured.update(overrides)
+    return {"dimensions": measured,
+            "configurations": ["populated_1080p24"],
+            "uncovered": {}}
 
 
 def _passed_report(operation_id="transition", backend="reel_touchup"):
@@ -17,11 +40,13 @@ def _passed_report(operation_id="transition", backend="reel_touchup"):
         "result": "passed",
         "evidence": "tests/live/results/transition.json",
         "resolve_version": "21.1.0",
+        "environment": {"resolve_version": "21.1.0", "platform": "darwin"},
+        "semantic_boundary": {
+            "applies_to": ["one transition at one named cut"],
+            "does_not_apply_to": ["a cut that carries a grade"],
+        },
+        "coverage": _coverage(),
         "project_conditions": ["isolated qualification project"],
-        "qualification_predicates": [
-            {"field": "resolve_version", "operator": "equals",
-             "value": "21.1.0"},
-        ],
         "supported_media_types": ["video"],
         "expected_state": {"transition": "cross_dissolve"},
         "actual_state": {"transition": "cross_dissolve"},
@@ -77,7 +102,7 @@ def test_live_evidence_import_enables_only_its_exact_operation_backend(tmp_path)
     "resolve_version", "project_conditions", "supported_media_types",
     "expected_state", "actual_state", "preservation_checks",
     "preservation_limits", "visual_verification", "audio_verification",
-    "recovery_status", "qualification_predicates",
+    "recovery_status",
 ])
 def test_import_refuses_a_pass_missing_required_evidence(field):
     report = _passed_report()
@@ -203,3 +228,122 @@ def test_registered_dispatch_refuses_a_backend_other_than_the_router_choice():
             request=SimpleNamespace(), preparation=None,
             compiled=SimpleNamespace(operations=()), generation=None,
             snapshot={}, owner="contract-test")
+
+
+# ── The boundary is explicit, and it is a state ──────────────────────
+
+
+def test_a_predicate_may_not_name_the_project_the_evidence_was_earned_in():
+    """A project is not a state.
+
+    A predicate that names a project restricts an operation to the place
+    the evidence was earned, so the operation is qualified for a
+    fixture and for nothing else. That is not a qualification boundary,
+    and it is what the three shipped records did.
+    """
+    report = _passed_report()
+    report["qualification_predicates"] = [
+        {"field": "project_name", "operator": "equals",
+         "value": "Ren Qualification"}]
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="identity"):
+        axi_qualification.parse_result(report)
+
+
+def test_a_predicate_may_not_name_a_value_the_measurement_cannot_produce():
+    """A claim the runtime can never satisfy is a closed route.
+
+    The shipped records carried values like "seed_aroll_plus_placed_cover"
+    and "video + audio": prose the measurement never emits. The route
+    read as open and could never be taken.
+    """
+    report = _passed_report()
+    report["qualification_predicates"] = [
+        {"field": "clip_composition", "operator": "equals",
+         "value": "seed_aroll_plus_placed_cover"}]
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="that dimension can measure"):
+        axi_qualification.parse_result(report)
+
+
+def test_a_predicate_may_not_reach_past_the_coverage_that_backs_it():
+    """The coverage is the evidence; the predicate is the claim.
+
+    A claim wider than the evidence is refused at the door, so a record
+    cannot promise a state nobody ran.
+    """
+    report = _passed_report()
+    report["qualification_predicates"] = [
+        {"field": "media_type", "operator": "one_of",
+         "value": ["video", "audio"]}]
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="coverage"):
+        axi_qualification.parse_result(report)
+
+
+def test_a_report_must_name_every_dimension_it_covers():
+    """A dimension the coverage leaves out is a boundary it does not have."""
+    report = _passed_report()
+    coverage = report["coverage"]
+    coverage["dimensions"].pop("existing_effects")
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="existing_effects"):
+        axi_qualification.parse_result(report)
+
+
+def test_a_report_must_state_its_environment():
+    """The Resolve and the machine are part of the claim."""
+    report = _passed_report()
+    report["environment"] = {"resolve_version": "21.1.0"}
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="platform"):
+        axi_qualification.parse_result(report)
+
+
+def test_a_report_must_state_both_halves_of_its_semantic_boundary():
+    """A boundary that lists only what it covers covers everything else."""
+    report = _passed_report()
+    report["semantic_boundary"] = {"applies_to": ["one transition"]}
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="does_not_apply_to"):
+        axi_qualification.parse_result(report)
+
+
+def test_the_report_schema_that_predates_the_boundaries_is_refused():
+    """The old format carried no boundary, so it cannot qualify anything."""
+    report = _passed_report()
+    report["schema"] = axi_qualification.LEGACY_REPORT_SCHEMA
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="predates"):
+        axi_qualification.parse_result(report)
+
+
+def test_the_derived_predicates_are_the_coverage():
+    """A report that declares no predicate gets the whole of its coverage."""
+    report = _passed_report()
+
+    _pair, record = axi_qualification.parse_result(report)
+
+    fields = {predicate["field"] for predicate in
+              record["qualification_predicates"]}
+    assert fields == set(dimensions.DIMENSIONS)
+
+
+def test_every_registered_record_names_only_measurable_predicates():
+    """The shipped registry is held to the same vocabulary as a new report.
+
+    A record whose predicate names a state the measurement cannot
+    produce reads as qualified and can never be routed.
+    """
+    audit = axi_qualification.audit()
+
+    assert audit["ineligible"] == 0, audit["rows"]
+    for row in audit["rows"]:
+        assert row["production_eligible"], row

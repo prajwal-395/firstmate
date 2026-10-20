@@ -1,11 +1,11 @@
 """The LIVE runtime state a recorded AXI qualification is checked against.
 
 `edit_algebra` records, for every operation promoted to production, the
-CONDITIONS the live evidence was earned under: the
-`qualification_predicates` in `axi_qualification_records.json`. The router
-(`library/tools/execution_router.py`) refuses a promoted operation unless
-the runtime it is about to write satisfies those predicates, so that state
-has to be MEASURED.
+DIMENSIONS the live evidence was earned under: the
+`qualification_predicates` in `axi_qualification_records.json`. The
+router (`library/tools/execution_router.py`) refuses a promoted operation
+unless the runtime it is about to write satisfies those predicates, so
+that state has to be MEASURED.
 
 Until it was measured, nothing measured it: no production path ever put a
 `qualification_state` into its routing context, so `_qualification_gaps`
@@ -28,36 +28,30 @@ produce it:
   as `{"inspected": False, "reason": ...}`, and the router refuses with
   that reason. An unread state is never reported as an inspected one;
 * it measures in the vocabulary the recorded predicates are written in
-  (`axi_qualification.PREDICATE_FIELDS`), so the router's predicate check
-  is unchanged - only the INPUT to it became real. The version has ONE
-  reading (`axi_qualification.canonical_resolve_version`): Resolve reports
-  a bare dotted version, the recorded predicates are compared in it, and a
-  product label can never make a satisfiable predicate unsatisfiable.
+  (`axi_qualification_dimensions.DIMENSIONS`), so the router's predicate
+  check is unchanged - only the INPUT to it became real. The version has
+  ONE reading (`axi_qualification.canonical_resolve_version`): Resolve
+  reports a bare dotted version, the recorded predicates are compared in
+  it, and a product label can never make a satisfiable predicate
+  unsatisfiable.
+
+The dimensions are a property of the STATE, never of a project: a
+predicate that named the fixture project restricted an operation to the
+place the evidence was earned rather than to the state the evidence was
+earned in. `library/tools/axi_qualification_dimensions.py` owns that
+vocabulary and what each measurement MEANS; this module owns the READ.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from library.tools import axi_qualification
+from library.tools import axi_qualification_dimensions as dimensions
 
-#: Every field a recorded predicate may name. The measurement below
-#: produces all of them, so a predicate never compares against a field the
-#: runtime did not report.
-PREDICATE_FIELDS = frozenset(axi_qualification.PREDICATE_FIELDS)
-
-#: Resolve's media kinds, as the pool item reports them, mapped onto the
-#: vocabulary the recorded predicates use.
-_MEDIA_KINDS = {
-    "video": "video",
-    "audio": "audio",
-    "still": "still",
-    "image sequence": "still",
-}
-
-#: The media kinds a request may DECLARE when it touches no existing item
-#: (`track.add` names the kind of the row it adds).
-_DECLARED_KINDS = ("video", "audio")
+#: Every dimension a recorded predicate may name. The measurement below
+#: produces all of them, so a predicate never compares against a field
+#: the runtime did not report.
+PREDICATE_FIELDS = frozenset(dimensions.DIMENSIONS)
 
 #: How long the inspection waits for the instance. It is a READ that
 #: gates a routing decision, so it rides out a write in progress and then
@@ -188,13 +182,46 @@ def _read_runtime(project: str, timeline: str, resolve=None) -> dict:
 
 
 def _read_runtime_handles(resolve, resolve_project, timeline) -> dict:
-    """The runtime, from handles already in hand."""
+    """The runtime, from handles already in hand.
+
+    The rows measured are the rows the editorial pipeline reads: video
+    and audio. A Resolve subtitle track holds caption TEXT, not clips -
+    Ren's own caption layer is rendered cards on a video row named
+    "Subtitles" - so a subtitle track is a caption layer, not timeline
+    items, and counting it would report a timeline that is not there.
+    """
     from library.tools import reel_read
 
+    tracks = reel_read.read_tracks(timeline)
     return {"resolve": resolve,
             "project": resolve_project,
             "timeline": timeline,
-            "rows": _rows(reel_read.read_tracks(timeline))}
+            "tracks": tracks,
+            "rows": _rows(tracks),
+            "settings": _settings(timeline)}
+
+
+def _settings(timeline) -> dict:
+    """The timeline's own settings, or the refusal of what it would say.
+
+    An unreadable frame rate or resolution is NOT a default: a
+    dimension that reports "unknown" where the runtime did not say is a
+    dimension that lets an unproven state through, so the measurement
+    refuses instead.
+    """
+    settings = {}
+    for key, cast in (("timelineFrameRate", float),
+                      ("timelineResolutionWidth", int),
+                      ("timelineResolutionHeight", int)):
+        try:
+            raw = timeline.GetSetting(key)
+            settings[key] = cast(raw)
+        except Exception as unreadable:
+            raise ValueError(
+                f"the timeline's {key} could not be read "
+                f"({unreadable}); refusing to measure a dimension the "
+                "runtime did not report") from unreadable
+    return settings
 
 
 def _measure(runtime: Mapping, operations: Sequence[Mapping]) -> dict:
@@ -202,21 +229,31 @@ def _measure(runtime: Mapping, operations: Sequence[Mapping]) -> dict:
     from library.tools.axi_qualification import canonical_resolve_version
 
     rows = list(runtime.get("rows") or ())
+    tracks = list(runtime.get("tracks") or ())
     by_id = {str(row.get("unique_id") or ""): row for row in rows}
     targets = _target_ids(operations)
     chosen = [by_id[uid] for uid in targets if uid in by_id]
+    settings = runtime.get("settings") or {}
     state = {
         # The ONE reading of the version: Resolve reports a bare dotted
         # version and the recorded predicates are written in it, so the
         # comparison is version against version.
         "resolve_version": canonical_resolve_version(
             runtime["resolve"].GetVersionString()),
-        "project_name": str(runtime["project"].GetName() or ""),
-        "timeline_name": str(runtime["timeline"].GetName() or ""),
-        "media_type": _media_type(chosen, operations),
-        "clip_composition": _clip_composition(chosen),
-        "linked_audio_configuration": _linked_audio(chosen, by_id),
-        "timeline_structure": _timeline_structure(rows),
+        "media_type": dimensions.media_type(chosen, operations),
+        "clip_composition": dimensions.clip_composition(chosen),
+        "linked_audio_configuration": dimensions.linked_audio_configuration(
+            chosen, by_id),
+        "track_layout": dimensions.track_layout(tracks),
+        "track_occupancy": dimensions.track_occupancy(tracks),
+        "timeline_density": dimensions.timeline_density(tracks),
+        "timeline_structure": dimensions.timeline_structure(tracks),
+        "project_settings": dimensions.project_settings(
+            int(settings.get("timelineResolutionWidth") or 0),
+            int(settings.get("timelineResolutionHeight") or 0)),
+        "frame_rate": dimensions.frame_rate(
+            settings.get("timelineFrameRate")),
+        "existing_effects": dimensions.existing_effects(chosen),
     }
     missing = [uid for uid in targets if uid not in by_id]
     uncovered = sorted(PREDICATE_FIELDS - set(state))
@@ -257,95 +294,39 @@ def _target_ids(operations: Sequence[Mapping]) -> list[str]:
     return ids
 
 
-def _media_kind(row: Mapping) -> str:
-    """The item's media kind, in the vocabulary the predicates use."""
-    raw = str(row.get("media_type") or "").strip().casefold()
-    return _MEDIA_KINDS.get(raw, raw or "unknown")
+# ── The vocabulary, reached through the one enumeration ──────────────
+#
+# These are thin names over `axi_qualification_dimensions`, kept because
+# a caller (and a test) asks for a measurement by name. The MEANING
+# lives in the dimensions module, so a second reading of the same
+# question cannot exist.
 
 
 def _media_type(chosen: Sequence[Mapping],
                 operations: Sequence[Mapping]) -> str:
-    """The media kind the request touches.
-
-    An item the request addresses answers for itself. A request that
-    addresses no item (a row it adds) declares the kind it touches.
-    Requests that touch more than one kind answer "mixed", which matches
-    no recorded predicate - a request that spans kinds was not the one
-    the evidence was earned on.
-    """
-    kinds = {_media_kind(row) for row in chosen}
-    if len(kinds) == 1:
-        return kinds.pop()
-    if len(kinds) > 1:
-        return "mixed"
-    declared = set()
-    for operation in operations or ():
-        if not isinstance(operation, Mapping):
-            continue
-        for key in ("media_type", "track_type"):
-            value = str(operation.get(key) or "").strip().casefold()
-            if value in _DECLARED_KINDS:
-                declared.add(value)
-    if len(declared) == 1:
-        return declared.pop()
-    if len(declared) > 1:
-        return "mixed"
-    return "none"
+    return dimensions.media_type(chosen, operations)
 
 
 def _clip_composition(chosen: Sequence[Mapping]) -> str:
-    """What the request's item IS, or "none" when it addresses no item."""
-    if not chosen:
-        return "none"
-    compositions = {_composition(row) for row in chosen}
-    return compositions.pop() if len(compositions) == 1 else "mixed"
-
-
-def _composition(row: Mapping) -> str:
-    """One item's composition, as the recorded predicates name it."""
-    media = _media_kind(row)
-    linked = bool(row.get("linked_unique_ids"))
-    track_type = str(row.get("track_type") or "")
-    if media == "unknown":
-        # A generator, a title, a compound clip: real, but it plays no
-        # footage the pool can name. The inspection says so rather than
-        # calling it a video clip.
-        return "unknown_item"
-    if track_type == "audio" or media == "audio":
-        return "linked_audio_clip" if linked else "audio_clip"
-    if media == "still":
-        return "still_clip"
-    return "linked_video_clip" if linked else "single_video_clip"
+    return dimensions.clip_composition(chosen)
 
 
 def _linked_audio(chosen: Sequence[Mapping],
                   by_id: Mapping[str, Mapping]) -> str:
-    """Whether the request's item carries LINKED AUDIO.
-
-    A linked item that the row read did not resolve is counted as linked
-    audio: the inspection cannot claim the qualified condition, so it
-    refuses rather than asserts it.
-    """
-    for row in chosen:
-        for uid in row.get("linked_unique_ids") or ():
-            linked = by_id.get(str(uid))
-            if linked is None:
-                return "linked_audio_present"
-            if str(linked.get("track_type") or "") == "audio":
-                return "linked_audio_present"
-    return "no_linked_audio"
+    return dimensions.linked_audio_configuration(chosen, by_id)
 
 
-def _timeline_structure(rows: Sequence[Mapping]) -> str:
-    """How much the timeline holds, as the recorded predicates name it.
+def _timeline_structure(tracks: Sequence[Mapping]) -> str:
+    return dimensions.timeline_structure(tracks)
 
-    "single seeded clip, empty baseline otherwise" is a statement about
-    the ITEMS on the timeline: one clip and nothing else. Two items are
-    not an empty baseline, so they answer with their own name.
-    """
-    count = len(rows)
-    if count == 0:
-        return "empty_fixture"
-    if count == 1:
-        return "single_seeded_clip_empty_baseline"
-    return "multi_item_timeline"
+
+def _track_layout(tracks: Sequence[Mapping]) -> str:
+    return dimensions.track_layout(tracks)
+
+
+def _timeline_density(tracks: Sequence[Mapping]) -> str:
+    return dimensions.timeline_density(tracks)
+
+
+def _existing_effects(chosen: Sequence[Mapping]) -> str:
+    return dimensions.existing_effects(chosen)

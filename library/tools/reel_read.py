@@ -561,6 +561,12 @@ def clip_detail(item, track_type: str, track_index: int,
     return {
         "unique_id": _call(item, "GetUniqueId", ""),
         "name": name or "",
+        # Resolve's own item kind: video, audio, generator or transition.
+        # A transition is an ITEM on the track, and the media pool says
+        # nothing about it - so the pool's "Type" property cannot tell a
+        # transition from a title. The qualification dimensions read this
+        # to know that a cut carries one.
+        "item_type": str(_call(item, "GetType", "") or ""),
         "track_type": track_type,
         "track_index": track_index,
         "track_name": track_name,

@@ -8,6 +8,148 @@
       "audio_verification": [
         "underlying linked audio untouched (linked_audio_untouched check passed)"
       ],
+      "coverage": {
+        "configurations": [
+          "linked_av_1080p24",
+          "populated_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "none"
+          ],
+          "existing_effects": [
+            "none"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio"
+          ],
+          "media_type": [
+            "video"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "mixed"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip",
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "linked_audio_configuration": [
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "audio",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline",
+            "single_item_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "video",
+            "audio",
+            "subtitle",
+            "video+subtitle",
+            "audio+subtitle",
+            "video+audio+subtitle"
+          ],
+          "track_occupancy": [
+            "all_empty",
+            "all_populated"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "tests/live/reports/editorial-acceptance-blind.json#insert_relevant_broll; Level-3 blind instruction covered the marked phrase with matching B-roll via resolve-axi edit place; cover placed, speech and audio kept",
       "expected_state": {
         "cover_over_marked_phrase": true,
@@ -35,46 +177,75 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
         },
         {
           "field": "media_type",
-          "operator": "one_of",
-          "value": [
-            "video"
-          ]
+          "operator": "equals",
+          "value": "video"
         },
         {
           "field": "clip_composition",
           "operator": "equals",
-          "value": "seed_aroll_plus_placed_cover"
+          "value": "none"
         },
         {
           "field": "linked_audio_configuration",
           "operator": "equals",
-          "value": "linked_av_aroll_untouched"
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "track_layout",
+          "operator": "equals",
+          "value": "video+audio"
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "equals",
+          "value": "mixed"
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
         },
         {
           "field": "timeline_structure",
           "operator": "equals",
-          "value": "seed_plus_cover_plus_subtitles_row"
+          "value": "multi_item_timeline"
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "placing one pool clip as a B-roll cover on a video track, at the exact record and source spans the request names",
+          "a timeline that already holds an A-roll with linked audio"
+        ],
+        "does_not_apply_to": [
+          "placing a cover that overlaps another placed cover",
+          "a timeline whose frame rate, geometry, track layout or existing effects are outside coverage.dimensions",
+          "a request that names a B-roll clip the pool does not hold"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
@@ -96,6 +267,143 @@
       "audio_verification": [
         "not applicable: caption cards carry video only; no audio item placed or touched"
       ],
+      "coverage": {
+        "configurations": [
+          "caption_cards_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "single_video_clip"
+          ],
+          "existing_effects": [
+            "none"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio"
+          ],
+          "media_type": [
+            "video"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "video"
+          ],
+          "track_occupancy": [
+            "mixed"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "linked_video_clip",
+            "still_clip",
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "none",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "linked_audio_configuration": [
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "audio",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline",
+            "single_item_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "audio",
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "all_empty",
+            "all_populated"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "tests/live/reports/editorial-acceptance-blind.json#restyle_captions; Level-3 blind instruction restyled 2 Ren-rendered cards to bold_large via subtitles.rerender_swap; text, timing and placement verified per card; frame stills of both restyled cards inspected 2026-10-20",
       "expected_state": {
         "cards": 2,
@@ -129,46 +437,75 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
         },
         {
           "field": "media_type",
-          "operator": "one_of",
-          "value": [
-            "video"
-          ]
+          "operator": "equals",
+          "value": "video"
         },
         {
           "field": "clip_composition",
           "operator": "equals",
-          "value": "two_caption_cards"
+          "value": "single_video_clip"
         },
         {
           "field": "linked_audio_configuration",
           "operator": "equals",
-          "value": "no_audio_items"
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "track_layout",
+          "operator": "equals",
+          "value": "video"
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "equals",
+          "value": "mixed"
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
         },
         {
           "field": "timeline_structure",
           "operator": "equals",
-          "value": "empty_baseline_plus_subtitles_row"
+          "value": "multi_item_timeline"
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "re-rendering one rendered caption card in a named subtitle style and swapping it back over its own placement",
+          "a card placed on a subtitle row of a 1920x1080 24fps timeline"
+        ],
+        "does_not_apply_to": [
+          "changing a caption's text or its timing",
+          "more than one caption card per operation",
+          "a card whose style is not named in library/tools/subtitle_style.py SUBTITLE_STYLES"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
@@ -199,6 +536,147 @@
       "audio_verification": [
         "linked audio twin preserved in W1/W3 (twin uid unchanged on read-back); stills carry no audio"
       ],
+      "coverage": {
+        "configurations": [
+          "populated_1080p24",
+          "linked_av_1080p24",
+          "still_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip"
+          ],
+          "existing_effects": [
+            "none"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio",
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "video",
+            "still"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "single_item_timeline",
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "video",
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "mixed",
+            "all_populated"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "none",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "media_type": [
+            "audio",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "audio",
+            "subtitle",
+            "video+subtitle",
+            "audio+subtitle",
+            "video+audio+subtitle"
+          ],
+          "track_occupancy": [
+            "all_empty"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
       "expected_state": {
         "other_items_unchanged": true,
@@ -228,16 +706,6 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
@@ -247,7 +715,6 @@
           "operator": "one_of",
           "value": [
             "video",
-            "video + audio",
             "still"
           ]
         },
@@ -269,17 +736,64 @@
           ]
         },
         {
+          "field": "track_layout",
+          "operator": "one_of",
+          "value": [
+            "video",
+            "video+audio"
+          ]
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "one_of",
+          "value": [
+            "mixed",
+            "all_populated"
+          ]
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
+        },
+        {
           "field": "timeline_structure",
           "operator": "one_of",
           "value": [
-            "single_seeded_clip_empty_baseline",
+            "single_item_timeline",
             "multi_item_timeline"
           ]
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "deleting one timeline item, named by its exact unique id",
+          "a video, a linked A/V video or a still, on a timeline of one or a few items"
+        ],
+        "does_not_apply_to": [
+          "deleting an item that carries a grade, a Fusion composition, a transition or a retime",
+          "deleting more than one item in one operation",
+          "a timeline whose frame rate, geometry or track layout is outside coverage.dimensions"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
@@ -297,6 +811,148 @@
       "audio_verification": [
         "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
       ],
+      "coverage": {
+        "configurations": [
+          "populated_1080p24",
+          "linked_av_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "single_video_clip"
+          ],
+          "existing_effects": [
+            "none"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio"
+          ],
+          "media_type": [
+            "video"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "mixed"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "linked_video_clip",
+            "still_clip",
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "none",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "linked_audio_configuration": [
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "audio",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline",
+            "single_item_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "video",
+            "audio",
+            "subtitle",
+            "video+subtitle",
+            "audio+subtitle",
+            "video+audio+subtitle"
+          ],
+          "track_occupancy": [
+            "all_empty",
+            "all_populated"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
       "expected_state": {
         "cover_absent": true,
@@ -329,46 +985,74 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
         },
         {
           "field": "media_type",
-          "operator": "one_of",
-          "value": [
-            "video"
-          ]
+          "operator": "equals",
+          "value": "video"
         },
         {
           "field": "clip_composition",
           "operator": "equals",
-          "value": "seed_aroll_plus_v2_cover"
+          "value": "single_video_clip"
         },
         {
           "field": "linked_audio_configuration",
           "operator": "equals",
-          "value": "linked_av_aroll_kept_in_sync"
+          "value": "no_linked_audio"
+        },
+        {
+          "field": "track_layout",
+          "operator": "equals",
+          "value": "video+audio"
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "equals",
+          "value": "mixed"
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
         },
         {
           "field": "timeline_structure",
           "operator": "equals",
-          "value": "seed_plus_cover_plus_subtitles_row"
+          "value": "multi_item_timeline"
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "removing one placed cover from its own video track, track-scoped, leaving the A-roll and its linked audio in sync"
+        ],
+        "does_not_apply_to": [
+          "removing the A-roll itself",
+          "a ripple that crosses onto another track",
+          "a cover that carries a grade, a Fusion composition, a transition or a retime"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
@@ -390,6 +1074,146 @@
       "audio_verification": [
         "audio twin exists but was not separately read back in W4; the property write targeted the video item by unique_id"
       ],
+      "coverage": {
+        "configurations": [
+          "populated_1080p24",
+          "linked_av_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "single_video_clip",
+            "linked_video_clip"
+          ],
+          "existing_effects": [
+            "none",
+            "transforms"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio",
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "video"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "light"
+          ],
+          "timeline_structure": [
+            "single_item_timeline",
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "video",
+            "video+audio"
+          ],
+          "track_occupancy": [
+            "mixed",
+            "all_populated"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "still_clip",
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "none",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "media_type": [
+            "audio",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "empty",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "empty_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "audio",
+            "subtitle",
+            "video+subtitle",
+            "audio+subtitle",
+            "video+audio+subtitle"
+          ],
+          "track_occupancy": [
+            "all_empty"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged; tests/live/reports/predicate-widening-016.json#W4; direct EditPatch clip.set_property Pan 40.0 committed on linked clip; transform read back, record span kept",
       "expected_state": {
         "Pan": 40.0,
@@ -418,27 +1242,14 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
         },
         {
           "field": "media_type",
-          "operator": "one_of",
-          "value": [
-            "video",
-            "video + audio"
-          ]
+          "operator": "equals",
+          "value": "video"
         },
         {
           "field": "clip_composition",
@@ -457,17 +1268,66 @@
           ]
         },
         {
+          "field": "track_layout",
+          "operator": "one_of",
+          "value": [
+            "video",
+            "video+audio"
+          ]
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "one_of",
+          "value": [
+            "mixed",
+            "all_populated"
+          ]
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "light"
+        },
+        {
           "field": "timeline_structure",
           "operator": "one_of",
           "value": [
-            "single_seeded_clip_empty_baseline",
+            "single_item_timeline",
             "multi_item_timeline"
+          ]
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "one_of",
+          "value": [
+            "none",
+            "transforms"
           ]
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "writing one named transform property on one timeline item, named by its exact unique id, with its record span kept"
+        ],
+        "does_not_apply_to": [
+          "writing a property the operation does not name",
+          "an item that carries a grade, a Fusion composition, a transition or a retime",
+          "a timeline whose frame rate, geometry or track layout is outside coverage.dimensions"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
@@ -493,6 +1353,147 @@
       "audio_verification": [
         "not applicable: track rows have no audio output"
       ],
+      "coverage": {
+        "configurations": [
+          "empty_1080p24"
+        ],
+        "dimensions": {
+          "clip_composition": [
+            "none"
+          ],
+          "existing_effects": [
+            "none"
+          ],
+          "frame_rate": [
+            "24"
+          ],
+          "linked_audio_configuration": [
+            "no_linked_audio"
+          ],
+          "media_type": [
+            "video"
+          ],
+          "project_settings": [
+            "landscape_1920x1080"
+          ],
+          "resolve_version": [
+            "21.1.0.14"
+          ],
+          "timeline_density": [
+            "empty"
+          ],
+          "timeline_structure": [
+            "empty_timeline"
+          ],
+          "track_layout": [
+            "video"
+          ],
+          "track_occupancy": [
+            "all_empty"
+          ]
+        },
+        "source": "derived_from_v1_evidence",
+        "uncovered": {
+          "clip_composition": [
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip",
+            "audio_clip",
+            "linked_audio_clip",
+            "unknown_item",
+            "mixed"
+          ],
+          "existing_effects": [
+            "fusion",
+            "grades",
+            "grades+fusion",
+            "grades+retiming",
+            "grades+retiming+fusion",
+            "retiming",
+            "retiming+fusion",
+            "transforms",
+            "transforms+fusion",
+            "transforms+grades",
+            "transforms+grades+fusion",
+            "transforms+grades+retiming",
+            "transforms+grades+retiming+fusion",
+            "transforms+retiming",
+            "transforms+retiming+fusion",
+            "transitions",
+            "transitions+fusion",
+            "transitions+grades",
+            "transitions+grades+fusion",
+            "transitions+grades+retiming",
+            "transitions+grades+retiming+fusion",
+            "transitions+retiming",
+            "transitions+retiming+fusion",
+            "transitions+transforms",
+            "transitions+transforms+fusion",
+            "transitions+transforms+grades",
+            "transitions+transforms+grades+fusion",
+            "transitions+transforms+grades+retiming",
+            "transitions+transforms+grades+retiming+fusion",
+            "transitions+transforms+retiming",
+            "transitions+transforms+retiming+fusion"
+          ],
+          "frame_rate": [
+            "other",
+            "23.976",
+            "25",
+            "29.97",
+            "30",
+            "48",
+            "50",
+            "59.94",
+            "60"
+          ],
+          "linked_audio_configuration": [
+            "linked_audio_present"
+          ],
+          "media_type": [
+            "audio",
+            "still",
+            "mixed",
+            "none",
+            "unknown"
+          ],
+          "project_settings": [
+            "unknown",
+            "square_1920x1920",
+            "landscape_1280x720",
+            "landscape_2560x1440",
+            "landscape_3840x2160",
+            "portrait_1080x1920",
+            "portrait_2160x3840"
+          ],
+          "timeline_density": [
+            "light",
+            "moderate",
+            "dense"
+          ],
+          "timeline_structure": [
+            "single_item_timeline",
+            "multi_item_timeline"
+          ],
+          "track_layout": [
+            "none",
+            "audio",
+            "subtitle",
+            "video+audio",
+            "video+subtitle",
+            "audio+subtitle",
+            "video+audio+subtitle"
+          ],
+          "track_occupancy": [
+            "mixed",
+            "all_populated"
+          ]
+        }
+      },
+      "environment": {
+        "platform": "darwin",
+        "resolve_version": "21.1.0.14"
+      },
       "evidence": "track-add-rerun-after-2835.json#payload; Resolve page at run: edit; EditPatch status: committed; V2/V3 read back named on the private timeline",
       "expected_state": {
         "new_names": [
@@ -519,26 +1520,14 @@
       ],
       "qualification_predicates": [
         {
-          "field": "project_name",
-          "operator": "equals",
-          "value": "Ren Qualification"
-        },
-        {
-          "field": "timeline_name",
-          "operator": "equals",
-          "value": "fm-scratch qualify"
-        },
-        {
           "field": "resolve_version",
           "operator": "equals",
           "value": "21.1.0.14"
         },
         {
           "field": "media_type",
-          "operator": "one_of",
-          "value": [
-            "video"
-          ]
+          "operator": "equals",
+          "value": "video"
         },
         {
           "field": "clip_composition",
@@ -551,14 +1540,54 @@
           "value": "no_linked_audio"
         },
         {
+          "field": "track_layout",
+          "operator": "equals",
+          "value": "video"
+        },
+        {
+          "field": "track_occupancy",
+          "operator": "equals",
+          "value": "all_empty"
+        },
+        {
+          "field": "timeline_density",
+          "operator": "equals",
+          "value": "empty"
+        },
+        {
           "field": "timeline_structure",
           "operator": "equals",
-          "value": "empty_fixture"
+          "value": "empty_timeline"
+        },
+        {
+          "field": "project_settings",
+          "operator": "equals",
+          "value": "landscape_1920x1080"
+        },
+        {
+          "field": "frame_rate",
+          "operator": "equals",
+          "value": "24"
+        },
+        {
+          "field": "existing_effects",
+          "operator": "equals",
+          "value": "none"
         }
       ],
       "recovery": "not_required",
       "resolve_version": "21.1.0.14",
       "result": "passed",
+      "semantic_boundary": {
+        "applies_to": [
+          "adding one video track to a timeline that holds no items"
+        ],
+        "does_not_apply_to": [
+          "adding a track to a timeline that already holds items",
+          "adding an audio or subtitle track",
+          "renaming or removing an existing track"
+        ]
+      },
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",

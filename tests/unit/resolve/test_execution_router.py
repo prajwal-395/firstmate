@@ -20,6 +20,24 @@ from library.tools.reel_incremental import (
 )
 
 
+def _recorded_state(op_id: str, backend: str) -> dict:
+    """The runtime state the recorded evidence demands, by dimension.
+
+    A `one_of` predicate names a set; the qualified runtime answers with
+    the one member the evidence was earned on.
+    """
+    from library.tools import axi_qualification
+
+    records = axi_qualification.load_qualification_records()
+    record = records[(op_id, backend)]
+    state = {}
+    for predicate in record["qualification_predicates"]:
+        value = predicate["value"]
+        state[predicate["field"]] = (value[0] if isinstance(value, list)
+                                     else value)
+    return state
+
+
 def test_existing_item_property_change_needs_protected_experimental_policy():
     decision = route_compiled_edit([{
         "op": "clip.set_property", "unique_id": "item-1",
@@ -185,18 +203,13 @@ def test_production_route_requires_inspected_state_matching_fixture_predicates()
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
         route_compiled_edit(operation)
 
-    state = {"resolve_version": "21.1.0.14",
-             "project_name": "Ren Qualification",
-             "timeline_name": "fm-scratch qualify",
-             "media_type": "video", "clip_composition": "single_video_clip",
-             "linked_audio_configuration": "no_linked_audio",
-             "timeline_structure": "single_seeded_clip_empty_baseline"}
+    state = _recorded_state("clip.set_property", "edit_patch")
     decision = route_compiled_edit(operation, context={
         "qualification_state": {"inspected": True, "state": state}})
     assert decision.backend == "edit_patch.property"
     assert decision.as_dict()["selection"]["qualification_state_inspected"] is True
 
-    state["clip_composition"] = "still_clip"
+    state["frame_rate"] = "25"
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
         route_compiled_edit(operation, context={
             "qualification_state": {"inspected": True, "state": state}})

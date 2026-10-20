@@ -1,9 +1,17 @@
 """Import measured AXI qualification results without hand-set status flags.
 
-Live qualification reports are keyed by one algebra operation and one backend.
-The registry stores the observations; ``edit_algebra`` derives qualified and
-production-enabled state only when the report passed and all evidence fields
-are complete.
+Live qualification reports are keyed by one algebra operation and one
+backend. The registry stores the observations; ``edit_algebra`` derives
+qualified and production-enabled state only when the report passed and all
+evidence fields are complete.
+
+A report states the DIMENSIONS its evidence was earned under
+(`library/tools/axi_qualification_dimensions.py`), and the predicates are
+derived from that coverage - so a claim can never name a dimension value
+the measurement cannot produce, and can never reach past the evidence
+that backs it. The report also states its ENVIRONMENT (the Resolve and
+the machine it ran on) and its SEMANTIC BOUNDARY (what the evidence
+applies to, and what it does not), in machine-readable form.
 """
 from __future__ import annotations
 
@@ -13,13 +21,17 @@ import re
 from pathlib import Path
 from typing import Any
 
+from library.tools import axi_qualification_dimensions as dimensions
+
 REGISTRY_PATH = Path(__file__).resolve().with_name("axi_qualification_records.json")
-REPORT_SCHEMA = "ren-axi-qualification-result/v1"
+REPORT_SCHEMA = "ren-axi-qualification-result/v2"
+LEGACY_REPORT_SCHEMA = "ren-axi-qualification-result/v1"
 REGISTRY_SCHEMA = "ren-axi-qualification-registry/v1"
-PREDICATE_FIELDS = frozenset({
-    "resolve_version", "project_name", "timeline_name", "media_type", "clip_composition",
-    "linked_audio_configuration", "timeline_structure",
-})
+
+#: Every field a recorded qualification predicate may name. It is the
+#: dimension enumeration, not a second list: a field that is not a
+#: dimension is not a qualification boundary.
+PREDICATE_FIELDS = frozenset(dimensions.DIMENSIONS)
 
 #: The ONE reading of a Resolve version.
 #:
@@ -64,13 +76,20 @@ def canonical_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
     return canonical
 
 _IDENTITY_REQUIRED = ("operation_id", "backend", "result", "evidence")
+
+#: Where a coverage came from. `measured` is a run that measured the
+#: dimensions. `derived_from_v1_evidence` is a coverage worked out from
+#: an earlier report - usable, and marked, because the run that
+#: re-measures it under the varied configurations has not happened yet.
+COVERAGE_SOURCES = frozenset({"measured", "derived_from_v1_evidence"})
 _REQUIRED = (
     "operation_id", "backend", "result", "evidence", "resolve_version",
+    "environment", "semantic_boundary", "coverage",
     "project_conditions", "supported_media_types", "expected_state",
-    "actual_state", "preservation_checks", "visual_verification",
-    "preservation_limits", "audio_verification", "recovery_status",
-    "qualification_predicates",
+    "actual_state", "preservation_checks", "preservation_limits",
+    "visual_verification", "audio_verification", "recovery_status",
 )
+
 
 
 class QualificationReportError(ValueError):
@@ -81,9 +100,177 @@ def _nonempty(value: Any) -> bool:
     return value is not None and value != "" and value != [] and value != {}
 
 
+def _environment(report: dict[str, Any]) -> dict:
+    """The ENVIRONMENT the evidence was earned in.
+
+    A qualification is a claim about a machine and a Resolve version, so
+    both are recorded as fields rather than as prose: a reader has to be
+    able to tell "proven on Resolve 21" from "proven on Resolve 18".
+    """
+    environment = report["environment"]
+    if not isinstance(environment, dict):
+        raise QualificationReportError(
+            "environment must be an object naming the Resolve and the "
+            "machine the evidence was earned on")
+    for key in ("resolve_version", "platform"):
+        value = environment.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise QualificationReportError(
+                f"environment must name a non-empty {key}")
+    return {"resolve_version": environment["resolve_version"],
+            "platform": environment["platform"]}
+
+
+def _semantic_boundary(report: dict[str, Any]) -> dict:
+    """The SEMANTIC BOUNDARY of the evidence.
+
+    What the evidence applies to, and what it does not. Both halves are
+    required: a boundary that lists only what it covers reads as if it
+    covered everything else.
+    """
+    boundary = report["semantic_boundary"]
+    if not isinstance(boundary, dict):
+        raise QualificationReportError(
+            "semantic_boundary must be an object naming what the evidence "
+            "applies to and what it does not")
+    for key in ("applies_to", "does_not_apply_to"):
+        values = boundary.get(key)
+        if not isinstance(values, list) or not values or not all(
+                isinstance(value, str) and value.strip() for value in values):
+            raise QualificationReportError(
+                f"semantic_boundary must list non-empty {key} statements")
+    return {"applies_to": list(boundary["applies_to"]),
+            "does_not_apply_to": list(boundary["does_not_apply_to"])}
+
+
+def _coverage(report: dict[str, Any]) -> dict:
+    """The COVERAGE the evidence establishes, per dimension.
+
+    Every dimension is named, with the values the evidence exercised. A
+    dimension the evidence never exercised is not "unknown": it is
+    ABSENT, and a record that leaves it out is a record that does not
+    say where its own boundary is.
+    """
+    coverage = report["coverage"]
+    if not isinstance(coverage, dict):
+        raise QualificationReportError(
+            "coverage must be an object naming the dimension values the "
+            "evidence exercised")
+    measured = coverage.get("dimensions")
+    if not isinstance(measured, dict):
+        raise QualificationReportError(
+            "coverage must carry a dimensions map")
+    missing = [field for field in dimensions.DIMENSIONS
+               if field not in measured]
+    if missing:
+        raise QualificationReportError(
+            "coverage does not name these dimensions: "
+            + ", ".join(missing))
+    unknown = [field for field in measured
+               if not dimensions.is_dimension(field)]
+    if unknown:
+        raise QualificationReportError(
+            "coverage names fields that are not dimensions: "
+            + ", ".join(sorted(unknown)))
+    for field, values in measured.items():
+        if not isinstance(values, list) or not values:
+            raise QualificationReportError(
+                f"coverage for {field} must list the values exercised")
+        for value in values:
+            if not dimensions.value_in_vocabulary(field, value):
+                raise QualificationReportError(
+                    f"coverage for {field} names {value!r}, which is not a "
+                    "value that dimension can measure")
+    configurations = coverage.get("configurations", [])
+    if not isinstance(configurations, list) or not all(
+            isinstance(value, str) and value.strip()
+            for value in configurations):
+        raise QualificationReportError(
+            "coverage configurations must be a list of non-empty names")
+    uncovered = coverage.get("uncovered", {})
+    if not isinstance(uncovered, dict) or any(
+            not dimensions.is_dimension(field) or not isinstance(values, list)
+            for field, values in uncovered.items()):
+        raise QualificationReportError(
+            "coverage uncovered must map dimensions to lists")
+    source = coverage.get("source", "measured")
+    if source not in COVERAGE_SOURCES:
+        raise QualificationReportError(
+            "coverage source must be one of: "
+            + ", ".join(sorted(COVERAGE_SOURCES)))
+    return {"dimensions": {field: list(values)
+                           for field, values in measured.items()},
+            "configurations": list(configurations),
+            "uncovered": {field: list(values)
+                          for field, values in uncovered.items()},
+            "source": source}
+
+
+def _predicates(report: dict[str, Any],
+                coverage: dict[str, Any]) -> list[dict]:
+    """The predicates the evidence supports.
+
+    A report may declare its own predicates, and then they must not reach
+    past the coverage: a claim wider than the evidence is refused. A
+    report that declares none gets the coverage itself, which is the
+    whole of what the evidence establishes.
+    """
+    declared = report.get("qualification_predicates")
+    if declared is None:
+        return dimensions.predicates_for(coverage["dimensions"])
+    if not isinstance(declared, list) or not declared:
+        raise QualificationReportError(
+            "qualification_predicates must be non-empty machine-readable "
+            "predicates")
+    measured = coverage["dimensions"]
+    for predicate in declared:
+        if (not isinstance(predicate, dict)
+                or set(predicate) != {"field", "operator", "value"}):
+            raise QualificationReportError(
+                "each qualification predicate must be a field, an operator "
+                "and a value")
+        field = predicate["field"]
+        if dimensions.is_identity_field(field):
+            raise QualificationReportError(
+                f"a qualification predicate must not name {field!r}: it is "
+                "an identity, not a state, and naming it restricts the "
+                "operation to the place the evidence was earned")
+        if not dimensions.is_dimension(field):
+            raise QualificationReportError(
+                f"{field!r} is not a qualification dimension")
+        if predicate["operator"] not in {"equals", "one_of"}:
+            raise QualificationReportError(
+                "a qualification predicate operator must be equals or one_of")
+        values = ([predicate["value"]] if predicate["operator"] == "equals"
+                  else predicate["value"])
+        if (not isinstance(values, list) or not values
+                or not all(isinstance(value, str) for value in values)):
+            raise QualificationReportError(
+                "a qualification predicate must name non-empty string values")
+        for value in values:
+            if not dimensions.value_in_vocabulary(field, value):
+                raise QualificationReportError(
+                    f"the {field} predicate names {value!r}, which is not a "
+                    "value that dimension can measure")
+        outside = [value for value in values
+                   if value not in measured.get(field, ())]
+        if outside:
+            raise QualificationReportError(
+                f"the {field} predicate claims {outside} which the coverage "
+                "does not record as exercised")
+    return [dict(predicate) for predicate in declared]
+
+
 def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any]]:
     """Validate one result report and return its pair and evidence record."""
-    if report.get("schema") != REPORT_SCHEMA:
+    schema = report.get("schema")
+    if schema == LEGACY_REPORT_SCHEMA:
+        raise QualificationReportError(
+            f"report schema {LEGACY_REPORT_SCHEMA} predates the explicit "
+            f"boundary format; re-run the evidence and report it as "
+            f"{REPORT_SCHEMA}, which states its environment, its semantic "
+            "boundary and the dimensions it covers")
+    if schema != REPORT_SCHEMA:
         raise QualificationReportError(f"expected report schema {REPORT_SCHEMA}")
     missing = [key for key in _IDENTITY_REQUIRED if key not in report]
     if missing:
@@ -122,20 +309,10 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
                 isinstance(value, str) and value.strip()
                 for value in report[key]):
             raise QualificationReportError(f"{key} must be a list of non-empty strings")
-    predicates = report["qualification_predicates"]
-    if not isinstance(predicates, list) or not predicates or any(
-            not isinstance(predicate, dict)
-            or set(predicate) != {"field", "operator", "value"}
-            or predicate["field"] not in PREDICATE_FIELDS
-            or predicate["operator"] not in {"equals", "one_of"}
-            or not _nonempty(predicate["value"])
-            or (predicate["operator"] == "one_of"
-                and (not isinstance(predicate["value"], list)
-                     or not all(isinstance(value, (str, int, float, bool))
-                                for value in predicate["value"])))
-            for predicate in predicates):
-        raise QualificationReportError(
-            "qualification_predicates must be non-empty machine-readable predicates")
+    environment = _environment(report)
+    boundary = _semantic_boundary(report)
+    coverage = _coverage(report)
+    predicates = _predicates(report, coverage)
     checks = report["preservation_checks"]
     if not isinstance(checks, list) or not checks or any(
             not isinstance(check, dict) or check.get("result") != "passed"
@@ -151,7 +328,9 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
         # against, so the record and the runtime that must satisfy it
         # cannot disagree about a product label.
         "resolve_version": canonical_resolve_version(report["resolve_version"]),
-        "media_types": report["supported_media_types"],
+        "environment": environment,
+        "semantic_boundary": boundary,
+        "coverage": coverage,        "media_types": report["supported_media_types"],
         "timeline_conditions": report["project_conditions"],
         "qualification_predicates": [canonical_predicate(predicate)
                                      for predicate in predicates],
@@ -208,7 +387,8 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
         except ValueError as exc:
             raise QualificationReportError(f"invalid operation/backend key {key!r}") from exc
         required = (
-            "evidence", "resolve_version", "media_types", "timeline_conditions",
+            "evidence", "resolve_version", "environment", "semantic_boundary",
+            "coverage", "media_types", "timeline_conditions",
             "qualification_predicates",
             "expected_state", "actual_state", "preservation_checks",
             "preservation_limits", "visual_verification", "audio_verification",
@@ -228,6 +408,9 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
             # rather than left to fail the comparison forever.
             "resolve_version": canonical_resolve_version(
                 record["resolve_version"]),
+            "environment": dict(record["environment"]),
+            "semantic_boundary": dict(record["semantic_boundary"]),
+            "coverage": dict(record["coverage"]),
             "media_types": tuple(record["media_types"]),
             "timeline_conditions": tuple(record["timeline_conditions"]),
             "qualification_predicates": tuple(
@@ -246,12 +429,75 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
     return records
 
 
+def audit(path: Path = REGISTRY_PATH) -> dict:
+    """Every registered row, and whether its boundary is explicit.
+
+    A row is production-eligible when its predicates name dimensions the
+    measurement can produce and its evidence carries an environment, a
+    semantic boundary and a coverage. This reports the rows that are not,
+    so a record that reads as qualified while naming a state nobody can
+    reach is visible instead of silent.
+    """
+    payload = _read_registry(path)
+    rows = []
+    for key, record in sorted(payload["records"].items()):
+        entry = {"key": key, "production_eligible": False, "problems": [],
+                 "needs_live_remeasurement": False}
+        if not isinstance(record, dict):
+            entry["problems"].append("the row is not an object")
+            rows.append(entry)
+            continue
+        if record.get("result") != "passed":
+            entry["problems"].append("the evidence did not pass")
+            rows.append(entry)
+            continue
+        for name in ("environment", "semantic_boundary", "coverage"):
+            if not _nonempty(record.get(name)):
+                entry["problems"].append(f"no {name}")
+        coverage = record.get("coverage") or {}
+        if coverage.get("source") != "measured":
+            entry["needs_live_remeasurement"] = True
+        for predicate in record.get("qualification_predicates") or ():
+            field = predicate.get("field")
+            if dimensions.is_identity_field(field):
+                entry["problems"].append(
+                    f"the {field} predicate names an identity, not a state")
+                continue
+            if not dimensions.is_dimension(field):
+                entry["problems"].append(
+                    f"{field!r} is not a qualification dimension")
+                continue
+            values = ([predicate.get("value")]
+                      if predicate.get("operator") == "equals"
+                      else predicate.get("value") or ())
+            for value in values:
+                if not dimensions.value_in_vocabulary(field, value):
+                    entry["problems"].append(
+                        f"the {field} predicate names {value!r}, which the "
+                        "measurement cannot produce")
+        entry["production_eligible"] = not entry["problems"]
+        rows.append(entry)
+    return {"schema": "ren-axi-qualification-audit/v1", "rows": rows,
+            "eligible": sum(row["production_eligible"] for row in rows),
+            "ineligible": sum(not row["production_eligible"] for row in rows),
+            "needs_live_remeasurement": sum(
+                row["needs_live_remeasurement"] for row in rows)}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Import one completed Resolve AXI qualification result")
-    parser.add_argument("--import-result", type=Path, required=True)
+    parser.add_argument("--import-result", type=Path)
     parser.add_argument("--registry", type=Path, default=REGISTRY_PATH)
+    parser.add_argument("--audit", action="store_true",
+                        help="report every registered row and whether its "
+                             "boundary is explicit")
     args = parser.parse_args(argv)
+    if args.audit:
+        print(json.dumps(audit(args.registry), indent=2, sort_keys=True))
+        return 0
+    if args.import_result is None:
+        parser.error("--import-result is required unless --audit is given")
     op_id, backend = import_result(args.import_result, args.registry)
     print(f"Imported qualification result for {op_id} on {backend}")
     return 0

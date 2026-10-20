@@ -7,6 +7,148 @@
     "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
   ],
   "backend": "resolve_axi",
+  "coverage": {
+    "configurations": [
+      "populated_1080p24",
+      "linked_av_1080p24"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "single_video_clip"
+      ],
+      "existing_effects": [
+        "none"
+      ],
+      "frame_rate": [
+        "24"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed"
+      ]
+    },
+    "source": "derived_from_v1_evidence",
+    "uncovered": {
+      "clip_composition": [
+        "linked_video_clip",
+        "still_clip",
+        "audio_clip",
+        "linked_audio_clip",
+        "unknown_item",
+        "none",
+        "mixed"
+      ],
+      "existing_effects": [
+        "fusion",
+        "grades",
+        "grades+fusion",
+        "grades+retiming",
+        "grades+retiming+fusion",
+        "retiming",
+        "retiming+fusion",
+        "transforms",
+        "transforms+fusion",
+        "transforms+grades",
+        "transforms+grades+fusion",
+        "transforms+grades+retiming",
+        "transforms+grades+retiming+fusion",
+        "transforms+retiming",
+        "transforms+retiming+fusion",
+        "transitions",
+        "transitions+fusion",
+        "transitions+grades",
+        "transitions+grades+fusion",
+        "transitions+grades+retiming",
+        "transitions+grades+retiming+fusion",
+        "transitions+retiming",
+        "transitions+retiming+fusion",
+        "transitions+transforms",
+        "transitions+transforms+fusion",
+        "transitions+transforms+grades",
+        "transitions+transforms+grades+fusion",
+        "transitions+transforms+grades+retiming",
+        "transitions+transforms+grades+retiming+fusion",
+        "transitions+transforms+retiming",
+        "transitions+transforms+retiming+fusion"
+      ],
+      "frame_rate": [
+        "other",
+        "23.976",
+        "25",
+        "29.97",
+        "30",
+        "48",
+        "50",
+        "59.94",
+        "60"
+      ],
+      "linked_audio_configuration": [
+        "linked_audio_present"
+      ],
+      "media_type": [
+        "audio",
+        "still",
+        "mixed",
+        "none",
+        "unknown"
+      ],
+      "project_settings": [
+        "unknown",
+        "square_1920x1920",
+        "landscape_1280x720",
+        "landscape_2560x1440",
+        "landscape_3840x2160",
+        "portrait_1080x1920",
+        "portrait_2160x3840"
+      ],
+      "timeline_density": [
+        "empty",
+        "moderate",
+        "dense"
+      ],
+      "timeline_structure": [
+        "empty_timeline",
+        "single_item_timeline"
+      ],
+      "track_layout": [
+        "none",
+        "video",
+        "audio",
+        "subtitle",
+        "video+subtitle",
+        "audio+subtitle",
+        "video+audio+subtitle"
+      ],
+      "track_occupancy": [
+        "all_empty",
+        "all_populated"
+      ]
+    }
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
   "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
   "expected_state": {
     "cover_absent": true,
@@ -41,49 +183,20 @@
     "linked A/V A-roll seed plus one V2 B-roll cover",
     "track-scoped ripple remove (edit track-ripple-remove)"
   ],
-  "qualification_predicates": [
-    {
-      "field": "project_name",
-      "operator": "equals",
-      "value": "Ren Qualification"
-    },
-    {
-      "field": "timeline_name",
-      "operator": "equals",
-      "value": "fm-scratch qualify"
-    },
-    {
-      "field": "resolve_version",
-      "operator": "equals",
-      "value": "DaVinci Resolve 21.1.0.14"
-    },
-    {
-      "field": "media_type",
-      "operator": "one_of",
-      "value": [
-        "video"
-      ]
-    },
-    {
-      "field": "clip_composition",
-      "operator": "equals",
-      "value": "seed_aroll_plus_v2_cover"
-    },
-    {
-      "field": "linked_audio_configuration",
-      "operator": "equals",
-      "value": "linked_av_aroll_kept_in_sync"
-    },
-    {
-      "field": "timeline_structure",
-      "operator": "equals",
-      "value": "seed_plus_cover_plus_subtitles_row"
-    }
-  ],
   "recovery_status": "not_required",
-  "resolve_version": "DaVinci Resolve 21.1.0.14",
+  "resolve_version": "21.1.0.14",
   "result": "passed",
-  "schema": "ren-axi-qualification-result/v1",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "removing one placed cover from its own video track, track-scoped, leaving the A-roll and its linked audio in sync"
+    ],
+    "does_not_apply_to": [
+      "removing the A-roll itself",
+      "a ripple that crosses onto another track",
+      "a cover that carries a grade, a Fusion composition, a transition or a retime"
+    ]
+  },
   "supported_media_types": [
     "video"
   ],
