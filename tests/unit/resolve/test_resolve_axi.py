@@ -1317,8 +1317,11 @@ def test_a_refused_group_falls_back_to_one_transaction_per_marker(monkeypatch):
 
     assert restored == 0
     assert len(refused) == 3
-    assert len(calls) == 3
-    assert all(len(call["operations"]) == 1 for call in calls)
+    # The grouped attempt is refused before writing, then each marker gets
+    # its own transaction.
+    assert len(calls) == 4
+    assert len(calls[0]["operations"]) == 3
+    assert all(len(call["operations"]) == 1 for call in calls[1:])
 
 
 def test_a_group_that_wrote_before_it_was_refused_is_not_run_again(monkeypatch):

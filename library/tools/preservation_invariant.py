@@ -342,6 +342,11 @@ def scope_for(operations: Sequence[Mapping], *,
         pair = (target, domain)
         if pair not in pairs:
             pairs.append(pair)
+        if (op_id == "mask.create"
+                and operation.get("provider") == "resolve_magic_mask_api"):
+            color_pair = (target, "color")
+            if color_pair not in pairs:
+                pairs.append(color_pair)
         if op_id in _MEDIA_REPLACING_OPS:
             media_pair = (target, SOURCE_IDENTITY)
             if media_pair not in pairs:
@@ -743,6 +748,14 @@ def expected_delta(scope: MutationScope, before: Mapping,
             "operation": op_id,
             "fields": list(_declared_fields(operation)),
         })
+        if (op_id == "mask.create"
+                and operation.get("provider") == "resolve_magic_mask_api"):
+            rows.append({
+                "target": target,
+                "domain": "color",
+                "operation": op_id,
+                "fields": ["node_count"],
+            })
         if op_id in _MEDIA_REPLACING_OPS:
             rows.append({
                 "target": target,

@@ -285,7 +285,7 @@ def test_a_failed_post_write_read_back_names_the_reversal_and_blocks_resume(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(shadow, "read_live", flaky)
-    patch = _patch("readback-fail", world["base"].generation, [
+    patch = _patch(world["base"].generation, [
         {"op": "marker.add", "frame": 12, "color": "Blue", "name": "beat"}],
         patch_id="readback-fail")
 

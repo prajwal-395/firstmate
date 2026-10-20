@@ -832,8 +832,9 @@ def _addressed(project: str, note: dict, action: str, rationale: str,
     """Record a change no check in `marker_resolution.CHECKS` proves."""
     from library.tools import marker_resolution
 
+    note_data = asdict(note) if hasattr(note, "__dataclass_fields__") else note
     out = marker_resolution.resolve_note(
-        project, note, action=action, rationale=rationale,
+        project, note_data, action=action, rationale=rationale,
         verifier="revise", outcome_details={"change_summary": summary})
     return out["record"]
 

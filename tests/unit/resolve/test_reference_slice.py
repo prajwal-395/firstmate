@@ -72,7 +72,7 @@ def test_the_generated_files_are_unchanged_by_the_slice_existing():
     # prints; a slice that changed the files would be a second source.
     from pathlib import Path
 
-    repo = Path(__file__).resolve().parents[2]
+    repo = Path(__file__).resolve().parents[3]
     refs = repo / ".agents" / "skills" / "resolve-axi" / "references"
     expected = operations.emit_resolve_axi_references()
     assert {path.name for path in refs.glob("*.md")} == set(expected)

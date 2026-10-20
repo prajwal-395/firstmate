@@ -679,6 +679,8 @@ def ledger_rows(spec: dict) -> list[dict]:
         if program["kind"] == "planner_run":
             return _planner_run_rows(validated)
         return [_program_row(validated)]
+    if validated.get("no_change"):
+        return []
     return [_row_for_clause(clause, index, validated.get("source_note_id", ""))
             for index, clause in enumerate(validated["clauses"])]
 

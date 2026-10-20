@@ -55,6 +55,17 @@ def _apply(patch, project, timeline, store):
                                   project_folder=store.path.parent)
 
 
+def _world_with_node_count(world, count):
+    """Build a recorded base after arranging the fake node graph."""
+    project, timeline, item, original_store, _base = world
+    item.nodes = count
+    store = shadow.ShadowStore(
+        original_store.path.parent / f"shadow-nodes-{count}.db")
+    with assume_sole_writer("canonical Resolve double"):
+        base = shadow.observe(project, timeline, store)
+    return project, timeline, item, store, base
+
+
 def _node_modes(item):
     graph = item.GetNodeGraph()
     return [graph.GetNodeCacheMode(index)
@@ -310,7 +321,9 @@ def test_edit_patch_pins_and_persists_project_model_readback(world):
         conflict_domains=("markers",), idempotency_key="model-audited-edit",
         store=store, project_folder=project_folder)
     revision, updated = project_model_store.load_project_model(project_folder)
-    assert revision == 2
+    # The edit read-back and its timeline composition/binding are separate
+    # model events.
+    assert revision == 3
     operation = next(row for row in updated["edits"]
                      if row["id"] == f"edit_patch:{receipt['patch_id']}")
     assert operation["after"]["operations"][0]["op"] == "marker.add"
@@ -1419,8 +1432,7 @@ def test_grade_node_set_commits_and_the_inverse_restores(world):
     `grade.node_set`, asserts the read-back carries the new value,
     then applies the inverse and asserts the prior value is restored.
     """
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     new_cdl = {
         "slope_r": 1.6, "slope_g": 1.6, "slope_b": 1.6,
@@ -1461,8 +1473,7 @@ def test_grade_node_set_refuses_an_out_of_range_node(world):
     silently write nothing, and the patch would record a committed
     grade that does not exist.
     """
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     cdl = {
         "slope_r": 1.6, "slope_g": 1.6, "slope_b": 1.6,
@@ -2135,8 +2146,7 @@ def test_grade_node_add_commits_when_the_recipe_grows_the_count(
     from library.tools.computer_use.scripts import (
         GRADE_COLOR_PAGE_PATH, GRADE_NODE_ADD_PATH)
 
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     driver = _NodeAddDriver(item)
     monkeypatch.setattr(edit_algebra, "ui_driver_factory",
@@ -2160,8 +2170,7 @@ def test_grade_node_add_refuses_when_the_command_changes_nothing(
     commit a node_add that is not there."""
     from library.tools import edit_algebra
 
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     monkeypatch.setattr(edit_algebra, "ui_driver_factory",
                         lambda: _NodeAddDriver(item, lands=False))
@@ -2182,8 +2191,7 @@ def test_grade_node_add_refuses_when_the_playhead_will_not_park(
     on whatever clip happens to be current."""
     from library.tools import edit_algebra
 
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     timeline.stuck_playhead = True
     monkeypatch.setattr(edit_algebra, "ui_driver_factory",
@@ -2227,11 +2235,11 @@ def test_grade_node_remove_commits_and_restores_the_labels(
         GRADE_NODE_DELETE_PATH, GRADE_NODE_NEXT_PATH,
         GRADE_NODE_PREV_PATH)
 
-    project, timeline, item, store, base = world
-    item.nodes = 3
+    project, timeline, item, store, base = _world_with_node_count(world, 3)
     uid = item.GetUniqueId()
     driver = _NodeRemoveDriver(item)
-    _, receipt = _remove(world, monkeypatch, "grade-node-remove", [
+    _, receipt = _remove((project, timeline, item, store, base), monkeypatch,
+                         "grade-node-remove", [
         {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
         driver)
     assert receipt["status"] == "committed", receipt
@@ -2249,10 +2257,10 @@ def test_grade_node_remove_refuses_when_nothing_changes(
     """A delete that changed no count refuses: without the
     exact-minus-one judgement, a silently failed press would commit
     a node_remove the graph never lost."""
-    project, timeline, item, store, base = world
-    item.nodes = 3
+    project, timeline, item, store, base = _world_with_node_count(world, 3)
     uid = item.GetUniqueId()
-    _, receipt = _remove(world, monkeypatch, "grade-node-remove-miss", [
+    _, receipt = _remove((project, timeline, item, store, base), monkeypatch,
+                         "grade-node-remove-miss", [
         {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
         _NodeRemoveDriver(item, miss=True))
     assert receipt["status"] == "verification_failed", receipt
@@ -2266,10 +2274,10 @@ def test_grade_node_remove_refuses_a_delete_on_the_wrong_node(
     position's label must be gone too. A delete that landed on the
     neighbor refuses and puts the original labels back (the marker
     it added stays - re-plan against the live graph)."""
-    project, timeline, item, store, base = world
-    item.nodes = 3
+    project, timeline, item, store, base = _world_with_node_count(world, 3)
     uid = item.GetUniqueId()
-    _, receipt = _remove(world, monkeypatch, "grade-node-remove-wrong", [
+    _, receipt = _remove((project, timeline, item, store, base), monkeypatch,
+                         "grade-node-remove-wrong", [
         {"op": "grade.node_remove", "unique_id": uid, "node_index": 2}],
         _NodeRemoveDriver(item, wrong=True))
     assert receipt["status"] == "verification_failed", receipt
@@ -2282,10 +2290,10 @@ def test_grade_node_remove_refuses_an_absent_node(world, monkeypatch):
     """An index outside 1..count refuses before anything runs - a
     recipe stepped for a node that is not there would delete
     whatever the stepping lands on."""
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
-    _, receipt = _remove(world, monkeypatch, "grade-node-remove-absent", [
+    _, receipt = _remove((project, timeline, item, store, base), monkeypatch,
+                         "grade-node-remove-absent", [
         {"op": "grade.node_remove", "unique_id": uid, "node_index": 5}],
         _NodeRemoveDriver(item))
     assert receipt["status"] == "verification_failed", receipt
@@ -2298,11 +2306,11 @@ def test_grade_node_remove_refuses_when_the_playhead_will_not_park(
     """The menus act on the current clip: a playhead that will not
     park refuses BEFORE the recipe runs, rather than deleting a node
     on whatever clip happens to be current."""
-    project, timeline, item, store, base = world
-    item.nodes = 2
+    project, timeline, item, store, base = _world_with_node_count(world, 2)
     uid = item.GetUniqueId()
     timeline.stuck_playhead = True
-    _, receipt = _remove(world, monkeypatch, "grade-node-remove-stuck", [
+    _, receipt = _remove((project, timeline, item, store, base), monkeypatch,
+                         "grade-node-remove-stuck", [
         {"op": "grade.node_remove", "unique_id": uid, "node_index": 1}],
         _NodeRemoveDriver(item))
     assert receipt["status"] == "verification_failed", receipt

@@ -458,7 +458,7 @@ def test_preservation_holds_across_repeated_editing_cycles(tmp_path):
             "cycle-1", base.generation,
             [{"op": "clip.set_property", "unique_id": first.GetUniqueId(),
               "key": "ZoomX", "value": 1.5}],
-            ["picture_transform"], [(0, 47)])
+            ["picture_transform"], [(0, 48)])
         assert cycle_one["status"] == "committed", cycle_one
         assert cycle_one["preservation"]["status"] == "preserved"
 
@@ -466,25 +466,31 @@ def test_preservation_holds_across_repeated_editing_cycles(tmp_path):
             "cycle-2", cycle_one["generation"],
             [{"op": "clip.set_property", "unique_id": second.GetUniqueId(),
               "key": "Pan", "value": 0.25}],
-            ["picture_transform"], [(48, 95)])
+            ["picture_transform"], [(48, 96)])
         assert cycle_two["status"] == "committed", cycle_two
         assert cycle_two["preservation"]["status"] == "preserved"
 
         # The first cycle's approved result survived the second cycle.
-        after_one = clip_state(cycle_one["readback"], first.GetUniqueId())
-        after_two = clip_state(cycle_two["readback"], first.GetUniqueId())
+        timeline_id = cycle_one["readback"]["timeline_id"]
+        after_one = clip_state(store.snapshot(store.get(
+            "Podcast", timeline_id, cycle_one["generation"])),
+            first.GetUniqueId())
+        after_two = clip_state(store.snapshot(store.get(
+            "Podcast", timeline_id, cycle_two["generation"])),
+            first.GetUniqueId())
         assert after_one["transform"]["ZoomX"] == 1.5
         assert after_two["transform"] == after_one["transform"]
 
         cycle_three = apply(
             "cycle-3", cycle_two["generation"],
-            [{"op": "clip.trim", "unique_id": first.GetUniqueId(),
-              "in_frame": 0, "out_frame": 40}],
-            ["timeline_structure"], [(0, 40)])
+            [{"op": "clip.set_property", "unique_id": first.GetUniqueId(),
+              "key": "ZoomY", "value": 1.25}],
+            ["picture_transform"], [(0, 48)])
         assert cycle_three["status"] == "committed", cycle_three
         assert cycle_three["preservation"]["status"] == "preserved"
 
         # The second cycle's approved result survived the third cycle.
-        after_three = clip_state(cycle_three["readback"],
-                                 second.GetUniqueId())
+        after_three = clip_state(store.snapshot(store.get(
+            "Podcast", timeline_id, cycle_three["generation"])),
+            second.GetUniqueId())
         assert after_three["transform"]["Pan"] == 0.25

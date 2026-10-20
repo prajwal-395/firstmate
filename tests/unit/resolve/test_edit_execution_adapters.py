@@ -139,7 +139,8 @@ def test_trim_refuses_if_linked_audio_record_or_source_span_changes(monkeypatch)
     monkeypatch.setattr(adapters, "_project_folder",
                         lambda _context: "/tmp/project")
 
-    with pytest.raises(RuntimeError, match="linked_audio_preserved"):
+    with pytest.raises(RuntimeError, match=(
+            r"clip:audio-9\.record_in.*clip:clip-17\.transform\.Pan")):
         adapters._trim(context)
 
 

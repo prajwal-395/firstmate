@@ -154,9 +154,8 @@ def test_the_commit_binds_a_clip_use_to_the_live_resolve_item(project):
         "the model's nle_bindings collection was declared and never "
         "committed; it is what joins a clip use to the Resolve item")
     binding = bindings[0]
-    assert binding["clip_bindings"] == {"uid-live-1": binding[
-        "clip_bindings"]["uid-live-1"]}
-    assert binding["clip_bindings"]["uid-live-1"] != ""
+    use_id = _model()["clip_uses"][0]["id"]
+    assert binding["clip_bindings"] == {use_id: "uid-live-1"}
     assert binding["system"] == "resolve"
     assert binding["generation"] == 1
 
