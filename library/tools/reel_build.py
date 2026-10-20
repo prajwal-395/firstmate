@@ -12537,6 +12537,8 @@ def _record_reel_versions(project_folder: str, rows_by_final: dict,
                 refs={"version": entry["version"],
                       "round": round_number,
                       "rows_digest_after": entry.get("rows_digest"),
+                      **({"promotion_transaction_id": transaction_id}
+                         if transaction_id is not None else {}),
                       **({"redoes": redoes} if redoes is not None
                          else {}),
                       **({"undoes": undoes} if undoes is not None

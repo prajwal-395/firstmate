@@ -123,6 +123,30 @@ def test_router_refuses_unqualified_production_route():
                               "color": "Blue", "name": "note"}])
 
 
+@pytest.mark.parametrize("operations", [
+    [
+        {"op": "clip.trim", "unique_id": "clip-1",
+         "in_frame": 10, "out_frame": 20},
+        {"op": "clip.insert", "unique_id": "new-clip",
+         "track_type": "video", "track_index": 1,
+         "record_in": 20, "record_out": 30,
+         "media_pool_item": "source-clip"},
+    ],
+    [
+        {"op": "clip.replace", "unique_id": "clip-1",
+         "source_file": "/media/replacement.mov"},
+        {"op": "caption.style", "unique_id": "caption-1",
+         "style": "minimal"},
+    ],
+], ids=("trim-plus-insert", "replace-plus-restyle"))
+def test_unqualified_compound_requests_remain_refused_before_execution(
+        operations):
+    """Defect: mixed requests must not run across unqualified writers."""
+    with pytest.raises(RoutingRefused,
+                       match="production routing fails closed"):
+        route_compiled_edit(operations)
+
+
 def test_production_route_requires_inspected_state_matching_fixture_predicates():
     operation = [{"op": "clip.set_property", "unique_id": "item-1",
                   "key": "ZoomX", "value": 1.25}]
