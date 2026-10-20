@@ -125,3 +125,29 @@ def test_revise_atomic_program_names_missing_evidence_instead_of_compiling():
                        match="rests on no evidence"):
         revise._compile_revision_program(
             program, project="project", reel="reel", record=record)
+
+
+def test_revise_program_base_generation_reaches_the_request_as_a_number():
+    """Catches: the spec's string base_generation reaching the request as a
+    string, so the staleness check compares an int with a str and every
+    revise program is reported stale against the very head it names.
+
+    Measured live on 2026-10-20: `ren revise` against Reel 13 of the
+    Ren-owned scratch copy refused with "request base generation 1 is
+    stale; recorded head is 1" - the same number on both sides.
+    """
+    from library.tools import revise
+
+    program = {"kind": "edit_program", "id": "program-1",
+               "base_generation": "12",
+               "ops": [{"op": "clip.trim", "text": "remove the repeated answer",
+                        "params": {"unique_id": "clip-7", "in_frame": 10,
+                                   "out_frame": 40}}]}
+    record = {"revise_id": "revise-1", "note_id": "note-1",
+              "note": "remove the repeated answer"}
+
+    request = revise._compile_revision_program(
+        program, project="project", reel="reel", record=record)
+
+    assert request.expected_base_generation == 12
+    assert isinstance(request.expected_base_generation, int)

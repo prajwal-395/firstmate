@@ -485,7 +485,7 @@ def _compile_revision_program(program: dict, *, project: str, reel: str,
         idempotency_key=str(program.get("idempotency_key")
                             or program.get("id")
                             or record.get("revise_id") or ""),
-        expected_base_generation=program.get("base_generation"),
+        expected_base_generation=_program_base(program),
         originator={"kind": "human", "name": ORIGINATOR_NAME,
                     "detail": str(record.get("note") or "")})
     record["editorial_decisions"] = {
