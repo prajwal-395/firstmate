@@ -107,6 +107,32 @@ def test_caption_style_is_production_ready_only_on_its_live_evidence():
     assert edit_algebra.get("caption.style").inverse.self_inverse
 
 
+def test_a_caption_restyle_outside_its_recorded_predicates_is_refused():
+    """Defect: a qualification that did not check the live state would
+    enable the restyle on every timeline, not only the one the evidence
+    measured."""
+    from library.tools import execution_router
+
+    backend = edit_algebra.status("caption.style", "resolve_axi")
+    measured = {
+        "project_name": "Ren Qualification",
+        "timeline_name": "fm-scratch qualify",
+        "resolve_version": "21.1.0.14",
+        "media_type": "video",
+        "clip_composition": "two_caption_cards",
+        "linked_audio_configuration": "no_audio_items",
+        "timeline_structure": "empty_baseline_plus_subtitles_row",
+    }
+    inside = {"inspected": True, "state": dict(measured)}
+    assert execution_router._qualification_matches(backend, inside)
+
+    outside = {"inspected": True,
+               "state": dict(measured, media_type="audio")}
+    assert not execution_router._qualification_matches(backend, outside)
+    mismatches = execution_router._predicate_mismatches([backend], outside)
+    assert any("media_type" in row for row in mismatches)
+
+
 def test_caption_style_verifier_judges_presence_and_timing_never_taste():
     """Defect: a snapshot judge that scored taste would invent it, and
     one that passed a lost or drifted card would commit a lie - the

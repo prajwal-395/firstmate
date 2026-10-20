@@ -782,9 +782,41 @@ def apply_live_patch(*, project, timeline, capability: str,
                            acceptance_evidence=acceptance_evidence)
 
 
+_JOURNAL_FOLDERS: dict[str, str] = {}
+
+
+def journal_folder_for(project_folder: str | None, project_name: str) -> str:
+    """Where this transaction's durable journal lives.
+
+    The journal is per Ren project. A caller that already knows the
+    folder names it; the broker's patch job knows only the RESOLVE
+    project name, and the registry is the one place that maps it back.
+    Without a journal there is no recovery anchor and no recovery gate,
+    so this is what turns "a write that failed" into "a write that is
+    owed a recovery".
+    """
+    if project_folder:
+        return project_folder
+    wanted = str(project_name or "").strip()
+    if not wanted:
+        return ""
+    cached = _JOURNAL_FOLDERS.get(wanted)
+    if cached is not None:
+        return cached
+    from library.tools import project_registry
+
+    try:
+        folder = project_registry.project_folder_for_resolve_name(wanted) or ""
+    except Exception:  # noqa: BLE001 - a registry that cannot answer is no journal
+        folder = ""
+    _JOURNAL_FOLDERS[wanted] = folder
+    return folder
+
+
 def apply_patch(patch, *, resolve, project, timeline,
                 store: shadow.ShadowStore | None = None,
                 project_folder: str | None = None,
+                journal_folder: str | None = None,
                 model_revision: int | None = None,
                 acceptance_evidence: dict | None = None) -> dict:
     """Commit one patch to the live timeline; the receipt, as plain data.
@@ -811,6 +843,8 @@ def apply_patch(patch, *, resolve, project, timeline,
     store = store or shadow.ShadowStore()
     project_name, timeline_id, timeline_name = shadow.timeline_key(
         project, timeline)
+    journal_folder = journal_folder_for(journal_folder or project_folder,
+                                        project_name)
     if (project_name, timeline_name) != (patch.project, patch.timeline):
         _refuse(patch, f"addresses {patch.project!r}/{patch.timeline!r} but "
                        f"was handed {project_name!r}/{timeline_name!r}",
@@ -933,7 +967,7 @@ def apply_patch(patch, *, resolve, project, timeline,
                               if row["transaction_id"] == patch.id), None)
                 if prior:
                     _emit_transaction_stage(
-                        project_folder, patch, "recovery_required",
+                        journal_folder, patch, "recovery_required",
                         prior_transaction=prior,
                         actual_state=live, required=False)
             seen = store.record(
@@ -953,13 +987,29 @@ def apply_patch(patch, *, resolve, project, timeline,
             _refuse(patch, "preconditions do not hold: " + "; ".join(failures),
                     "a patch states what it assumes of its base",
                     "re-plan against the live timeline")
+        # AXI-048: a timeline that owes a recovery takes no further write.
+        # The gate is asked BEFORE the durable intent is journaled, so a
+        # refused patch does not leave a half-started transaction behind.
+        if journal_folder:
+            from library.tools import axi_transaction
+
+            try:
+                axi_transaction.require_recovery_clear(
+                    journal_folder, project=project_name,
+                    timeline=timeline_name, transaction_id=patch.id)
+            except axi_transaction.TransactionRefused as blocked:
+                _refuse(patch, blocked.reason,
+                        "an unresolved recovery must be recovered or "
+                        "abandoned before another write",
+                        "recover or abandon the outstanding transaction, "
+                        "then re-plan against the live timeline")
         # This durable intent is the recovery anchor: it must reach the
         # existing project event journal before the first Resolve write.
         journaled = _emit_transaction_stage(
-            project_folder, patch, "prepared", base_generation=head.generation,
+            journal_folder, patch, "prepared", base_generation=head.generation,
             expected_state={"operations": list(patch.operations),
                             "postconditions": list(patch.postconditions)},
-            required=bool(project_folder))
+            required=bool(journal_folder))
         with perf_ledger.span(
                 "resolve_mutation_batch", batch=True,
                 operation_count=len(patch.operations),
@@ -967,7 +1017,7 @@ def apply_patch(patch, *, resolve, project, timeline,
             ran, stopped, id_map, after = execute_physical_patch(
                 patch, live=live, timeline=timeline, project=project,
                 project_name=project_name, timeline_id=timeline_id,
-                timeline_name=timeline_name, project_folder=project_folder)
+                timeline_name=timeline_name, project_folder=journal_folder)
         if stopped and stopped.get("failure_type") == \
                 "post_write_readback_failed":
             observed = store.record(
@@ -987,7 +1037,7 @@ def apply_patch(patch, *, resolve, project, timeline,
                 unresolved=[{"transaction_id": patch.id,
                              "status": "recovery_required"}])
             _emit_transaction_stage(
-                project_folder, patch, "recovery_required",
+                journal_folder, patch, "recovery_required",
                 actual_state=after, applied_operations=ran,
                 failure=stopped["raised"], observed_generation=observed.generation,
                 reversal=reversal, resumable=gate["resumable"],
@@ -1017,9 +1067,9 @@ def apply_patch(patch, *, resolve, project, timeline,
     journal_errors = []
     try:
         observed_journaled = _emit_transaction_stage(
-            project_folder, patch, "observed", actual_state=after,
+            journal_folder, patch, "observed", actual_state=after,
             applied_operations=ran, stopped=stopped, required=False)
-        if project_folder and not observed_journaled:
+        if journal_folder and not observed_journaled:
             journal_errors.append("could not persist the observed timeline state")
     except OSError as exc:
         journal_errors.append(str(exc))
@@ -1059,7 +1109,7 @@ def apply_patch(patch, *, resolve, project, timeline,
         journaled=journaled, journal_errors=journal_errors)
     try:
         verified_journaled = _emit_transaction_stage(
-            project_folder, patch, "verified", status=receipt["status"],
+            journal_folder, patch, "verified", status=receipt["status"],
             stopped=stopped, actual_state=after,
             acceptance_contracts=receipt["acceptance_contracts"],
             required=False)
@@ -1071,7 +1121,8 @@ def apply_patch(patch, *, resolve, project, timeline,
         patch, receipt=receipt, snapshot=after, store=store,
         project_name=project_name, timeline_id=timeline_id,
         timeline_name=timeline_name, recorded_operations=recorded_operations,
-        project_folder=project_folder, model_revision=model_revision)
+        project_folder=project_folder, journal_folder=journal_folder,
+        model_revision=model_revision)
 
 
 def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
@@ -1326,7 +1377,8 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
                      timeline_id: str, timeline_name: str,
                      recorded_operations: tuple,
                      project_folder: str | None,
-                     model_revision: int | None) -> dict:
+                     journal_folder: str | None = None,
+                     model_revision: int | None = None) -> dict:
     """Persist the verified observation and publish its transaction receipt."""
     generation = store.record(
         project=project_name, timeline_id=timeline_id,
@@ -1374,7 +1426,7 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
     receipt = _orch.standardize_receipt(receipt)
     generation = store.update_receipt(generation, receipt)
     _emit_transaction_stage(
-        project_folder, patch,
+        journal_folder or project_folder, patch,
         "committed" if receipt["committed"]["status"] == "committed" else "recorded",
         generation=generation.generation,
         project_model_commit=model_commit, status=receipt["status"],

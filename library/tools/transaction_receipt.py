@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-STAGES = ("PLANNED", "VALIDATED", "EXECUTING", "APPLIED", "VERIFIED",
-          "COMMITTED", "DELIVERED")
+STAGES = ("PLANNED", "VALIDATED", "PREPARED", "EXECUTING", "APPLIED",
+          "VERIFIED", "COMMITTED", "PROMOTED", "DELIVERED")
 RECOVERY_ACTIONS = {
     "target_not_found": "replan_target",
     "ambiguous_target": "replan_target",
@@ -21,6 +21,28 @@ RECOVERY_ACTIONS = {
     "verification_failed": "preserve_readback_and_replan",
     "recovery_failed": "preserve_forensics_and_intervene",
 }
+
+# A transaction whose last durable stage is one of these owes nothing.
+# ``recorded`` is the edit_patch stage for a write whose Project Model
+# commit failed; it is resolved when the write itself was verified, and
+# UNRESOLVED when the write was not - that is the recovery-required
+# state, and it must keep blocking further writes. ``recovered`` and
+# ``abandoned`` are the two ways a captain closes an outstanding
+# recovery, and they are journalled so the decision is not asked twice.
+RESOLVED_STAGES = frozenset({"committed", "delivered", "promoted",
+                              "recovered", "abandoned"})
+
+
+def _is_resolved(fields: Mapping[str, Any]) -> bool:
+    """Whether a durable stage leaves the transaction settled."""
+    stage = str(fields.get("stage") or "")
+    if stage in RESOLVED_STAGES:
+        return True
+    if stage == "recorded":
+        return str(fields.get("status") or "") not in {
+            "", "verification_failed"}
+    return False
+
 
 
 def recovery(kind: str, *, reason: str = "",
@@ -69,6 +91,40 @@ def lifecycle(receipt: dict[str, Any], *, stage: str,
     return values
 
 
+def _prepared_status(receipt: Mapping[str, Any]) -> str:
+    """Whether the durable intent reached the journal before the write.
+
+    PREPARED is a claim about the journal, not about the write: it says
+    the transaction could be recovered from the record even if the
+    process died mid-write.
+    """
+    journal = receipt.get("journal")
+    if not isinstance(journal, Mapping):
+        return "unknown"
+    if journal.get("intent_persisted") is True:
+        return "prepared"
+    if journal.get("intent_persisted") is False:
+        return "not_prepared"
+    return "unknown"
+
+
+def _promoted_status(receipt: Mapping[str, Any]) -> str:
+    """Whether a staged change reached the live timeline."""
+    promotion = receipt.get("promotion")
+    if not isinstance(promotion, Mapping) or not promotion:
+        return "not_requested"
+    status = str(promotion.get("status") or "")
+    if status in {"promoted", "applied", "promotion_succeeded"}:
+        return "promoted"
+    if status in {"not_required", "not_applicable"}:
+        return "not_required"
+    if status:
+        return status
+    if promotion.get("final") and promotion.get("staging"):
+        return "promoted"
+    return "not_requested"
+
+
 def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
     """Add ordered lifecycle stages to a legacy patch receipt.
 
@@ -106,6 +162,8 @@ def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
         "planned": {"status": "planned", "patch_id": out.get("patch_id")},
         "validated": {"status": "validated" if out.get("base_generation") is not None else "not_validated",
                       "base_generation": out.get("base_generation")},
+        "prepared": {"status": _prepared_status(out),
+                     "journal": out.get("journal")},
         "executing": {"status": "completed" if requested_count == len(operations) else
                       ("partial" if operations else
                        "failed" if out.get("stopped") else "not_started"),
@@ -122,10 +180,13 @@ def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
                        "readback_persisted_unverified" if persisted else "not_committed"),
                       "generation": out.get("generation"),
                       "project_model": model_commit},
+        "promoted": {"status": _promoted_status(out)},
         "delivered": {"status": out.get("delivered", {}).get("status", "not_requested")},
     })
+    promoted = _promoted_status(out)
     out["lifecycle"] = lifecycle(
-        out, stage=("COMMITTED" if committed else
+        out, stage=("PROMOTED" if promoted == "promoted" else
+                    "COMMITTED" if committed else
                     "VERIFIED" if persisted and verified else
                     "APPLIED" if applied_count else "PLANNED"),
         expected_state=out.get("expected_state"),
@@ -150,9 +211,15 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         row = transactions.setdefault(transaction_id, {
             "transaction_id": transaction_id, "last_stage": None,
-            "last_event": None, "operations": {}})
+            "last_event": None, "project": fields.get("project", ""),
+            "timeline": fields.get("timeline", ""),
+            "operations": {}})
         row["last_stage"] = fields.get("stage")
         row["last_event"] = event
+        if fields.get("project"):
+            row["project"] = fields["project"]
+        if fields.get("timeline"):
+            row["timeline"] = fields["timeline"]
         if fields.get("stage") in {"operation_applying", "operation_applied"}:
             operation = fields.get("operation", fields.get("op"))
             if operation is None:
@@ -174,4 +241,6 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
              # mutation until the observed state is read.
              "conflict_class": "uncertain_mutation"}
             for row in transactions.values()
-            if row["last_stage"] not in {"committed", "delivered"}]
+            if not _is_resolved({"stage": row["last_stage"],
+                                 "status": (row["last_event"] or {})
+                                 .get("fields", {}).get("status", "")})]

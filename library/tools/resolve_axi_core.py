@@ -123,28 +123,13 @@ def _registered_batch_supported(backend_id: str,
 
     Keep this deliberately narrower than operation compatibility in the
     abstract algebra: a batch is supported only when its physical executor
-    and its compensation path are both already available.
+    and its compensation path are both already available. The declared
+    shapes live in ``axi_transaction.COMPOUND_SCENARIOS``, so this
+    answers from the same registry the preflight and the receipt read.
     """
-    operation_ids = tuple(str(operation["op"]) for operation in operations)
-    operation_set = set(operation_ids)
-    if (backend_id == "resolve_axi"
-            and operation_set <= {"clip.trim", "clip.delete"}):
-        return True
-    if backend_id == "resolve_axi" and operation_set == {"caption.style"}:
-        return True
-    if (backend_id == "reel_touchup"
-            and operation_set == {"overlay.position", "overlay.resize"}
-            and len(operations) == 2):
-        targets = [str(operation.get("unique_id") or "")
-                   for operation in operations]
-        return bool(targets[0]) and targets[0] == targets[1]
-    if (backend_id == "reel_touchup" and len(operations) == 2
-            and operation_set in ({"clip.trim", "clip.insert"},
-                                  {"clip.replace", "caption.style"})):
-        targets = [str(operation.get("unique_id") or "")
-                   for operation in operations]
-        return bool(all(targets) and targets[0] != targets[1])
-    return len(operations) <= 1
+    from library.tools import axi_transaction
+
+    return axi_transaction.batch_supported(backend_id, operations)
 
 
 def _verify_registered_full_request(*, operations: Sequence[Mapping],
@@ -185,6 +170,11 @@ def _verify_registered_full_request(*, operations: Sequence[Mapping],
     preservation = _preservation_verdict(
         operations=operations, before=before, after=after,
         affected_spans=affected_spans, conflict_domains=conflict_domains)
+    from library.tools import axi_transaction
+
+    untouched = axi_transaction.untouched_regions(
+        operations=operations, affected_spans=affected_spans,
+        before=before, after=after)
     return {
         "status": ("verified" if all(row["passed"] for row in checks)
                    and len(acceptance_checks) == len(operations)
@@ -196,6 +186,7 @@ def _verify_registered_full_request(*, operations: Sequence[Mapping],
         "unrelated_items_unchanged": not collateral,
         "collateral_changes": collateral,
         "preservation": preservation,
+        "untouched_regions": untouched,
         "snapshot_source": "fresh_live_timeline",
     }
 
@@ -358,10 +349,79 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
     return outcome
 
 
+def _project_folder_for(request) -> str:
+    """The Ren project folder a request belongs to, or "" when it has none.
+
+    The folder is where the durable recovery journal lives, so it is
+    what a recovery gate can be asked about.
+    """
+    from library.tools import project_registry
+
+    try:
+        project_path = project_registry.resolve_project_path(request.project)
+        if project_path is not None:
+            return str(project_path.parent)
+        config = project_registry.get_project(request.project)
+    except Exception:  # noqa: BLE001 - a missing registry is not a gate
+        return ""
+    if config is None:
+        return ""
+    return str(getattr(config, "project_root", "") or "")
+
+
+def _pre_mutation_refusal(*, request, generation, head) -> dict | None:
+    """The checks a batch must pass before its first write.
+
+    Two questions, and both are asked before anything is written:
+
+    - does the live project still answer to the exact identity and
+      revision this request was planned against (AXI-045);
+    - is the timeline free of an unresolved recovery (AXI-048).
+
+    Returns ``None`` when the batch may proceed, or a refusal descriptor
+    naming the category and the reason.
+    """
+    from library.tools import axi_transaction
+
+    project_key = _shadow_project_key(request.project)
+    conflict = axi_transaction.detect_conflict(
+        expected_project=project_key,
+        expected_timeline=request.timeline,
+        observed_project=head.project,
+        observed_timeline=head.timeline_name,
+        expected_base_generation=generation.generation,
+        observed_generation=head.generation,
+        expected_model_revision=request.expected_model_revision,
+        observed_model_revision=head.model_revision)
+    if conflict.detected:
+        return {
+            "category": ("stale" if conflict.category == "revision"
+                         else "conflict"),
+            "reason": f"{conflict.reason}; the batch was not applied",
+            "evidence": {"mutation_state": "none", "mutated": False,
+                         "conflict": conflict.as_dict()},
+        }
+    folder = _project_folder_for(request)
+    if not folder:
+        return None
+    try:
+        axi_transaction.require_recovery_clear(
+            folder, project=project_key, timeline=request.timeline,
+            transaction_id=request.id)
+    except axi_transaction.TransactionRefused as blocked:
+        return {
+            "category": "recovery_required",
+            "reason": blocked.reason,
+            "evidence": {"mutation_state": "none", "mutated": False,
+                         "recovery": blocked.as_dict()},
+        }
+    return None
+
+
 def _execute_registered_delete_batch(*, request, compiled, generation,
                                      snapshot, decision, owner: str) -> dict:
     """Commit compatible local deletes as one verified EditPatch."""
-    from library.tools import edit_patch, project_registry, timeline_addressing
+    from library.tools import edit_patch, timeline_addressing
     from library.tools.resolve_axi_core_commands import (
         _assert_cursor_on,
         _connect,
@@ -413,12 +473,7 @@ def _execute_registered_delete_batch(*, request, compiled, generation,
                 "source_out_frame": selector["source_out_frame"],
                 "record_in": actual_record[0], "record_out": actual_record[1],
             })
-        project_path = project_registry.resolve_project_path(request.project)
-        if project_path is None:
-            config = project_registry.get_project(request.project)
-            project_folder = str(config.project_root)
-        else:
-            project_folder = str(project_path.parent)
+        project_folder = _project_folder_for(request)
     except Exception as exc:
         raise RegisteredBatchPreflightRefused(str(exc)) from exc
     receipt = edit_patch.apply_live_patch(
@@ -788,7 +843,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                 compiled: Any, generation: Any,
                                 snapshot: Mapping, owner: str) -> dict:
     """Run the router-selected adapters and preserve sequential semantics."""
-    from library.tools import edit_algebra
+    from library.tools import axi_transaction, edit_algebra
     from library.tools.edit_execution_adapters import (
         register_builtin_edit_executors,
     )
@@ -847,10 +902,13 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     if not executors and not compound_touchup:
         raise ValueError("routed semantic request contains no executable operations")
-    if not _registered_batch_supported(backend_id, operations):
-        raise ValueError(
-            f"{backend_id} has no verified batch recovery strategy for this "
-            "multi-operation request; no operation was applied")
+    # The compound registry is the one place a multi-operation shape is
+    # declared, so the preflight and the receipt read the same answer.
+    transaction_plan = axi_transaction.plan_operations(
+        operations=operations, backend=backend_id, project=request.project,
+        timeline=request.timeline, transaction_id=request.id)
+    if not transaction_plan.supported:
+        raise ValueError(transaction_plan.refusal)
     _validate_caption_style_batch(operations, snapshot)
 
     execution = ExecutionInput(
@@ -866,11 +924,25 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     def refused(category: str, reason: str, *, failed_index: int,
                 evidence: Mapping | None = None) -> dict:
-        return _failure_receipt(
+        failure_receipt = _failure_receipt(
             request=request, backend=backend, generation=generation,
             operations=operations, receipts=receipts, decision=decision,
             category=category, reason=reason, failed_index=failed_index,
             evidence=evidence)
+        # AXI-049: refusals carry the same seven fields as successful writes.
+        failure_receipt.update(axi_transaction.build_receipt(
+            request_id=request.id, project=request.project,
+            timeline=request.timeline, backend=backend, operations=operations,
+            actual_changes=receipts,
+            verification_evidence=failure_receipt["verification_evidence"],
+            untouched=(), route=decision,
+            errors=[{"category": category, "reason": reason,
+                     "operation_index": failed_index}],
+            recovery=failure_receipt["recovery"],
+            atomicity=failure_receipt["atomicity"], promoted=False,
+            delivered=False, prepared=False))
+        from library.tools.transaction_orchestration import standardize_receipt
+        return standardize_receipt(failure_receipt)
 
     def compensate_completed(failure_evidence: Mapping | None = None) -> dict:
         return _compensate_registered_operations(
@@ -947,11 +1019,22 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             timeline_shadow.ShadowStore().current_snapshots(request.project)
             if head.timeline_name == request.timeline
         ]
-        if len(current) != 1 or current[0][0].generation != generation.generation:
+        if len(current) != 1:
             refusal = refused(
-                "stale", "timeline generation changed after preparation; "
-                "the batch was not applied", failed_index=0)
-        elif compound_touchup:
+                "stale", "the recorded timeline head did not resolve to "
+                "exactly one timeline; the batch was not applied",
+                failed_index=0)
+        else:
+            # AXI-045 and AXI-048: the batch may only be written to the
+            # project and timeline it names, at the revision it was
+            # planned against, and not while a recovery is unresolved.
+            blocked = _pre_mutation_refusal(
+                request=request, generation=generation, head=current[0][0])
+            refusal = (None if blocked is None else
+                       refused(blocked["category"], blocked["reason"],
+                               failed_index=0,
+                               evidence=blocked.get("evidence") or {}))
+        if refusal is None and compound_touchup:
             try:
                 batch_receipt = _execute_protected_compound_touchup(
                     request=request, preparation=preparation,
@@ -966,7 +1049,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     failed_index=0,
                     evidence={"mutation_state": "unknown", "mutated": True,
                               "operation_index": 0, "error": repr(exc)})
-        elif (len(operations) > 1
+        elif (refusal is None and len(operations) > 1
               and all(str(operation["op"]) == "clip.delete"
                       for operation in operations)):
             try:
@@ -986,7 +1069,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                                  else "unknown"),
                               "mutated": not preflight_refused,
                               "operation_index": 0, "error": repr(exc)})
-        elif len(operations) > 1 and backend_id == "resolve_axi":
+        elif refusal is None and len(operations) > 1 and backend_id == "resolve_axi":
             try:
                 _revalidate_registered_targets(
                     request=request, operations=operations, snapshot=snapshot)
@@ -997,7 +1080,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     f"{type(exc).__name__}: {exc}", failed_index=0,
                     evidence={"mutation_state": "none", "mutated": False,
                               "operation_index": 0, "error": repr(exc)})
-        else:
+        elif refusal is None:
             refusal = run_operations()
         if (refusal is None and batch_receipt is None
                 and len(operations) > 1):
@@ -1133,6 +1216,23 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "promotion": {"status": "awaiting_promotion"},
         "delivered": {"status": "not_requested"},
     }
+    # AXI-049: the receipt names what was asked, what happened, what was
+    # left alone, the route, what went wrong, how recovery went, and the
+    # evidence. The keys the batch already published stay exactly as
+    # they were; these are the same answers under the names the AXI
+    # brief uses.
+    from library.tools import axi_transaction
+
+    aggregate.update(axi_transaction.build_receipt(
+        request_id=request.id, project=request.project,
+        timeline=request.timeline, backend=backend, operations=operations,
+        actual_changes=receipts, verification_evidence=acceptance_contracts,
+        untouched=(full_request_verification or {}).get(
+            "untouched_regions") or (),
+        route=plan.get("routing") or {}, errors=[],
+        recovery=aggregate["recovery"],
+        atomicity=aggregate["atomicity"], promoted=False, delivered=False,
+        prepared=True))
     return standardize_receipt(aggregate)
 
 
@@ -1576,8 +1676,12 @@ def submit_edit_request_async(request, *, authorized: bool = False,
         preconditions=request.preconditions)
     from library.tools.resolved import client
     client.ensure()
+    # The patch id IS the request's idempotency key, so the broker's own
+    # durable key for this kind is the patch - passing a second key
+    # alongside it is refused by `jobs.idempotency_request`, which is
+    # what a submission that can never run looks like.
     job = client.submit("timeline.apply_patch", {"patch": patch},
-                        owner=owner, idempotency_key=request.idempotency_key)
+                        owner=owner)
     return {**job, "request_id": request.id, "backend": backend,
             "plan": plan, "status": "queued"}
 

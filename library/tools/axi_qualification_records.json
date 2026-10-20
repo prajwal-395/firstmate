@@ -1,4 +1,5 @@
 {
+  "compound_records": {},
   "records": {
     "broll.insert::resolve_axi": {
       "actual_state": {

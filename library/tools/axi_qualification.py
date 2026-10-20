@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from library.tools import axi_qualification_dimensions as dimensions
 REGISTRY_PATH = Path(__file__).resolve().with_name("axi_qualification_records.json")
 REPORT_SCHEMA = "ren-axi-qualification-result/v2"
 LEGACY_REPORT_SCHEMA = "ren-axi-qualification-result/v1"
+COMPOUND_REPORT_SCHEMA = "ren-axi-compound-qualification-result/v2"
 REGISTRY_SCHEMA = "ren-axi-qualification-registry/v1"
 
 #: Every field a recorded qualification predicate may name. It is the
@@ -76,6 +78,7 @@ def canonical_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
     return canonical
 
 _IDENTITY_REQUIRED = ("operation_id", "backend", "result", "evidence")
+_COMPOUND_IDENTITY_REQUIRED = ("scenario", "backend", "result", "evidence")
 
 #: Where a coverage came from. `measured` is a run that measured the
 #: dimensions. `derived_from_v1_evidence` is a coverage worked out from
@@ -89,6 +92,8 @@ _REQUIRED = (
     "actual_state", "preservation_checks", "preservation_limits",
     "visual_verification", "audio_verification", "recovery_status",
 )
+_COMPOUND_REQUIRED = tuple(
+    key for key in _REQUIRED if key not in {"operation_id"})
 
 
 
@@ -264,6 +269,8 @@ def _predicates(report: dict[str, Any],
 def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any]]:
     """Validate one result report and return its pair and evidence record."""
     schema = report.get("schema")
+    if schema == COMPOUND_REPORT_SCHEMA:
+        return _parse_compound_result(report)
     if schema == LEGACY_REPORT_SCHEMA:
         raise QualificationReportError(
             f"report schema {LEGACY_REPORT_SCHEMA} predates the explicit "
@@ -287,12 +294,57 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
     if report["result"] == "failed":
         return (op_id, backend), {
             "evidence": report["evidence"], "result": "failed"}
-    missing_evidence = [key for key in _REQUIRED if key not in report]
+    return (op_id, backend), _evidence_record(report, _REQUIRED)
+
+
+def _parse_compound_result(report: dict[str, Any]) -> tuple[tuple[str, str],
+                                                            dict[str, Any]]:
+    """Validate one COMPOUND transaction qualification report.
+
+    A compound transaction is qualified by the same evidence rules as a
+    single operation: the same environment, the same semantic boundary,
+    the same coverage, the same predicates. Only the identity differs -
+    it names a declared scenario and a backend.
+    """
+    missing = [key for key in _COMPOUND_IDENTITY_REQUIRED if key not in report]
+    if missing:
+        raise QualificationReportError(
+            "compound qualification report is missing: " + ", ".join(missing))
+    if report["result"] not in {"passed", "failed"}:
+        raise QualificationReportError("result must be passed or failed")
+    scenario, backend = report["scenario"], report["backend"]
+    if not isinstance(scenario, str) or not scenario.strip() or not isinstance(
+            backend, str) or not backend.strip():
+        raise QualificationReportError(
+            "scenario and backend must be non-empty strings")
+    from library.tools import axi_transaction
+
+    declared = axi_transaction.COMPOUND_SCENARIOS.get(scenario)
+    if declared is None:
+        raise QualificationReportError(
+            f"{scenario!r} is not a declared compound transaction; the "
+            f"declared shapes are {sorted(axi_transaction.COMPOUND_SCENARIOS)}")
+    if backend not in declared.backends:
+        raise QualificationReportError(
+            f"the {scenario!r} compound transaction has no path on "
+            f"{backend!r}; it declares {list(declared.backends)}")
+    if not isinstance(report["evidence"], str) or not report["evidence"].strip():
+        raise QualificationReportError("evidence must name the recorded run result")
+    if report["result"] == "failed":
+        return (scenario, backend), {
+            "evidence": report["evidence"], "result": "failed"}
+    return (scenario, backend), _evidence_record(report, _COMPOUND_REQUIRED)
+
+
+def _evidence_record(report: dict[str, Any], required: tuple[str, ...]
+                     ) -> dict[str, Any]:
+    """Validate the evidence fields every qualification report carries."""
+    missing_evidence = [key for key in required if key not in report]
     if missing_evidence:
         raise QualificationReportError(
             "qualification report is missing: " + ", ".join(missing_evidence))
-    for key in _REQUIRED:
-        if key in {"result", "operation_id", "backend"}:
+    for key in required:
+        if key in {"result", "operation_id", "backend", "scenario"}:
             continue
         if not _nonempty(report[key]):
             raise QualificationReportError(
@@ -322,7 +374,7 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
     if report["recovery_status"] not in {"passed", "not_required"}:
         raise QualificationReportError(
             "recovery_status must be passed or explicitly not_required")
-    record = {
+    return {
         "evidence": report["evidence"],
         # The version is stored in the ONE reading a predicate compares
         # against, so the record and the runtime that must satisfy it
@@ -343,16 +395,17 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
         "recovery": report["recovery_status"],
         "result": "passed",
     }
-    return (op_id, backend), record
 
 
 def _read_registry(path: Path) -> dict:
     if not path.exists():
-        return {"schema": REGISTRY_SCHEMA, "records": {}}
+        return {"schema": REGISTRY_SCHEMA, "records": {},
+                "compound_records": {}}
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema") != REGISTRY_SCHEMA or not isinstance(
             payload.get("records"), dict):
         raise QualificationReportError(f"invalid qualification registry: {path}")
+    payload.setdefault("compound_records", {})
     return payload
 
 
@@ -360,14 +413,21 @@ def import_result(report_path: Path, registry_path: Path = REGISTRY_PATH) -> tup
     """Import a completed result, replacing only its exact op/backend row."""
     report = json.loads(report_path.read_text(encoding="utf-8"))
     pair, record = parse_result(report)
+    payload = _read_registry(registry_path)
+    key = f"{pair[0]}::{pair[1]}"
+    if report.get("schema") == COMPOUND_REPORT_SCHEMA:
+        payload["compound_records"][key] = record
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8")
+        return pair
     from library.tools import edit_algebra
 
     status = edit_algebra.status(pair[0])
     if status is None or status.for_backend(pair[1]) is None:
         raise QualificationReportError(
             f"no registered implementation exists for {pair[0]} on {pair[1]}")
-    payload = _read_registry(registry_path)
-    key = f"{pair[0]}::{pair[1]}"
     payload["records"][key] = record
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
@@ -378,8 +438,19 @@ def import_result(report_path: Path, registry_path: Path = REGISTRY_PATH) -> tup
 def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
     """Return evidence-complete rows in the shape consumed by edit_algebra."""
     payload = _read_registry(path)
+    return _complete_rows(payload["records"])
+
+
+def load_compound_records(path: Path = REGISTRY_PATH) -> dict:
+    """Return the evidence-complete COMPOUND transaction rows."""
+    payload = _read_registry(path)
+    return _complete_rows(payload.get("compound_records") or {})
+
+
+def _complete_rows(rows: Mapping[str, Any]) -> dict[tuple[str, str], dict]:
+    """The evidence-complete rows of one registry section."""
     records = {}
-    for key, record in payload["records"].items():
+    for key, record in rows.items():
         if not isinstance(record, dict) or record.get("result") != "passed":
             continue
         try:
