@@ -2679,7 +2679,7 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
     the post-touch state - read only for colour grades. `resolve_media`
     maps a source file path to a live media pool item.
     """
-    from library.tools import marker_carry, reel_read
+    from library.tools import edit_recovery, marker_carry, reel_read
 
     receipt: dict = {"entry": entry["id"]}
     before = entry["before"]["tracks"]
@@ -2829,11 +2829,12 @@ def undo_in_place(*, timeline, media_pool, entry: Mapping, entry_root: str,
 
     # 8. The verdict is the read, never a return value.
     restored = reel_read.read_tracks(timeline)
-    wrong = projection_diff(projection(before), projection(restored))
-    if wrong:
+    verification = edit_recovery.verify_restored(expected=before,
+                                                 observed=restored)
+    if not verification["verified"]:
         raise UndoNotVerified(
             f"{entry['final']!r} does not read as it did before touch "
-            f"{entry['id']}: {wrong}")
+            f"{entry['id']}: {verification['diff']}")
     receipt["verified"] = True
     return receipt
 

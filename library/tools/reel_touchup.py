@@ -3031,6 +3031,18 @@ def _cleanup_refused_staging(project, pool, staging, restore_to, receipt,
         "cleaned": True,
         "archive": archive,
     }
+    # The archive is now the ONLY copy of the half-finished edit, and
+    # the staging is about to be deleted. It is HELD against the touch
+    # that needs it: the cleanup must not collect it until the edit is
+    # safely committed or the recovery is explicitly abandoned.
+    if archive.get("path"):
+        from library.tools import edit_recovery
+
+        report["recovery_archive_hold"] = edit_recovery.hold_recovery_archive(
+            project_folder, archive["path"],
+            transaction_id=str(receipt.get("journal") or staging),
+            project_id=str(project.GetName() or "project"),
+            reason=f"recovery archive of the refused touch {staging}")
     current = project.GetCurrentTimeline()
     if (current is not None and restore_to is not None
             and current.GetName() == staging):

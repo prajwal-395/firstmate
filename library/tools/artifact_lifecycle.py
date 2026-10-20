@@ -183,7 +183,8 @@ def register_resolve_artifact(log_path: str | os.PathLike, *, artifact_id: str,
 def transition_artifact(project_folder: str, artifact_id: str, target: str,
                         *, reason: str, event_id: str = "",
                         path: str = "", identity: FileIdentity | None = None,
-                        original_path: str = "") -> bool:
+                        original_path: str = "",
+                        transaction_id: str = "") -> bool:
     """Make a recoverable, idempotent lifecycle transition in the event log."""
     if target not in LIFECYCLE_STATES:
         raise ValueError(f"unknown artifact lifecycle state: {target}")
@@ -203,11 +204,109 @@ def transition_artifact(project_folder: str, artifact_id: str, target: str,
         updates["identity"] = asdict(identity)
     if original_path:
         updates["original_path"] = str(Path(original_path).absolute())
+    if transaction_id:
+        # The transaction this artifact is held for. It travels with the
+        # artifact so a later reader knows WHICH edit still needs it.
+        updates["transaction_id"] = str(transaction_id)
     event_log.emit_once(project_folder, ARTIFACT_TRANSITION, stable_event_id,
                         task=current["job_id"], artifact_id=artifact_id,
                         state=target, previous_state=old, reason=reason,
                         **updates)
     return True
+
+
+# ── Recovery holds: an artifact kept until its edit is settled ──────
+
+def hold_for_transaction(project_folder: str, artifact_id: str, *,
+                         transaction_id: str, reason: str) -> dict:
+    """Hold a recovery artifact against the transaction that needs it.
+
+    A HELD artifact is not disposable: the cleanup refuses it, so the
+    recovery evidence survives until the edit is safely committed or the
+    recovery is explicitly abandoned (PRES-023). The hold names the
+    transaction, so a later reader knows WHICH edit still needs the
+    artifact - and a hold cannot be released by the wrong transaction.
+    """
+    if not transaction_id:
+        raise LifecycleRefused(
+            "a hold must name the transaction it holds for")
+    current = _latest_artifacts(project_folder).get(artifact_id)
+    if current is None:
+        raise LifecycleRefused(f"artifact ownership is unknown: {artifact_id}")
+    held_for = str(current.get("transaction_id") or "")
+    if held_for and held_for != str(transaction_id):
+        raise LifecycleRefused(
+            f"artifact {artifact_id} is already held for transaction "
+            f"{held_for!r}, not {transaction_id!r}")
+    if current.get("state") == RECOVERY_HOLD:
+        return {"artifact_id": artifact_id, "state": RECOVERY_HOLD,
+                "transaction_id": held_for or str(transaction_id),
+                "changed": False}
+    state = current.get("state", CREATED)
+    if state == CREATED:
+        # A registered artifact that has not been used yet is still in
+        # use once it is registered for recovery; the hold needs a
+        # state it can be reached from.
+        transition_artifact(project_folder, artifact_id, ACTIVE,
+                            reason="the artifact is in use")
+    transition_artifact(project_folder, artifact_id, RECOVERY_HOLD,
+                        reason=reason, transaction_id=str(transaction_id))
+    return {"artifact_id": artifact_id, "state": RECOVERY_HOLD,
+            "transaction_id": str(transaction_id), "changed": True}
+
+
+def release_hold(project_folder: str, artifact_id: str, *,
+                 transaction_id: str, outcome: str) -> dict:
+    """Release a held artifact: the edit committed, or it was abandoned.
+
+    `committed` keeps the artifact (`retained`); `abandoned` makes it
+    disposable again, which is the ONLY way a recovery artifact becomes
+    collectable. A hold is released only by the transaction it names.
+    """
+    if outcome not in {"committed", "abandoned"}:
+        raise ValueError(
+            "a release outcome is 'committed' or 'abandoned', not "
+            f"{outcome!r}")
+    current = _latest_artifacts(project_folder).get(artifact_id)
+    if current is None:
+        raise LifecycleRefused(f"artifact ownership is unknown: {artifact_id}")
+    if current.get("state") != RECOVERY_HOLD:
+        raise LifecycleRefused(
+            f"artifact {artifact_id} is not held: {current.get('state')}")
+    held_for = str(current.get("transaction_id") or "")
+    if held_for and held_for != str(transaction_id):
+        raise LifecycleRefused(
+            f"artifact {artifact_id} is held for transaction {held_for!r}, "
+            f"not {transaction_id!r}")
+    target = RETAINED if outcome == "committed" else DISPOSABLE
+    transition_artifact(project_folder, artifact_id, target,
+                        reason=f"recovery {outcome}",
+                        transaction_id=held_for)
+    return {"artifact_id": artifact_id, "state": target,
+            "transaction_id": held_for, "outcome": outcome}
+
+
+def held_artifacts(project_folder: str, *, transaction_id: str = "") -> list[dict]:
+    """The artifacts currently held for recovery, optionally for one
+    transaction."""
+    rows = []
+    for artifact_id, fields in _latest_artifacts(project_folder).items():
+        if fields.get("state") != RECOVERY_HOLD:
+            continue
+        held_for = str(fields.get("transaction_id") or "")
+        if transaction_id and held_for != str(transaction_id):
+            continue
+        rows.append({
+            "artifact_id": artifact_id,
+            "kind": fields.get("kind"),
+            "path": fields.get("path"),
+            "transaction_id": held_for,
+            "retention_class": fields.get("retention_class"),
+            "project_id": fields.get("project_id"),
+            "run_id": fields.get("run_id"),
+            "job_id": fields.get("job_id"),
+        })
+    return sorted(rows, key=lambda row: row["artifact_id"])
 
 
 def transition_resolve_artifact(log_path: str | os.PathLike, artifact_id: str,

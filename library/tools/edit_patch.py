@@ -974,12 +974,25 @@ def apply_patch(patch, *, resolve, project, timeline,
                 project=project_name, timeline_id=timeline_id,
                 timeline_name=timeline_name, snapshot=after,
                 source=shadow.OBSERVED, expected_head=head.generation)
+            # What CAN be reversed, stated before the refusal: the
+            # operations that landed and the inverse each one has, read
+            # off the snapshot from before the write. An operation with
+            # no stated inverse is named, not guessed.
+            from library.tools import edit_recovery
+
+            applied = [patch.operations[row["index"]] for row in ran]
+            reversal = edit_recovery.reversal_plan(operations=applied,
+                                                   before=base)
+            gate = edit_recovery.resume_gate(
+                unresolved=[{"transaction_id": patch.id,
+                             "status": "recovery_required"}])
             _emit_transaction_stage(
                 project_folder, patch, "recovery_required",
                 actual_state=after, applied_operations=ran,
                 failure=stopped["raised"], observed_generation=observed.generation,
+                reversal=reversal, resumable=gate["resumable"],
                 required=False)
-            raise PatchRefused(
+            refusal = PatchRefused(
                 what=(f"patch {patch.id!r} wrote to {timeline_name!r}, but "
                       "its first post-write read-back failed"),
                 why=(f"Resolve was re-read and the observed state was saved "
@@ -991,6 +1004,16 @@ def apply_patch(patch, *, resolve, project, timeline,
                               "timeline state for review before continuing."),
                 recovery_class="needs_question",
                 conflict_class="uncertain_mutation")
+            # The reversal that is available, and the gate that says the
+            # work may not resume until the restored state is verified
+            # (PRES-021, PRES-022).
+            refusal.recovery = {
+                **transaction_receipt.recovery(
+                    "api_uncertain", reason=stopped["raised"]),
+                "reversal": reversal,
+                "resume": gate,
+            }
+            raise refusal
     journal_errors = []
     try:
         observed_journaled = _emit_transaction_stage(

@@ -246,10 +246,16 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
                                       timeline: str,
                                       failure_evidence: Mapping | None = None
                                       ) -> dict:
-    """Undo journaled registered writes in reverse order and verify each."""
-    from library.tools import undo_journal
+    """Undo journaled registered writes in reverse order and verify each.
 
-    actions = []
+    The reversal SEMANTICS live in `library/tools/edit_recovery.py`: the
+    order, the per-step verification, and the rule that a failed step
+    names the operations that are still on the timeline. This function
+    owns only the AXI-SPECIFIC half - how one registered write is
+    undone (a caption swap-back, or an undo journal entry).
+    """
+    from library.tools import edit_recovery, undo_journal
+
     evidence = dict(failure_evidence or {})
     uncertain_failure = evidence.get("mutation_state") == "unknown"
     failed_receipt = evidence.get("adapter_receipt")
@@ -259,7 +265,9 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
             "operation_index": int(evidence["operation_index"]),
             "receipt": failed_receipt,
         })
-    for row in rows:
+    failed = {"index": None, "named": False}
+
+    def _undo_one(row):
         recovery = (row["receipt"].get("execution_contract", {})
                     .get("recovery", {}))
         reference = recovery.get("reference") or {}
@@ -282,40 +290,26 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
                     raise RuntimeError(
                         f"caption swap-back did not render and map the "
                         f"previous generation: {result}")
-                # The render-and-swap operation performs per-placement
-                # read-back and refuses while any current file remains.
-                actions.append({
-                    "operation_index": row["operation_index"],
-                    "verified": True,
-                    "kind": "caption_swap_back",
-                    "current_file": reference["current_file"],
-                    "previous_file": reference["previous_file"],
-                })
-                continue
-            except Exception as exc:  # noqa: BLE001 - retain partial recovery
-                completed = {action["operation_index"] for action in actions}
-                return {
-                    "status": "recovery_required",
-                    "reason": (f"caption swap-back for operation "
-                               f"{row['operation_index']} failed: "
-                               f"{type(exc).__name__}: {exc}"),
-                    "actions": actions,
-                    "failed_operation_index": row["operation_index"],
-                    "remaining_operations": [item["operation_index"]
-                                             for item in receipts
-                                             if item["operation_index"]
-                                             not in completed],
-                }
-        if reference.get("kind") != "undo_journal_entry":
-            completed = {action["operation_index"] for action in actions}
+            except Exception as exc:
+                failed["index"] = row["operation_index"]
+                failed["named"] = True
+                raise RuntimeError(
+                    f"caption swap-back for operation "
+                    f"{row['operation_index']} failed: "
+                    f"{type(exc).__name__}: {exc}") from exc
+            # The render-and-swap operation performs per-placement
+            # read-back and refuses while any current file remains.
             return {
-                "status": "recovery_required",
-                "reason": "a completed operation has no undo journal reference",
-                "actions": actions,
-                "remaining_operations": [item["operation_index"]
-                                         for item in receipts
-                                         if item["operation_index"] not in completed],
+                "operation_index": row["operation_index"],
+                "verified": True,
+                "kind": "caption_swap_back",
+                "current_file": reference["current_file"],
+                "previous_file": reference["previous_file"],
             }
+        if reference.get("kind") != "undo_journal_entry":
+            failed["index"] = row["operation_index"]
+            raise RuntimeError(
+                "a completed operation has no undo journal reference")
         try:
             result = undo_journal.undo(
                 str(reference["project_folder"]), final=timeline,
@@ -326,35 +320,42 @@ def _compensate_registered_operations(receipts: Sequence[Mapping], *,
                 raise RuntimeError(
                     "undo journal did not return one explicitly verified "
                     "restoration")
-        except Exception as exc:  # noqa: BLE001 - preserve partial state
-            completed = {action["operation_index"] for action in actions}
-            return {
-                "status": "recovery_required",
-                "reason": f"undo of operation {row['operation_index']} "
-                f"failed: {type(exc).__name__}: {exc}",
-                "actions": actions,
-                "failed_operation_index": row["operation_index"],
-                "remaining_operations": [item["operation_index"]
-                                         for item in receipts
-                                         if item["operation_index"] not in completed],
-            }
-        actions.append({
+        except Exception as exc:
+            failed["index"] = row["operation_index"]
+            failed["named"] = True
+            raise RuntimeError(
+                f"undo of operation {row['operation_index']} "
+                f"failed: {type(exc).__name__}: {exc}") from exc
+        return {
             "operation_index": row["operation_index"],
             "entry_id": reference["entry_id"],
             "verified": True,
             "receipt": result[0],
-        })
+        }
+
+    outcome = edit_recovery.reverse_each(rows=rows, undo_one=_undo_one)
+    if outcome["status"] == edit_recovery.RECOVERY_REQUIRED:
+        completed = {action["operation_index"] for action in outcome["actions"]}
+        remaining = [item["operation_index"] for item in receipts
+                     if item["operation_index"] not in completed]
+        for index in outcome["remaining_operations"]:
+            if index not in remaining:
+                remaining.append(index)
+        outcome["remaining_operations"] = remaining
+        if failed["named"]:
+            outcome["failed_operation_index"] = failed["index"]
+        else:
+            outcome.pop("failed_operation_index", None)
+        return outcome
     if uncertain_failure:
         return {
             "status": "recovery_required",
             "reason": "the failed operation may have mutated without a recovery receipt",
             "failed_operation_index": evidence.get("operation_index"),
-            "actions": actions,
+            "actions": outcome["actions"],
             "remaining_operations": [evidence.get("operation_index")],
         }
-    return {"status": "restored_original_verified",
-            "actions": actions,
-            "independent_readback": "each undo journal restore verified its live read-back"}
+    return outcome
 
 
 def _execute_registered_delete_batch(*, request, compiled, generation,
