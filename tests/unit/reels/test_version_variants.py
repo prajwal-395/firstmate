@@ -301,11 +301,16 @@ def test_create_variation_branches_records_commits(tmp_path):
     assert result["timeline_name"] == BASE_TIMELINE + CUTAWAY_SUFFIX
     assert _git(tmp_path, "rev-parse", "--abbrev-ref",
                 "HEAD").strip() == default
-    specs = tv.read_variant_specs(str(tmp_path))
-    assert specs["variants"]["9"][0]["cutaway"]["hide_angle"] == "SpeakerTwo"
-    # The spec rode on the branch commit, not the working tree.
-    _git(tmp_path, "checkout", default)
+    # The spec rode on the branch commit, not the working tree (#2818
+    # isolates variant branches in their own worktree, so creating one
+    # leaves the working tree on the default branch spec-free).
     assert tv.read_variant_specs(str(tmp_path))["variants"] == {}
+    branch_specs = json.loads(_git(
+        tmp_path, "show",
+        f"{result['branch']}:pipeline_output/review/"
+        f"{tv.VARIANTS_FILENAME}"))
+    assert (branch_specs["variants"]["9"][0]["cutaway"]["hide_angle"]
+            == "SpeakerTwo")
 
 
 def test_create_refuses_without_a_repo_or_on_a_dirty_tree(tmp_path):
@@ -513,6 +518,10 @@ def test_merge_cutaway_with_cta_and_grade(tmp_path):
                                   dict(CUTAWAY_SPEC))
     assert created["created"] is True
     branch_a = created["branch"]
+    # The variation is isolated on its branch (#2818 leaves the
+    # checkout on the default branch), so its build output is committed
+    # there, not onto the default branch.
+    _git(tmp_path, "checkout", branch_a)
     _build_touches_generated(tmp_path, "2026-09-10T11:45:00")
     _write(tmp_path, "marker_feedback/Reel_09.20260910T114500Z.markers.json",
            json.dumps({"timeline": BASE_TIMELINE + CUTAWAY_SUFFIX,
@@ -532,9 +541,12 @@ def test_merge_cutaway_with_cta_and_grade(tmp_path):
 
     # Combine: A into the default branch, then B on top - the merge
     # plus rebuild shape, minus the Resolve rebuild (blocked lane).
-    # The first merge is clean (main never touched the generated
-    # files after A branched); the second meets B's rebuild output
-    # and auto-resolves it to the target side.
+    # The merge never switches the checkout (#2818), so each merge
+    # runs with its target checked out. The first merge is clean
+    # (main never touched the generated files after A branched); the
+    # second meets B's rebuild output and auto-resolves it to the
+    # target side.
+    _git(tmp_path, "checkout", default)
     first = tv.merge_variations(str(tmp_path), branch_a, default)
     assert first["merged"] is True, first
     assert first["auto_resolved"] == []

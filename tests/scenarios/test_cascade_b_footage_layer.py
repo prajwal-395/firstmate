@@ -46,7 +46,7 @@ def _media(project: Path, name: str = "clip_a.mp4") -> Path:
 
 
 def test_scan_writes_assets_streams_clocks_through_the_revision_api(tmp_path):
-    """B1: one revision per scan, through the store - no second writer."""
+    """B1: one revision per scan with changes, through the store - no second writer."""
     project = tmp_path / "proj"
     project.mkdir()
     _media(project)
@@ -68,13 +68,15 @@ def test_scan_writes_assets_streams_clocks_through_the_revision_api(tmp_path):
     assert len(model["streams"]) == 1
     assert len(model["clocks"]) == 1
 
-    # A second scan merges into revision 2 without duplicating assets:
-    # the deterministic ids resolve to each other, they do not pile up.
+    # A second identical scan is an idempotent no-op (#2816 writes
+    # record-level changes, so an unchanged re-scan commits no empty
+    # revision): the revision stays put and nothing duplicates - the
+    # deterministic ids resolve to each other, they do not pile up.
     again = scan_step.scan_project_folder(str(project))
     assert again["model_link"]["status"] == "committed"
-    assert again["model_revision"] == 2
+    assert again["model_revision"] == 1
     revision, model = store.load_project_model(project)
-    assert revision == 2
+    assert revision == 1
     assert [a["id"] for a in model["assets"]] == asset_ids
     assert len(model["observations"]) == len(
         {o["id"] for o in model["observations"]})

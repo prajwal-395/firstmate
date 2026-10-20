@@ -701,7 +701,7 @@ def test_incremental_staging_keeps_allowlist_and_untracked_binary_guard(
     (tmp_path / "pipeline_data.json").unlink()
     deleted = bvc.stage_for_commit(str(tmp_path))
     assert deleted["staged"] is True
-    assert "D pipeline_data.json" in _git_2(
+    assert "D\tpipeline_data.json" in _git_2(
         tmp_path, "diff", "--cached", "--name-status").splitlines()
 
 

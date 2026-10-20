@@ -223,6 +223,8 @@ def test_qa01_edit_version_branch_merge_promote_undo_redo_lifecycle(tmp_path):
                 project, FINAL, promoted["version"], rollback["version"])
         elif reel_number == 2:
             live["rows"] = merged_rows
+            assert reel_versions.take_pending_redo(
+                project, FINAL) == promoted["version"]
             redo = reel_versions.record(
                 project, FINAL, kind=reel_versions.KIND_REDO,
                 rows=merged_rows, redoes=promoted["version"])

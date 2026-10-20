@@ -954,11 +954,47 @@ def stage_for_commit(project_folder: str) -> dict:
     report["bytes"] = sum(entry["size"] for entry in entries
                           if entry["path"] in changed_paths)
     write_binary_manifest(project_folder, entries)
-    # The generated manifest is always eligible; only paths returned by
-    # Git status plus it are passed to Git, never the whole project tree.
+    from library.tools.external_inputs import CHECKS, declaration_stems
+
+    listed = git(project_folder, "ls-files", "-z", "--", "external")
+    if listed.returncode != 0:
+        report["staged"] = False
+        report["reason"] = ("git ls-files failed while excluding external "
+                            f"state: {listed.stderr.strip()[-400:]}")
+        return report
+    declarations = declaration_stems()
+    state_keys = set(CHECKS) - declarations
+    state_paths = {
+        path for path in listed.stdout.split("\x00") if path
+        and (path.startswith("external/state/")
+             or (path.startswith("external/")
+                 and path.count("/") == 1
+                 and Path(path).suffix.lower() == ".json"
+                 and Path(path).stem in state_keys))
+    }
+    # The generated manifest is always eligible; only changed paths Git
+    # will accept plus it are passed to Git, never the whole project
+    # tree. Changed paths Git refuses - tracked files a newer ignore
+    # rule now excludes (legacy external state, legacy binaries) -
+    # stay out of the add: modern Git errors on adding an ignored
+    # path even when it is tracked, so including one fails the whole
+    # add. They are untracked below, never staged.
+    skipped = set()
+    stageable = []
+    for path in changed_paths:
+        if path in state_paths:
+            skipped.add(path)
+            continue
+        candidate = root / path
+        if (candidate.is_file()
+                and not is_drt_recovery_archive(candidate, root)
+                and not is_committable_text(candidate)):
+            skipped.add(path)
+            continue
+        stageable.append(path)
     to_stage = list(dict.fromkeys(
         f":(literal){path}"
-        for path in [*changed_paths, BINARY_MANIFEST_REL]))
+        for path in [*stageable, BINARY_MANIFEST_REL]))
     index_started = time.perf_counter()
     add = git(project_folder, "add", "--pathspec-from-file=-",
               "--pathspec-file-nul", input="\0".join(to_stage) + "\0")
@@ -967,28 +1003,9 @@ def stage_for_commit(project_folder: str) -> dict:
         report["staged"] = False
         report["reason"] = f"git add failed: {add.stderr.strip()[-400:]}"
         return report
-    from library.tools.external_inputs import CHECKS, declaration_stems
-
-    listed = git(project_folder, "ls-files", "-z", "--", "external")
-    if listed.returncode != 0:
-        _phase_measure(timings, "index", index_started)
-        report["staged"] = False
-        report["reason"] = ("git ls-files failed while excluding external "
-                            f"state: {listed.stderr.strip()[-400:]}")
-        return report
-    declarations = declaration_stems()
-    state_keys = set(CHECKS) - declarations
-    state_paths = [
-        path for path in listed.stdout.split("\x00") if path
-        and (path.startswith("external/state/")
-             or (path.startswith("external/")
-                 and path.count("/") == 1
-                 and Path(path).suffix.lower() == ".json"
-                 and Path(path).stem in state_keys))
-    ]
     if state_paths:
         untrack = git(project_folder, "rm", "--cached", "-q", "-f", "--",
-                      *state_paths)
+                      *sorted(state_paths))
         if untrack.returncode != 0:
             _phase_measure(timings, "index", index_started)
             report["staged"] = False
@@ -1012,7 +1029,12 @@ def stage_for_commit(project_folder: str) -> dict:
                 f"git rm --cached failed: "
                 f"{untrack.stderr.strip()[-400:]}")
             return report
-        report["untracked"] = sorted(binaries)
+        report["untracked"] = sorted(set(report["untracked"]) | set(binaries))
+    # Changed binaries kept out of the add above are versioned through
+    # the manifest, never the index - report them as untracked too.
+    if skipped:
+        report["untracked"] = sorted(
+            set(report["untracked"]) | (skipped - state_paths))
     if report.get("full_tree_audit") and entries:
         # A legacy binary may already be tracked yet unchanged, so it would
         # not appear in the staged diff above. The periodic audit is the

@@ -164,13 +164,14 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
                  else ([parent_revision] if parent_revision else ())),
         author=(existing_revision.get("author") if existing_revision
                 else fields.get("author")),
-        intent=("build" if revision_id and kind == KIND_BUILD else
-                (existing_revision.get("intent") if existing_revision else
-                 str(fields.get("intent") or fields.get("summary") or kind))),
-        operations=([{"kind": "build"}] if revision_id and kind == KIND_BUILD
-                    else (existing_revision.get("operations")
-                          if existing_revision else
-                          fields.get("operations") or [{"kind": kind}])),
+        intent=(existing_revision.get("intent") if existing_revision
+                else ("build" if revision_id and kind == KIND_BUILD else
+                      str(fields.get("intent") or fields.get("summary") or kind))),
+        operations=(existing_revision.get("operations")
+                    if existing_revision
+                    else ([{"kind": "build"}]
+                          if revision_id and kind == KIND_BUILD
+                          else fields.get("operations") or [{"kind": kind}])),
         base_generation=(existing_revision.get("base_generation")
                          if existing_revision
                          else fields.get("base_generation")),

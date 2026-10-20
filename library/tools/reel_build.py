@@ -13943,10 +13943,26 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
 
     # Promotion is not complete until the canonical revision and its
     # Project Model / Timeline Shadow references agree with the durable
-    # version and round projections. Keep the promotion journal and backup
-    # recoverable if any reference is absent or incompatible.
+    # version and round projections. The build files its own history
+    # entries (plan provenance's per-reel `build` acts) without revision
+    # linkage - there is no canonical revision to name until the stamp
+    # above creates one - so the promotion first imports those missing
+    # references (`reconcile(repair=True)` writes the absent canonical
+    # records and links them back into their projections), then verifies.
+    # Anything still inconsistent after that import - an incompatible id
+    # or reference, a missing model event or shadow generation - REFUSES
+    # below, and the promotion journal and backup stay recoverable.
+    # Keep the promotion journal and backup recoverable if any reference
+    # is absent or incompatible.
     try:
         from library.tools import creative_revision as _creative_revision
+        healed = _creative_revision.reconcile(project_folder, repair=True)
+        if healed.get("repaired"):
+            import sys as _sys_healed
+            print(f"  revision references repaired: "
+                  f"{len(healed.get('missing_references') or [])} "
+                  f"missing reference(s) imported as canonical revisions.",
+                  file=_sys_healed.stderr)
         consistency = _creative_revision.reconcile(project_folder)
         if not consistency.get("ok"):
             raise ValueError(consistency.get("missing_references") or

@@ -3759,6 +3759,21 @@ def redo_rebuild(project_folder: str, final: str, act: Mapping, *,
             f"{act.get('kind')!r}, not a rebuild",
             "so there is no rebuild to redo",
             "list the acts with `ren undo <project> --list`")
+    # The ledger is the authority on whether the rebuild stands rolled
+    # back: the passed act is a lookup hint, never the state. A stale
+    # caller copy would refuse a redo that is ready - or worse, re-apply
+    # one whose rollback already cleared.
+    live_act = next(
+        (v for v in history
+         if int(v.get("version", -1)) == int(act.get("version", -2))),
+        None)
+    if live_act is None:
+        raise UndoRefused(
+            f"version {act.get('version')} of {final!r} has no version "
+            f"record",
+            "so there is no rebuild to redo",
+            "list the acts with `ren undo <project> --list`")
+    act = live_act
     if not act.get("undone_by"):
         raise UndoRefused(
             f"version {act['version']} of {final!r} is not rolled back",

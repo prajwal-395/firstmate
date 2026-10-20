@@ -1496,6 +1496,20 @@ def record_rejection(project_folder, reel_number: int, suffix: str,
                                                      "approval": decision}
     _write_builds(project_folder, document)
     from library.tools import creative_revision
+    current = creative_revision.get(project_folder, str(entry["revision_id"]))
+    if current is not None and current.get("status") == "approved":
+        # An approved revision cannot move straight to rejected
+        # (`creative_revision` refuses it): the captain's reversal is
+        # recorded as an explicit revocation decision first, then the
+        # rejection itself is attached below. Skipped when the revision
+        # is already rejected, so a retried rejection stays idempotent.
+        creative_revision.revoke(
+            project_folder, str(entry["revision_id"]),
+            expected_version=int(current.get("version", 1)),
+            decision={"event_id": f"variant-rejection-{entry['revision_id']}",
+                      "reason": reason,
+                      "by": str(rejected_by or "captain"),
+                      "at": str(rejected_at or datetime.now(UTC).isoformat())})
     creative_revision.create(
         project_folder, revision_id=str(entry["revision_id"]),
         approval=decision, refs={"variant_review": decision}, status="rejected")

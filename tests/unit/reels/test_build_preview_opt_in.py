@@ -13,6 +13,16 @@ def _run_build(tmp_path, monkeypatch, *, configured=False, requested=False):
     (project / "project.yaml").write_text(
         "name: Test\nslug: test\nproject_format_version: 1\n" + config,
         encoding="utf-8")
+    # `cmd_build_reels` runs a storage preflight off the approved reel
+    # proposal (#2805), and the build cannot run without one (the
+    # builder reads it unconditionally) - so this fixture carries an
+    # empty one: no approved moments, no estimates, preflight skipped.
+    import json
+    review = project / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    (review / "reel_proposals_v2.json").write_text(
+        json.dumps({"format": "reel_proposal/1", "moments": []}),
+        encoding="utf-8")
 
     monkeypatch.setattr(
         manage_project, "_reel_project_folder", lambda _project: str(project))
