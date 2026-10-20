@@ -697,8 +697,38 @@ def _map_interval(clock: str, start: int, end: int,
     return pieces, False
 
 
+def _source_placements(model: dict[str, Any], contributors: list[dict[str, Any]],
+                        project: str | None) -> list[dict[str, Any]]:
+    """Where each contributing observation came from, in the source file.
+
+    A row placed on a TIMELINE clock is placed there for the join; a
+    reader who wants to open the footage needs the source. The
+    placement comes from ``observation_provenance``, which owns the
+    transform algebra, so the answer and the provenance module cannot
+    disagree about where a moment is.
+
+    An observation that cannot be placed is in the list with its
+    reason, never dropped: a reader that cannot see the hole would read
+    the rest as complete.
+    """
+    observations = []
+    for match in contributors:
+        observation = match.get("obs")
+        if isinstance(observation, dict) and observation.get("id"):
+            observations.append(observation)
+    if not observations:
+        return []
+    try:
+        from library.tools import observation_provenance
+        return observation_provenance.source_placements(
+            model, observations, project_folder=project)
+    except (ImportError, ValueError):
+        return []
+
+
 def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
-                 lane_presence: dict[tuple[str, str], dict[str, Any]] | None = None
+                 lane_presence: dict[tuple[str, str], dict[str, Any]] | None = None,
+                 project: str | None = None
                  ) -> dict[str, Any]:
     """Answer one compiled plan over a Project Model dict.
 
@@ -798,6 +828,7 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                 for transform_id in match.get("transform_ids", [])}),
             "clock_error_ticks": max((match.get("transform_error_ticks", 0)
                                        for match in contributors), default=0),
+            "sources": _source_placements(model, contributors, project),
         })
     reasons: list[str] = []
     if stale_dropped:

@@ -154,6 +154,18 @@ def _referenced_digests(roots: list[Path], retained_runs: list[Path]) -> set[str
                 raise WorkspaceGcRefused(
                     f"cannot establish source-memory reachability for "
                     f"{root}: {exc}") from exc
+            # The evidence an APPROVED decision rests on is evidence the
+            # captain's own ruling still needs. A clip that left the
+            # catalog does not stop being the footage an approved reel
+            # was cut from, and collecting its measurements would
+            # invalidate the decision that cites them.
+            try:
+                from library.tools import decision_evidence
+                found.update(decision_evidence.cited_digests(str(root)))
+            except (OSError, TypeError, ValueError) as exc:
+                raise WorkspaceGcRefused(
+                    f"cannot establish decision reachability for "
+                    f"{root}: {exc}") from exc
         if root in retained_runs:
             for path in _files(root):
                 if path.suffix.lower() not in {".json", ".txt", ".md"}:

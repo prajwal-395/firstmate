@@ -664,6 +664,16 @@ VERBS = (
          effects=("read", "project_write"),
          module_argv=("library.tools.memory_export",),
          params=(MCP_PROJECT,)),
+    Verb("share", "Footage", "Share another project's measured source intelligence into this one; both projects must grant each other",
+         effects=("read", "project_write"), json=True,
+         module_argv=("library.tools.cross_project_evidence", "share"),
+         params=(MCP_PROJECT,),
+         detail="`ren share <project> --from <other-project>` copies the other "
+                "project's model-derived evidence into this project's canonical "
+                "model. Both projects must declare a mutual opt-in in their "
+                "project-root `cross_project_policy.json`; without it nothing is "
+                "read from the other project. Every share passes the licence "
+                "gate and is audited."),
     Verb("eval-search", "Footage", "Score footage search against a pre-registered, hand-marked query set",
          effects=("read", "network"),
          module_argv=("library.tools.retrieval_eval",),

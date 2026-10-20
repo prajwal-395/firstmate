@@ -270,6 +270,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "search-index", group: "Footage", summary: "Build the footage search index (writes into the project's scratch)" },
     Verb { name: "analyze", group: "Footage", summary: "Analyse a folder of footage without editing: steps, per-source memory, indexes" },
     Verb { name: "export-memory", group: "Footage", summary: "Write the versioned, path-portable export of a project's footage memory" },
+    Verb { name: "share", group: "Footage", summary: "Share another project's measured source intelligence into this one; both projects must grant each other" },
     Verb { name: "eval-search", group: "Footage", summary: "Score footage search against a pre-registered, hand-marked query set" },
     Verb { name: "eval", group: "Eval", summary: "Run the standing request-following eval (report only; gates nothing)" },
     Verb { name: "worker", group: "Fabric", summary: "This machine's Ren Fabric worker: its manifest, and whether a task's requirements match it" },

@@ -57,7 +57,8 @@ def main(argv: list[str] | None = None) -> int:
         purpose=args.purpose, registry=model_registry.load_registry(),
     )
     if not args.acquire:
-        answer = evidence_query.evidence_for(model, plan)
+        answer = evidence_query.evidence_for(model, plan,
+                                             project=str(project))
         print(
             json.dumps(
                 {"answer": answer, "edit_ready": answer.get("status") == "present",
