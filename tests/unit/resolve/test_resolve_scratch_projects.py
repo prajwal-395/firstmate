@@ -29,6 +29,16 @@ class Timeline:
     def GetUniqueId(self):
         return self.uid
 
+    def SetName(self, name):
+        self.name = name
+        return True
+
+    def GetTrackCount(self, media_type):
+        return 1 if media_type in {"video", "audio"} else 0
+
+    def GetItemListInTrack(self, media_type, index):
+        return []
+
 
 class MediaPool:
     def __init__(self, project):
@@ -38,6 +48,12 @@ class MediaPool:
         timeline = Timeline(name, f"uid-{len(self.project.timelines) + 1}")
         self.project.timelines.append(timeline)
         self.project.current = timeline
+        return timeline
+
+    def ImportTimelineFromFile(self, path, options=None):
+        name = (options or {}).get("timelineName", Path(path).stem)
+        timeline = Timeline(name, f"uid-{len(self.project.timelines) + 1}")
+        self.project.timelines.append(timeline)
         return timeline
 
 
@@ -486,6 +502,40 @@ def test_drt_restore_reopens_the_recorded_ren_origin_before_import(
     assert result["imported_timeline_drts"] == imported
     assert result["verified"] is True
     assert not origin.exists()
+
+
+def test_drt_restore_recovers_a_misnamed_import_by_exact_archive_stem(
+        monkeypatch, tmp_path):
+    """Catches: Resolve named a DRT import after its filename, not its DRT."""
+    from library.tools import drt_reader, resolve_archive
+
+    path = tmp_path / "fm-scratch-qualify--fixture-id.drt"
+    path.write_bytes(b"fixture")
+    monkeypatch.setattr(resolve_archive, "read_archive", lambda _path: {
+        "format": "drt", "project": "fm-scratch qualify",
+        "timelines": [{}],
+    })
+    monkeypatch.setattr(drt_reader, "read_drt_archive", lambda _path: {
+        "timelines": [{"tracks": [
+            {"kind": "video", "items": []},
+            {"kind": "audio", "items": []},
+        ]}],
+        "item_count": 0,
+    })
+    timeline = Timeline(path.stem, "imported-with-filename-name")
+    project = Project("Ren Qualification", [timeline])
+
+    result = scratch._import_qualification_drts(project, [path])
+
+    assert timeline.GetName() == "fm-scratch qualify"
+    assert result == [{
+        "name": "fm-scratch qualify",
+        "timeline_id": "imported-with-filename-name",
+        "source": "recovered-renamed",
+        "items": 0,
+        "tracks": [["audio", 0], ["video", 0]],
+        "archive": str(path.resolve()),
+    }]
 
 
 def test_an_empty_untitled_project_does_not_block_the_scratch_lifecycle(

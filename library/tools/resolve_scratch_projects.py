@@ -396,15 +396,46 @@ def _import_qualification_drts(project, archives) -> list[dict]:
             timeline = matches[0]
             source = "existing"
         else:
-            timeline = pool.ImportTimelineFromFile(str(row["path"]))
-            if timeline is None:
+            archive_name = row["path"].stem
+            recovered = [timeline for timeline in timelines
+                          if timeline.GetName() == archive_name]
+            if len(recovered) > 1:
                 raise ScratchProjectError(
-                    f"Resolve refused to import DRT {row['path'].name!r}")
-            source = "imported"
-        if timeline.GetName() != row["name"]:
+                    f"Ren Qualification has multiple recovery timelines "
+                    f"named {archive_name!r}")
+            if recovered:
+                timeline = recovered[0]
+                source = "recovered-renamed"
+            else:
+                timeline = pool.ImportTimelineFromFile(
+                    str(row["path"]),
+                    {"timelineName": row["name"],
+                     "importSourceClips": False})
+                if timeline is None:
+                    raise ScratchProjectError(
+                        f"Resolve refused to import DRT {row['path'].name!r}")
+                source = "imported"
+        actual_tracks, item_count = facts(timeline)
+        if actual_tracks != row["tracks"] or item_count != row["items"]:
             raise ScratchProjectError(
-                f"DRT {row['path'].name!r} read back as timeline "
-                f"{timeline.GetName()!r}, expected {row['name']!r}")
+                f"timeline {timeline.GetName()!r} differs from DRT "
+                f"{row['path'].name!r}: tracks/items "
+                f"{actual_tracks!r}/{item_count}, expected "
+                f"{row['tracks']!r}/{row['items']}")
+        if timeline.GetName() != row["name"]:
+            if timeline.GetName() != row["path"].stem:
+                raise ScratchProjectError(
+                    f"DRT {row['path'].name!r} read back as timeline "
+                    f"{timeline.GetName()!r}, expected {row['name']!r}")
+            if not timeline.SetName(row["name"]):
+                raise ScratchProjectError(
+                    f"Resolve refused to name imported DRT timeline "
+                    f"{row['name']!r}")
+            if timeline.GetName() != row["name"]:
+                raise ScratchProjectError(
+                    f"DRT timeline rename did not read back as "
+                    f"{row['name']!r}")
+            source = "recovered-renamed"
         actual_tracks, item_count = facts(timeline)
         if actual_tracks != row["tracks"] or item_count != row["items"]:
             raise ScratchProjectError(
