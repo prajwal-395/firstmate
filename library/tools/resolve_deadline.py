@@ -36,9 +36,10 @@ exit either way.
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
+from typing import Any
 
+from library.tools.ren_refusal import RenRefusal
 
 #: How long one timeline-setting write may take before it is a hang.
 #: A live return is sub-second; the 2026-10-02 hang lasted until
@@ -55,12 +56,58 @@ _RESOLUTION_KEYS = ("useCustomSettings", "timelineResolutionWidth",
                     "timelineResolutionHeight")
 
 
-class ResolveCallTimeout(RuntimeError):
-    """A Resolve call did not return within its deadline."""
+class ResolveCallTimeout(RenRefusal):
+    """A Resolve call did not return within its deadline.
+
+    A timeout is a REFUSAL, not a crash: nothing was written, the
+    timeline is as it was, and the next step is known - restart Resolve
+    and run the command again. Before this it was a bare `RuntimeError`
+    with a sentence, so a host that met one had to work out for itself
+    whether a retry was safe. The message still reads as it did (the
+    call sites embed it in their own prose); the typed refusal fields
+    are what a host keys off.
+    """
+
+    CODE = "REN_RESOLVE_CALL_TIMEOUT"
+    RECOVERY_CLASS = "needs_question"
+    USER_MESSAGE = ("Resolve stopped answering, so I changed nothing. "
+                    "Restart Resolve and run the step again.")
+
+    def __init__(self, message: str, *, what: str = "", why: str = "",
+                 fix: str = ""):
+        self.message = message
+        super().__init__(
+            what or message,
+            why or "Resolve did not answer a scripting call in time",
+            fix or ("restart Resolve, then run the command again - the "
+                    "call was refused before it wrote anything"),
+        )
+
+    def __str__(self) -> str:
+        return self.message
 
 
-class ResolutionNotApplied(RuntimeError):
+class ResolutionNotApplied(RenRefusal):
     """The resolution writes returned but the read-back disagrees."""
+
+    CODE = "REN_RESOLUTION_NOT_APPLIED"
+    RECOVERY_CLASS = "needs_question"
+    USER_MESSAGE = ("Resolve did not take the size this reel needs, so I "
+                    "stopped rather than build on a wrongly sized "
+                    "timeline. Read the values below and set them by hand.")
+
+    def __init__(self, message: str, *, what: str = "", why: str = "",
+                 fix: str = ""):
+        self.message = message
+        super().__init__(
+            what or message,
+            why or "the read-back disagreed with the write",
+            fix or ("read the timeline's delivery size and set it by hand - "
+                    "the write was refused rather than trusted"),
+        )
+
+    def __str__(self) -> str:
+        return self.message
 
 
 class DeadlineProxy:
@@ -75,10 +122,10 @@ class DeadlineProxy:
     :func:`call_with_deadline`'s existing contract.
     """
 
-    __slots__ = ("_target", "_label", "_cache", "_timeout_s")
+    __slots__ = ("_cache", "_label", "_target", "_timeout_s")
 
     def __init__(self, target: Any, label: str = "Resolve",
-                 cache: dict[int, "DeadlineProxy"] | None = None,
+                 cache: dict[int, DeadlineProxy] | None = None,
                  timeout_s: float | None = None) -> None:
         object.__setattr__(self, "_target", target)
         object.__setattr__(self, "_label", label)
@@ -87,7 +134,7 @@ class DeadlineProxy:
         self._cache.setdefault(id(target), self)
 
     @classmethod
-    def wrap(cls, value: Any, label: str, cache: dict[int, "DeadlineProxy"],
+    def wrap(cls, value: Any, label: str, cache: dict[int, DeadlineProxy],
              timeout_s: float | None) -> Any:
         value_type = type(value)
         if value is None or issubclass(

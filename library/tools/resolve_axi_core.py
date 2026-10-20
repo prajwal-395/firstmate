@@ -704,6 +704,85 @@ def _validate_caption_style_batch(operations: Sequence[Mapping],
             "together, so no captions were changed")
 
 
+def _failure_receipt(*, request: Any, backend: str, generation: Any,
+                      operations: Sequence[Mapping], receipts: Sequence[Mapping],
+                      decision: Mapping, category: str, reason: str,
+                      failed_index: int,
+                      evidence: Mapping | None = None) -> dict:
+    """The receipt a failed execution publishes, with its typed next step.
+
+    The failure category decides the recovery action, the recovery class
+    and whether the same call may be repeated; `recovery_instruction`
+    owns that join, so the host reads the next step instead of
+    improvising one. The action also reaches the published
+    `RecoveryResult`, which reads `recovery.action` - so before this
+    carried one, the published action was "none" and the host had
+    nothing but a category name.
+    """
+    from library.tools.recovery_instruction import instruction, retryable_for
+    from library.tools.transaction_orchestration import (
+        ExecutionRefusal,
+        standardize_receipt,
+    )
+
+    typed = instruction(category, reason=reason)
+    refusal = ExecutionRefusal(
+        category, reason,
+        retryable=retryable_for(category),
+        recovery={"status": "required" if receipts else "not_required",
+                  "completed_operations": len(receipts),
+                  "instruction": typed},
+    ).as_dict()
+    failure_receipt = {
+        "status": ("partial_failure" if receipts
+                   or (evidence or {}).get("mutated") else "failed"),
+        "resolve_write_status": "failed",
+        "patch_id": request.id,
+        "request_id": request.id, "backend": backend,
+        "transaction_id": request.id,
+        "idempotency_key": request.idempotency_key,
+        "project": request.project, "timeline": request.timeline,
+        "atomic": False, "atomicity": "sequential_non_atomic",
+        "base_generation": generation.generation,
+        "concurrency": "exclusive_broker_lease_for_batch",
+        "mutated": bool(receipts or (evidence or {}).get("mutated")),
+        "completion_claimed": False,
+        "partial_result_preserved": bool(
+            receipts or (evidence or {}).get("mutated")),
+        "completed_operations": list(receipts),
+        "operations": list(receipts),
+        "requested_operation_count": len(operations),
+        "expected_changes": list(operations),
+        "actual_changes": list(receipts),
+        "affected_items": sorted({
+            str(op["unique_id"]) for op in operations if op.get("unique_id")}),
+        "verification_evidence": [row["receipt"].get(
+            "execution_contract", {}).get("verification", {})
+            for row in receipts],
+        "refusal": refusal, "failed_operation_index": failed_index,
+        "failed_operation": (operations[failed_index]
+                             if failed_index < len(operations) else None),
+        "failure_evidence": dict(evidence or {}),
+        "recovery": {
+            "status": "required" if receipts or (evidence or {}).get("mutated")
+            else "not_required",
+            "completed_operation_indices": [row["operation_index"]
+                                              for row in receipts],
+            "failed_operation_index": failed_index,
+            "failure": reason,
+            "action": typed["action"],
+            "instruction": typed,
+            "evidence": [row["receipt"].get("execution_contract", {}).get(
+                "recovery", {}) for row in receipts]
+                + ([dict((evidence or {}).get("adapter_receipt", {}).get(
+                    "execution_contract", {}).get("recovery", {}))]
+                   if (evidence or {}).get("adapter_receipt") else []),
+        },
+        "execution_routing": dict(decision),
+    }
+    return standardize_receipt(failure_receipt)
+
+
 def _execute_registered_backend(*, backend: str, plan: Mapping,
                                 request: Any, preparation: Any,
                                 compiled: Any, generation: Any,
@@ -715,7 +794,6 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     )
     from library.tools.transaction_orchestration import (
         ExecutionInput,
-        ExecutionRefusal,
         standardize_receipt,
     )
 
@@ -788,58 +866,11 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     def refused(category: str, reason: str, *, failed_index: int,
                 evidence: Mapping | None = None) -> dict:
-        refusal = ExecutionRefusal(
-            category, reason, retryable=False,
-            recovery={"status": "required" if receipts else "not_required",
-                      "completed_operations": len(receipts)},
-        ).as_dict()
-        failure_receipt = {
-            "status": ("partial_failure" if receipts
-                       or (evidence or {}).get("mutated") else "failed"),
-            "resolve_write_status": "failed",
-            "patch_id": request.id,
-            "request_id": request.id, "backend": backend,
-            "transaction_id": request.id,
-            "idempotency_key": request.idempotency_key,
-            "project": request.project, "timeline": request.timeline,
-            "atomic": False, "atomicity": "sequential_non_atomic",
-            "base_generation": generation.generation,
-            "concurrency": "exclusive_broker_lease_for_batch",
-            "mutated": bool(receipts or (evidence or {}).get("mutated")),
-            "completion_claimed": False,
-            "partial_result_preserved": bool(
-                receipts or (evidence or {}).get("mutated")),
-            "completed_operations": receipts,
-            "operations": receipts,
-            "requested_operation_count": len(operations),
-            "expected_changes": operations,
-            "actual_changes": receipts,
-            "affected_items": sorted({
-                str(op["unique_id"]) for op in operations if op.get("unique_id")}),
-            "verification_evidence": [row["receipt"].get(
-                "execution_contract", {}).get("verification", {})
-                for row in receipts],
-            "refusal": refusal, "failed_operation_index": failed_index,
-            "failed_operation": (operations[failed_index]
-                                 if failed_index < len(operations) else None),
-            "failure_evidence": dict(evidence or {}),
-            "recovery": {
-                "status": "required" if receipts or (evidence or {}).get("mutated")
-                else "not_required",
-                "completed_operation_indices": [row["operation_index"]
-                                                  for row in receipts],
-                "failed_operation_index": failed_index,
-                "failure": reason,
-                "evidence": [row["receipt"].get("execution_contract", {}).get(
-                    "recovery", {}) for row in receipts]
-                    + ([dict((evidence or {}).get("adapter_receipt", {}).get(
-                        "execution_contract", {}).get("recovery", {}))]
-                       if (evidence or {}).get("adapter_receipt") else []),
-            },
-            "execution_routing": decision,
-        }
-        from library.tools.transaction_orchestration import standardize_receipt
-        return standardize_receipt(failure_receipt)
+        return _failure_receipt(
+            request=request, backend=backend, generation=generation,
+            operations=operations, receipts=receipts, decision=decision,
+            category=category, reason=reason, failed_index=failed_index,
+            evidence=evidence)
 
     def compensate_completed(failure_evidence: Mapping | None = None) -> dict:
         return _compensate_registered_operations(

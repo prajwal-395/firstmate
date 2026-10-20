@@ -17,6 +17,7 @@ RECOVERY_ACTIONS = {
     "stale_generation": "rebase_if_provably_safe_else_replan",
     "execution_failed": "apply_and_verify_inverse",
     "collateral_change": "apply_and_verify_inverse",
+    "conflicting_state": "preserve_state_and_clarify",
     "verification_failed": "preserve_readback_and_replan",
     "recovery_failed": "preserve_forensics_and_intervene",
 }

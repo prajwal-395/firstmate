@@ -35,6 +35,8 @@ import threading
 import time
 from collections.abc import Callable
 
+from library.tools.ren_refusal import RenRefusal
+
 #: How long a connect may take before it is a hang. Successful connects
 #: took 0.02-0.03s in the 2026-10-04 incident; 10s is generous.
 CONNECT_BUDGET_S = 10.0
@@ -56,14 +58,34 @@ POST_RESTART_BUDGET_S = 10.0
 POST_RESTART_PER_TIMELINE_S = 1.0
 
 
-class ResolveDegraded(RuntimeError):
-    """Resolve is marked unresponsive; new work is refused."""
+class ResolveDegraded(RenRefusal):
+    """Resolve is marked unresponsive; new work is refused.
+
+    The refusal is typed, so a host that meets one knows the next step
+    is an operator action - restart Resolve - rather than something it
+    should improvise a retry for. The message still reads as it did.
+    """
+
+    CODE = "REN_RESOLVE_DEGRADED"
+    RECOVERY_CLASS = "blocked"
+    USER_MESSAGE = ("Resolve is marked unresponsive, so I did no work. "
+                    "Restart Resolve before trying again.")
 
     def __init__(self, reason: str, holder: str = "", job_id: str = ""):
-        super().__init__(reason)
+        self.message = reason
         self.reason = reason
         self.holder = holder
         self.job_id = job_id
+        super().__init__(
+            reason or "Resolve is marked unresponsive",
+            f"Resolve is marked unresponsive{': ' + reason if reason else ''}"
+            + (f" (held by {holder})" if holder else "")
+            + (f" (job {job_id})" if job_id else ""),
+            "restart Resolve, then re-probe it before submitting work",
+        )
+
+    def __str__(self) -> str:
+        return self.message
 
 
 def _deadline_call(label: str, func: Callable, *args,
@@ -422,8 +444,6 @@ def _verify_timeline_contents(project, result: dict,
     from library.tools.timeline_shadow import (
         OBSERVED,
         ShadowStore,
-        read_live,
-        snapshot_hash,
     )
 
     store = store or ShadowStore()

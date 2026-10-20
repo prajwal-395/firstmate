@@ -19,7 +19,7 @@ Ren owns editorial intent. Resolve AXI resolves live state, selects an eligible 
 
 ### Refusals and next actions
 
-Use the structured refusal and execution receipt, not the command's exit code, to decide what happens next:
+Use the structured refusal and execution receipt, not the command's exit code, to decide what happens next. The receipt's `recovery.instruction` carries the next step as DATA - `category`, `recovery_class`, `action` and `reason` - so it is read, never improvised; `library/tools/recovery_instruction.py` owns the join between a failure category and its recovery action.
 
 - `unsupported`: the requested semantics have no eligible production route. Keep the timeline unchanged and report the operation or qualification gap; do not retry through a different backend or rebuild unless the user explicitly authorized that route.
 - `stale`: the request was based on an old timeline generation. Re-read the timeline, resolve the target again and prepare a fresh request.

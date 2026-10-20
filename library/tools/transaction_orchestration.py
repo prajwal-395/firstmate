@@ -130,6 +130,18 @@ class ExecutionRefusal:
             limitations=tuple(getattr(exc, "limitations", ()) or ()),
         )
 
+    @property
+    def recovery_instruction(self) -> Mapping[str, str]:
+        """The typed next step for this failure.
+
+        `recovery_instruction` owns the join between the failure
+        CATEGORY and the recovery ACTION, so a host never has to
+        improvise a retry from the category name.
+        """
+        from library.tools.recovery_instruction import instruction
+
+        return instruction(self.category, reason=self.reason)
+
     def as_dict(self) -> dict:
         return asdict(self)
 
