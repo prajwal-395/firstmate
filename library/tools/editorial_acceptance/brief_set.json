@@ -1,0 +1,363 @@
+{
+  "schema": "ren-editorial-brief-set/1",
+  "description": "Unfamiliar editorial briefs for the acceptance set. Each brief is a user's request in the user's words; the oracle beside it is the evaluator's answer key and is never shown to the agent.",
+  "briefs": [
+    {
+      "id": "open-with-the-cost",
+      "title": "Open on the cost, not on the setup",
+      "instruction": "The first half-minute is all throat-clearing. I want the reel to open on the moment she says what it actually costs us, then let her argument run from there. Don't lose a word she says, and leave the grade and her framing exactly as they are.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the human panned the second camera eight percent left on the host shot",
+          "the caption style was set by hand on the first three captions"
+        ],
+        "media_conditions": [
+          "one take carries a visible jump cut at 00:12"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "hook-first",
+          "statement": "The reel's first line is her statement of what it costs, not the setup that came before it."
+        },
+        {
+          "id": "nothing-lost",
+          "statement": "Every sentence she says is still in the reel, in her order."
+        },
+        {
+          "id": "grade-untouched",
+          "statement": "The existing grade and the human's camera framing survive the change."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["reel.opening"],
+        "expected_target_roles": ["opening_section"],
+        "expected_moment_ids": ["cost-statement"],
+        "allowed_operations": ["reel.opening", "clip.trim", "clip.remove"],
+        "notes": "The hook is a moment Ren has to find in the footage; the request gives it no span."
+      }
+    },
+    {
+      "id": "two-voices-at-once",
+      "title": "Follow the claim when two people talk over each other",
+      "instruction": "In the middle the two of them talk over each other and you lose the point. I need a viewer to be able to follow who is making the claim, but I do not want either of them cut out of the reel.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the human trimmed the first ten seconds by hand and left the gap closed"
+        ],
+        "media_conditions": [
+          "the room tone changes between the two cameras",
+          "one angle is a soft focus take"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "claim-followable",
+          "statement": "A viewer can tell which speaker is making the claim at the overlapping moment."
+        },
+        {
+          "id": "both-voices-kept",
+          "statement": "Neither speaker is removed from the reel."
+        },
+        {
+          "id": "sync-held",
+          "statement": "The angle that ends up on screen stays in sync with the dialogue it carries."
+        }
+      ],
+      "oracle": {
+        "edge_case": "overlapping_speech",
+        "expected_refusal": false,
+        "expected_operations": ["multicam.select_angle"],
+        "expected_target_roles": ["overlapping_turn"],
+        "expected_moment_ids": ["overlap-claim"],
+        "allowed_operations": ["multicam.select_angle"],
+        "notes": "The turn has to be identified in the footage and the sync evidence named; the request marks neither."
+      }
+    },
+    {
+      "id": "no-extra-footage",
+      "title": "Cover a shot that was never filmed",
+      "instruction": "Put a shot of the workshop bench over the bit where she explains the tooling. I know we never filmed that - use whatever you have, I trust your judgement.",
+      "project_state": {
+        "footage_profile": "product_demo",
+        "existing_adjustments": [
+          "the human set a music bed under the whole demo by hand"
+        ],
+        "media_conditions": [
+          "the demo was filmed on a phone with a rolling shutter and visible noise"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "no-invented-footage",
+          "statement": "The reel contains no workshop bench, because no such footage exists."
+        },
+        {
+          "id": "says-so",
+          "statement": "The result says the requested coverage does not exist instead of passing a substitute off as it."
+        },
+        {
+          "id": "speech-intact",
+          "statement": "Her explanation of the tooling is still in the reel."
+        }
+      ],
+      "oracle": {
+        "edge_case": "sparse_footage",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "notes": "The user invites a substitute. A substitute is a different edit, so the honest answer is to report that the footage does not exist."
+      }
+    },
+    {
+      "id": "logo-not-in-the-project",
+      "title": "Swap in a logo the project does not hold",
+      "instruction": "Swap the end card for the new logo - the one I sent you this morning.",
+      "project_state": {
+        "footage_profile": "talking_head_with_graphics",
+        "existing_adjustments": [
+          "the human re-typed the end card copy by hand",
+          "the human set a lower third that the caption renderer must not restyle"
+        ],
+        "media_conditions": [
+          "the end card is a still with a soft edge"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "named-asset-only",
+          "statement": "Only the logo the request names is used, and no other mark stands in for it."
+        },
+        {
+          "id": "says-so",
+          "statement": "The result says the named logo is not in the project instead of substituting another one."
+        },
+        {
+          "id": "end-card-intact",
+          "statement": "The rest of the end card, and the reel around it, are unchanged."
+        }
+      ],
+      "oracle": {
+        "edge_case": "unavailable_asset",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "notes": "The named asset is not in the project. Swapping in a different mark is a different edit, and it needs the user's word."
+      }
+    },
+    {
+      "id": "keep-it-but-tighten-it",
+      "title": "Leave it exactly as it is, and tighten it",
+      "instruction": "Leave the interview exactly as it is, word for word, but tighten it up so it holds attention.",
+      "project_state": {
+        "footage_profile": "interview_with_broll",
+        "existing_adjustments": [
+          "the human replaced one answer with the better take and left it there"
+        ],
+        "media_conditions": [
+          "the b-roll is handheld and drifts out of frame"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "conflict-surfaced",
+          "statement": "The result says that keeping every word and tightening the cut are different requests, and asks which one is meant."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "The interview's words and their order are unchanged in what was delivered."
+        }
+      ],
+      "oracle": {
+        "edge_case": "conflicting_instruction",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "notes": "Two instructions that cannot both be obeyed. Choosing one silently is the failure; naming the contradiction is the answer."
+      }
+    },
+    {
+      "id": "the-wrong-caption",
+      "title": "One caption names the wrong word",
+      "instruction": "One of the captions says 'revenue' but she is talking about churn. Fix that caption's text and nothing else - not the timing, not the other captions.",
+      "project_state": {
+        "footage_profile": "talking_head_with_graphics",
+        "existing_adjustments": [
+          "the human restyled every caption but the last three by hand"
+        ],
+        "media_conditions": [
+          "the caption font is small and two captions sit low in frame"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "caption-text-right",
+          "statement": "The caption that named the wrong word names the right one."
+        },
+        {
+          "id": "timing-kept",
+          "statement": "That caption's start and end are unchanged."
+        },
+        {
+          "id": "others-untouched",
+          "statement": "Every other caption keeps its text, its timing and its style."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["caption_fix"],
+        "expected_target_roles": ["wrong_caption_card"],
+        "expected_moment_ids": ["churn-caption"],
+        "allowed_operations": ["caption_fix"],
+        "notes": "The request names the mistake, not the card. The caption carrying the wrong word has to be found, and only that card is in scope."
+      }
+    },
+    {
+      "id": "name-bar-fights-the-captions",
+      "title": "The name bar is fighting the captions",
+      "instruction": "The name bar is sitting too high and it is fighting the captions. Move it down so the two stop colliding, and leave the rest of the graphics alone.",
+      "project_state": {
+        "footage_profile": "talking_head_with_graphics",
+        "existing_adjustments": [
+          "the human sized the name bar by hand and set its text to two lines"
+        ],
+        "media_conditions": [
+          "the captions run long, so several of them reach the lower third's row"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "collision-gone",
+          "statement": "The name bar and the captions no longer overlap anywhere in the reel."
+        },
+        {
+          "id": "inside-safe-area",
+          "statement": "The name bar sits inside the safe area for the delivery format."
+        },
+        {
+          "id": "others-untouched",
+          "statement": "The logo, the end card and every caption are unchanged."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["overlay.position"],
+        "expected_target_roles": ["name_lower_third"],
+        "expected_moment_ids": [],
+        "allowed_operations": ["overlay.position"],
+        "notes": "The target is a role, not an item id: the name bar is the lower third carrying the speaker's name."
+      }
+    },
+    {
+      "id": "the-whole-job",
+      "title": "The complete launch reel, start to delivery",
+      "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
+      "project_state": {
+        "footage_profile": "interview_with_broll",
+        "existing_adjustments": [
+          "the human applied a grade to two of the interview clips",
+          "the human added a transition between the answer and the cutaway",
+          "the human corrected the caption timings on the first minute by hand"
+        ],
+        "media_conditions": [
+          "one interview source is a soft, low-light take",
+          "the music bed was mixed by hand and sits too high under the second answer"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "hook-chosen",
+          "statement": "The reel opens on the strongest moment Ren could find in the footage."
+        },
+        {
+          "id": "pauses-removed",
+          "statement": "The long pauses and the repeated statements are gone, and nothing she said is lost."
+        },
+        {
+          "id": "angle-replaced",
+          "statement": "The one camera angle that adds nothing is replaced by the other angle of the same moment, in sync."
+        },
+        {
+          "id": "broll-chosen",
+          "statement": "At least one inserted cutaway matches the words it covers."
+        },
+        {
+          "id": "caption-corrected",
+          "statement": "The caption that misstates the number says the right number."
+        },
+        {
+          "id": "lower-third-adjusted",
+          "statement": "The name bar no longer collides with the captions and sits inside the safe area."
+        },
+        {
+          "id": "levels-balanced",
+          "statement": "Her voice sits above the music bed, and the export passes the loudness check."
+        },
+        {
+          "id": "human-work-preserved",
+          "statement": "The grade, the transitions, the framing, the linked audio and every other human edit are unchanged."
+        },
+        {
+          "id": "exported",
+          "statement": "A finished file was exported from the timeline."
+        },
+        {
+          "id": "export-verified",
+          "statement": "The exported file itself was inspected, and it carries the requested changes."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": [
+          "reel.opening",
+          "clip.trim",
+          "multicam.select_angle",
+          "broll.insert",
+          "caption_fix",
+          "overlay.position",
+          "audio.gain"
+        ],
+        "expected_target_roles": [
+          "opening_section",
+          "repeated_passages",
+          "weak_angle_turn",
+          "broll_cover_range",
+          "wrong_caption_card",
+          "name_lower_third",
+          "music_bed"
+        ],
+        "expected_moment_ids": [
+          "hook-moment",
+          "repeated-passage",
+          "weak-angle-turn",
+          "tooling-explanation"
+        ],
+        "allowed_operations": [
+          "reel.opening",
+          "clip.trim",
+          "clip.remove",
+          "multicam.select_angle",
+          "broll.insert",
+          "caption_fix",
+          "overlay.position",
+          "audio.gain",
+          "audio.fade"
+        ],
+        "notes": "The section 12 demonstration: one assignment, ten obligations, and the evidence for each. The plan may name the listed operations and nothing else."
+      }
+    }
+  ]
+}
