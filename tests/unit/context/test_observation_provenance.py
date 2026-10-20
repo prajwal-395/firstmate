@@ -191,7 +191,7 @@ def test_resolve_all_reports_the_holes_too(tmp_path):
         "id": "obs-render", "asset_id": "asset-render",
         "interval": {"clock_id": "clock-render", "start": 0, "end": 24},
         "modality": "render", "payload": {"path": "renders/output.mov"},
-        "provenance_id": "prov-1"}]
+        "provenance_id": "prov-1", "confidence": 1.0}]
     from library.tools import project_model_store
     project_model_store.commit_project_model(
         project, model, expected_revision=0, reason="fixture")

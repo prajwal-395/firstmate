@@ -413,6 +413,16 @@ def test_a_scene_description_never_claims_complete_coverage(
         fixture_project):
     """The defect this pins: a sampled reading filed as a complete
     observation of the window it was read from."""
+    from library.tools import source_memory
+
+    scenes_path = fixture_project["memory"] / D1 / "scenes.json"
+    scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
+    scenes["instrument"]["scene_pass"] = source_memory.M4_SCENE_PASS_METHOD
+    scenes["window_coverage"] = [{
+        "start_s": 0.0, "end_s": 5.0, "status": "complete",
+        "producer_version": "fixture-scene-v1", "source_digest": D1,
+    }]
+    _write(scenes_path, scenes)
     model, _report = _migrate(fixture_project)
 
     record = _m4_scene_record(model)
@@ -989,7 +999,7 @@ def test_m3e_migrates_native_coverage_and_refuses_stale_method(
     assert coverage["lanes"][D1][
         "native_migrated_observations"]["segmentation"] == 12
     assert sum(coverage["lanes"][D1][
-        "native_migrated_observations"].values()) == 23
+        "native_migrated_observations"].values()) == 28
 
     _write_m3e(memory, D1, "retired-attention-method")
     stale_model, stale_report = _migrate(fixture)
@@ -1131,7 +1141,8 @@ def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
         "cinematography_profile", "same_scene_context_sequence_hypothesis"}
     for record in model["interpretations"]:
         assert record["evidence_ids"][0] in {obs["id"] for obs in vi09}
-    m5_records = native("m5")
+    m5_records = [record for record in native("m5")
+                  if record["measurement_type"] == "audio.sound_event"]
     assert len(m5_records) == 1
     assert m5_records[0]["value"] == []
     assert m5_records[0]["coverage"] == "complete"
@@ -1146,9 +1157,11 @@ def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
         obs["payload"]["evidence_contract"]
         for obs in empty_scene_model["observations"]
         if obs["provenance_id"].endswith("-m4")
-        and "evidence_contract" in obs["payload"]]
-    assert len(empty_scene_records) == 2
-    assert all(record["value"] == [] and record["coverage"] == "complete"
+        and "evidence_contract" in obs["payload"]
+        and obs["payload"]["evidence_contract"].get("measurement_type")
+        == "video.scene_segment"]
+    assert len(empty_scene_records) == 1
+    assert all(record["value"] == [] and record["coverage"] == "sampled"
                for record in empty_scene_records)
 
     coverage = evidence.evidence_coverage(
@@ -1177,9 +1190,15 @@ def test_m3f_m3g_m4_m5_native_evidence_freshness_and_absence(
         **json.loads((memory / D1 / "sound.json").read_text(
             encoding="utf-8")), "method": "retired-sound-method"})
     stale_model, stale_report = _migrate(fixture)
-    assert not [obs for obs in stale_model["observations"]
-                if obs["provenance_id"].endswith(("-m3f", "-m3g", "-m4", "-m5"))
-                and "evidence_contract" in obs["payload"]]
+    stale_native = [obs for obs in stale_model["observations"]
+                    if obs["provenance_id"].endswith(
+                        ("-m3f", "-m3g", "-m4", "-m5"))
+                    and "evidence_contract" in obs["payload"]]
+    assert all(obs["modality"] == "sound_class"
+               and obs["payload"]["evidence_contract"]["coverage"]
+               == "unavailable"
+               and obs["payload"]["evidence_contract"]["value"] is None
+               for obs in stale_native)
     stale_coverage = evidence.evidence_coverage(
         str(fixture["project"]), stale_model, stale_report,
         memory_root=str(memory))

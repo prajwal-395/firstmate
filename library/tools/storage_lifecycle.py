@@ -189,7 +189,7 @@ def cleanup_qualification(project_folder: str) -> dict | None:
     return record
 
 
-def _legacy_roots() -> list[tuple[str, Path]]:
+def _legacy_roots(projects: list[str] = ()) -> list[tuple[str, Path]]:
     """Known legacy stores, derived from the same owners as their writers."""
     from library.tools import qualification_project, ren_native_cache
     from library.tools.project_layout import Area, ProjectLayout
@@ -205,6 +205,16 @@ def _legacy_roots() -> list[tuple[str, Path]]:
                 ("review", layout.read_dir(Area.REVIEW)),
             )
         )
+    known = {str(path.resolve()) for _, path in roots}
+    for project in projects:
+        layout = ProjectLayout(project)
+        for category, area in (("abandoned_scratch", Area.SCRATCH),
+                               ("quarantine", Area.QUARANTINE),
+                               ("review", Area.REVIEW)):
+            path = layout.read_dir(area)
+            if str(path.resolve()) not in known:
+                roots.append((category, path))
+                known.add(str(path.resolve()))
     return roots
 
 
@@ -1074,7 +1084,7 @@ def analysis_resources(project_folder: str) -> dict:
     }
 
 
-def _legacy_project_roots() -> dict[str, list[Path]]:
+def _legacy_project_roots(projects: list[str] = ()) -> dict[str, list[Path]]:
     """The legacy roots each project owns, by the project's own path."""
     from library.tools.project_layout import Area, ProjectLayout
 
@@ -1082,6 +1092,14 @@ def _legacy_project_roots() -> dict[str, list[Path]]:
     for project in project_registry.list_projects():
         layout = ProjectLayout(project.project_root)
         owned[str(Path(project.project_root).resolve())] = [
+            layout.read_dir(Area.SCRATCH),
+            layout.read_dir(Area.QUARANTINE),
+            layout.read_dir(Area.REVIEW),
+        ]
+    for project in projects:
+        root = Path(project).resolve()
+        layout = ProjectLayout(root)
+        owned[str(root)] = [
             layout.read_dir(Area.SCRATCH),
             layout.read_dir(Area.QUARANTINE),
             layout.read_dir(Area.REVIEW),
@@ -1228,7 +1246,7 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
             cache_inodes.setdefault(key, int(identity["size_bytes"]))
     cache_bytes = sum(cache_inodes.values())
     cache_budget = CacheBudget.from_environment()
-    legacy_sources = _legacy_roots()
+    legacy_sources = _legacy_roots(projects)
     legacy_owners = list(
         dict.fromkeys(
             [
@@ -1240,7 +1258,7 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
     )
     legacy_rows = _legacy_resources(legacy_sources, project_logs=legacy_owners)
     legacy_by_category: dict[str, dict[str, int]] = {}
-    legacy_roots_by_project = _legacy_project_roots()
+    legacy_roots_by_project = _legacy_project_roots(projects)
     legacy_by_project: dict[str, dict[str, int]] = {}
     for row in legacy_rows:
         totals = legacy_by_category.setdefault(

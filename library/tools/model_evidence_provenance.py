@@ -192,10 +192,12 @@ def _decision(row: dict[str, Any], record: dict[str, Any] | None,
             implementation_id, registry)
     except (KeyError, TypeError):
         return False, "producing implementation is not registered"
+    terms = record.get("output_reuse")
+    if isinstance(terms, dict) and terms.get("reuse_scope") == "benchmark_only":
+        return False, "research-only or unknown outputs are benchmark-only"
     if not evidence_license.authorized_for(implementation_id, edition,
                                            purpose, registry):
         return False, "producing implementation is not eligible for target workload"
-    terms = record.get("output_reuse")
     if not isinstance(terms, dict):
         return False, "output reuse terms are missing"
     current_terms = output_reuse_terms(implementation_id, registry)

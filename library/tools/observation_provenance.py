@@ -243,6 +243,7 @@ def _unresolved(observation_id: str, reason: str, **extra: Any) -> dict[str, Any
            "source_file": None, "content_digest": None,
            "start_seconds": None, "end_seconds": None,
            "duration_seconds": None, "uncertainty_ticks": None}
+    out["confidence"] = None
     out.update(extra)
     return out
 

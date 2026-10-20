@@ -1354,7 +1354,8 @@ def record_timeline_snapshot(review_dir: str, timeline_name: str,
         previous = table.get(name) or {}
         history = list(previous.get("history") or [])
         recorded = {
-            key: value for key, value in entry.items() if key != "history"}
+            key: value for key, value in entry.items()
+            if key not in {"history", "snapshot"}}
         recorded["state_change"] = state_change(
             previous.get("snapshot"), snapshot,
             differ=reel_replace_guard.snapshot_diff)

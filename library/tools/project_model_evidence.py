@@ -404,11 +404,17 @@ class _Builder:
                 "sample_resolution": (envelope["sample_resolution"]
                                       or evidence.sample_resolution)
                                       if has_basis else None,
-                "temporal_coverage": temporal_coverage,
-                "coverage_status": envelope["coverage_status"],
+                "temporal_coverage": (temporal_coverage
+                                      or native.get("temporal_coverage") or []),
+                "coverage_status": (envelope["coverage_status"]
+                                    if envelope["coverage_status"] != "unknown"
+                                    else native.get("coverage_status", "unknown")),
                 "verified_status": envelope["verified_status"],
-                "producer": envelope["producer"],
-                "producer_version": envelope["producer_version"],
+                "producer": (envelope["producer"] or producer),
+                "producer_version": (
+                    envelope["producer_version"]
+                    or (evidence.producer_version
+                        if evidence is not None else None)),
             })
             # Preserve the recorded analysis basis without inventing
             # preprocessing parameters absent from a legacy envelope.
@@ -2300,8 +2306,7 @@ def _migrate_sound_classes(builder: _Builder, digest: str, asset_id: str,
                 target_entity_id=None, target_region=None,
                 evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
                 measurement_type="audio.sound_class",
-                value={"sound_class": name, "state": state,
-                       "reason": reading["reason"]},
+                value=None,
                 unit="record", method=str(summary_method),
                 sample_resolution=None,
                 coverage=evidence_contract.CoverageKind.UNAVAILABLE,
