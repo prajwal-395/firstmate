@@ -25,13 +25,34 @@ def _context(operation):
     )
 
 
+def _verified_touchup_receipt(spec):
+    operation = spec["acceptance_operations"][0]
+    return {
+        "transaction": {"verification": {"status": "verified"}},
+        "acceptance_contracts": [{
+            "operation": operation["op"], "passed": True,
+            "results": [{"check": "operation_readback_matches_request",
+                         "passed": True}],
+        }],
+    }
+
+
 def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypatch):
     from library.tools import resolve_axi_core
 
     calls = []
+    after = {"reported_fps": 30.0, "tracks": [{
+        "type": "video", "index": 2, "clips": [{
+            "unique_id": "clip-17", "record_in": 24, "record_out": 76,
+            "source_in_frame": 9, "source_out_frame": 60,
+            "duration": 52, "source_file": "/media/music.wav",
+        }],
+    }]}
     monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
         calls.append(command) or SimpleNamespace(
-            ok=True, stdout="verified: yes (read back equal)", stderr="")))
+            ok=True, stdout="command completed", stderr="")))
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
 
     receipt = adapters._trim(_context({
         "op": "clip.trim", "unique_id": "clip-17",
@@ -44,25 +65,15 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
         "--project", "project-1", "--timeline", "Reel 01 - opening",
     ]]
     assert receipt["execution_contract"]["verification"]["status"] == "verified"
+    assert receipt["acceptance_contracts"][0]["passed"]
 
 
-def test_caption_fix_uses_exact_unique_id_position_and_readback(monkeypatch):
-    from library.tools import resolve_axi_core
-
-    calls = []
-    monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
-        calls.append(command) or SimpleNamespace(
-            ok=True, stdout="verified: yes (read back equal)", stderr="")))
-
-    adapters._caption_fix(_context({
-        "op": "caption_fix", "unique_id": "clip-17", "text": "Correct words",
-    }))
-
-    assert calls == [[
-        "edit", "title", "--track", "V2", "--index", "0",
-        "--text", "Correct words", "--apply", "--project", "project-1",
-        "--timeline", "Reel 01 - opening",
-    ]]
+def test_caption_fix_refuses_without_readable_title_text():
+    with pytest.raises(RuntimeError, match="title text.*evidence is missing"):
+        adapters._caption_fix(_context({
+            "op": "caption_fix", "unique_id": "clip-17",
+            "text": "Correct words",
+        }))
 
 
 def test_target_identity_must_resolve_exactly_once():
@@ -121,7 +132,7 @@ def test_capability_discovery_reports_staged_resize_without_qualification():
         "reel_touchup")
 
 
-def test_ripple_adapter_converts_delta_to_a_staged_duration(monkeypatch):
+def test_ripple_adapter_refuses_retime_semantics(monkeypatch):
     from library.tools import project_registry, reel_proposal, reel_touchup
 
     _context_obj = _context({
@@ -137,15 +148,19 @@ def test_ripple_adapter_converts_delta_to_a_staged_duration(monkeypatch):
     monkeypatch.setattr(reel_proposal, "read_proposal",
                         lambda _path: [proposal])
     calls = []
-    monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
-        calls.append(spec) or {"transaction": {
-            "verification": {"status": "verified"}}}))
+    monkeypatch.setattr(reel_touchup, "apply_touchup", lambda *_args: (
+        calls.append(_args)))
 
-    adapters._touchup(_context_obj)
+    with pytest.raises(ValueError, match="canonical ripple shifts later clips"):
+        adapters._touchup(_context_obj)
+    assert not calls
 
-    assert calls[0]["edits"] == [{
-        "op": "retime", "row": "V2", "item": 0, "duration": 72,
-    }]
+
+def test_audio_gain_refuses_without_independent_audio_render_evidence():
+    with pytest.raises(RuntimeError, match="independent audio-render evidence"):
+        adapters._audio_gain(_context({
+            "op": "audio.gain", "unique_id": "clip-17", "db": 3.0,
+        }))
 
 
 def test_slip_adapter_routes_source_window_delta_to_staged_touchup(monkeypatch):
@@ -163,14 +178,14 @@ def test_slip_adapter_routes_source_window_delta_to_staged_touchup(monkeypatch):
                         lambda _path: [proposal])
     calls = []
     monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
-        calls.append(spec) or {"transaction": {
-            "verification": {"status": "verified"}}}))
+        calls.append(spec) or _verified_touchup_receipt(spec)))
 
     adapters._touchup(context)
 
     assert calls[0]["edits"] == [{
         "op": "slip", "row": "V2", "item": 0, "delta_frames": 7,
     }]
+    assert calls[0]["acceptance_operations"] == [context.operation]
 
 
 def test_audio_fade_adapter_converts_seconds_using_timeline_rate(monkeypatch):
@@ -190,8 +205,7 @@ def test_audio_fade_adapter_converts_seconds_using_timeline_rate(monkeypatch):
                         lambda _path: [proposal])
     calls = []
     monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
-        calls.append(spec) or {"transaction": {
-            "verification": {"status": "verified"}}}))
+        calls.append(spec) or _verified_touchup_receipt(spec)))
 
     adapters._touchup(context)
 
@@ -341,8 +355,7 @@ def test_transition_adapter_resolves_exact_adjacent_cut(monkeypatch):
                         lambda _path: [proposal])
     calls = []
     monkeypatch.setattr(reel_touchup, "apply_touchup", lambda _folder, spec: (
-        calls.append(spec) or {"transaction": {
-            "verification": {"status": "verified"}}}))
+        calls.append(spec) or _verified_touchup_receipt(spec)))
 
     adapters._touchup(context)
 

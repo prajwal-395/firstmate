@@ -331,6 +331,16 @@ def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
     return AxiResult(int(code), stdout.getvalue(), stderr.getvalue())
 
 
+def read_live_timeline(project: str, timeline: str) -> dict:
+    """Return a fresh live snapshot through the AXI timeline reader."""
+    from library.tools import resolve_axi_core_commands
+
+    view, _note = resolve_axi_core_commands._timeline_view(
+        timeline, project, caller="resolve_axi_core.read_live_timeline",
+        refresh_live=True, exact=True)
+    return dict(view.snapshot)
+
+
 def invoke_cli(argv: Sequence[str] | None = None) -> AxiResult:
     """CLI adapter; byte-preserving output is rendered by ``resolve_axi``."""
     import sys

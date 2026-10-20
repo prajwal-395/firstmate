@@ -108,6 +108,14 @@ def test_acceptance_distinguishes_missing_evidence_from_failed_measurement():
     assert "unrelated_items_unchanged" in result["missing"]
 
 
+def test_acceptance_reports_unavailable_readback_as_missing_evidence():
+    result = operation_acceptance.evaluate(
+        {"op": "caption_fix", "unique_id": "clip-1", "text": "Correct"},
+        readback_passed=None)
+    assert not result["passed"]
+    assert "operation_readback_matches_request" in result["missing"]
+
+
 def test_audio_changes_require_independent_render_evidence():
     result = operation_acceptance.evaluate(
         {"op": "audio.gain"}, readback_passed=True,

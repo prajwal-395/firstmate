@@ -4069,6 +4069,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     from library.tools import reel_read as _read
 
     source_rows = _live_rows(source)
+    source_snapshot_tracks = _read.read_tracks(source)
     staged_rows = _live_rows(staged)
     structural = {str(edit.get("op") or "")
                   for edit in (spec.get("edits") or ())}
@@ -4281,6 +4282,39 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         receipt["in_place"]["overlay_resize_pixels"] = pixel_report
     staged_tracks = _read.read_tracks(staged)
     receipt["verification_read"] = _summarise_rows(staged_tracks)
+    acceptance_operations = list(spec.get("acceptance_operations") or ())
+    if acceptance_operations:
+        from library.tools import edit_algebra, operation_acceptance
+        from library.tools.transaction_orchestration import (
+            unrelated_clip_changes,
+        )
+
+        before_snapshot = {"tracks": source_snapshot_tracks}
+        after_snapshot = {"tracks": staged_tracks}
+        failures = edit_algebra.verifies(
+            acceptance_operations, after_snapshot)
+        spans = [span for span in edit_algebra.spans(
+            acceptance_operations, before_snapshot) if span is not None]
+        collateral = unrelated_clip_changes(
+            operations=acceptance_operations,
+            affected_spans=spans, id_map=None,
+            before=before_snapshot, after=after_snapshot)
+        contracts = []
+        for operation, failure in zip(acceptance_operations, failures):
+            contracts.append(operation_acceptance.evaluate(
+                operation, readback_passed=failure is None,
+                evidence={"unrelated_items_unchanged": not collateral}))
+        receipt["acceptance_contracts"] = contracts
+        failed = [contract for contract in contracts
+                  if not contract["passed"]]
+        if failed:
+            detail = [{"operation": contract["operation"],
+                       "missing": contract["missing"],
+                       "failed": contract["failed"]}
+                      for contract in failed]
+            raise TouchupError(
+                f"operation acceptance failed before promotion: {detail}; "
+                "approved timeline remains intact")
     receipt["verify_seconds"] = round(
         time.time() - verify_started, 3)
 

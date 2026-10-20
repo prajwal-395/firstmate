@@ -83,7 +83,7 @@ def registry() -> dict[str, dict]:
     return {op_id: contract_for(op_id) for op_id in edit_algebra.OP_STATUS}
 
 
-def evaluate(operation: dict, *, readback_passed: bool,
+def evaluate(operation: dict, *, readback_passed: bool | None,
              evidence: dict | None = None) -> dict:
     """Evaluate one contract; absent evidence is explicitly reported."""
     evidence = evidence or {}
@@ -95,8 +95,9 @@ def evaluate(operation: dict, *, readback_passed: bool,
             passed = evidence[check] is True
             status = "passed" if passed else "failed"
         elif check in _STRUCTURAL_CHECKS:
-            passed = readback_passed
-            status = "passed" if passed else "failed"
+            passed = readback_passed is True
+            status = ("passed" if passed else
+                      "failed" if readback_passed is False else "missing")
         elif check == "unrelated_items_unchanged":
             passed = False
             status = "missing"

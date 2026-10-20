@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-
 # These operations can change the positional address of a later item. Until
 # this adapter has a fresh live read-back after each command, a subsequent
 # positional write must refuse rather than reuse the prepared index.
@@ -48,17 +47,60 @@ def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
     return hits[0]
 
 
-def _verified_command(context, command: list[str], operation_id: str,
+def _verified_command(context, command: list[str], operation: dict,
                       recovery_action: str) -> dict:
-    from library.tools.resolve_axi_core import execute
+    from library.tools import operation_acceptance, resolve_axi_core
 
-    result = execute(command)
+    result = resolve_axi_core.execute(command)
     if not result.ok:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip()
-                           or f"AXI command for {operation_id} failed")
-    if "verified: yes" not in result.stdout:
+                           or f"AXI command for {operation['op']} failed")
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    operation_id = str(operation["op"])
+    before = context.snapshot
+    target_id = str(operation.get("unique_id", ""))
+    before_clip = next((clip for track in before["tracks"]
+                        for clip in track["clips"]
+                        if clip["unique_id"] == target_id), None)
+    after_clip = next((clip for track in after["tracks"]
+                       for clip in track["clips"]
+                       if clip["unique_id"] == target_id), None)
+    operation_matches = False
+    evidence = {}
+    if operation_id == "clip.trim" and before_clip and after_clip:
+        expected_in = int(before_clip["source_in_frame"]) + (
+            int(operation["in_frame"]) - int(before_clip["record_in"]))
+        expected_out = int(before_clip["source_out_frame"]) - (
+            int(before_clip["record_out"]) - int(operation["out_frame"]))
+        evidence.update({
+            "target_identity": True,
+            "requested_source_in_out": (
+                int(after_clip["source_in_frame"]) == expected_in
+                and int(after_clip["source_out_frame"]) == expected_out),
+            "requested_record_span": (
+                int(after_clip["record_in"]) == int(operation["in_frame"])
+                and int(after_clip["record_out"]) == int(operation["out_frame"])),
+        })
+        operation_matches = all(evidence.values())
+    elif operation_id == "clip.delete":
+        evidence["target_absent"] = after_clip is None
+        operation_matches = after_clip is None
+    elif operation_id == "caption_fix" and before_clip and after_clip:
+        # A timeline inventory does not expose rendered title text. Do not
+        # turn command prose into evidence for this operation.
+        operation_matches = None
+    unrelated = _unrelated_changes(before, after, target_id)
+    evidence["unrelated_items_unchanged"] = not unrelated
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": operation_id},
+        readback_passed=operation_matches, evidence=evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
         raise RuntimeError(
-            f"AXI command for {operation_id} returned no verified read-back")
+            f"AXI read-back acceptance failed for {operation_id}: "
+            f"missing evidence [{missing}], failed checks [{failed}]")
     return {
         "status": "committed",
         "backend": "resolve_axi",
@@ -71,16 +113,26 @@ def _verified_command(context, command: list[str], operation_id: str,
             for key in ("unique_id", "client_unique_id")
             if key in context.operation
         },
-        "readback": {"stdout": result.stdout},
+        "readback": {"snapshot": after, "command_output": result.stdout},
+        "acceptance_contracts": [acceptance],
         "execution_contract": {
             "verification": {
                 "status": "verified",
                 "checks": ({"operation": operation_id, "passed": True},),
-                "evidence": {"axi_output": result.stdout},
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline"},
             },
             "recovery": {"status": "recorded", "action": recovery_action},
         },
     }
+
+
+def _unrelated_changes(before: Mapping, after: Mapping, target_id: str) -> list:
+    from library.tools.transaction_orchestration import unrelated_clip_changes
+
+    return unrelated_clip_changes(
+        operations=([{"unique_id": target_id}] if target_id else []),
+        affected_spans=(), id_map=None, before=before, after=after)
 
 
 def _trim(context) -> dict:
@@ -102,7 +154,8 @@ def _trim(context) -> dict:
         "--source-in", str(source_in), "--source-out", str(source_out),
         "--apply", "--project", context.request.project,
         "--timeline", context.request.timeline,
-    ], "clip.trim", "AXI undo journal; failed replacement restores the timeline snapshot")
+    ], {**operation, "op": "clip.trim"},
+       "AXI undo journal; failed replacement restores the timeline snapshot")
 
 
 def _delete(context) -> dict:
@@ -112,75 +165,21 @@ def _delete(context) -> dict:
         "edit", "delete", "--track", row, "--index", str(index),
         "--apply", "--project", context.request.project,
         "--timeline", context.request.timeline,
-    ], "clip.delete",
+    ], {**context.operation, "op": "clip.delete"},
        "AXI undo journal; verify exact item absence before recovery")
 
 
 def _caption_fix(context) -> dict:
-    operation = context.operation
-    row, index = _target_position_for_context(
-        context, str(operation["unique_id"]))
-    return _verified_command(context, [
-        "edit", "title", "--track", row, "--index", str(index),
-        "--text", str(operation["text"]), "--apply", "--project",
-        context.request.project, "--timeline", context.request.timeline,
-    ], "caption_fix", "no compensating action; operation remains unqualified")
+    raise RuntimeError(
+        "caption_fix is refused before mutation: fresh timeline inventory "
+        "does not expose title text, so independent read-back evidence is "
+        "missing")
 
 
 def _audio_gain(context) -> dict:
-    import math
-
-    from library.tools import otio_mix, project_registry
-    from library.tools.execution.deliver_audio_mix import deliver_semantic_gain
-
-    operation = context.operation
-    if len(context.request.operations) != 1:
-        raise ValueError(
-            "audio.gain currently requires a single-operation request")
-    row, _index = _target_position_for_context(
-        context, str(operation["unique_id"]))
-    if not row.startswith("A"):
-        raise ValueError("audio.gain target must be an audio-track item")
-    clip = next(
-        clip for track in context.snapshot["tracks"]
-        for clip in track["clips"]
-        if clip["unique_id"] == operation["unique_id"])
-    gain_db = float(operation["db"])
-    if not math.isfinite(gain_db):
-        raise ValueError("audio.gain dB value must be finite")
-    if not otio_mix.MIN_VOLUME_DB <= gain_db <= otio_mix.MAX_VOLUME_DB:
-        raise ValueError(
-            f"audio.gain dB value must be in [{otio_mix.MIN_VOLUME_DB}, "
-            f"{otio_mix.MAX_VOLUME_DB}] dB")
-    project_path = project_registry.resolve_project_path(
-        context.request.project)
-    project = project_registry.get_project(
-        context.request.project if project_path is None else str(project_path))
-    project_folder = (str(project.project_root) if project_path is None
-                      else str(project_path.parent))
-    target = otio_mix.audio_op_target(
-        "audio.gain", {"db": gain_db}, clip,
-        fps=float(context.snapshot["reported_fps"]))
-    report = deliver_semantic_gain(
-        project_folder, project.resolve.project_name,
-        context.request.timeline, target,
-        fps=float(context.snapshot["reported_fps"]))
-    return {
-        "status": "committed", "backend": "reel_touchup", "mutated": True,
-        "operation_id": "audio.gain", "request_id": context.request.id,
-        "readback": report,
-        "execution_contract": {
-            "verification": {
-                "status": "verified",
-                "checks": ({"operation": "audio.gain", "passed": True},),
-                "evidence": {"strict_otio_candidate": report},
-            },
-            "recovery": {
-                "status": "recorded",
-                "action": "source timeline retained until candidate preservation and OTIO read-back pass",
-            },
-        },
-    }
+    raise RuntimeError(
+        "audio.gain is refused before mutation: the candidate receipt lacks "
+        "independent audio-render evidence for levels, clipping, and silence")
 
 
 def _touchup(context) -> dict:
@@ -309,14 +308,11 @@ def _touchup(context) -> dict:
             edit = {"op": "move", "row": row, "item": index,
                     "to_record": int(operation["to_frame"])}
         elif operation_id == "clip.ripple":
-            clip = next(
-                clip for track in context.snapshot["tracks"]
-                for clip in track["clips"]
-                if clip["unique_id"] == operation["unique_id"])
-            duration = (int(clip["duration"])
-                        + int(operation["delta_frames"]))
-            edit = {"op": "retime", "row": row, "item": index,
-                    "duration": duration}
+            raise ValueError(
+                "clip.ripple cannot use reel_touchup retime: canonical "
+                "ripple shifts later clips while preserving the target "
+                "duration; no semantically equivalent staged operation "
+                "is currently available")
         elif operation_id == "clip.slip":
             edit = {"op": "slip", "row": row, "item": index,
                     "delta_frames": int(operation["delta_frames"])}
@@ -344,12 +340,16 @@ def _touchup(context) -> dict:
             raise ValueError(f"no touch-up adapter for {operation_id}")
 
     receipt = reel_touchup.apply_touchup(
-        project_folder, {"reel": int(matches[0].number), "edits": [edit]})
+        project_folder, {"reel": int(matches[0].number), "edits": [edit],
+                         "acceptance_operations": [dict(operation)]})
     transaction = receipt.get("transaction") or {}
     verification = transaction.get("verification") or {}
-    if verification.get("status") != "verified":
+    contracts = receipt.get("acceptance_contracts") or []
+    if (verification.get("status") != "verified"
+            or len(contracts) != 1 or contracts[0].get("passed") is not True):
         raise RuntimeError(
-            f"touch-up {operation_id} returned no verified promotion receipt")
+            f"touch-up {operation_id} returned no passing operation "
+            "acceptance contract")
     return {
         "status": "committed", "backend": "reel_touchup", "mutated": True,
         "operation_id": operation_id, "request_id": request.id,
@@ -357,8 +357,11 @@ def _touchup(context) -> dict:
         "execution_contract": {
             "verification": {
                 "status": "verified",
-                "checks": ({"operation": operation_id, "passed": True},),
-                "evidence": {"touchup_receipt": receipt},
+                "checks": tuple({"operation": operation_id,
+                                 "check": row["check"], "passed": True}
+                                for row in contracts[0]["results"]),
+                "evidence": {"acceptance_contract": contracts[0],
+                             "touchup_receipt": receipt},
             },
             "recovery": {"status": "recorded",
                          "action": "staged touch-up journal and backup"},
