@@ -61,8 +61,15 @@ UNCOVERED: dict[str, str] = {
     "source_1080x1920": "no portrait source in the qualification pool",
     "source_prores_mov": "no ProRes source in the qualification pool",
     "source_wav_only": "no audio-only WAV in the pool; linked AAC AV covered",
+    "timeline_resolution_values": "shared qualification timeline settings are immutable; no isolated resolution fixtures",
+    "frame_rate_values": "shared qualification timeline settings are immutable; no isolated frame-rate fixtures",
     "approved_revision": "needs revise machinery; not a live verb",
     "staged_revision": "needs touch-up staging; not a live verb",
+    "graded_project": "fixture does not seed or compare native grade state",
+    "fusion_composition": "fixture does not seed or compare Fusion state",
+    "complex_linked_av": "fixture covers a linked AAC overlay only, not multi-clip A/V groups",
+    "renamed_picture_and_graphics_tracks": "fixture layouts use fixed names",
+    "cleanup_inventory": "teardown validates known item names but does not inventory every disposable resource",
 }
 
 INVARIANTS = ["same_semantic_target", "exact_source_and_record_intervals",
@@ -95,7 +102,7 @@ def pairwise_cases() -> list[dict]:
     cases: list[dict] = []
     rng = random.Random(0xA11CE)
     while pairs:
-        first, first_value, second, second_value = sorted(pairs)[0]
+        first, first_value, second, second_value = min(pairs)
         best: dict[str, str] = {}
         best_score = -1
         for _ in range(200):
@@ -717,8 +724,10 @@ def run_matrix(live: bool = True) -> dict:
                  "fingerprint": fixture_fingerprint({"ambiguous": True}),
                  "ambiguous": True}
     if not live:
-        return {"schema": "ren-generalization-result/1",
-                "cases": cases + [ambiguous],
+        return {"schema": "ren-generalization-result/2",
+                "evaluation_level": 1,
+                "cases": [{**case, "evaluation_level": 1}
+                          for case in cases + [ambiguous]],
                 "uncovered_dimensions": UNCOVERED,
                 "invariants": INVARIANTS,
                 "live": False}
@@ -738,8 +747,11 @@ def run_matrix(live: bool = True) -> dict:
             f"JSON result block is missing: {stdout[-2000:]}")
     payload, _ = json.JSONDecoder().raw_decode(stdout[start:])
     rows = payload["cases"] + [ambiguous_probe()]
+    for row in rows:
+        row["evaluation_level"] = 1
     report = {
-        "schema": "ren-generalization-result/1",
+        "schema": "ren-generalization-result/2",
+        "evaluation_level": 1,
         "matrix": str(MATRIX_PATH.relative_to(
             Path(__file__).resolve().parents[2])),
         "case_count": len(rows),

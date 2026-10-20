@@ -27,6 +27,7 @@ class Scenario:
     production_entry: str
     operation: str
     proof: bool = False
+    evaluation_level: int = 1
 
 
 SCENARIOS = (
@@ -66,6 +67,12 @@ def run_scenario(scenario: Scenario, action: Callable[[], dict]) -> dict:
                   and receipt.get("status") in {"committed", "verified"})
         return {
             **asdict(scenario), "status": "pass" if passed else "fail",
+            "evaluation": {
+                "level": scenario.evaluation_level,
+                "name": ("primitive_qualification" if scenario.evaluation_level == 1
+                         else "semantic_execution"),
+                "operation_provided_by_evaluator": True,
+            },
             "first_attempt": first_attempt,
             "collateral_changes": collateral,
             "checks": checks,
@@ -135,7 +142,11 @@ def run_batch(actions: dict[str, Callable[[], dict]]) -> dict:
             })
             continue
         results.append(run_scenario(scenario, action))
-    return score(results)
+    report = score(results)
+    from tests.live.evaluation_levels import catalog
+    report["evaluation_levels"] = catalog()
+    report["evaluation_level"] = 1
+    return report
 
 
 ROOT = Path(__file__).resolve().parents[2]

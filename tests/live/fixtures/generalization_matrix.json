@@ -1,23 +1,39 @@
 {
-  "schema": "ren-live-generalization-matrix/1",
+  "schema": "ren-live-generalization-matrix/2",
   "dimensions": {
     "track_layout": ["v1_graphics_v2", "v1_v3_graphics_v4", "reversed_roles"],
     "timeline_resolution": [[1920, 1080], [3840, 2160], [1080, 1920]],
     "source_dimensions": [[1920, 1080], [3840, 2160], [1080, 1920], [180, 64]],
     "frame_rate": ["24", "25", "30000/1001", "60"],
-    "source_media": ["h264_mp4", "prores_mov", "transparent_png", "wav_linked_av"],
+    "source_media": ["h264_mp4", "prores_mov", "transparent_png", "wav_linked_av", "wav_only"],
     "clip_identity": ["stable_unique_id", "duplicate_display_name", "reordered_after_snapshot"],
-    "project_complexity": ["single_track", "multitrack", "long_timeline"],
-    "approved_edit_history": ["none", "manual_transform", "approved_revision", "staged_revision"]
+    "project_complexity": ["single_track", "multitrack", "long_timeline", "graded", "fusion_composition", "complex_linked_av"],
+    "approved_edit_history": ["none", "manual_transform", "approved_revision", "staged_revision"],
+    "track_names": ["default_names", "renamed_picture_and_graphics_tracks"],
+    "target_state": ["unique", "ambiguous", "stale_snapshot"]
   },
   "execution_contract": {
     "enumerate_cartesian_product": false,
     "pairwise_cover_each_value": true,
+    "coverage_scope": "live_runner_dimensions_only; all other declared values must be listed in uncovered_dimensions",
+    "uncovered_dimensions_reported": true,
     "required_invariants": [
       "same_semantic_target", "exact_source_and_record_intervals",
       "role_based_track_resolution", "approved_edits_preserved",
-      "no_unrelated_timeline_changes", "output_pixel_geometry_verified"
+      "no_unrelated_timeline_changes", "output_pixel_geometry_verified",
+      "linked_audio_sync_preserved", "grade_and_fusion_preserved"
     ],
     "record_case_id_and_fixture_fingerprint": true
+  },
+  "fixture_requirements": {
+    "isolate_timeline_settings": true,
+    "resolution_frame_rate_source_dimensions_are_measured": true,
+    "include_real_prores_mov_and_audio_only_wav": true,
+    "include_approved_revision_and_staged_promotion_history": true,
+    "include_native_grade_and_fusion_composition": true,
+    "include_multiclip_linked_audio_video_groups": true,
+    "rename_picture_and_graphics_tracks": true,
+    "capture_ambiguous_target_and_stale_snapshot_refusals": true,
+    "cleanup_requires_verified_disposable_resource_inventory": true
   }
 }

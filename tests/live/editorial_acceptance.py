@@ -18,6 +18,8 @@ from dataclasses import asdict, dataclass
 from time import perf_counter
 from typing import Any
 
+from tests.live.evaluation_levels import catalog as evaluation_level_catalog
+
 
 @dataclass(frozen=True)
 class AcceptanceTask:
@@ -25,6 +27,7 @@ class AcceptanceTask:
     instruction: str
     operation: str
     production_entry: str
+    evaluation_level: int = 2
 
 
 TASKS = (
@@ -75,8 +78,35 @@ AcceptanceTask("add_logo_five_seconds",
                    "reel.opening", "ren revise / Resolve AXI transaction"),
 )
 
+# Compound requests exercise operation selection without exposing their
+# scoring keys to the execution callback.
+COMPOUND_REQUESTS = (
+    AcceptanceTask("compound_move_and_resize",
+        "Move the selected logo 24 output pixels to the left and make it 180 output pixels wide. Keep its anchor and timing, and leave all other items unchanged.",
+        "overlay.position+overlay.resize", "ren revise / Resolve AXI transaction"),
+    AcceptanceTask("compound_trim_and_replace",
+        "Remove the marked pause, then replace the selected lower third with the supplied approved version. Keep speech in order, preserve sync and approved placement, and leave all other items unchanged.",
+        "clip.trim+overlay.replace", "ren revise / Resolve AXI transaction"),
+)
 
-def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, Any]]) -> dict:
+_TARGET_ROLES = {
+    "move_lower_third": "selected_lower_third",
+    "resize_logo": "selected_logo",
+    "add_logo_five_seconds": "supplied_logo_asset",
+    "trim_pause": "marked_pause",
+    "replace_graphic": "selected_lower_third",
+    "restyle_captions": "all_caption_cards",
+    "remove_broll": "selected_broll_shot",
+    "insert_relevant_broll": "marked_phrase_and_matching_broll",
+    "right_speaker_camera": "marked_speaking_turn",
+    "improve_opening": "opening_section_from_brief",
+    "compound_move_and_resize": "selected_logo",
+    "compound_trim_and_replace": "marked_pause_and_selected_lower_third",
+}
+
+
+def run_tasks(execute_instruction: Callable[[str, Mapping[str, Any]], Mapping[str, Any]],
+              *, include_compound: bool = False) -> dict:
     """Run each ordinary request once through the supplied production driver.
 
     Driver output must contain the verbatim request, a production receipt,
@@ -85,10 +115,18 @@ def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, 
     retry or substitute operation in this harness.
     """
     rows = []
-    for task in TASKS:
+    selected_tasks = TASKS + (COMPOUND_REQUESTS if include_compound else ())
+    for task in selected_tasks:
         started = perf_counter()
         try:
-            evidence = dict(execute_instruction(task.instruction, task))
+            # The callback receives only the ordinary request and project
+            # context. The scoring key (operation, fixture ID and expected
+            # target) stays in this evaluator process.
+            evidence = dict(execute_instruction(task.instruction, {
+                "project": "Ren Qualification",
+                "timeline": "fm-scratch qualify",
+                "available_capabilities": "discover through production AXI",
+            }))
             if evidence.get("instruction") != task.instruction:
                 raise ValueError("driver did not record the ordinary instruction verbatim")
             receipt = evidence["receipt"]
@@ -110,33 +148,60 @@ def run_tasks(execute_instruction: Callable[[str, AcceptanceTask], Mapping[str, 
             )
             rows.append({
                 **asdict(task), "status": "pass" if passed else "fail",
+                "outcome": ("success" if passed else
+                            "safe_refusal" if receipt.get("status") in {"refused", "rejected"}
+                            else "unsafe_failure"),
                 "receipt": receipt, "checks": checks,
                 "collateral_changes": collateral,
                 "benchmark": metrics,
                 "discovery": discovery,
                 "backend_selection": backend,
-                "elapsed_seconds": evidence.get(
-                    "elapsed_seconds", perf_counter() - started),
+                "elapsed_seconds": (None if evidence.get("execution_mode")
+                                    == "cached_fixture_batch"
+                                    else perf_counter() - started),
+                "instruction_to_verified_seconds": (
+                    perf_counter() - started
+                    if (evidence.get("execution_mode") != "cached_fixture_batch"
+                    and receipt.get("status") in {"verified", "committed", "delivered"}
+                    and bool(checks) and all(checks.values())) else None),
+                "fixture_setup_seconds": evidence.get("fixture_setup_seconds"),
+                "execution_mode": evidence.get("execution_mode", "request"),
                 "observed": evidence.get("observed", {}),
             })
         except Exception as exc:  # noqa: BLE001 - report every task independently
+            message = str(exc)
             rows.append({
                 **asdict(task), "status": "fail",
-                "error": f"{type(exc).__name__}: {exc}",
+                "outcome": "safe_refusal" if message.startswith("[") else "missing_evidence",
+                "error": f"{type(exc).__name__}: {message}",
                 "collateral_changes": [], "checks": {},
                 "elapsed_seconds": perf_counter() - started,
+                "instruction_to_verified_seconds": None,
             })
     from tests.live.editorial_reliability_metrics import summarize
 
     report = {
-        "schema": "ren-editorial-acceptance/1",
-        "task_count": len(TASKS),
+        "schema": "ren-editorial-acceptance/2",
+        "evaluation_levels": evaluation_level_catalog(),
+        "task_count": len(selected_tasks),
         "passed": sum(row["status"] == "pass" for row in rows),
         "failed": sum(row["status"] == "fail" for row in rows),
         "first_attempt_passes": sum(
             row["status"] == "pass" and row.get("benchmark", {}).get("attempts") == 1
             for row in rows),
         "results": rows,
+        "evaluation": {
+            "level": 2,
+            "name": "semantic_execution",
+            "agent_receives_expected_operation": True,
+            "agent_receives_expected_target": True,
+            "agent_receives_editorial_decision": True,
+            "compound_request_count": len(COMPOUND_REQUESTS) if include_compound else 0,
+            "limitations": [
+                "The production host adapter is given typed operation and fixture keys; this is not an autonomy result.",
+                "Editorial quality against a creative brief is not measured by this level.",
+            ],
+        },
     }
     report["reliability_metrics"] = summarize(rows)
     return report
@@ -188,5 +253,98 @@ def run_discovery_probe(
         "capability_added_since_baseline": True,
         "status": "pass" if passed else "fail",
         "evidence": dict(before),
+    }
+
+
+def run_blind_requests(execute_request: Callable[[str, Mapping[str, Any]],
+                                                   Mapping[str, Any]]) -> dict:
+    """Run requests with evaluator labels and targets withheld from the driver.
+
+    The callback receives only an ordinary instruction and project context.
+    It must return its own selected operations and resolved target evidence;
+    expected values are joined only after execution for scoring.
+    """
+    rows = []
+    for task in TASKS + COMPOUND_REQUESTS:
+        started = perf_counter()
+        try:
+            evidence = dict(execute_request(task.instruction, {
+                "project": "Ren Qualification",
+                "timeline": "fm-scratch qualify",
+                "capability_discovery": "available through normal AXI discovery",
+            }))
+            chosen = evidence.get("selected_operations")
+            expected = task.operation.split("+")
+            discovered = evidence.get("discovery", {})
+            receipt = evidence.get("receipt", {})
+            checks = evidence.get("checks", {})
+            target = evidence.get("target_resolution")
+            route = evidence.get("backend_selection")
+            reasoning_ok = (
+                isinstance(chosen, list) and chosen == expected
+                and discovered.get("discovered_from_request") is True
+                and isinstance(target, Mapping)
+                and target.get("semantic_role") == _TARGET_ROLES[task.id]
+                and target.get("uniquely_resolved") is True
+                and isinstance(route, Mapping)
+                and bool(route.get("selected"))
+                and route.get("selection_correct") is True)
+            execution_ok = (
+                receipt.get("status") in {"verified", "committed", "delivered"}
+                and bool(checks) and all(checks.values())
+                and not evidence.get("collateral_changes"))
+            status = ("success" if reasoning_ok and execution_ok else
+                      "reasoning_failure" if not reasoning_ok else
+                      "unsafe_failure")
+            if receipt.get("status") in {"refused", "rejected"}:
+                no_mutation = (isinstance(checks, Mapping)
+                               and checks.get("no_mutation") is True
+                               and not evidence.get("collateral_changes"))
+                status = "safe_refusal" if no_mutation else "unsafe_failure"
+            elapsed = (perf_counter() - started
+                       if evidence.get("execution_mode") == "request"
+                       else None)
+            row = {
+                "id": task.id, "instruction": task.instruction,
+                "evaluation_level": 3, "status": status,
+                "outcome": status,
+                "expected_operation_count": len(expected),
+                "selected_operations": chosen,
+                "discovery": discovered,
+                "backend_selection": evidence.get("backend_selection"),
+                "target_resolution": target,
+                "checks": checks,
+                "collateral_changes": evidence.get("collateral_changes"),
+                "receipt": receipt,
+                "instruction_to_verified_seconds": (
+                    elapsed if status == "success" else None),
+                "fixture_setup_seconds": evidence.get("fixture_setup_seconds"),
+            }
+        except Exception as exc:  # noqa: BLE001 - report each request independently
+            row = {"id": task.id, "instruction": task.instruction,
+                   "evaluation_level": 3, "status": "missing_evidence",
+                   "outcome": "missing_evidence",
+                   "error": f"{type(exc).__name__}: {exc}",
+                   "instruction_to_verified_seconds": None}
+        rows.append(row)
+    from tests.live.editorial_reliability_metrics import summarize
+    return {
+        "schema": "ren-blind-editorial-requests/1",
+        "evaluation_levels": evaluation_level_catalog(),
+        "evaluation": {
+            "level": 3, "name": "autonomous_orchestration",
+            "agent_receives_expected_operation": False,
+            "agent_receives_expected_target": False,
+            "agent_receives_editorial_decision": False,
+            "compound_request_count": len(COMPOUND_REQUESTS),
+        },
+        "task_count": len(rows),
+        "passed": sum(row["status"] == "success" for row in rows),
+        "safe_refusals": sum(row["status"] == "safe_refusal" for row in rows),
+        "failed": sum(row["status"] == "unsafe_failure" for row in rows),
+        "reasoning_failures": sum(row["status"] == "reasoning_failure" for row in rows),
+        "missing_evidence": sum(row["status"] == "missing_evidence" for row in rows),
+        "results": rows,
+        "reliability_metrics": summarize(rows),
     }
 

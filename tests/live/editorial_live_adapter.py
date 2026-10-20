@@ -724,8 +724,16 @@ _REFUSAL_NOTES = {
 }
 
 
-def execute_instruction(instruction: str, task) -> dict:
+def execute_instruction(instruction: str, _project_context: dict) -> dict:
     """Run one ordinary request through a production AXI entry point."""
+    # This adapter is evaluator-directed and therefore Level 2. The lookup
+    # below stays in the host process; blind Level 3 drivers use
+    # run_blind_requests and never receive this task object.
+    from tests.live.editorial_acceptance import TASKS
+    task = next((candidate for candidate in TASKS
+                 if candidate.instruction == instruction), None)
+    if task is None:
+        raise ValueError("instruction has no evaluator fixture mapping")
     started = perf_counter()
     discovery, route, phases = _discover(task, instruction)
     if task.id in _REFUSAL_NOTES:
@@ -835,6 +843,7 @@ def _common(instruction: str, discovery: dict, started: float,
         "instruction": instruction,
         "discovery": {**discovery, "phases": dict(phases)},
         "benchmark": {"attempts": 1},
+        "execution_mode": "cached_fixture_batch",
         "elapsed_seconds": now - started,
         "instruction_to_verified_seconds": now - started,
     }
