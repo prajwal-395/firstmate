@@ -6251,7 +6251,7 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
     def _read_live_master():
         live_project = _connect_resolve_project(resolve_project_name)
         live_timeline = None
-        for i in range(1, live_project.GetTimelineCount() + 1):
+        for i in range(1, _timeline_count(live_project) + 1):
             candidate = live_project.GetTimelineByIndex(i)
             if candidate.GetName() == master_timeline_name:
                 live_timeline = candidate
@@ -11400,11 +11400,33 @@ def timelines_to_replace(project, target_names) -> list:
     rather than reading the wrong thing.
     """
     found = []
-    for index in range(1, project.GetTimelineCount() + 1):
+    for index in range(1, _timeline_count(project) + 1):
         timeline = project.GetTimelineByIndex(index)
         if timeline and timeline.GetName() in target_names:
             found.append(timeline)
     return found
+
+
+def _timeline_count(project, attempts: int = 5) -> int:
+    """How many timelines the project holds, or a refusal by name.
+
+    The scripting bridge answers None for a count it cannot read - the
+    same class as the dirty flag it answers None for - and `None + 1` is
+    a TypeError that says nothing about which project was being read.
+
+    A None here is usually a READ THAT LOST A RACE with a writer, so it
+    is retried: the count settles and the enumeration can proceed. The
+    refusal is for a count that never arrives.
+    """
+    for attempt in range(max(1, int(attempts))):
+        count = project.GetTimelineCount()
+        if count is not None:
+            return int(count)
+        if attempt + 1 < attempts:
+            time.sleep(0.4 * (attempt + 1))
+    raise ReelBuildError(
+        "Resolve returned no timeline count for this project; the "
+        "enumeration cannot be read")
 
 
 def timelines_by_name(project, target_names) -> dict:
@@ -11419,7 +11441,7 @@ def timelines_by_name(project, target_names) -> dict:
     """
     wanted = set(target_names)
     found: dict = {}
-    for index in range(1, project.GetTimelineCount() + 1):
+    for index in range(1, _timeline_count(project) + 1):
         timeline = project.GetTimelineByIndex(index)
         if timeline is None:
             continue
@@ -11808,7 +11830,7 @@ def _promotion_timeline_inventory(project) -> dict:
             "Resolve returned no project handle (it is mid-switch); the "
             "promotion inventory cannot be read")
     found = {}
-    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+    for index in range(1, _timeline_count(project) + 1):
         timeline = project.GetTimelineByIndex(index)
         if timeline is None:
             continue
@@ -12478,7 +12500,7 @@ def _reacquire_current_project_timeline(
             f"Resolve project lookup returned {project.GetName()!r}, "
             f"expected {project_name!r}; refusing placement")
     timeline = None
-    for index in range(1, project.GetTimelineCount() + 1):
+    for index in range(1, _timeline_count(project) + 1):
         candidate = project.GetTimelineByIndex(index)
         if candidate and candidate.GetName() == timeline_name:
             if timeline is not None:
@@ -14124,7 +14146,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             retirement["deleted"] = discarded["deleted"]
         live_names = {
             timeline.GetName()
-            for index in range(1, project.GetTimelineCount() + 1)
+            for index in range(1, _timeline_count(project) + 1)
             if (timeline := project.GetTimelineByIndex(index)) is not None
         }
         protected_timeline_names = _provenance.protected_timeline_names(
@@ -14169,7 +14191,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         from library.tools.plan_provenance import (
             record_carried_digests as _record_carried)
         _live = {}
-        for _index in range(1, (project.GetTimelineCount() or 0) + 1):
+        for _index in range(1, _timeline_count(project) + 1):
             _timeline = project.GetTimelineByIndex(_index)
             if _timeline is not None and _timeline.GetName() in ok_finals:
                 _live[_timeline.GetName()] = _timeline
@@ -15231,10 +15253,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # hold: a named-handle read that runs beside other readers while
     # no writer moves underneath it. `snapshot_timeline` takes the
     # same shared hold itself; the re-entry is a no-op.
-    with resolve_lease("build reels survey", exclusive=False,
+    # The survey is a WRITER's read: the build places a reel, and a read
+    # that races another writer's write is a read that lies - the scripting
+    # bridge answers None for a count it cannot read while a writer is
+    # live, and the build died on it (measured 2026-10-20). The lease
+    # owns the contention, so the survey takes the instance EXCLUSIVE and
+    # WAITS for the live writer, the way every other writer does.
+    with resolve_lease("build reels survey", exclusive=True,
                        edit_ids=_edit_lease_ids):
         timeline = None
-        for i in range(1, project.GetTimelineCount() + 1):
+        for i in range(1, _timeline_count(project) + 1):
             t = project.GetTimelineByIndex(i)
             if t.GetName() == master_timeline_name:
                 timeline = t
@@ -15728,7 +15756,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             return _carried_self_reads[final_name]
         _timeline = None
         try:
-            for _i in range(1, (project.GetTimelineCount() or 0) + 1):
+            for _i in range(1, _timeline_count(project) + 1):
                 _t = project.GetTimelineByIndex(_i)
                 if _t is not None and _t.GetName() == final_name:
                     _timeline = _t
@@ -18886,7 +18914,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
     keep_insistences = _tc.keep_insistences(project_folder)
 
     timeline = None
-    for i in range(1, project.GetTimelineCount() + 1):
+    for i in range(1, _timeline_count(project) + 1):
         t = project.GetTimelineByIndex(i)
         if t.GetName() == master_timeline_name:
             timeline = t
@@ -18901,7 +18929,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
     master_clips = list(_variant_snapshot.clips)
 
     existing = set()
-    for i in range(1, project.GetTimelineCount() + 1):
+    for i in range(1, _timeline_count(project) + 1):
         existing.add(project.GetTimelineByIndex(i).GetName())
     finals = [built_name(moment, str(spec.get("suffix", "")))
               for spec in variants]
@@ -19350,7 +19378,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                         f"approved picture with a different seam.")
 
             placed = None
-            for i in range(1, project.GetTimelineCount() + 1):
+            for i in range(1, _timeline_count(project) + 1):
                 t = project.GetTimelineByIndex(i)
                 if t.GetName() == final:
                     placed = t

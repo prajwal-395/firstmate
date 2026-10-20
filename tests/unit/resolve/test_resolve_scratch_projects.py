@@ -441,3 +441,35 @@ def test_an_empty_untitled_project_does_not_block_the_scratch_lifecycle(
     result = scratch.open_project(resolve, manager, scratch_project.name)
     assert result["opened"] is True
     assert manager.GetCurrentProject().GetName() == scratch_project.name
+
+
+def test_a_recorded_origin_completes_when_its_timeline_is_gone(
+        monkeypatch, tmp_path):
+    """Catches: the restore refusing because the timeline it recorded is
+    gone - the reel was rebuilt since - when the machine is already back
+    on the origin's project.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project:
+    "restore cannot find timeline 'fm-scratch qualify' by its recorded
+    id" refused the whole restore, so the scratch project could not be
+    opened again.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    scratch_project = Project("Ren Scratch - gone-timeline", [Timeline("T", "t")])
+    manager.projects[scratch_project.name] = scratch_project
+
+    scratch.open_project(resolve, manager, scratch_project.name)
+    assert origin.exists()
+
+    # The origin's project is open again, but its recorded timeline is
+    # not there any more.
+    manager.current = manager.projects["Podcast (field test)"]
+    manager.projects["Podcast (field test)"].timelines = [
+        Timeline("Other", "other-uid")]
+
+    restored = scratch.restore_recorded(resolve, manager)
+    assert restored["timeline_restored"] is False
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+    assert not origin.exists()

@@ -174,7 +174,22 @@ def restore_recorded(resolve, manager) -> dict:
             # project was open, so after a restart neither could move
             # and the record had to be removed by hand. The record is
             # completed here instead.
-            result = restore(resolve, manager, state)
+            try:
+                result = restore(resolve, manager, state)
+            except ScratchProjectError as exc:
+                if "cannot find timeline" not in str(exc):
+                    raise
+                # The ORIGIN's project is open and its recorded timeline
+                # is gone - the reel was rebuilt since. The machine is
+                # back where the record wanted it, and a timeline that
+                # no longer exists cannot be restored onto; saying so
+                # and completing the record beats refusing to move.
+                result = {"project": state.get("project"),
+                          "timeline": state.get("timeline"),
+                          "page": state.get("page"),
+                          "verified": False,
+                          "timeline_restored": False,
+                          "reason": str(exc)}
             path.unlink(missing_ok=True)
             return result
         raise ScratchProjectError(

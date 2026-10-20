@@ -2735,3 +2735,46 @@ def test_the_promotion_inventory_refuses_a_missing_project_handle():
     with pytest.raises(reel_build.ReelBuildError) as raised:
         reel_build._promotion_timeline_inventory(None)
     assert "no project handle" in str(raised.value)
+
+
+def test_the_timeline_enumeration_refuses_a_missing_count():
+    """Catches: `None + 1` - a TypeError that says nothing - where the
+    scripting bridge answers None for a count it cannot read.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project: the
+    build died with "unsupported operand type(s) for +: 'NoneType' and
+    'int'".
+    """
+    from library.tools import reel_build
+
+    class _Project:
+        def GetTimelineCount(self):
+            return None
+
+    with pytest.raises(reel_build.ReelBuildError) as raised:
+        reel_build.timelines_by_name(_Project(), ["Reel 01"])
+    assert "no timeline count" in str(raised.value)
+
+
+def test_the_timeline_count_waits_for_a_read_that_lost_a_race(monkeypatch):
+    """Catches: a count the bridge answered None for ONCE - a read that
+    lost a race with a writer - failing the build outright.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project: the
+    build died on "Resolve returned no timeline count" while the live lane
+    held the instance. The count settles; the read waits for it.
+    """
+    from library.tools import reel_build
+
+    class _Project:
+        def __init__(self):
+            self.calls = 0
+
+        def GetTimelineCount(self):
+            self.calls += 1
+            return None if self.calls < 3 else 7
+
+    monkeypatch.setattr(reel_build.time, "sleep", lambda seconds: None)
+    project = _Project()
+    assert reel_build._timeline_count(project) == 7
+    assert project.calls == 3
