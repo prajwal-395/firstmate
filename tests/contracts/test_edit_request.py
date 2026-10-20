@@ -128,6 +128,69 @@ def test_router_refuses_unqualified_compiled_ops_without_losing_the_request():
     assert [op["op"] for op in compiled.operations] == ["clip.set_property"]
 
 
+@pytest.mark.parametrize("operation", [
+    EditOperation(op="clip.remove", target=EditTarget(unique_id="cover-1"),
+                  params={}, expected_effect="remove the B-roll and close its gap"),
+    EditOperation(
+        op="broll.insert", target=EditTarget(unique_id="cover-new"),
+        params={"track_type": "video", "track_index": 2,
+                "record_in": 10, "record_out": 60,
+                "source_in": 100, "source_out": 149,
+                "clip": "broll.mp4"},
+        expected_effect="cover the marked phrase while keeping dialogue"),
+], ids=("remove-with-ripple", "broll-over-dialogue"))
+def test_ordinary_edit_request_selects_its_qualified_resolve_axi_writer(
+        operation):
+    """Defect: EditPatch's compilable row shadowed the qualified AXI
+    adapter, so an ordinary EditRequest never reached the semantic route
+    whose runtime predicates it satisfied."""
+    from library.tools import axi_qualification
+
+    backend = "resolve_axi"
+    record = axi_qualification.load_qualification_records()[(operation.op, backend)]
+    state = {}
+    for predicate in record["qualification_predicates"]:
+        value = predicate["value"]
+        state[predicate["field"]] = (
+            value[0] if isinstance(value, list) else value)
+    request = _request(operation)
+    decision = edit_request.route_request(
+        compile_request(request),
+        context={"qualification_state": {"inspected": True,
+                                         "state": state}})
+
+    assert decision["backend"] == "resolve_axi"
+    assert decision["selection"]["qualification_state_inspected"] is True
+    assert decision["selection"]["mutation_scope"] == "targeted"
+    assert decision["selection"]["transaction_ownership"]["broker_kind"] == (
+        "timeline.semantic_edit")
+
+
+def test_ordinary_edit_request_does_not_fall_through_when_axi_predicates_miss():
+    """Defect: fixing writer precedence must not let a mismatched Resolve
+    state reach EditPatch just because its implementation is compilable."""
+    from library.tools import axi_qualification, execution_router
+
+    record = axi_qualification.load_qualification_records()[
+        ("clip.remove", "resolve_axi")]
+    state = {predicate["field"]: (
+        predicate["value"][0]
+        if isinstance(predicate["value"], list)
+        else predicate["value"])
+        for predicate in record["qualification_predicates"]}
+    state["timeline_density"] = "dense"
+    request = _request(EditOperation(
+        op="clip.remove", target=EditTarget(unique_id="cover-1"),
+        params={}, expected_effect="remove the B-roll and close its gap"))
+
+    with pytest.raises(execution_router.RoutingRefused,
+                       match="production routing fails closed"):
+        edit_request.route_request(
+            compile_request(request),
+            context={"qualification_state": {"inspected": True,
+                                             "state": state}})
+
+
 def test_touchup_spec_produces_the_request():
     request = edit_request.from_touchup_spec(
         {"reel": 9, "edits": [

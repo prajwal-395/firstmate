@@ -120,6 +120,7 @@ ROUTE_MUTATION_SCOPE: Mapping[str, str] = {
     "incremental": "targeted",
     "edit_patch": "targeted",
     "edit_patch.property": "targeted",
+    "resolve_axi": "targeted",
     "reel_touchup": "targeted",
     "composed_edit.structural": "targeted",
     "full_rebuild": "full_rebuild",
@@ -172,6 +173,8 @@ ROUTE_TRANSACTION_OWNERSHIP: Mapping[str, Mapping[str, object]] = {
                              writes=True),
     "edit_patch.property": _ownership("timeline.apply_patch",
                                       lease="exclusive", writes=True),
+    "resolve_axi": _ownership("timeline.semantic_edit", lease="exclusive",
+                               writes=True),
     "reel_touchup": _ownership("timeline.semantic_edit", lease="exclusive",
                                writes=True),
     "composed_edit.structural": _ownership("timeline.semantic_edit",
@@ -1218,6 +1221,47 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                 operations, context, "edit_patch.property",
                 limitations=tuple(reason for op_id, _qualified, _production in gaps
                                   for reason in (f"{op_id} is not production-qualified",))),
+        )
+
+    # A compilable EditPatch row is not an authorization to use that
+    # writer. Prefer the operation's production-enabled semantic AXI
+    # adapter when its recorded runtime predicates match. Otherwise an
+    # operation qualified only on Resolve AXI could be misrouted to the
+    # lower-level EditPatch implementation simply because it is present.
+    resolve_axi_rows = []
+    for op_id in ids:
+        entry = edit_algebra.status(op_id)
+        row = entry.for_backend("resolve_axi") if entry is not None else None
+        if row is None or not row.production_enabled:
+            resolve_axi_rows = []
+            break
+        resolve_axi_rows.append(row)
+    from library.tools import axi_transaction
+    axi_batch_supported = (len(operations) == 1
+                           or axi_transaction.batch_supported(
+                               "resolve_axi", operations))
+    if (resolve_axi_rows and axi_batch_supported
+            and all(_qualification_matches(row, context.get(
+                "qualification_state")) for row in resolve_axi_rows)):
+        blockers = edit_algebra.direct_blockers(ids, "resolve_axi")
+        return ExecutionDecision(
+            backend="resolve_axi",
+            reasons=("every operation has a production-enabled Resolve AXI adapter",
+                     "the inspected runtime satisfies each adapter's recorded qualification predicates",
+                     *checked, *gap_reasons,
+                     *_proof_reasons(request_class, blockers)),
+            rejected_alternatives=(
+                RejectedBackend("edit_patch", "the semantic AXI adapter is the qualified production writer"),
+                RejectedBackend("full_rebuild", "a targeted semantic AXI transaction is available"),
+            ),
+            verification=("verify every requested operation on fresh live read-back",
+                          "verify unrelated timeline state remains unchanged",
+                          *_proof_verification(blockers)),
+            algebra_status=statuses,
+            mode=_mode_for("resolve_axi", blockers=blockers,
+                           context=context),
+            qualification_gaps=gaps,
+            selection=_selection_basis(operations, context, "resolve_axi"),
         )
 
     # EditPatch schedules exactly the ops its matrix row lists as
