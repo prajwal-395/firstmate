@@ -7571,7 +7571,10 @@ def cmd_project_scratch(args) -> int:
                     height=getattr(args, "height", None))
             elif args.scratch_command == "import":
                 result = scratch.import_project(resolve, manager,
-                                                args.drp, args.name)
+                                                args.source, args.name,
+                                                fps=getattr(args, "fps", None),
+                                                width=getattr(args, "width", None),
+                                                height=getattr(args, "height", None))
             elif args.scratch_command == "open":
                 result = scratch.open_project(resolve, manager, args.name)
             elif args.scratch_command == "restore":
@@ -10291,9 +10294,15 @@ def build_parser() -> Parser:
                          "(default: Resolve default)")
     sq.add_argument("--apply", action="store_true", help="perform the create and restore the starting project")
     sq.set_defaults(func=cmd_project_scratch)
-    sq = ss.add_parser("import", help="import a .drp into a new scratch project")
-    sq.add_argument("drp", help="existing .drp file")
+    sq = ss.add_parser("import", help="import a .drp project or .drt timeline into a new scratch project")
+    sq.add_argument("source", help="existing .drp project or .drt timeline file")
     sq.add_argument("name", help="new project name beginning with 'Ren Scratch - '")
+    sq.add_argument("--fps", default=None,
+                    help="timeline frame rate for .drt imports (required for .drt)")
+    sq.add_argument("--width", default=None,
+                    help="timeline resolution width for .drt imports (required with --height)")
+    sq.add_argument("--height", default=None,
+                    help="timeline resolution height for .drt imports (required with --width)")
     sq.add_argument("--apply", action="store_true", help="perform the import and restore the starting project")
     sq.set_defaults(func=cmd_project_scratch)
     for verb, description in (

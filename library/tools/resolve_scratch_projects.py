@@ -691,26 +691,95 @@ def create(resolve, manager, name: str, fps=None, width=None, height=None) -> di
                              "page": state["page"], "verified": True}}
 
 
-def import_project(resolve, manager, drp: str | Path, name: str) -> dict:
+def import_project(resolve, manager, source: str | Path, name: str, *,
+                   fps=None, width=None, height=None) -> dict:
+    """Import a project or timeline into a new, Ren-owned scratch project.
+
+    A `.drp` keeps the existing whole-project import behavior. A `.drt`
+    creates an empty scratch project, applies its requested delivery shape
+    before the first timeline exists, and imports the timeline there. The
+    source is read only; the new project is the only project this operation
+    creates or changes.
+    """
     name = _name(name)
-    artifact = Path(drp).expanduser().resolve()
-    if not artifact.is_file() or artifact.suffix.lower() != ".drp":
-        raise ScratchProjectError(f"import requires an existing .drp file: {artifact}")
+    artifact = Path(source).expanduser().resolve()
+    suffix = artifact.suffix.lower()
+    if not artifact.is_file() or suffix not in {".drp", ".drt"}:
+        raise ScratchProjectError(
+            f"import requires an existing .drp project or .drt timeline: {artifact}")
+    if suffix == ".drp" and any(value is not None
+                                  for value in (fps, width, height)):
+        raise ScratchProjectError(
+            "frame rate and resolution options apply only to .drt timeline imports")
+    fps_value = _parse_fps(fps) if suffix == ".drt" else None
+    shape = _parse_shape(width, height) if suffix == ".drt" else None
+    if suffix == ".drt" and (fps_value is None or shape is None):
+        raise ScratchProjectError(
+            "a .drt scratch import needs --fps, --width and --height so "
+            "the new project matches the source timeline")
     if _listed(manager, name):
         raise ScratchProjectError(f"project {name!r} already exists in the current folder")
     with _preserve_origin(resolve, manager) as state:
-        imported = manager.ImportProject(str(artifact), name)
-        _settle_after_lifecycle_call()
-        if not imported:
-            raise ScratchProjectError(f"Resolve refused to import {artifact.name!r} as {name!r}")
-        if not _listed(manager, name):
-            raise ScratchProjectError(f"imported project {name!r} did not read back in the project list")
-        project = switch_project(manager, name)
-        if not project or project.GetName() != name:
-            raise ScratchProjectError(f"imported project {name!r} did not open by exact name")
+        if suffix == ".drp":
+            imported = manager.ImportProject(str(artifact), name)
+            _settle_after_lifecycle_call()
+            if not imported:
+                raise ScratchProjectError(
+                    f"Resolve refused to import {artifact.name!r} as {name!r}")
+            if not _listed(manager, name):
+                raise ScratchProjectError(
+                    f"imported project {name!r} did not read back in the project list")
+            project = switch_project(manager, name)
+            if not project or project.GetName() != name:
+                raise ScratchProjectError(
+                    f"imported project {name!r} did not open by exact name")
+        else:
+            project = manager.CreateProject(name)
+            _settle_after_lifecycle_call()
+            if not project or project.GetName() != name or not _listed(manager, name):
+                raise ScratchProjectError(
+                    f"Resolve did not create scratch project {name!r}")
+            requested = _apply_project_shape(project, name, fps_value, shape)
+            pool = project.GetMediaPool()
+            if pool is None:
+                raise ScratchProjectError(
+                    f"new scratch project {name!r} has no media pool")
+            timeline = pool.ImportTimelineFromFile(str(artifact))
+            _settle_after_lifecycle_call()
+            if timeline is None:
+                raise ScratchProjectError(
+                    f"Resolve refused to import {artifact.name!r} as a timeline")
+            assert_current_timeline(project, timeline)
+            current_timeline = project.GetCurrentTimeline()
+            if (not current_timeline
+                    or current_timeline.GetUniqueId() != timeline.GetUniqueId()
+                    or int(project.GetTimelineCount() or 0) != 1):
+                raise ScratchProjectError(
+                    f"imported timeline did not read back as the sole current "
+                    f"timeline in {name!r}")
+            if not manager.SaveProject():
+                raise ScratchProjectError(
+                    f"Resolve did not save imported scratch project {name!r}")
+            project = manager.GetCurrentProject()
+            current_timeline = project.GetCurrentTimeline() if project else None
+            if (not project or project.GetName() != name or not current_timeline
+                    or current_timeline.GetUniqueId() != timeline.GetUniqueId()
+                    or int(project.GetTimelineCount() or 0) != 1):
+                raise ScratchProjectError(
+                    f"imported scratch project {name!r} failed its saved read-back")
+            owned_artifacts = _record_created_project(project, current_timeline)
+            return {"project": name, "source": str(artifact),
+                    "imported": True, "timeline": current_timeline.GetName(),
+                    "timeline_id": current_timeline.GetUniqueId(),
+                    "timeline_count": 1, "owned_artifacts": owned_artifacts,
+                    "requested": requested, **_read_project_shape(project),
+                    "restored": {"project": state["project"],
+                                 "timeline": state["timeline"],
+                                 "page": state["page"], "verified": True}}
         current = manager.GetCurrentProject()
         if not current or current.GetName() != name:
-            raise ScratchProjectError(f"imported project {name!r} did not read back as current")
+            raise ScratchProjectError(
+                f"imported project {name!r} did not read back as current")
         owned_artifacts = _record_created_project(current)
         return {"project": name, "source": str(artifact), "imported": True,
                 "owned_artifacts": owned_artifacts,

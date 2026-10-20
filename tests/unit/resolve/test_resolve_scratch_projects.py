@@ -54,6 +54,7 @@ class MediaPool:
         name = (options or {}).get("timelineName", Path(path).stem)
         timeline = Timeline(name, f"uid-{len(self.project.timelines) + 1}")
         self.project.timelines.append(timeline)
+        self.project.current = timeline
         return timeline
 
 
@@ -219,6 +220,36 @@ def test_import_requires_drp_and_restores_origin(monkeypatch, tmp_path):
     assert "Ren Scratch - import-test" in manager.projects
     assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
     assert manager.GetCurrentProject().GetCurrentTimeline().GetUniqueId() == "captain-alt"
+
+
+def test_import_drt_creates_owned_scratch_timeline_and_restores_origin(monkeypatch, tmp_path):
+    resolve, manager = prepare(monkeypatch, captain())
+    drt = tmp_path / "reel.drt"
+    drt.write_bytes(b"timeline fixture")
+    result = scratch.import_project(
+        resolve, manager, drt, "Ren Scratch - timeline-import",
+        fps="23.976", width=1920, height=1080)
+    created = manager.projects["Ren Scratch - timeline-import"]
+    assert result["timeline"] == "reel"
+    assert result["timeline_count"] == 1
+    assert result["fps"] == pytest.approx(23.976)
+    assert result["resolution"] == "1920x1080"
+    assert created.settings["timelineFrameRate"] == "23.976"
+    assert created.settings["timelineResolutionWidth"] == "1920"
+    assert created.settings["timelineResolutionHeight"] == "1080"
+    assert len(result["owned_artifacts"]) == 2
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+    assert manager.GetCurrentProject().GetCurrentTimeline().GetUniqueId() == "captain-alt"
+
+
+def test_import_drt_requires_shape_before_creating_project(monkeypatch, tmp_path):
+    resolve, manager = prepare(monkeypatch, captain())
+    drt = tmp_path / "reel.drt"
+    drt.write_bytes(b"timeline fixture")
+    with pytest.raises(scratch.ScratchProjectError, match="needs --fps, --width and --height"):
+        scratch.import_project(resolve, manager, drt, "Ren Scratch - missing-shape")
+    assert "Ren Scratch - missing-shape" not in manager.projects
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
 
 
 def test_delete_refuses_open_and_non_scratch_projects(monkeypatch):
