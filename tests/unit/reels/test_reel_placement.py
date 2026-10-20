@@ -921,6 +921,27 @@ def test_mic_bleed_only_suppresses_the_losing_audio_angle(
                     if item["speaker"] == "SpeakerOne CH1") in kept
 
 
+def test_axc_rebuild_keeps_audio_when_default_tracks_do_not_identify_speakers():
+    """AXC rebuild defect: Video 1/Audio 1 labels suppressed the whole
+    AUDIO1 plan against the fixture's independently named transcript."""
+    picture = SimpleNamespace(
+        track_type="video", track_index=1, track_name="Video 1",
+        speaker="Video 1", source_file="/qual_a.mp4")
+    audio = SimpleNamespace(
+        track_type="audio", track_index=1, track_name="Audio 1",
+        speaker="Audio 1", source_file="/qual_a.mp4")
+    planned = _placement("Audio 1")
+    planned["clip"] = audio
+    transcript = _transcript_2(
+        ("disposable", 100.0, 110.0, "synthetic fixture speech"))
+
+    kept, suppressed = suppress_mic_bleed_audio(
+        [planned], transcript, FPS_2, master_clips=[picture, audio])
+
+    assert kept == [planned]
+    assert suppressed == []
+
+
 def _sliver_placement(speaker, start, end):
     duration = end - start
     return {

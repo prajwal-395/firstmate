@@ -4332,6 +4332,34 @@ def _apply_ledger_retimes(timeline, placements_list, fps: float,
     return report["applied"]
 
 
+def _speaker_identity(clip, fallback="") -> str:
+    """Return a measured person name, excluding Resolve's default labels.
+
+    ``Video 1`` and ``Audio 1`` identify rows, not people. Treating them as
+    speaker identities makes synthetic or otherwise independently named
+    transcript speakers look like mic bleed, and can remove the entire audio
+    plan from a rebuild. A project track-name mapping remains authoritative:
+    its mapped value differs from the default row name and is retained.
+    """
+    speaker = str(getattr(clip, "speaker", "") or fallback or "").strip()
+    if not speaker:
+        return ""
+    track_type = str(getattr(clip, "track_type", "video") or "video")
+    try:
+        track_index = int(getattr(clip, "track_index", 0) or 0)
+    except (TypeError, ValueError):
+        track_index = 0
+    track_name = str(getattr(clip, "track_name", "") or "").strip()
+    if (track_index > 0
+            and speaker == track_name
+            and _is_default_track_name(track_name, track_type, track_index)):
+        return ""
+    if (track_index > 0
+            and _is_default_track_name(speaker, track_type, track_index)):
+        return ""
+    return speaker
+
+
 def _angle_people(master_clips, placements_list) -> Dict[str, str]:
     """The person each angle's picture names, keyed by `_angle_key`.
 
@@ -4346,7 +4374,7 @@ def _angle_people(master_clips, placements_list) -> Dict[str, str]:
     for clip in pictures:
         if getattr(clip, "track_type", "video") != "video":
             continue
-        speaker = getattr(clip, "speaker", "") or ""
+        speaker = _speaker_identity(clip)
         key = _angle_key(clip)
         if speaker and key and key not in people:
             people[key] = str(speaker)
@@ -4402,7 +4430,8 @@ def suppress_mic_bleed_audio(placements_list: Sequence[dict],
         if getattr(clip, "track_type", "video") != "audio":
             out.append(placement)
             continue
-        speaker = people.get(_angle_key(clip)) or placement["speaker"]
+        speaker = (people.get(_angle_key(clip))
+                   or _speaker_identity(clip, placement.get("speaker", "")))
         if not speaker:
             out.append(placement)
             continue
