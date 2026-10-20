@@ -1159,13 +1159,19 @@ def _exit_code(raised: SystemExit, stderr: io.StringIO) -> int:
     return 1
 
 
-def read_live_timeline(project: str, timeline: str) -> dict:
-    """Return a fresh live snapshot through the AXI timeline reader."""
+def read_live_timeline(project: str, timeline: str, resolve=None) -> dict:
+    """Return a fresh live snapshot through the AXI timeline reader.
+
+    `resolve` is the caller's held connection. It is passed on so a
+    caller that already holds one - a preview selecting the reel it is
+    about to read - does not open a SECOND scripting client beside it
+    (the multi-client shape behind the 2026-10-06 crash).
+    """
     from library.tools import resolve_axi_core_commands
 
     view, _note = resolve_axi_core_commands._timeline_view(
         timeline, project, caller="resolve_axi_core.read_live_timeline",
-        refresh_live=True, exact=True)
+        refresh_live=True, exact=True, resolve=resolve)
     return dict(view.snapshot)
 
 

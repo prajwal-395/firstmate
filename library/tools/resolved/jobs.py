@@ -166,6 +166,13 @@ def _start_checkpoint(job: dict) -> None:
 #: dirty-state refusal that never saves or discards, origin read-back
 #: and restore - and always run EXCLUSIVE (forced in `_resolve_axi_shape`,
 #: since `--apply` is checked in the command body, after scheduling).
+#: `cmd_render_inspect` is the one render verb on the list: it renders
+#: the OPEN timeline to a scratch file and changes no Resolve state - no
+#: timeline, no clip, no media-pool item - so the review loop can LOOK
+#: at a timeline through the same queue every other Resolve job uses.
+#: It is EXCLUSIVE (forced below), because a render may not run beside
+#: another writer, and it costs machine time, so it carries the
+#: `qa_render` priority band rather than a read's.
 _BROKER_ALLOWLIST = frozenset({
     # reads that reach Resolve on every call
     "cmd_cursor", "cmd_project", "cmd_pool", "cmd_renders",
@@ -177,6 +184,8 @@ _BROKER_ALLOWLIST = frozenset({
     "cmd_multicam_sync",
     # scratch-project lifecycle; EXCLUSIVE with its own prefix/dirty/read-back guard
     "cmd_project_scratch",
+    # read-only render for inspection; EXCLUSIVE, qa_render priority
+    "cmd_render_inspect",
     # developer escape hatch, behind RESOLVE_AXI_ALLOW_RUN on the broker
     "cmd_run",
 })
@@ -324,6 +333,7 @@ def _resolve_axi_shape(params: dict) -> dict:
     exclusive = bool(getattr(args, "unsafe", False)
                      or getattr(args, "apply", False)
                      or name == "cmd_project_scratch"
+                     or name == "cmd_render_inspect"
                      or (name == "cmd_run" and bool(
                          getattr(args, "purpose", "")
                          or getattr(args, "workflow_name", ""))))

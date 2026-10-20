@@ -369,6 +369,12 @@ exited 0 is not a verified edit.
   the whole DAG is complete and nothing failed).
 - `ren drift <project>` and `bin/resolve-axi` reads - the live timeline
   holds what was planned.
+- `resolve-axi render inspect --out <dir> --apply` - render the OPEN
+  timeline to a scratch file so you can LOOK at what changed. It
+  changes nothing in Resolve (no timeline, no clip, no pool item), so
+  the broker may run it and the render queues with every other Resolve
+  job. This is the route for a timeline Ren did not build; for a reel
+  the plan knows, `ren preview <project>` is the reel-shaped one.
 - `verify_timeline` (a built timeline), `verify_render` (a rendered
   file; after a touch, `--dirty-receipt` re-checks only what changed), `ren hear` / `hear_the_reel` (what a delivered reel SAYS) and
   `ren watch` (a model watches it; `--dirty-receipt` draws only the

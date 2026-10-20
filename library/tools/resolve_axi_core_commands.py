@@ -959,7 +959,8 @@ def cmd_timeline_get(args) -> int:
 
 
 def _timeline_view(timeline_name: str, project_name: str = "", *, caller: str,
-                   refresh_live: bool = False, exact: bool = False):
+                   refresh_live: bool = False, exact: bool = False,
+                   resolve=None):
     """Read one latest generation, or explicitly refresh the current reel.
 
     The name and snapshot are resolved by `timeline_read`; only a live
@@ -967,12 +968,16 @@ def _timeline_view(timeline_name: str, project_name: str = "", *, caller: str,
     the cursor to satisfy a query. A reel number already resolved to its
     recorded exact name passes `exact=True`, so the lookup never falls
     back to a prefix match (AGENTS.md 5).
+
+    `resolve` is the caller's held connection: a live refresh reads the
+    open timeline through it instead of opening a second scripting client
+    beside the one the caller already holds.
     """
     from library.tools import timeline_read
     from library.tools.marker_feedback import current_timeline
 
     if refresh_live:
-        resolve = _connect()
+        resolve = resolve if resolve is not None else _connect()
         project = _project(resolve, project_name)
         current, _ = current_timeline(resolve)
         if not timeline_name:
@@ -6756,6 +6761,73 @@ def cmd_render_stop(args) -> int:
         return 0
 
 
+def cmd_render_inspect(args) -> int:
+    """Render the OPEN timeline to a scratch file, for inspection.
+
+    The one render that changes nothing in Resolve: it writes a file,
+    restores the render format and codec it borrowed, and deletes the
+    render job it queued. No timeline, no clip and no media-pool item
+    is touched. That is what makes it broker-eligible
+    (`jobs._BROKER_ALLOWLIST`): the review loop has to LOOK at a
+    timeline, and a render the caller drives itself is not a job the
+    broker can queue, observe or coalesce with every other Resolve job.
+
+    It renders the OPEN timeline on purpose - the caller is looking at
+    the screen - and the cursor is not moved to do it. The render is
+    the ONE implementation (`execution.resolve_render`), so a file made
+    here is the same file `ren deliver` and `ren preview` make.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    if not args.out:
+        return fail("render inspect needs --out <directory>.",
+                    f"{TOOL} render inspect --out <directory> --apply")
+    out_dir = os.path.abspath(args.out)
+    render = None
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, _is_current, _note = _target_timeline(project, "",
+                                                            resolve=resolve)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if not args.apply:
+            emit([kv_block("inspect_plan", {
+                      "project": project.GetName(),
+                      "timeline": timeline.GetName(),
+                      "out": out_dir,
+                  }),
+                  "dry run - pass --apply to render the open timeline "
+                  "for inspection (this spends real machine time)",
+                  help_block([f"{TOOL} render inspect --out {out_dir} "
+                              "--apply"])])
+            return 0
+        from library.tools.execution import resolve_render
+        os.makedirs(out_dir, exist_ok=True)
+        render = resolve_render.render_timeline_under_existing_lease(
+            timeline_name="",
+            output_dir=out_dir,
+            output_name=(args.name or timeline.GetName()),
+            fmt="mp4", codec="H264",
+            resolve=resolve)
+    # The file is checked AFTER the lease is released: the broker owns
+    # Resolve, and an ffprobe is not Resolve work.
+    report = resolve_render.validate_render_output(render)
+    payload = {"project": project.GetName(),
+               "timeline": report["timeline_name"],
+               "output_path": report["output_path"],
+               "size_bytes": report["size_bytes"],
+               "verified": "yes (the file is on disk and carries audio)"}
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
+        return 0
+    emit([kv_block("rendered", payload),
+          help_block([f"{TOOL} renders"])])
+    return 0
+
+
 def cmd_project_set(args) -> int:
     """Set one project setting, verified by read-back.
 
@@ -9244,6 +9316,21 @@ def build_parser() -> Parser:
                    help="stop under the Resolve lease (default is a "
                         "dry-run plan)")
     q.set_defaults(func=cmd_render_stop)
+    i = rsubs.add_parser("inspect", help="render the OPEN timeline to a "
+                                          "scratch file for inspection; "
+                                          "--apply writes")
+    i.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    i.add_argument("--out", default="",
+                   help="the directory the inspection file is written to")
+    i.add_argument("--name", default="",
+                   help="the file's name stem (default: the timeline's name)")
+    i.add_argument("--apply", action="store_true",
+                   help="render under the exclusive Resolve lease "
+                        "(default is a dry-run plan)")
+    i.add_argument("--json", action="store_true",
+                   help="print the render receipt as JSON")
+    i.set_defaults(func=cmd_render_inspect)
 
     p = subs.add_parser("markers", help="notes from a recorded reel "
                                         "generation; --refresh-live reads "

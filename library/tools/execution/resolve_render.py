@@ -421,6 +421,17 @@ def render_timeline_under_existing_lease(
         timeout_seconds=timeout_seconds, resolve_override=resolve)
 
 
+def validate_render_output(render: dict) -> dict:
+    """The report for a render that ran under another holder's lease.
+
+    `render_timeline_under_existing_lease` leaves the file check to its
+    caller, because the broker releases Resolve only after the job
+    ends. A caller that wants the same report `render_timeline` returns
+    asks for it here.
+    """
+    return _validate_render_output(render)
+
+
 def _validate_render_output(render: dict) -> dict:
     produced = _files_written_since(
         render["output_dir"], render["output_name"],

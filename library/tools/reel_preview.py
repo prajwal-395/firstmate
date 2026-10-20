@@ -389,15 +389,115 @@ def _ren_snapshot_digest(project: str, timeline: str) -> str:
     return _digest(content)
 
 
+def resolve_project_name(project: str) -> str:
+    """The Resolve project this Ren project binds to, by its exact name.
+
+    `timeline_ingest.resolve_binding` is the ONE reader of that binding
+    (AGENTS.md 8): a near match lands on somebody else's project.
+    """
+    from library.tools.timeline_ingest import resolve_binding
+
+    name, _timeline = resolve_binding(project)
+    if not name:
+        raise PreviewRefused(
+            f"{project} names no Resolve project",
+            "a live read addresses the Resolve project by the exact name "
+            "the project declares (resolve.project_name in project.yaml)",
+            "declare resolve.project_name in project.yaml, then preview")
+    return name
+
+
+def live_timeline_length(project: str, target: dict) -> dict:
+    """How long the reel plays, read off the LIVE timeline through AXI.
+
+    A reel Ren did not BUILD has no Project Model rows: the model is
+    what a build maintains, and nothing maintained it for this reel.
+    The length is a property of the TIMELINE, so it is read there -
+    through AXI, the only boundary that reads live Resolve state
+    (AGENTS.md 5) - and never guessed from a model that has no rows.
+
+    `{seconds, fps, frames, source}`.
+    """
+    from library.tools import resolve_axi_core
+    from library.tools.marker_feedback import (
+        ResolveUnavailable,
+        connect_resolve,
+    )
+    from library.tools.resolve_lock import cursor_excursion, resolve_lease
+    from library.tools.timeline_ingest import (
+        TimelineIngestError,
+        resolve_project_exactly,
+        timeline_named,
+    )
+
+    resolve_name = resolve_project_name(project)
+    timeline_name = target["timeline"]
+    try:
+        with resolve_lease("preview: read the reel's length",
+                           exclusive=True):
+            resolve = connect_resolve()
+            manager = resolve.GetProjectManager()
+            open_project = resolve_project_exactly(manager, resolve_name)
+            live = timeline_named(open_project, timeline_name)
+            # The AXI live reader answers for the CURRENT timeline, so
+            # the reel is made current for the read and the cursor is
+            # put back where it was: a read that leaves the captain's
+            # cursor somewhere else is a write.
+            with cursor_excursion(open_project, live,
+                                  "preview: live length"):
+                snapshot = resolve_axi_core.read_live_timeline(
+                    resolve_name, timeline_name, resolve=resolve)
+    except (ResolveUnavailable, TimelineIngestError) as exc:
+        raise PreviewRefused(
+            f"cannot read {timeline_name!r} from the live Resolve "
+            f"timeline",
+            str(exc),
+            f"open {resolve_name!r} in Resolve on {timeline_name!r}, then "
+            "preview again") from exc
+    except Exception as exc:  # noqa: BLE001 - AXI's own refusal shape
+        raise PreviewRefused(
+            f"cannot read {timeline_name!r} from the live Resolve "
+            f"timeline",
+            str(exc),
+            f"read it with `resolve-axi timeline get \"{timeline_name}\" "
+            "--refresh-live` to see what Resolve says, then preview again"
+        ) from exc
+    start = int(snapshot["start_frame"])
+    end = int(snapshot["end_frame"])
+    fps = float(snapshot["fps"] or snapshot["reported_fps"])
+    if fps <= 0:
+        raise PreviewRefused(
+            f"{timeline_name!r} reports no usable frame rate",
+            "a preview's length is checked against the reel's, and the "
+            "reel's frame clock is the timeline's own",
+            "fix the timeline's frame rate in Resolve, then preview again")
+    # The same span the render writes: `resolve_render` marks out at
+    # `end - 1`, so the reel plays `end - start` frames.
+    frames = max(end - start, 0)
+    if frames <= 0:
+        raise PreviewRefused(
+            f"{timeline_name!r} plays no frames",
+            "the live timeline reports an empty frame range, so there is "
+            "nothing to preview",
+            "put something on the timeline in Resolve, then preview again")
+    return {"seconds": frames / fps, "fps": fps, "frames": frames,
+            "source": "live timeline through AXI"}
+
+
 def expected_length(project: str, target: dict,
                     sliced: dict | None) -> dict:
     """How long the reel plays, from what the build recorded.
 
     `{seconds, fps, frames, source}`. The frame rate is the build's own
     `reel_fps`; the length is the end of the last thing placed on the
-    reel's clock in the model the build maintained. Refused rather than
-    guessed when the build recorded neither.
+    reel's clock in the model the build maintained.
+
+    A reel Ren did not BUILD has no Project Model rows and no build
+    record, and the length is a property of the timeline anyway: it is
+    read off the LIVE timeline through AXI rather than refused.
     """
+    if sliced is None:
+        return live_timeline_length(project, target)
     fps = _build_record(project).get("reel_fps")
     try:
         fps = float(fps)
@@ -408,11 +508,6 @@ def expected_length(project: str, target: dict,
             f"the build recorded no frame rate for {target['timeline']}",
             "a preview's length is checked against the reel's, and the "
             "reel's frame clock is the build's record",
-            "rebuild the reel with `ren build`, then preview")
-    if sliced is None:
-        raise PreviewRefused(
-            f"the Project Model has no rows for {target['timeline']}",
-            "the reel's length is read off the model the build maintains",
             "rebuild the reel with `ren build`, then preview")
     from library.tools.reel_project_model import TICKS_PER_SECOND
     # The reel clock starts at the reel's first frame, so its end is
