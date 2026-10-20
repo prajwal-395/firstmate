@@ -333,7 +333,7 @@ def test_the_measurement_describes_the_runtime_it_read(monkeypatch):
         timeline=_fake_timeline(),
         operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
     assert state["inspected"] is True
-    assert state["state"]["resolve_version"] == "DaVinci Resolve 21.1.0.14"
+    assert state["state"]["resolve_version"] == "21.1.0.14"
 
     # The vocabulary, measured from the rows.
     assert axi_qualification_state._media_type(rows, []) == "video"

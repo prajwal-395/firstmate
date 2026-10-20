@@ -537,7 +537,7 @@ def build(project, configuration: Configuration, *,
     The result records what was placed and the shape the configuration
     declared, so the run can compare the MEASURED shape against it.
     """
-    from library.tools.resolve_lock import assert_current_timeline
+    from library.tools.resolve_lock import assert_current_timeline, resolve_lease
 
     pool = project.GetMediaPool()
     _delete_existing(project, configuration.timeline_name)
@@ -551,35 +551,34 @@ def build(project, configuration: Configuration, *,
         if not timeline.SetSetting(key, value):
             raise ConfigurationError(
                 f"{configuration.id}: Resolve refused {key}={value}")
-    if not project.SetCurrentTimeline(timeline):
-        raise ConfigurationError(
-            f"{configuration.id}: Resolve refused to make "
-            f"{configuration.timeline_name!r} current")
-    assert_current_timeline(project, timeline)
+    with resolve_lease(
+            f"build qualification timeline {configuration.timeline_name}",
+            project=project.GetName(), timeline=configuration.timeline_name):
+        assert_current_timeline(project, timeline)
 
-    wanted: dict[str, int] = {}
-    for row in configuration.rows:
-        wanted[row.type] = wanted.get(row.type, 0) + 1
-    for track_type, count in wanted.items():
-        _ensure_rows(timeline, track_type, count)
+        wanted: dict[str, int] = {}
+        for row in configuration.rows:
+            wanted[row.type] = wanted.get(row.type, 0) + 1
+        for track_type, count in wanted.items():
+            _ensure_rows(timeline, track_type, count)
 
-    counters: dict[str, int] = {}
-    placed: list[object] = []
-    for row in configuration.rows:
-        counters[row.type] = counters.get(row.type, 0) + 1
-        index = counters[row.type]
-        if row.name and not timeline.SetTrackName(row.type, index, row.name):
-            raise ConfigurationError(
-                f"{configuration.id}: Resolve refused to name the "
-                f"{row.type} row {index} {row.name!r}")
-        record = 0
-        for kind in row.items:
-            source = _source_for(configuration, kind)
-            item = _pool_item(pool_items, source)
-            placed.append(_place(pool, item, track_index=index,
-                                 record_frame=record, media_type=kind))
-            record += PLACE_FRAMES
-    seeded = _seed_effects(placed, configuration)
+        counters: dict[str, int] = {}
+        placed: list[object] = []
+        for row in configuration.rows:
+            counters[row.type] = counters.get(row.type, 0) + 1
+            index = counters[row.type]
+            if row.name and not timeline.SetTrackName(row.type, index, row.name):
+                raise ConfigurationError(
+                    f"{configuration.id}: Resolve refused to name the "
+                    f"{row.type} row {index} {row.name!r}")
+            record = 0
+            for kind in row.items:
+                source = _source_for(configuration, kind)
+                item = _pool_item(pool_items, source)
+                placed.append(_place(pool, item, track_index=index,
+                                     record_frame=record, media_type=kind))
+                record += PLACE_FRAMES
+        seeded = _seed_effects(placed, configuration)
     return {"timeline": configuration.timeline_name,
             "placed": len(placed),
             "effects": seeded,

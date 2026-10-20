@@ -115,13 +115,17 @@ def test_a_caption_restyle_outside_its_recorded_predicates_is_refused():
 
     backend = edit_algebra.status("caption.style", "resolve_axi")
     measured = {
-        "project_name": "Ren Qualification",
-        "timeline_name": "fm-scratch qualify",
         "resolve_version": "21.1.0.14",
         "media_type": "video",
-        "clip_composition": "two_caption_cards",
-        "linked_audio_configuration": "no_audio_items",
-        "timeline_structure": "empty_baseline_plus_subtitles_row",
+        "clip_composition": "single_video_clip",
+        "linked_audio_configuration": "no_linked_audio",
+        "track_layout": "video",
+        "track_occupancy": "mixed",
+        "timeline_density": "light",
+        "timeline_structure": "multi_item_timeline",
+        "project_settings": "landscape_1920x1080",
+        "frame_rate": "24",
+        "existing_effects": "none",
     }
     inside = {"inspected": True, "state": dict(measured)}
     assert execution_router._qualification_matches(backend, inside)

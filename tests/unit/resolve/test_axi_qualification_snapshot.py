@@ -87,7 +87,9 @@ def test_a_property_write_that_also_re_spanned_its_item_is_unintended():
     assert not snapshots.preserved(verdict)
     assert verdict["unintended_modifications"] == [
         {"op": "clip.set_property", "unique_id": "a", "change": "changed",
-         "fields": ["record_in"]}]
+         "fields": ["record_in"]},
+        {"op": "clip.set_property", "unique_id": "a", "change": "changed",
+         "fields": ["record_out"]}]
 
 
 def test_a_property_write_that_changed_the_transform_is_the_request():

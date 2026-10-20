@@ -243,6 +243,10 @@ def media_kind(row: Mapping) -> str:
     raw = str(row.get("media_type") or "").strip().casefold()
     if raw in ("video", "audio", "still"):
         return raw
+    # Resolve's pool labels combined audio and video for ordinary video
+    # clips. The qualification dimension describes the item's picture kind.
+    if raw in ("video + audio", "video/audio", "video and audio"):
+        return "video"
     if raw in ("image sequence", "imagesequence"):
         return "still"
     return raw or "unknown"

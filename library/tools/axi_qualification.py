@@ -203,8 +203,12 @@ def _coverage(report: dict[str, Any]) -> dict:
         raise QualificationReportError(
             "coverage source must be one of: "
             + ", ".join(sorted(COVERAGE_SOURCES)))
-    return {"dimensions": {field: list(values)
-                           for field, values in measured.items()},
+    normalized = {field: list(values) for field, values in measured.items()}
+    if "resolve_version" in normalized:
+        normalized["resolve_version"] = [
+            canonical_resolve_version(value)
+            for value in normalized["resolve_version"]]
+    return {"dimensions": normalized,
             "configurations": list(configurations),
             "uncovered": {field: list(values)
                           for field, values in uncovered.items()},
@@ -234,6 +238,7 @@ def _predicates(report: dict[str, Any],
             raise QualificationReportError(
                 "each qualification predicate must be a field, an operator "
                 "and a value")
+        predicate = canonical_predicate(predicate)
         field = predicate["field"]
         if dimensions.is_identity_field(field):
             raise QualificationReportError(
@@ -257,8 +262,19 @@ def _predicates(report: dict[str, Any],
                 raise QualificationReportError(
                     f"the {field} predicate names {value!r}, which is not a "
                     "value that dimension can measure")
-        outside = [value for value in values
-                   if value not in measured.get(field, ())]
+        covered = measured.get(field, ())
+        if field == "resolve_version":
+            # Coverage records the Resolve release line (for example,
+            # 21.1.0), while reports and runtime predicates may include
+            # the build suffix (21.1.0.14). A line covers its dotted
+            # builds; matching only the prefix plus a dot avoids treating
+            # 21.1.01 or 21.10 as members of 21.1.0.
+            outside = [value for value in values
+                       if not any(value == version
+                                  or value.startswith(version + ".")
+                                  for version in covered)]
+        else:
+            outside = [value for value in values if value not in covered]
         if outside:
             raise QualificationReportError(
                 f"the {field} predicate claims {outside} which the coverage "

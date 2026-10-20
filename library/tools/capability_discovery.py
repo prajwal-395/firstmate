@@ -358,6 +358,11 @@ def catalog(checks=None) -> dict:
     return {"count": len(rows), "capabilities": rows}
 
 
+def known_ids() -> tuple[str, ...]:
+    """Every declared capability id, in the catalog's stable order."""
+    return _View(checks=None).ids()
+
+
 def record(capability_id: str, checks=None) -> dict:
     """One capability, in full.
 

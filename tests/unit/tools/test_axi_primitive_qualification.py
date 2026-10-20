@@ -36,12 +36,16 @@ def _passed_row(primitive_id: str, checks: dict) -> dict:
                 "case": {"qualification_state": {
                     "inspected": True,
                     "state": {"resolve_version": "DaVinci Resolve 21.1.0.14",
-                              "project_name": qual.PROJECT,
-                              "timeline_name": qual.TIMELINE,
                               "media_type": "video",
                               "clip_composition": "single_video_clip",
                               "linked_audio_configuration": "no_linked_audio",
-                              "timeline_structure": "empty_fixture"}}}})
+                              "track_layout": "video",
+                              "track_occupancy": "mixed",
+                              "timeline_density": "light",
+                              "timeline_structure": "multi_item_timeline",
+                              "project_settings": "landscape_1920x1080",
+                              "frame_rate": "24",
+                              "existing_effects": "none"}}}})
     return row
 
 
@@ -140,10 +144,12 @@ def test_the_predicates_speak_the_live_measurement_vocabulary():
 def test_the_predicates_are_written_from_what_was_measured():
     measured = {"inspected": True, "state": {
         "resolve_version": "DaVinci Resolve 21.1.0.14",
-        "project_name": qual.PROJECT, "timeline_name": qual.TIMELINE,
         "media_type": "video", "clip_composition": "single_video_clip",
         "linked_audio_configuration": "no_linked_audio",
-        "timeline_structure": "empty_fixture"}}
+        "track_layout": "video", "track_occupancy": "all_empty",
+        "timeline_density": "empty", "timeline_structure": "empty_timeline",
+        "project_settings": "landscape_1920x1080", "frame_rate": "24",
+        "existing_effects": "none"}}
     predicates = qual._predicates(measured)
     assert {row["field"] for row in predicates} == set(qual._PREDICATE_FIELDS)
     assert all(row["operator"] == "equals" for row in predicates)

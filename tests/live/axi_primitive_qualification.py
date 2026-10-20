@@ -8,7 +8,7 @@ and what the scenario must observe.  The live lane
 (``vep-axc-live2``) runs this module against a real Resolve and imports
 the evidence it produces through the existing registry tool
 (``python3 -m library.tools.axi_qualification --import-result ...``):
-this module writes the ``ren-axi-qualification-result/v1`` files that
+this module writes the ``ren-axi-qualification-result/v2`` files that
 tool consumes, so the qualification run and the promotion path stay one
 path.
 
@@ -42,11 +42,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import perf_counter
 
-from library.tools import edit_algebra
+from library.tools import axi_qualification, edit_algebra
 from tests.live import small_edit_qualification as small
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1555,8 +1556,7 @@ JUDGES = {
 # (`library/tools/axi_qualification_state.py` owns that vocabulary).
 
 _PREDICATE_FIELDS = (
-    "resolve_version", "project_name", "timeline_name", "media_type",
-    "clip_composition", "linked_audio_configuration", "timeline_structure",
+    *axi_qualification.PREDICATE_FIELDS,
 )
 
 
@@ -1567,20 +1567,29 @@ def _predicates(measured: dict) -> list[dict]:
         value = state.get(field)
         if value in (None, ""):
             continue
-        predicates.append({"field": field, "operator": "equals",
-                           "value": str(value)})
+        predicate = {"field": field, "operator": "equals",
+                     "value": str(value)}
+        predicates.append(axi_qualification.canonical_predicate(predicate))
     return predicates
 
 
 def _qualification_result(primitive: Primitive, scenarios: list[dict],
                           measured: dict) -> dict:
-    """One `ren-axi-qualification-result/v1` document for this pair."""
+    """One current-schema qualification document for this pair."""
     checks: dict = {}
     for scenario in scenarios:
         checks.update(scenario.get("checks") or {})
     state = measured.get("state") or {}
+    coverage = {
+        "dimensions": {field: [str(state[field])]
+                       for field in axi_qualification.PREDICATE_FIELDS
+                       if state.get(field) not in (None, "")},
+        "configurations": ["measured_qualification_timeline"],
+        "uncovered": {},
+        "source": "measured",
+    }
     return {
-        "schema": "ren-axi-qualification-result/v1",
+        "schema": axi_qualification.REPORT_SCHEMA,
         "operation_id": primitive.operation,
         "backend": primitive.backend,
         "result": "passed",
@@ -1588,6 +1597,18 @@ def _qualification_result(primitive: Primitive, scenarios: list[dict],
             "tests/live/reports/axi-primitive-qualification.json#"
             + ",".join(scenario["id"] for scenario in scenarios)),
         "resolve_version": str(state.get("resolve_version") or ""),
+        "environment": {
+            "resolve_version": str(state.get("resolve_version") or ""),
+            "platform": sys.platform,
+        },
+        "semantic_boundary": {
+            "applies_to": [
+                f"{primitive.operation} on {primitive.backend} in the "
+                "measured qualification state"],
+            "does_not_apply_to": [
+                "states or operation/backend pairs not named by this evidence"],
+        },
+        "coverage": coverage,
         "project_conditions": [
             f"{PROJECT} / {TIMELINE}",
             "private target timeline only",
@@ -1670,6 +1691,20 @@ def _registry_rows(report: dict) -> tuple[list[tuple[tuple[str, str], dict]],
     for key, scenarios in groups.items():
         primitive = next(item for item in PRIMITIVES
                          if (item.operation, item.backend) == key)
+        state = measured[key].get("state") or {}
+        missing_dimensions = [
+            field for field in axi_qualification.PREDICATE_FIELDS
+            if state.get(field) in (None, "")]
+        if missing_dimensions:
+            gaps.append({
+                "operation_id": primitive.operation,
+                "backend": primitive.backend,
+                "scenario": ",".join(scenario["id"]
+                                      for scenario in scenarios),
+                "reason": ("the run did not measure qualification "
+                           "dimensions: " + ", ".join(missing_dimensions)),
+            })
+            continue
         result = _qualification_result(primitive, scenarios, measured[key])
         if not result["preservation_checks"] or not result["qualification_predicates"]:
             # No complete evidence means no registrable row: the loader
