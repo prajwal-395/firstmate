@@ -7575,7 +7575,9 @@ def cmd_project_scratch(args) -> int:
             elif args.scratch_command == "open":
                 result = scratch.open_project(resolve, manager, args.name)
             elif args.scratch_command == "restore":
-                result = scratch.restore_recorded(resolve, manager)
+                result = scratch.restore_recorded(
+                    resolve, manager,
+                    timeline_drts=getattr(args, "timeline_drt", ()) or ())
             elif args.scratch_command == "collect":
                 if args.apply:
                     if not args.manifest:
@@ -10302,6 +10304,8 @@ def build_parser() -> Parser:
         sq.add_argument("--apply", action="store_true", help="perform the scratch project operation")
         sq.set_defaults(func=cmd_project_scratch)
     sq = ss.add_parser("restore", help="restore the project, timeline and page recorded by scratch open")
+    sq.add_argument("--timeline-drt", action="append", default=[],
+                    help="import a one-timeline DRT into a Ren Qualification origin before restoring; repeatable")
     sq.add_argument("--apply", action="store_true", help="restore the recorded origin")
     sq.set_defaults(func=cmd_project_scratch)
     sq = ss.add_parser("collect", help="plan or apply manifest-selected Ren scratch project retirement")

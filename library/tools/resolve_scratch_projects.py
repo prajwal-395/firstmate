@@ -154,8 +154,13 @@ def _write_origin(state: dict) -> None:
     os.replace(temporary, path)
 
 
-def restore_recorded(resolve, manager) -> dict:
-    """Restore the exact origin recorded by `open`, then clear its receipt."""
+def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
+    """Restore the origin recorded by `open`, then clear its receipt.
+
+    A DRT re-import creates a new Resolve timeline identity. For Ren-owned
+    projects only, `restore` may recover the uniquely named timeline after
+    verifying its identity changed; captain projects remain UID-only.
+    """
     path = _origin_path()
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -164,6 +169,21 @@ def restore_recorded(resolve, manager) -> dict:
     current = manager.GetCurrentProject()
     if current is None:
         raise ScratchProjectError("Resolve has no current project to restore from")
+    imported = []
+    if timeline_drts:
+        origin_name = str(state.get("project") or "")
+        if origin_name != "Ren Qualification":
+            raise ScratchProjectError(
+                "DRT recovery imports are restricted to the Ren Qualification "
+                "origin project")
+        if current.GetName() != origin_name:
+            raise ScratchProjectError(
+                f"DRT recovery imports require {origin_name!r} open; "
+                f"found {current.GetName()!r}")
+        imported = _import_qualification_drts(current, timeline_drts)
+        if imported and not manager.SaveProject():
+            raise ScratchProjectError(
+                "Resolve did not save the restored qualification timelines")
     if current.GetName() != state.get("scratch_project"):
         if current.GetName() == state.get("project"):
             # Resolve reopened the ORIGIN's project - a broker restart
@@ -191,7 +211,7 @@ def restore_recorded(resolve, manager) -> dict:
                           "timeline_restored": False,
                           "reason": str(exc)}
             path.unlink(missing_ok=True)
-            return result
+            return {**result, "imported_timeline_drts": imported}
         raise ScratchProjectError(
             f"cannot restore recorded origin: expected {state.get('scratch_project')!r} open, "
             f"found {current.GetName()!r}")
@@ -201,6 +221,102 @@ def restore_recorded(resolve, manager) -> dict:
             "project; not leaving unsavable work behind")
     result = restore(resolve, manager, state)
     path.unlink()
+    return {**result, "imported_timeline_drts": imported}
+
+
+def _import_qualification_drts(project, archives) -> list[dict]:
+    """Import and measure one-timeline DRTs into Ren Qualification."""
+    from library.tools import drt_reader, resolve_archive
+
+    prepared = []
+    names = set()
+    for value in archives:
+        path = Path(value).expanduser().resolve()
+        if path.suffix.lower() != ".drt" or not path.is_file():
+            raise ScratchProjectError(f"expected an existing .drt archive: {path}")
+        try:
+            archive = resolve_archive.read_archive(path)
+            measured = drt_reader.read_drt_archive(path)
+        except Exception as exc:
+            raise ScratchProjectError(
+                f"cannot inspect DRT {path.name!r}: {exc}") from exc
+        if archive["format"] != "drt" or len(archive["timelines"]) != 1:
+            raise ScratchProjectError(
+                f"DRT {path.name!r} must contain exactly one timeline")
+        if len(measured["timelines"]) != 1:
+            raise ScratchProjectError(
+                f"DRT {path.name!r} has no unique sequence container")
+        name = str(archive["project"] or "").strip()
+        if not name or name in names:
+            raise ScratchProjectError(
+                f"DRT {path.name!r} has an empty or duplicate timeline name {name!r}")
+        names.add(name)
+        expected_tracks = []
+        for track in measured["timelines"][0]["tracks"]:
+            kind = str(track["kind"] or "").lower()
+            if "video" in kind:
+                kind = "video"
+            elif "audio" in kind:
+                kind = "audio"
+            else:
+                raise ScratchProjectError(
+                    f"DRT {path.name!r} has an unsupported track type {kind!r}")
+            expected_tracks.append((kind, len(track["items"])))
+        prepared.append({"path": path, "name": name,
+                         "tracks": tuple(sorted(expected_tracks)),
+                         "items": int(measured["item_count"])})
+
+    def facts(timeline):
+        tracks = []
+        for kind in ("video", "audio"):
+            count = int(timeline.GetTrackCount(kind) or 0)
+            for index in range(1, count + 1):
+                items = timeline.GetItemListInTrack(kind, index) or []
+                tracks.append((kind, len(items)))
+        return tuple(sorted(tracks)), sum(count for _kind, count in tracks)
+
+    timelines = [project.GetTimelineByIndex(index)
+                 for index in range(1, int(project.GetTimelineCount() or 0) + 1)]
+    timelines = [timeline for timeline in timelines if timeline]
+    pool = project.GetMediaPool()
+    if pool is None:
+        raise ScratchProjectError("Resolve returned no MediaPool for DRT recovery")
+    result = []
+    for row in prepared:
+        matches = [timeline for timeline in timelines
+                   if timeline.GetName() == row["name"]]
+        if len(matches) > 1:
+            raise ScratchProjectError(
+                f"Ren Qualification has multiple timelines named {row['name']!r}")
+        if matches:
+            timeline = matches[0]
+            source = "existing"
+        else:
+            timeline = pool.ImportTimelineFromFile(str(row["path"]))
+            if timeline is None:
+                raise ScratchProjectError(
+                    f"Resolve refused to import DRT {row['path'].name!r}")
+            source = "imported"
+        if timeline.GetName() != row["name"]:
+            raise ScratchProjectError(
+                f"DRT {row['path'].name!r} read back as timeline "
+                f"{timeline.GetName()!r}, expected {row['name']!r}")
+        actual_tracks, item_count = facts(timeline)
+        if actual_tracks != row["tracks"] or item_count != row["items"]:
+            raise ScratchProjectError(
+                f"timeline {row['name']!r} differs from its DRT: "
+                f"tracks/items {actual_tracks!r}/{item_count}, expected "
+                f"{row['tracks']!r}/{row['items']}")
+        uid = str(timeline.GetUniqueId() or "")
+        if not uid:
+            raise ScratchProjectError(
+                f"Resolve did not return a stable identity for {row['name']!r}")
+        if timeline not in timelines:
+            timelines.append(timeline)
+        result.append({"name": row["name"], "timeline_id": uid,
+                       "source": source, "items": item_count,
+                       "tracks": [list(track) for track in actual_tracks],
+                       "archive": str(row["path"])})
     return result
 
 
@@ -237,21 +353,50 @@ def restore(resolve, manager, state: dict) -> dict:
     if not project or project.GetName() != state["project"]:
         raise ScratchProjectError(f"restore did not reopen {state['project']!r}")
     timeline = _timeline_by_id(project, state["timeline_id"])
+    identity_recovered = False
     if state["timeline_id"] is not None:
         if timeline is None:
-            raise ScratchProjectError(
-                f"restore cannot find timeline {state['timeline']!r} by its recorded id")
+            if not _ren_owned_origin(state["project"]):
+                raise ScratchProjectError(
+                    f"restore cannot find timeline {state['timeline']!r} "
+                    "by its recorded id; captain projects require exact identity")
+            matches = [project.GetTimelineByIndex(index)
+                       for index in range(1, int(project.GetTimelineCount() or 0) + 1)
+                       if project.GetTimelineByIndex(index)
+                       and project.GetTimelineByIndex(index).GetName()
+                       == state["timeline"]]
+            if len(matches) != 1:
+                raise ScratchProjectError(
+                    f"restore cannot recover timeline {state['timeline']!r} "
+                    f"by unique name in Ren-owned project {state['project']!r}; "
+                    f"found {len(matches)}")
+            timeline = matches[0]
+            identity_recovered = True
         assert_current_timeline(project, timeline)
         current = project.GetCurrentTimeline()
-        if not current or current.GetUniqueId() != state["timeline_id"]:
+        timeline_id = str(timeline.GetUniqueId() or "")
+        if not current or str(current.GetUniqueId() or "") != timeline_id:
             raise ScratchProjectError("restored timeline did not read back")
     page = state["page"]
     if (page is not None and resolve.GetCurrentPage() != page
             and (not resolve.OpenPage(page)
                  or resolve.GetCurrentPage() != page)):
         raise ScratchProjectError(f"restore did not return to page {page!r}")
-    return {"project": state["project"], "timeline": state["timeline"],
-            "page": state["page"], "verified": True}
+    result = {"project": state["project"], "timeline": state["timeline"],
+              "page": state["page"], "verified": True}
+    if identity_recovered:
+        result.update({
+            "timeline_id": str(timeline.GetUniqueId() or ""),
+            "timeline_identity_recovered": True,
+            "recorded_timeline_id": state["timeline_id"],
+        })
+    return result
+
+
+def _ren_owned_origin(project_name: str) -> bool:
+    """Whether a project name belongs to Ren's disposable project namespace."""
+    return (project_name in {"Ren Qualification", "Resolve Qualification"}
+            or project_name.startswith(SCRATCH_PREFIX))
 
 
 def _listed(manager, name: str) -> bool:

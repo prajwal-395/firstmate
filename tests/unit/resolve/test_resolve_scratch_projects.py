@@ -415,6 +415,37 @@ def test_a_recorded_origin_can_be_recovered_when_resolve_reopened_the_captains_p
     assert not origin.exists()
 
 
+def test_a_reimported_timeline_recovers_by_unique_name_only_in_ren_projects(
+        monkeypatch):
+    """Catches: a restored Ren DRT gets a new UID and strands its receipt."""
+    resolve, manager = prepare(
+        monkeypatch, Resolve(Project("Ren Qualification", [
+            Timeline("fm-scratch qualify", "new-drt-uid")]))
+    )
+    state = {"project": "Ren Qualification", "timeline": "fm-scratch qualify",
+             "timeline_id": "deleted-old-uid", "page": "edit"}
+
+    restored = scratch.restore(resolve, manager, state)
+
+    assert restored["verified"] is True
+    assert restored["timeline_identity_recovered"] is True
+    assert restored["recorded_timeline_id"] == "deleted-old-uid"
+    assert restored["timeline_id"] == "new-drt-uid"
+    current = manager.GetCurrentProject().GetCurrentTimeline()
+    assert current.GetUniqueId() == "new-drt-uid"
+
+
+def test_a_missing_captain_timeline_id_never_recovers_by_name(monkeypatch):
+    """Catches: same-named captain timelines must retain exact-UID protection."""
+    resolve, manager = prepare(monkeypatch, captain())
+    state = {"project": "Podcast (field test)", "timeline": "Main",
+             "timeline_id": "deleted-captain-uid", "page": "edit"}
+
+    with pytest.raises(scratch.ScratchProjectError,
+                       match="captain projects require exact identity"):
+        scratch.restore(resolve, manager, state)
+
+
 def test_an_empty_untitled_project_does_not_block_the_scratch_lifecycle(
         monkeypatch, tmp_path):
     """Catches: the scratch lifecycle refusing to leave the untitled
