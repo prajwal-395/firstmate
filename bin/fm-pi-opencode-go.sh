@@ -73,16 +73,17 @@ install_unlocked() {
 
 token_for_task() {
   local db=${FM_OPENCODE_TASK_DB:-} org=${FM_OPENCODE_ORG_ID:-} config_dir=${FM_OPENCODE_CONFIG_DIR:-}
-  local lock out rc=0
+  local live lock out rc=0
   [ -n "$db" ] && [ -n "$org" ] && [ -n "$config_dir" ] || return 1
   [ -f "$db" ] && [ -d "$config_dir" ] || return 1
   command -v sqlite3 >/dev/null 2>&1 && command -v opencode >/dev/null 2>&1 || return 1
   out=$(cached_token "$db" 300000) && { printf '%s' "$out"; return 0; }
+  live=$(fm_opencode_second_live_db 2>/dev/null) || return 1
   lock="$config_dir/opencode-pi-token.lock"
   if command -v lockf >/dev/null 2>&1; then
-    lockf -t 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" || rc=$?
+    lockf -t 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live" || rc=$?
   elif command -v flock >/dev/null 2>&1; then
-    flock -w 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" || rc=$?
+    flock -w 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live" || rc=$?
   else
     return 1
   fi
@@ -106,20 +107,14 @@ cached_token() {  # <task-db> <minimum-remaining-ms>
 }
 
 token_unlocked() {
-  local db=${1:-} org=${2:-} live access live_sql org_sql paths data_dir
-  [ -f "$db" ] || return 1
+  local db=${1:-} org=${2:-} live=${3:-} access live_sql org_sql
+  [ -f "$db" ] && [ -f "$live" ] || return 1
   # The lock holder may have refreshed while this worker waited. Reuse that
   # result before contacting OpenCode.
   access=$(cached_token "$db" 30000) && { printf '%s' "$access"; return 0; }
-  # Bound both OpenCode calls. The 1s + 3s ceilings leave room inside Pi's
-  # 10s apiKey command timeout for lock acquisition and the sqlite copy.
-  paths=$(fm_run_timed 1 opencode debug paths 2>/dev/null) || return 1
-  data_dir=$(printf '%s\n' "$paths" | sed -n 's/^data[[:space:]]\{1,\}//p' | head -n 1)
-  [ -n "$data_dir" ] && [ -f "$data_dir/opencode.db" ] || return 1
-  live="$data_dir/opencode.db"
   # OpenCode owns console-token refresh. Run it against the canonical login
   # database so concurrent workers cannot race separate copies of refresh_token.
-  OPENCODE_DB="$live" fm_run_timed 3 opencode debug config >/dev/null 2>&1 || return 1
+  OPENCODE_DB="$live" fm_run_timed 6 opencode debug config >/dev/null 2>&1 || return 1
   live_sql=${live//\'/\'\'}
   org_sql=${org//\'/\'\'}
   sqlite3 "$db" "ATTACH DATABASE '$live_sql' AS fm_live; BEGIN IMMEDIATE; INSERT OR REPLACE INTO main.account (id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated) SELECT id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated FROM fm_live.account; INSERT OR REPLACE INTO main.account_state (id,active_account_id,active_org_id) SELECT id,active_account_id,active_org_id FROM fm_live.account_state; UPDATE main.account_state SET active_org_id='$org_sql' WHERE id=1; COMMIT; DETACH DATABASE fm_live;" >/dev/null 2>&1 || return 1
@@ -130,6 +125,6 @@ case "${1:-}" in
   install) [ "$#" -eq 2 ] && install_provider "$2" ;;
   install-unlocked) [ "$#" -eq 2 ] && install_unlocked "$2" ;;
   token) [ "$#" -eq 1 ] && token_for_task ;;
-  token-unlocked) [ "$#" -eq 3 ] && token_unlocked "$2" "$3" ;;
+  token-unlocked) [ "$#" -eq 4 ] && token_unlocked "$2" "$3" "$4" ;;
   *) echo "usage: fm-pi-opencode-go.sh install <Pi-agent-dir> | token" >&2; exit 2 ;;
 esac
