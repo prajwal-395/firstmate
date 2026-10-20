@@ -3925,8 +3925,8 @@ def cmd_run(args) -> int:
 #   an append is never retried (a retry after a landed append places
 #   the clip twice), and a delete that answers False is re-read
 #   before any retry, and retried at most once.
-# - No verb here calls `CopyGrades`: the `--acknowledge-copy-grades`
-#   guard in `run` stays the only path that reaches for it.
+# - `CopyGrades` is used only to carry an item's captured grade through a
+#   verified replacement; the `run` guard still protects arbitrary scripts.
 # - Write verbs keep explicit flags by design. The bare-positional
 #   rule covers reads; a destructive path that accepts a bare
 #   timeline name is one typo from the wrong reel.
@@ -4397,10 +4397,18 @@ def cmd_edit_place(args) -> int:
         return 0
 
 
+_REPLACED_PICTURE_PROPERTIES = (
+    "Pan", "Tilt", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
+    "AnchorPointX", "AnchorPointY", "CropLeft", "CropRight", "CropTop",
+    "CropBottom",
+)
+
+
 def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
                   track_index: int | None, media_type: int,
-                  pool_item=None):
+                  pool_item=None, approved_properties=None,
+                  grade_source=None, write_context=None):
     """Re-place one item at a new source range/position.
 
     Returns `(new_item, error)`: the scripting API offers no move or
@@ -4417,6 +4425,30 @@ def _replace_item(timeline, pool, orig, source_in: int,
     if pool_item is None:
         return None, ("the item carries no pool clip (a generator or "
                       "title?) - nothing was changed.")
+    if approved_properties is None:
+        try:
+            original_properties = orig.GetProperty() if orig is not None else {}
+        except Exception as exc:
+            return None, (f"the item's approved picture properties could not "
+                          f"be read ({exc}) - nothing was changed.")
+        if not isinstance(original_properties, dict):
+            return None, ("the item's approved picture properties could not "
+                          "be read - nothing was changed.")
+        approved_properties = {
+            key: original_properties[key] for key in _REPLACED_PICTURE_PROPERTIES
+            if key in original_properties
+        }
+    else:
+        approved_properties = dict(approved_properties)
+    if orig is not None:
+        try:
+            comp_count = int(orig.GetFusionCompCount() or 0)
+        except Exception as exc:
+            return None, (f"the item's Fusion state could not be read ({exc}) "
+                          "- nothing was changed.")
+        if comp_count:
+            return None, ("the item has Fusion compositions that this re-place "
+                          "path cannot carry - nothing was changed.")
     # Measured against live Resolve 21.0.0b.28: AppendToTimeline's
     # endFrame is exclusive. For [4, 60] inclusive, endFrame=61 yields
     # 57 record frames; GetSourceEndFrame on that new item returns 61.
@@ -4438,6 +4470,56 @@ def _replace_item(timeline, pool, orig, source_in: int,
         return None, ("the re-place returned nothing - the original "
                       "is untouched.")
     replacement = new_items[0]
+
+    def discard_unverified(reason):
+        try:
+            timeline.DeleteClips([replacement], False)
+            if _presence(timeline, _item_span(replacement)["uid"]):
+                reason += " The unverified replacement could not be removed."
+        except Exception as exc:
+            reason += f" The unverified replacement could not be removed ({exc})."
+        return None, reason
+
+    property_diff = {}
+    from library.tools.transform_write_log import set_property
+    for key, value in approved_properties.items():
+        try:
+            set_property(replacement, key, value,
+                         item_identity={"uid": _item_span(replacement)["uid"],
+                                        "name": _item_span(replacement)["name"]},
+                         **(write_context or {}))
+            actual = replacement.GetProperty(key)
+        except Exception as exc:
+            property_diff[key] = [value, f"read/write failed: {exc}"]
+            continue
+        if (isinstance(value, (int, float)) and not isinstance(value, bool)
+                and isinstance(actual, (int, float))
+                and not isinstance(actual, bool)):
+            matches = abs(float(actual) - float(value)) <= 1e-6
+        else:
+            matches = actual == value
+        if not matches:
+            property_diff[key] = [value, actual]
+    if property_diff:
+        return discard_unverified(
+            "the re-place did not preserve approved picture "
+            f"properties: {property_diff}.")
+    grade_source = grade_source or orig
+    if grade_source is not None:
+        try:
+            copy_grades = getattr(grade_source, "CopyGrades", None)
+            if callable(copy_grades):
+                wanted_nodes = grade_source.GetNumNodes()
+                copy_grades([replacement])
+                actual_nodes = replacement.GetNumNodes()
+                if wanted_nodes is not None and actual_nodes != wanted_nodes:
+                    return discard_unverified(
+                        "the re-place did not preserve the item's "
+                        f"grade ({actual_nodes} nodes, wanted "
+                        f"{wanted_nodes}).")
+        except Exception as exc:
+            return discard_unverified(
+                f"the re-place could not preserve the item's grade ({exc}).")
     readback = _item_span(replacement)
     try:
         verified = (
@@ -4509,6 +4591,16 @@ def _timeline_trim_snapshot(timeline):
                                 if pool_item else "")
                 except Exception:
                     pool_uid = ""
+                try:
+                    item_properties = item.GetProperty()
+                except Exception as exc:
+                    raise AxiError(
+                        f"timeline snapshot could not read approved picture "
+                        f"properties for {span['name']!r}: {exc}") from exc
+                if not isinstance(item_properties, dict):
+                    raise AxiError(
+                        f"timeline snapshot could not read approved picture "
+                        f"properties for {span['name']!r}")
                 rows.append({
                     "track_type": track_type,
                     "track_index": track_index,
@@ -4521,6 +4613,12 @@ def _timeline_trim_snapshot(timeline):
                     "source_end_exclusive": source_start + duration,
                     "pool_uid": pool_uid,
                     "pool_item": pool_item,
+                    "grade_source": item,
+                    "approved_properties": {
+                        key: item_properties[key]
+                        for key in _REPLACED_PICTURE_PROPERTIES
+                        if key in item_properties
+                    },
                 })
     return rows
 
@@ -4538,7 +4636,8 @@ def _trim_row_semantic_signature(row):
         "source_in", "source_end_exclusive", "pool_uid"))
 
 
-def _restore_trim_snapshot(timeline, pool, before, target_uid):
+def _restore_trim_snapshot(timeline, pool, before, target_uid,
+                           write_context=None):
     """Remove trim attempts, restore the original span, prove all rows.
 
     The failed attempt can have caused Resolve to split the original at
@@ -4592,7 +4691,10 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid):
                 timeline, pool, None, row["source_in"], source_end,
                 row["record_in"], row["track_index"],
                 1 if row["track_type"] == "video" else 2,
-                pool_item=source_pool)
+                pool_item=source_pool,
+                approved_properties=row["approved_properties"],
+                grade_source=row["grade_source"],
+                write_context=write_context)
             if error:
                 return None, (f"could not restore {row['name']!r} from the "
                               f"captured snapshot: {error}")
@@ -4881,7 +4983,13 @@ def cmd_edit_move(args) -> int:
             new_item, error = _replace_item(
                 timeline, project.GetMediaPool(), item, src_in, src_out,
                 args.to, dest_index,
-                media_type=1 if track_type == "video" else 2)
+                media_type=1 if track_type == "video" else 2,
+                write_context={
+                    "project": project.GetName(),
+                    "project_folder": args.project_folder or None,
+                    "timeline_id": timeline.GetUniqueId(),
+                    "timeline_name": timeline.GetName(),
+                })
             if error:
                 return fail(error, f"{TOOL} items --timeline "
                                    f"\"{timeline.GetName()}\"")
@@ -5023,10 +5131,22 @@ def cmd_edit_trim(args) -> int:
                                    f"\"{timeline.GetName()}\"")
             new_item, error = _replace_item(
                 timeline, pool, item, new_in, new_out,
-                new_rec, track_index, media_type, pool_item=pool_item)
+                new_rec, track_index, media_type, pool_item=pool_item,
+                write_context={
+                    "project": project.GetName(),
+                    "project_folder": args.project_folder or None,
+                    "timeline_id": timeline.GetUniqueId(),
+                    "timeline_name": timeline.GetName(),
+                })
             if error:
                 restored, restore_error = _restore_trim_snapshot(
-                    timeline, pool, before_snapshot, uid)
+                    timeline, pool, before_snapshot, uid,
+                    write_context={
+                        "project": project.GetName(),
+                        "project_folder": args.project_folder or None,
+                        "timeline_id": timeline.GetUniqueId(),
+                        "timeline_name": timeline.GetName(),
+                    })
                 if restore_error:
                     return fail(
                         f"trim failed ({error}); full timeline restoration "

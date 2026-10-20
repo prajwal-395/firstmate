@@ -3056,13 +3056,43 @@ def test_replace_item_matches_live_resolve_endpoint_measurements(
     monkeypatch.setattr(pool, "AppendToTimeline", append_measured)
     replacement, error = resolve_axi._replace_item(
         timeline, pool, original, source_in, source_out, 300, 1, 1,
-        pool_item=pool_item)
+        pool_item=pool_item,
+        write_context={
+            "project": env["project"].GetName(),
+            "project_folder": env["dir"],
+            "timeline_id": timeline.GetUniqueId(),
+            "timeline_name": timeline.GetName(),
+        })
 
     assert error == ""
     assert replacement is not None
     assert replacement.GetEnd() - replacement.GetStart() == duration
     assert replacement.GetSourceEndFrame() == reported_end
     assert pool.appended[-1]["endFrame"] == source_out + 1
+
+
+def test_replace_item_preserves_approved_pan_on_move_and_trim_replacement(
+        edit_patched):
+    """A re-place must carry the manual Pan that G01/G03 lost live."""
+    env = edit_patched
+    timeline = env["timeline"]
+    pool = env["project"].GetMediaPool()
+    original = _items(env)[0]
+    original.SetProperty("Pan", 37.25)
+
+    replacement, error = resolve_axi._replace_item(
+        timeline, pool, original, 1000, 1095, 300, 1, 1,
+        pool_item=original.GetMediaPoolItem(),
+        write_context={
+            "project": env["project"].GetName(),
+            "project_folder": env["dir"],
+            "timeline_id": timeline.GetUniqueId(),
+            "timeline_name": timeline.GetName(),
+        })
+
+    assert error == ""
+    assert replacement is not None
+    assert replacement.GetProperty("Pan") == pytest.approx(37.25)
 
 
 def test_edit_trim_failed_verification_restores_exact_timeline(
