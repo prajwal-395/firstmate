@@ -210,13 +210,17 @@ def _native_state_losses(live: dict, staged: dict) -> list[str]:
                item.get("track_index"))
         staged_by_passage[key].append(item)
     for item in live.get("items", ()):
-        values = {
-            field: item.get(field)
-            for field in observed
-            if (_has_native_composite_payload(item.get(field))
+        values = {}
+        for field in observed:
+            value = item.get(field)
+            if field == "color":
+                value = _normalized_color(value)
+            has_payload = (
+                _has_native_composite_payload(value)
                 if field == "composite"
-                else _has_native_payload(item.get(field)))
-        }
+                else _has_native_payload(value))
+            if has_payload:
+                values[field] = value
         if not values:
             continue
         # A carried trim can shorten the source span while preserving the
@@ -522,15 +526,18 @@ def _same_value(a, b, tolerance: float = VALUE_TOLERANCE) -> bool:
 
 
 def _normalized_color(value):
-    """Treat Resolve's empty node-LUT readings as no assigned LUTs.
+    """Treat Resolve's default color graph shape as no authored grade.
 
     Resolve has returned the same ungraded item with `luts` omitted, set to
-    `None`, and set to `[]`. Those shapes carry no color edit. A non-empty
-    node list remains part of the color value and is compared in full.
+    `None`, and set to `[]`. Its one-node default graph is structural, not
+    a grade. Those shapes carry no color edit. A graph with additional nodes
+    or an assigned LUT remains part of the color value and is compared.
     """
     if not isinstance(value, dict):
         return value
     normalized = dict(value)
+    if normalized.get("node_count") == 1:
+        normalized.pop("node_count", None)
     luts = normalized.get("luts")
     if luts is None or (isinstance(luts, (list, tuple)) and not luts):
         normalized.pop("luts", None)

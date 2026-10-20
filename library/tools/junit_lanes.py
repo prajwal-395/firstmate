@@ -120,25 +120,49 @@ def merge_reports(inputs: list[str], output: str) -> tuple[bool, str]:
     if not parsed:
         return False, "no lane report to merge"
 
-    seen: dict[tuple[str, str], str] = {}
+    seen: dict[tuple[str, str], tuple[str, int]] = {}
     merged = ET.Element("testsuites")
     suite = ET.SubElement(merged, "testsuite", name="merged")
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
-    for path, root in zip(inputs, parsed):
+    for report_index, (path, root) in enumerate(zip(inputs, parsed)):
+        # Pytest can emit two testcase elements for one nodeid in one XML
+        # report: the call phase failed and teardown failed as well. That's
+        # one test result with two diagnostics, not a lane-routing overlap.
+        # Keep the duplicate guard across reports, while folding records
+        # within this report into their first testcase.
+        report_cases: dict[tuple[str, str], ET.Element] = {}
         for lane_suite in _suites(root):
-            for key in totals:
-                totals[key] += int(lane_suite.get(key, 0) or 0)
             for case in lane_suite.iter("testcase"):
                 nodeid = (case.get("classname", ""), case.get("name", ""))
-                if nodeid in seen:
+                if nodeid in seen and seen[nodeid][1] != report_index:
+                    previous_path = seen[nodeid][0]
                     return False, (
                         f"duplicate nodeid {nodeid[0]}::{nodeid[1]} "
-                        f"in {seen[nodeid]} and {path} - a test ran in "
+                        f"in {previous_path} and {path} - a test ran in "
                         f"both lanes, so the merge refuses rather than "
                         f"double-counting it"
                     )
-                seen[nodeid] = path
-                suite.append(case)
+                seen[nodeid] = (path, report_index)
+                existing = report_cases.get(nodeid)
+                if existing is None:
+                    report_cases[nodeid] = case
+                    continue
+                try:
+                    elapsed = float(existing.get("time", "0") or 0)
+                    elapsed += float(case.get("time", "0") or 0)
+                    existing.set("time", str(elapsed))
+                except ValueError:
+                    # Keep the original timing when either reporter wrote
+                    # a non-numeric value; the result diagnostics still merge.
+                    pass
+                for child in case:
+                    existing.append(ET.fromstring(ET.tostring(child)))
+        for case in report_cases.values():
+            suite.append(case)
+            totals["tests"] += 1
+            totals["failures"] += int(case.find("failure") is not None)
+            totals["errors"] += int(case.find("error") is not None)
+            totals["skipped"] += int(case.find("skipped") is not None)
     if totals["tests"] == 0:
         return False, "merged report contains 0 tests"
     for key, value in totals.items():

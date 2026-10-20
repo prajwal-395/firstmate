@@ -13,22 +13,25 @@ RE-DERIVED across a played-length change, never restored) has its own
 file: `tests/unit/resolve/test_composed_edit.py`.
 """
 from __future__ import annotations
-import sys
-from pathlib import Path
-import pytest
+
 import ast
 import dataclasses
-from library.tools.composed_edit import set_properties
+import sys
+from itertools import pairwise
+from pathlib import Path
 
+import pytest
+
+from library.tools.composed_edit import set_properties
 
 REPO = Path(__file__).resolve().parents[3]
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from library.tools import composed_edit as ce  # noqa: E402
-from library.tools import reel_build as _reel_build  # noqa: E402,F401
-from library.tools import reel_read  # noqa: E402
-from tests.composed_edit_harness import (  # noqa: E402
+from library.tools import composed_edit as ce
+from library.tools import reel_build as _reel_build  # noqa: F401
+from library.tools import reel_read
+from tests.composed_edit_harness import (
     IDENTITY_PROPERTIES,
     build_reel,
     covering_window,
@@ -38,7 +41,7 @@ from tests.composed_edit_harness import (  # noqa: E402
     pool_clip,
     reel_timeline,
 )
-from tests.composed_edit_harness import item as make_item  # noqa: E402
+from tests.composed_edit_harness import item as make_item
 
 CUT = 1069        # where the restored phrase goes in, on the lab reel
 RESTORE = 13      # frames of speech put back
@@ -229,7 +232,7 @@ def test_step1_removes_an_empty_composition_it_cannot_conform(tmp_path):
 
     source, _pool, _media = build_reel(tmp_path)
     staged = duplicate(source)
-    bare = lambda window, inert: FakeComp({  # noqa: E731
+    bare = lambda window, inert: FakeComp({
         "MediaIn1": FakeTool("MediaIn", window, inert=inert),
         "MediaOut1": FakeTool("MediaOut", {})})
     source.rows["V3"][0].comps = [bare(covering_window(264, 0, 1675), False)]
@@ -558,7 +561,7 @@ def test_case1_an_in_clip_trim_composes_and_every_step_is_receipted(tmp_path):
     rows = ce._rows_of(timeline)
     spans = [(i.GetStart(), i.GetEnd()) for i in rows["V1"]]
     assert spans == [(590, 1082), (1082, 1268), (1268, 1287)]
-    assert [b[0] - a[1] for a, b in zip(spans, spans[1:])] == [0, 0]
+    assert [b[0] - a[1] for a, b in pairwise(spans)] == [0, 0]
     # The downstream rows moved with it, exactly.
     assert [i.GetStart() for i in rows["V4"]] == [1092, 1142, 1192]
     assert [i.GetStart() for i in rows["A1"]] == [590, 1082]
@@ -591,7 +594,7 @@ def test_case2_an_ending_change_composes_and_carries_the_rows_out(tmp_path):
     rows = ce._rows_of(timeline)
     v1 = [(i.GetStart(), i.GetEnd()) for i in rows["V1"]]
     assert v1 == [(590, 1069), (1069, 1255), (1255, 1274), (1274, 1298)]
-    assert [b[0] - a[1] for a, b in zip(v1, v1[1:])] == [0, 0, 0]
+    assert [b[0] - a[1] for a, b in pairwise(v1)] == [0, 0, 0]
     # Zero frames of the timeline with no overlay over them.
     assert [(i.GetStart(), i.GetEnd()) for i in rows["V3"]] == [(0, 1298)]
     assert receipt.rederivation_required["trimmed"] == 1
@@ -1003,11 +1006,12 @@ def test_the_refusal_runs_before_the_capture_in_the_orchestrator():
     positions = {}
     for index, node in enumerate(body):
         for inner in ast.walk(node):
-            if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name):
-                if inner.func.id in ("assert_rederivation_reachable",
-                                     "capture_item", "delete_all",
-                                     "place_all"):
-                    positions.setdefault(inner.func.id, index)
+            if (isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id in ("assert_rederivation_reachable",
+                                          "capture_item", "delete_all",
+                                          "place_all")):
+                positions.setdefault(inner.func.id, index)
     assert set(positions) == {"assert_rederivation_reachable", "capture_item",
                               "delete_all", "place_all"}
     assert (positions["assert_rederivation_reachable"]
@@ -1178,12 +1182,21 @@ def test_a_one_op_master_touchup_changes_only_the_touched_item(
     from library.tools import undo_journal as uj
 
     project, folder = _master_project(tmp_path, monkeypatch)
+    from library.tools import reel_build
+
+    monkeypatch.setattr(reel_build, "_connect_resolve_project",
+                        lambda _name: project)
+
+    def refuse_live_resolve():
+        raise AssertionError("test attempted an unpatched Resolve connection")
+
+    monkeypatch.setattr(reel_build, "_connect_resolve", refuse_live_resolve)
 
     spec = {"edits": [
         {"op": "set_properties", "row": "V3", "item": 0,
          "properties": {"Opacity": 50}}]}
     receipt = master_touchup.apply_master_touchup(
-        str(folder), spec, connect=lambda _name: project)
+        str(folder), spec)
 
     assert receipt["master"] == MASTER
     assert receipt["gate"]["class"] == "composed"
