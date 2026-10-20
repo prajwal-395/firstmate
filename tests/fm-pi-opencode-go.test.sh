@@ -19,9 +19,11 @@ cat > "$FAKEBIN/opencode" <<'SH'
 #!/usr/bin/env bash
 set -u
 case "${1:-} ${2:-}" in
-  'debug paths') printf 'data %s\n' "$FM_TEST_OPENCODE_DATA" ;;
+  'debug paths') printf '%s %s\n' "$1" "$2" >> "$FM_TEST_OPENCODE_CALLS"; printf 'data %s\n' "$FM_TEST_OPENCODE_DATA" ;;
   'debug config')
+    printf '%s %s\n' "$1" "$2" >> "$FM_TEST_OPENCODE_CALLS"
     [ -n "${OPENCODE_DB:-}" ] || exit 1
+    [ -z "${FM_TEST_OPENCODE_DELAY:-}" ] || sleep "$FM_TEST_OPENCODE_DELAY"
     if [ "${FM_TEST_NO_REFRESH:-0}" != 1 ]; then
       sqlite3 "$OPENCODE_DB" "UPDATE account SET access_token='refreshed-test-token', token_expiry=$(( $(date +%s) * 1000 + 600000 ));"
     fi
@@ -36,6 +38,8 @@ cat > "$FAKEBIN/sqlite3" <<'SH'
 exec /usr/bin/sqlite3 "$@"
 SH
 chmod +x "$FAKEBIN/sqlite3"
+CALLS="$TMP_ROOT/opencode-calls"
+: > "$CALLS"
 
 mkdir -p "$AGENT"
 cat > "$AGENT/models.json" <<'JSON'
@@ -57,7 +61,7 @@ CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,a
 CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
 SQL
 
-out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_OPENCODE_TASK_DB="$TASK_DB" \
+out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" FM_OPENCODE_TASK_DB="$TASK_DB" \
   FM_OPENCODE_ORG_ID=org_test_second FM_OPENCODE_CONFIG_DIR="$CONFIG" \
   "$HELPER" token) || fail "request-time token refresh failed"
 [ "$out" = refreshed-test-token ] || fail "request-time helper did not return the refreshed credential"
@@ -67,9 +71,54 @@ out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_OPENCODE_TASK_DB="$
   || fail "task database was not pinned to its selected workspace"
 pass "request-time auth uses OpenCode refresh, copies the fresh login to the task database, and pins its workspace"
 
+# Pi's apiKey command has a hard 10s timeout. Concurrent requests with a
+# comfortably fresh task token must avoid both OpenCode and the shared lock.
+: > "$CALLS"
+started=$(date +%s)
+pids=()
+for i in $(seq 1 20); do
+  (
+    PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" \
+      FM_OPENCODE_TASK_DB="$TASK_DB" FM_OPENCODE_ORG_ID=org_test_second \
+      FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token > "$TMP_ROOT/token-$i" 2> "$TMP_ROOT/token-$i.err"
+  ) &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+  wait "$pid" || fail "a concurrent valid-token request failed"
+done
+elapsed=$(($(date +%s) - started))
+[ "$elapsed" -lt 10 ] || fail "concurrent valid-token requests exceeded Pi's 10s budget (${elapsed}s)"
+[ ! -s "$CALLS" ] || fail "concurrent valid-token requests invoked OpenCode"
+for i in $(seq 1 20); do
+  [ "$(cat "$TMP_ROOT/token-$i")" = refreshed-test-token ] || fail "concurrent request $i returned the wrong token"
+done
+pass "concurrent token calls with a valid token return within Pi's budget without invoking OpenCode"
+
+# Below the fast-path margin, overlapping calls should still share one refresh.
+sqlite3 "$TASK_DB" "UPDATE account SET access_token='near-expiry-token', token_expiry=$(( $(date +%s) * 1000 + 15000 ));"
+: > "$CALLS"
+pids=()
+for i in $(seq 1 20); do
+  (
+    PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" \
+      FM_TEST_OPENCODE_DELAY=0.25 FM_OPENCODE_TASK_DB="$TASK_DB" FM_OPENCODE_ORG_ID=org_test_second \
+      FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token > "$TMP_ROOT/refresh-token-$i" 2> "$TMP_ROOT/refresh-token-$i.err"
+  ) &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do
+  wait "$pid" || fail "a concurrent near-expiry-token request failed"
+done
+[ "$(grep -c '^debug config$' "$CALLS")" -eq 1 ] || fail "overlapping near-expiry requests did not share one OpenCode refresh (expiry=$(sqlite3 "$TASK_DB" 'SELECT token_expiry FROM account LIMIT 1;') now=$(($(date +%s) * 1000)) calls: $(tr '\n' ';' < "$CALLS"))"
+for i in $(seq 1 20); do
+  [ "$(cat "$TMP_ROOT/refresh-token-$i")" = refreshed-test-token ] || fail "near-expiry request $i returned the wrong token"
+done
+pass "concurrent near-expiry token calls recheck under the lock and share one OpenCode refresh"
+
 sqlite3 "$LIVE_DB" 'UPDATE account SET token_expiry=1;'
 sqlite3 "$TASK_DB" 'UPDATE account SET token_expiry=1;'
-out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_NO_REFRESH=1 \
+out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" FM_TEST_NO_REFRESH=1 \
   FM_OPENCODE_TASK_DB="$TASK_DB" FM_OPENCODE_ORG_ID=org_test_second \
   FM_OPENCODE_CONFIG_DIR="$CONFIG" "$HELPER" token 2>/dev/null) && fail "expired console token was accepted"
 [ -z "$out" ] || fail "expired console token was emitted"

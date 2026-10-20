@@ -4,12 +4,16 @@
 #        fm-pi-opencode-go.sh token
 # The installer merges the OpenCode Go provider into Pi's models.json. The
 # request-time token command refreshes OpenCode's live console login through
-# OpenCode itself, then copies only its login rows to the task database.
+# OpenCode itself when needed, then copies only its login rows to the task
+# database. A safely fresh task token is served directly without the shared
+# refresh lock or an OpenCode process.
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || exit 1
 # shellcheck source=bin/fm-opencode-second-lib.sh
 . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 
 install_provider() {
   local agent_dir=${1:-} lock
@@ -69,37 +73,52 @@ install_unlocked() {
 
 token_for_task() {
   local db=${FM_OPENCODE_TASK_DB:-} org=${FM_OPENCODE_ORG_ID:-} config_dir=${FM_OPENCODE_CONFIG_DIR:-}
-  local live lock
+  local live lock out rc=0
   [ -n "$db" ] && [ -n "$org" ] && [ -n "$config_dir" ] || return 1
   [ -f "$db" ] && [ -d "$config_dir" ] || return 1
   command -v sqlite3 >/dev/null 2>&1 && command -v opencode >/dev/null 2>&1 || return 1
+  out=$(cached_token "$db" 300000) && { printf '%s' "$out"; return 0; }
   live=$(fm_opencode_second_live_db 2>/dev/null) || return 1
   lock="$config_dir/opencode-pi-token.lock"
   if command -v lockf >/dev/null 2>&1; then
-    lockf -t 120 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live"
+    lockf -t 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live" || rc=$?
   elif command -v flock >/dev/null 2>&1; then
-    flock -w 120 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live"
+    flock -w 2 "$lock" bash "$SCRIPT_DIR/fm-pi-opencode-go.sh" token-unlocked "$db" "$org" "$live" || rc=$?
   else
     return 1
   fi
+  [ "$rc" -eq 0 ] && return 0
+  # A contended refresh may outlast Pi's apiKey command budget. If the token
+  # remains valid, return it rather than making a waiter fail behind the lock.
+  out=$(cached_token "$db" 0) && { printf '%s' "$out"; return 0; }
+  return "$rc"
 }
 
-token_unlocked() {
-  local db=${1:-} org=${2:-} live=${3:-} expiry now access live_sql org_sql
-  [ -f "$db" ] && [ -f "$live" ] || return 1
-  # OpenCode owns console-token refresh. Run it against the canonical login
-  # database so concurrent workers cannot race separate copies of refresh_token.
-  OPENCODE_DB="$live" opencode debug config >/dev/null 2>&1 || return 1
-  live_sql=${live//\'/\'\'}
-  org_sql=${org//\'/\'\'}
-  sqlite3 "$db" "ATTACH DATABASE '$live_sql' AS fm_live; BEGIN IMMEDIATE; INSERT OR REPLACE INTO main.account (id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated) SELECT id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated FROM fm_live.account; INSERT OR REPLACE INTO main.account_state (id,active_account_id,active_org_id) SELECT id,active_account_id,active_org_id FROM fm_live.account_state; UPDATE main.account_state SET active_org_id='$org_sql' WHERE id=1; COMMIT; DETACH DATABASE fm_live;" >/dev/null 2>&1 || return 1
+cached_token() {  # <task-db> <minimum-remaining-ms>
+  local db=${1:-} margin=${2:-} expiry now access
+  [ -f "$db" ] || return 1
   expiry=$(sqlite3 "$db" 'SELECT token_expiry FROM account LIMIT 1;' 2>/dev/null) || return 1
   case "$expiry" in ''|*[!0-9]*) return 1 ;; esac
   now=$(date +%s) || return 1
-  [ "$expiry" -gt "$((now * 1000 + 30000))" ] || return 1
+  [ "$expiry" -gt "$((now * 1000 + margin))" ] || return 1
   access=$(sqlite3 "$db" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null) || return 1
   [ -n "$access" ] || return 1
   printf '%s' "$access"
+}
+
+token_unlocked() {
+  local db=${1:-} org=${2:-} live=${3:-} access live_sql org_sql
+  [ -f "$db" ] && [ -f "$live" ] || return 1
+  # The lock holder may have refreshed while this worker waited. Reuse that
+  # result before contacting OpenCode.
+  access=$(cached_token "$db" 30000) && { printf '%s' "$access"; return 0; }
+  # OpenCode owns console-token refresh. Run it against the canonical login
+  # database so concurrent workers cannot race separate copies of refresh_token.
+  OPENCODE_DB="$live" fm_run_timed 6 opencode debug config >/dev/null 2>&1 || return 1
+  live_sql=${live//\'/\'\'}
+  org_sql=${org//\'/\'\'}
+  sqlite3 "$db" "ATTACH DATABASE '$live_sql' AS fm_live; BEGIN IMMEDIATE; INSERT OR REPLACE INTO main.account (id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated) SELECT id,email,url,access_token,refresh_token,token_expiry,time_created,time_updated FROM fm_live.account; INSERT OR REPLACE INTO main.account_state (id,active_account_id,active_org_id) SELECT id,active_account_id,active_org_id FROM fm_live.account_state; UPDATE main.account_state SET active_org_id='$org_sql' WHERE id=1; COMMIT; DETACH DATABASE fm_live;" >/dev/null 2>&1 || return 1
+  cached_token "$db" 30000
 }
 
 case "${1:-}" in
