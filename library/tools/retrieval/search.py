@@ -168,7 +168,8 @@ def _lane_wanted(plan: RetrievalPlan, lane: str) -> bool:
 
 
 def _requirement_status(requirement: RetrievalRequirement, coverage: Mapping,
-                        lane_ran: bool, hits: int) -> str:
+                        lane_ran: bool, hits: int,
+                        lane_refused: bool = False) -> str:
     """What happened to ONE requirement.
 
     `answered` - the lane ran and returned something.
@@ -179,9 +180,16 @@ def _requirement_status(requirement: RetrievalRequirement, coverage: Mapping,
     `not_attested` - no coverage report attests this requirement.
     `needs_named_query` - the relation is answered by a named project
     graph query rather than by free text.
+    `refused` - the lane REFUSED the question: it says it cannot answer
+    it (the frame lane refuses an action query, because a still frame
+    cannot establish a gesture).  A refusal is not an observation: it
+    must never be reported as `not_observed`, which claims the lane
+    looked and saw nothing.
     """
     if requirement.lane == LANE_RELATIONAL:
         return "needs_named_query" if not hits else "answered"
+    if lane_refused:
+        return "refused"
     if hits:
         return "answered"
     verdict = requirement_sufficiency(requirement, coverage, lane_ran=lane_ran)
@@ -259,15 +267,19 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
         rows.extend(_sound_rows(sound_report))
 
     if use_visual and _lane_wanted(plan, LANE_VISUAL):
-        visual_report, visual_error = _visual_report(project_folder, query,
-                                                      top_k, frame_index)
+        visual_report, visual_error, visual_refused = _visual_report(
+            project_folder, query, top_k, frame_index)
         lanes[LANE_VISUAL] = {
             "lane": LANE_VISUAL,
-            "ran": visual_error is None,
+            # A REFUSED lane did not run: it says the question is not one
+            # it can answer.  Reporting it as a lane that ran and found
+            # nothing is a false observation (VI-005).
+            "ran": visual_error is None and not visual_refused,
             "returned": len(visual_report.get("ranges") or ()),
             "error": visual_error,
+            "refused": visual_refused,
         }
-        if visual_error is None:
+        if visual_error is None and not visual_refused:
             lanes_ran.append(LANE_VISUAL)
         rows.extend(_visual_rows(visual_report))
 
@@ -301,11 +313,13 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
     for requirement in plan.requirements:
         kinds = LANE_KINDS.get(requirement.lane, ())
         lane_hits = sum(1 for row in hits if row.get("kind") in kinds)
+        lane = lanes.get(requirement.lane) or {}
         per_requirement.append({
             **requirement.to_dict(),
             "hits": lane_hits,
             "status": _requirement_status(requirement, coverage,
-                                          requirement.lane in lanes_ran, lane_hits),
+                                          requirement.lane in lanes_ran, lane_hits,
+                                          bool(lane.get("refused"))),
         })
 
     return {
@@ -332,17 +346,25 @@ def search_footage(project_folder, query: str, *, top_k: int = 5,
 
 
 def _visual_report(project_folder, query: str, top_k: int, frame_index):
-    """The frame lane's report, or the reason it could not run."""
+    """The frame lane's report, and why it could not answer.
+
+    The frame lane REFUSES some questions by design - an action query
+    is one a still frame cannot resolve - and it says so in the report
+    it returns.  The refusal is carried out of here, because a lane that
+    refused has not observed anything, and an answer that cannot say so
+    reports a refusal as an empty observation.
+    """
     from library.tools.analysis.footage_frames import FrameIndex
     from library.tools.ren_refusal import RenRefusal
     try:
         index = frame_index if frame_index is not None else FrameIndex(project_folder)
         report = index.search_ranges(query, top_ranges=top_k)
     except RenRefusal as refused:
-        return {}, refused.render()
+        return {}, refused.render(), refused.render()
     except (OSError, KeyError, ValueError) as error:
-        return {}, f"the frame lane could not run: {error}"
-    return report, None
+        return {}, f"the frame lane could not run: {error}", None
+    refusal = report.get("refused")
+    return report, None, (refusal or None)
 
 
 def _frames(project_folder, frame_index) -> list:

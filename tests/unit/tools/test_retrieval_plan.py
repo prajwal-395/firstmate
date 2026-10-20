@@ -363,3 +363,53 @@ def test_every_hit_carries_its_support():
     hit = report["hits"][0]
     assert hit["support"]["interval"]["start_s"] == 4.0
     assert hit["support"]["source"]["source_digest"] == "sha256:abc"
+
+
+class _RefusingFrameIndex:
+    """A frame lane that refuses the question, as it does by design."""
+
+    def __init__(self):
+        self.frames = []
+
+    def search_ranges(self, query, top_ranges=5):
+        return {"ranges": [], "results": [],
+                "refused": {"matched": "gesturing",
+                            "reason": "frame search covers objects, people "
+                                      "and scenes; 'gesturing' is an "
+                                      "action/gesture query",
+                            "hint": "the event pipeline measures actions"}}
+
+
+def test_a_refused_frame_lane_is_reported_as_refused_not_as_an_observation():
+    """VI-005: "not there" and "not looked for" are different answers.
+
+    The frame lane refuses an action query by design.  The plan-driven
+    search used to drop that refusal, so the lane read as one that ran
+    and found nothing, and the requirement was reported as
+    `not_observed` - a claim that the lane looked and saw nothing.  It
+    did not look at all (measured 2026-10-20, see
+    docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+    """
+    from library.tools.retrieval.search import search_footage
+
+    stub = _StubIndex()
+    answer = search_footage(
+        ".", "a person gesturing with both hands", index=stub,
+        coverage=_coverage({"clip_001": {"speech": True, "picture": True,
+                                         "object": True, "ocr": True,
+                                         "sound": True}}),
+        sources={"clip_001": {"source_digest": "sha256:abc",
+                              "file": "IMG_0001.MOV"}},
+        frame_index=_RefusingFrameIndex())
+    visual = answer["lanes"]["visual"]
+    assert visual["refused"] is not None, (
+        "the refusal must reach the answer; it is the difference between "
+        "'not there' and 'not looked for'")
+    assert visual["ran"] is False, (
+        "a lane that refused did not run")
+    assert "visual" not in answer["lanes_ran"]
+    statuses = {f"{requirement['modality']}:{requirement['kind']}":
+                requirement["status"]
+                for requirement in answer["requirements"]}
+    assert statuses["visual:action"] == "refused"
+    assert statuses["visual:action"] != "not_observed"
