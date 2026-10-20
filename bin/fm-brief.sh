@@ -1086,12 +1086,7 @@ $SHARED_INFRA_RULE
 $WAIT_BLOCK$INBOX_SECTION
 
 # Project memory
-If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run the firstmate helper \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
-It operates on your workspace; do not open, edit, or run anything else under \`$FM_ROOT\` itself.
-Record only project knowledge useful to almost every future session.
-For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
-If you touch a project \`AGENTS.md\`, follow that helper's self-governance contract in the same pass.
-Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
+For edits to a project's \`AGENTS.md\` or \`CLAUDE.md\`, follow \`AGENTS.md\` section 6.
 
 # Tests
 Size the run before you start it: a changed-file selection can be WIDER than a single lane or family when your change has wide fan-out, so compare both sizes before picking rather than assuming the change-scoped one is smaller.
