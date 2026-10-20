@@ -977,6 +977,36 @@ def _call(item, method, default):
         return default
 
 
+def _fusion_media_dimensions(item):
+    """Read the dimensions Fusion receives, refusing to guess a canvas."""
+    pool_item = _call(item, "GetMediaPoolItem", None)
+    if not pool_item:
+        raise RuntimeError("mask operation cannot resolve its media pool item")
+
+    resolution = None
+    try:
+        resolution = pool_item.GetClipProperty("Resolution")
+    except Exception:  # noqa: BLE001 - Resolve facade versions vary
+        pass
+    if resolution and "x" in str(resolution).lower():
+        try:
+            width, height = (int(part.strip())
+                             for part in str(resolution).lower().split("x", 1))
+        except (TypeError, ValueError):
+            width = height = 0
+    else:
+        try:
+            width = int(pool_item.GetClipProperty("Width") or 0)
+            height = int(pool_item.GetClipProperty("Height") or 0)
+        except (AttributeError, TypeError, ValueError):
+            width = height = 0
+    if width <= 0 or height <= 0:
+        raise RuntimeError(
+            "mask operation cannot read positive Fusion media dimensions; "
+            "refusing to build a comp with guessed dimensions")
+    return width, height
+
+
 def _build_matte_comp(item, matte_name, geometry, keyframes=()):
     """Build a real Fusion matte comp and return its path.
 
@@ -1007,17 +1037,16 @@ def _build_matte_comp(item, matte_name, geometry, keyframes=()):
     from library.tools.fusion.engine import CompEngine
     from library.tools.fusion.nodes import BezierSpline, FusionNode
 
-    pool_item = _call(item, "GetMediaPoolItem", None)
-
     def pool_int(key, default):
+        pool_item = _call(item, "GetMediaPoolItem", None)
         try:
             return int(pool_item.GetClipProperty(key)) or default
         except Exception:  # noqa: BLE001 - third-party Resolve methods vary by version
             return default
 
+    width, height = _fusion_media_dimensions(item)
     engine = CompEngine(clip_dur=pool_int("Frames", 100),
-                        width=pool_int("Width", 1920),
-                        height=pool_int("Height", 1080))
+                        width=width, height=height)
 
     def spline(name, pairs):
         curve = BezierSpline(name)
@@ -1393,17 +1422,16 @@ def _passthrough_comp_path(item):
 
     from library.tools.fusion.engine import CompEngine
 
-    pool_item = _call(item, "GetMediaPoolItem", None)
-
     def pool_int(key, default):
+        pool_item = _call(item, "GetMediaPoolItem", None)
         try:
             return int(pool_item.GetClipProperty(key)) or default
         except Exception:  # noqa: BLE001 - third-party Resolve methods vary by version
             return default
 
+    width, height = _fusion_media_dimensions(item)
     content = CompEngine(clip_dur=pool_int("Frames", 100),
-                         width=pool_int("Width", 1920),
-                         height=pool_int("Height", 1080)).serialize()
+                         width=width, height=height).serialize()
     path = os.path.join(tempfile.mkdtemp(prefix="matte_"), "passthrough.comp")
     with open(path, "w", encoding="utf-8") as handle:
         handle.write(content)
@@ -3503,7 +3531,7 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("clip.trim", "resolve_axi"):
         ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
     ("broll.insert", "resolve_axi"):
-        ("cover video track only (V2+; V1 and audio rows are refused); exact marked source range and record span with matching record duration; the underlying A-roll and all audio must read back unchanged; a verified undo journal entry is required before the placement is claimed",),
+        ("topmost video track over continuous lower-layer picture; exact marked source range and record span with matching record duration; every non-cover video row and audio row must read back unchanged; a verified undo journal entry is required before the placement is claimed",),
     ("clip.delete", "resolve_axi"):
         ("local delete leaves a gap; ripple must be a separate explicitly requested staged operation",),
     ("clip.remove", "edit_patch"):

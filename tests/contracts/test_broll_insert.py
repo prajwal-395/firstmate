@@ -172,9 +172,9 @@ def _context(operation, snapshot):
 
 def test_broll_insert_refuses_non_cover_tracks_audio_and_bad_spans(
         monkeypatch):
-    """Defect: a cover placed on V1 overwrites the A-roll it was meant to
-    preserve; an audio-typed cover is a different operation wearing this
-    one's name. Both refuse before any Resolve write."""
+    """Defect: a cover below another picture layer can be hidden, and an
+    audio-typed cover is a different operation wearing this one's name.
+    Both refuse before any Resolve write."""
     from library.tools import edit_execution_adapters as adapters
     from library.tools import resolve_axi_core
 
@@ -190,6 +190,25 @@ def test_broll_insert_refuses_non_cover_tracks_audio_and_bad_spans(
                 {"record_in": 10, "record_out": 61}):
         with pytest.raises((ValueError, RuntimeError), match="broll.insert"):
             adapters._broll_insert(_context(_operation(**bad), _snapshot()))
+
+
+def test_broll_insert_preserves_a_primary_picture_on_any_video_track():
+    """Defect: speech preservation checked V1 only, so a project whose
+    primary picture lived on another row could be changed unnoticed."""
+    from library.tools import edit_execution_adapters as adapters
+
+    base = _snapshot()
+    primary = dict(base["tracks"][0], index=3, name="Interview Picture")
+    primary["clips"] = [dict(primary["clips"][0], track_index=3,
+                             track_name="Interview Picture")]
+    cover = dict(base["tracks"][1], index=4, name="Cutaway Layer")
+    audio = dict(base["tracks"][2], index=2, name="Dialogue")
+    alternate = {**base, "tracks": [primary, cover, audio]}
+    rows = adapters._speech_row_signatures(alternate, cover_track_index=4)
+
+    assert any(row[0] == "video" and row[1] == 3 for row in rows)
+    assert any(row[0] == "audio" and row[1] == 2 for row in rows)
+    assert all(row[1] != 4 for row in rows)
 
 
 def test_broll_insert_revalidates_speech_and_cover_before_placing(monkeypatch):

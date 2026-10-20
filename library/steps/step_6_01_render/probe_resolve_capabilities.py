@@ -37,17 +37,17 @@ lies of the kind this file exists to catch:
 - **`Composition.AddTool` INSERTS the new tool into the live flow, and deleting it does NOT put the wire back.**  Adding a `Saver` to read a comp's output - four add/delete cycles across two clips on the captain's own `Reel 09` - left `MediaOut1.Input` disconnected on BOTH, and on the clip that took four cycles it also left `SoftGlow1.Input` pointing at `MediaIn1` instead of `BrightnessContrast1`, silently bypassing the contrast node.  Resolve says so in its own log: `MediaOut1 cannot get Parameter for Input at time 182, layer [Main]`.  `SetActiveTool(None)` before `Delete()` did not prevent it.  So: READ every input of every tool you are about to touch FIRST, keep the map, and read it back afterwards - `tool.<Input>.GetConnectedOutput().GetTool().Name` is the only honest answer, and `ConnectInput` is the safe repair.  The repair is only proved by re-rendering the frame and comparing it to one taken BEFORE the comp was touched: byte-identical is the bar, and it was met (mean absolute difference 0.000/255, max 0) on both clips.
 """
 
-import sys
-import os
-import time
 import json
+import os
+import sys
+import tempfile
+import time
 import traceback
 from datetime import datetime
 
 from library.tools.resolve_lock import under_lease
 
-COMP_DIR = "/tmp/resolve_test_comps"
-os.makedirs(COMP_DIR, exist_ok=True)
+COMP_DIR = tempfile.mkdtemp(prefix="resolve_test_comps_")
 
 # ─── Test Results Tracking ────────────────────────────────────
 

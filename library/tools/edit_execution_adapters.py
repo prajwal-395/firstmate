@@ -368,13 +368,9 @@ def _caption_fix(context) -> dict:
         "missing")
 
 
-def _speech_row_signatures(snapshot: Mapping) -> list:
-    """The V1 plus every audio row as comparable identity tuples.
-
-    The speech broll.insert promises to preserve: the A-roll video row
-    and every audio row, with each clip's identity and spans. The cover
-    row itself is excluded - the placement lands there.
-    """
+def _speech_row_signatures(snapshot: Mapping,
+                           cover_track_index: int | None = None) -> list:
+    """Every non-cover video row and every audio row, by clip identity."""
     rows = []
     for track in snapshot.get("tracks", []):
         track_type = str(track.get("type", ""))
@@ -383,7 +379,8 @@ def _speech_row_signatures(snapshot: Mapping) -> list:
         except (TypeError, ValueError):
             continue
         if not (track_type == "audio"
-                or (track_type == "video" and track_index == 1)):
+                or (track_type == "video"
+                    and track_index != cover_track_index)):
             continue
         for clip in track.get("clips") or []:
             rows.append((track_type, track_index, str(clip.get("unique_id")),
@@ -399,8 +396,10 @@ def _broll_insert(context) -> dict:
 
     The physical write is the journaled AXI `edit place` verb (the same
     AppendToTimeline placement clip.insert is built on), constrained to
-    a cover video track: V1 and every audio row are refused before any
-    write, so the A-roll and its audio cannot be overwritten. The
+    the top video layer with continuous picture beneath it. Every other
+    video and audio row is re-read and preserved, regardless of track
+    numbering, so the selected row cannot silently be assumed to be V2
+    or the underlying picture assumed to be V1. The
     prepared speech rows are re-read live before the write and must
     match preparation; afterwards the placed cover item and the
     unchanged speech rows are judged from a fresh live snapshot, and
@@ -425,10 +424,6 @@ def _broll_insert(context) -> dict:
         raise ValueError(
             f"broll.insert refuses {track_type!r}: a cover is video "
             "over the A-roll, never an audio write")
-    if track_index < 2:
-        raise ValueError(
-            f"broll.insert refuses video track {track_index}: the cover "
-            "lands on a cover track (V2+), never on the V1 A-roll")
     if not clip_name:
         raise ValueError(
             "broll.insert needs the pool clip name ('clip') of the "
@@ -444,13 +439,37 @@ def _broll_insert(context) -> dict:
     before = context.snapshot
     live_before = resolve_axi_core.read_live_timeline(
         context.request.project, context.request.timeline)
-    cover_tracks = [track for track in live_before.get("tracks", [])
-                    if str(track.get("type")) == "video"
-                    and int(track.get("index", -1)) == track_index]
+    live_tracks = live_before.get("tracks", [])
+    video_tracks = [track for track in live_tracks
+                    if str(track.get("type")) == "video"]
+    video_indexes = [int(track["index"]) for track in video_tracks]
+    if not video_indexes or track_index != max(video_indexes):
+        raise ValueError(
+            "broll.insert cover must use the topmost video track so the "
+            "placed picture cannot be hidden by a higher video layer")
+    cover_tracks = [track for track in video_tracks
+                    if int(track["index"]) == track_index]
     if len(cover_tracks) != 1:
         raise ValueError(
             f"broll.insert cover track V{track_index} is absent from "
             "the live timeline - create the row before covering it")
+    underlay_spans = sorted(
+        (int(clip["record_in"]), int(clip["record_out"]))
+        for track in video_tracks if int(track["index"]) < track_index
+        for clip in (track.get("clips") or [])
+        if int(clip["record_in"]) < record_out
+        and record_in < int(clip["record_out"]))
+    covered_until = record_in
+    for start, end in underlay_spans:
+        if start > covered_until:
+            break
+        covered_until = max(covered_until, end)
+        if covered_until >= record_out:
+            break
+    if covered_until < record_out:
+        raise ValueError(
+            "broll.insert requires continuous picture beneath the cover "
+            "span; the lower video tracks do not cover the full range")
     for clip in cover_tracks[0].get("clips") or []:
         if int(clip["record_in"]) < record_out \
                 and record_in < int(clip["record_out"]):
@@ -459,8 +478,8 @@ def _broll_insert(context) -> dict:
                 f"occupied on V{track_index} by "
                 f"{clip.get('unique_id')!r} - refusing rather than "
                 "stacking a second cover")
-    if (_speech_row_signatures(live_before)
-            != _speech_row_signatures(before)):
+    if (_speech_row_signatures(live_before, track_index)
+            != _speech_row_signatures(before, track_index)):
         raise ValueError(
             "broll.insert speech rows changed since preparation: the "
             "A-roll or audio underneath no longer reads as prepared - "
@@ -503,8 +522,9 @@ def _broll_insert(context) -> dict:
     placed_clip = next(clip for track in after.get("tracks", [])
                        for clip in track.get("clips") or []
                        if str(clip.get("unique_id")) == placed_uid)
-    speech_preserved = (_speech_row_signatures(after)
-                        == _speech_row_signatures(before))
+    speech_preserved = (
+        _speech_row_signatures(after, track_index)
+        == _speech_row_signatures(before, track_index))
     evidence = {
         "target_identity": True,
         "source_identity": True,
