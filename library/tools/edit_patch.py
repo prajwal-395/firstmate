@@ -200,6 +200,13 @@ class EditPatch:
     operations: tuple
     preconditions: tuple = ()
     postconditions: tuple = ()
+    preservation: tuple = ()
+    """What this patch must NOT change, in the requester's words.
+
+    Named preservation requirements (`preservation_invariant`), judged
+    on the read-back against the state the patch was authorized
+    against. They ride the patch as plain data, so the broker carries
+    them with the operations."""
     base_git_sha: str = ""
     # Project Model head used while constructing this edit. When a project
     # model exists, live writes require this pin and refuse if it has moved.
@@ -229,6 +236,8 @@ class EditPatch:
                                 data.get("preconditions", ())),
             postconditions=tuple(dict(c) for c in
                                  data.get("postconditions", ())),
+            preservation=tuple(dict(r) for r in
+                               data.get("preservation", ())),
             base_git_sha=data.get("base_git_sha", ""),
             expected_model_revision=data.get("expected_model_revision"))
 
@@ -236,7 +245,7 @@ class EditPatch:
         out = asdict(self)
         out["affected_spans"] = [list(s) for s in self.affected_spans]
         for key in ("conflict_domains", "operations", "preconditions",
-                    "postconditions"):
+                    "postconditions", "preservation"):
             out[key] = list(out[key])
         # The serialization boundary: the patch is about to be written or
         # sent. Log in production (refusing would abort a live render
@@ -1302,6 +1311,7 @@ def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
         affected_spans=patch.affected_spans,
         conflict_domains=patch.conflict_domains,
         postconditions=list(patch.postconditions),
+        preservation_requirements=list(patch.preservation),
         acceptance_evidence=acceptance_evidence, stopped=stopped,
         hold_seconds=hold_seconds, head_generation=head_generation,
         patch_id=patch.id, project=patch.project,

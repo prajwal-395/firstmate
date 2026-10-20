@@ -49,6 +49,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from library.tools import edit_algebra
 from library.tools.ren_refusal import RenRefusal
@@ -361,6 +362,185 @@ def scope_for(operations: Sequence[Mapping], *,
         rows=tuple(rows),
         created_rows=tuple(created_rows),
     )
+
+
+#: The named preservation requirements a request may state.
+#:
+#: These are the REQUESTER'S words, not the engine's: "the music bed must
+#: not change", "that marker must survive", "keep the approved caption".
+#: The engine never guesses which row is the music bed - the plan names
+#: the row it means, and this vocabulary says what "unchanged" means for
+#: it.
+#:
+#: Each requirement is judged over the SAME two snapshots the invariant
+#: is judged over: the state the write was authorized against, and the
+#: state it left behind.
+PRESERVATION_REQUIREMENTS = ("clip_unchanged", "row_unchanged",
+                              "marker_preserved")
+
+#: The arguments each requirement takes. A requirement without its
+#: arguments is refused: "a row must not change" names no row.
+PRESERVATION_ARGUMENTS = {
+    "clip_unchanged": ("unique_id",),
+    "row_unchanged": ("track_type", "track_index"),
+    "marker_preserved": ("frame",),
+}
+
+#: The readings a requirement can come back with.
+PRESERVED = "preserved"
+VIOLATED = "violated"
+UNPROVABLE = "unprovable"
+
+
+def _requirement_name(requirement: Mapping) -> str:
+    return str(requirement.get("kind") or requirement.get("name") or "")
+
+
+def validate_requirements(requirements: Sequence[Mapping]) -> None:
+    """Refuse a preservation requirement the engine cannot judge.
+
+    An unknown name, or a known name without its arguments, is refused
+    here rather than at the read-back: a requirement nobody can prove is
+    a promise nobody is keeping.
+    """
+    for requirement in requirements or ():
+        if not isinstance(requirement, Mapping):
+            raise PreservationUnprovable(
+                what="a preservation requirement is not a mapping",
+                why=f"{requirement!r} is not a requirement",
+                fix="write it as a mapping with a `kind`")
+        name = _requirement_name(requirement)
+        if name not in PRESERVATION_REQUIREMENTS:
+            raise PreservationUnprovable(
+                what=f"unknown preservation requirement {name!r}",
+                why=(f"the vocabulary is {list(PRESERVATION_REQUIREMENTS)}; "
+                     f"{name!r} is not one of them"),
+                fix="name the requirement from the vocabulary, and give it "
+                    "its arguments")
+        missing = [argument for argument in PRESERVATION_ARGUMENTS[name]
+                   if requirement.get(argument) is None]
+        if missing:
+            raise PreservationUnprovable(
+                what=f"preservation requirement {name!r} is missing "
+                      f"{missing}",
+                why=f"{name} needs {list(PRESERVATION_ARGUMENTS[name])}",
+                fix=f"write {name} with "
+                    + ", ".join(PRESERVATION_ARGUMENTS[name]))
+
+
+def _requirement_span(clip: Mapping) -> tuple:
+    """The material and the place a clip occupies, for a requirement."""
+    return (str(clip.get("source_file") or ""),
+            clip.get("source_in_frame"), clip.get("source_out_frame"),
+            clip.get("record_in"), clip.get("record_out"))
+
+
+def _row_clips(snapshot: Mapping, track_type: str, track_index: Any) -> list:
+    wanted = str(track_type).lower()
+    index = int(track_index or 0)
+    rows = []
+    for track in snapshot.get("tracks") or ():
+        if str(track.get("type") or "").lower() != wanted:
+            continue
+        if int(track.get("index") or 0) != index:
+            continue
+        rows.extend(track.get("clips") or ())
+    return rows
+
+
+def _marker_frames(snapshot: Mapping) -> set:
+    from library.tools import timeline_read
+
+    return {int(marker["frame"]) for marker in timeline_read.marker_records(
+        snapshot) if marker.get("frame") is not None}
+
+
+def judge_requirements(requirements: Sequence[Mapping], *, before: Mapping,
+                       after: Mapping) -> list[dict]:
+    """Judge the named preservation requirements over the two snapshots.
+
+    Each comes back as `{"requirement", "status", "detail"}` with the
+    status `preserved`, `violated`, or `unprovable`. A requirement that
+    cannot be judged - a row that was not there to begin with - is
+    UNPROVABLE, never a pass: the same rule the invariant itself
+    follows.
+    """
+    before_clips = _clips(before)
+    after_clips = _clips(after)
+    results = []
+    for requirement in requirements or ():
+        name = _requirement_name(requirement)
+        if name == "clip_unchanged":
+            unique_id = str(requirement.get("unique_id") or "")
+            if unique_id not in before_clips:
+                results.append({
+                    "requirement": name, "status": UNPROVABLE,
+                    "detail": (f"clip {unique_id!r} is not on the timeline "
+                               "the edit was authorized against, so its "
+                               "preservation cannot be judged")})
+                continue
+            if unique_id not in after_clips:
+                results.append({
+                    "requirement": name, "status": VIOLATED,
+                    "detail": f"clip {unique_id!r} is gone"})
+                continue
+            was = _requirement_span(before_clips[unique_id][0])
+            now = _requirement_span(after_clips[unique_id][0])
+            results.append({
+                "requirement": name,
+                "status": PRESERVED if was == now else VIOLATED,
+                "detail": ("" if was == now else
+                           f"clip {unique_id!r} now holds {now[0]!r} "
+                           f"{now[1]}-{now[2]} at {now[3]}-{now[4]}, was "
+                           f"{was[0]!r} {was[1]}-{was[2]} at {was[3]}-{was[4]}")})
+        elif name == "row_unchanged":
+            track_type = str(requirement.get("track_type") or "")
+            track_index = requirement.get("track_index")
+            was = _row_clips(before, track_type, track_index)
+            now = _row_clips(after, track_type, track_index)
+            if not was:
+                results.append({
+                    "requirement": name, "status": UNPROVABLE,
+                    "detail": (f"row {track_type}{track_index} was not on "
+                               "the timeline the edit was authorized "
+                               "against, so its preservation cannot be "
+                               "judged")})
+                continue
+            was_spans = {str(clip.get("unique_id") or ""): _requirement_span(clip)
+                         for clip in was}
+            now_spans = {str(clip.get("unique_id") or ""): _requirement_span(clip)
+                         for clip in now}
+            if was_spans == now_spans:
+                results.append({"requirement": name, "status": PRESERVED,
+                                "detail": ""})
+            else:
+                changed = sorted(
+                    unique_id for unique_id in set(was_spans) | set(now_spans)
+                    if was_spans.get(unique_id) != now_spans.get(unique_id))
+                results.append({
+                    "requirement": name, "status": VIOLATED,
+                    "detail": (f"row {track_type}{track_index} changed at "
+                               f"{changed}")})
+        elif name == "marker_preserved":
+            frame = int(requirement.get("frame"))
+            if frame not in _marker_frames(before):
+                results.append({
+                    "requirement": name, "status": UNPROVABLE,
+                    "detail": (f"no marker at frame {frame} on the timeline "
+                               "the edit was authorized against, so its "
+                               "preservation cannot be judged")})
+                continue
+            if frame not in _marker_frames(after):
+                results.append({
+                    "requirement": name, "status": VIOLATED,
+                    "detail": f"the marker at frame {frame} is gone"})
+                continue
+            results.append({"requirement": name, "status": PRESERVED,
+                            "detail": ""})
+        else:
+            results.append({"requirement": name, "status": UNPROVABLE,
+                            "detail": f"unknown requirement {name!r}"})
+    return results
 
 
 def _clips(snapshot: Mapping) -> dict:

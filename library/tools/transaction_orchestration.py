@@ -293,6 +293,7 @@ def verify_readback(patch_operations: Sequence[Mapping],
                     affected_spans: Sequence[Sequence[int]] = (),
                     conflict_domains: Sequence[str] = (),
                     postconditions: Sequence[Mapping] = (),
+                    preservation_requirements: Sequence[Mapping] = (),
                     acceptance_evidence: Mapping | None = None,
                     stopped: Mapping | None = None,
                     hold_seconds: float = 0.0,
@@ -344,10 +345,18 @@ def verify_readback(patch_operations: Sequence[Mapping],
     preservation = _preservation_verdict(
         operations=judged_ops, before=base, after=after,
         affected_spans=affected_spans, conflict_domains=conflict_domains)
+    # The requester's OWN preservation requirements, judged over the
+    # same two snapshots. A requirement that cannot be judged is
+    # UNPROVABLE, never a pass - the rule the invariant follows.
+    from library.tools import preservation_invariant
+    named_requirements = preservation_invariant.judge_requirements(
+        preservation_requirements, before=base, after=after)
     ok = (stopped is None and not post_failures
           and all(contract["passed"] for contract in acceptance_contracts)
           and not any(row["failure"] for row in judged)
-          and preservation["status"] == "preserved")
+          and preservation["status"] == "preserved"
+          and all(row["status"] == preservation_invariant.PRESERVED
+                  for row in named_requirements))
     return {
         "patch_id": patch_id,
         "status": "committed" if ok else "verification_failed",
@@ -365,6 +374,7 @@ def verify_readback(patch_operations: Sequence[Mapping],
         "unrelated_changes": unrelated_changes,
         "acceptance_contracts": acceptance_contracts,
         "preservation": preservation,
+        "preservation_requirements": named_requirements,
         "stopped": stopped,
         "recovery_result": {"status": "not_attempted",
                             "reason": ("transaction verified" if ok else

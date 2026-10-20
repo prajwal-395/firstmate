@@ -47,6 +47,14 @@ KINDS = (DIRECT, PLAN_CHANGE)
 #: Originator kinds: who asked for the edit.
 ORIGINATOR_KINDS = ("agent", "instruction", "human", "pipeline")
 
+#: The constraints a request may put on the ROUTE.
+#:
+#: A constraint may only NARROW the router's choice. It can demand a
+#: direct patch, forbid a full rebuild, or demand staging; it can never
+#: widen the choice, and the model never picks a backend. The router
+#: satisfies a constraint or refuses the request by name.
+BACKEND_CONSTRAINTS = ("direct_patch_only", "no_full_rebuild", "staged_only")
+
 
 class EditRequestError(ValueError):
     """A request that refuses: unknown op, bad target, bad dependency."""
@@ -199,6 +207,13 @@ class EditOperation:
     depends_on: tuple[int, ...] = ()
     preconditions: tuple = ()
     postconditions: tuple = ()
+    preservation: tuple = ()
+    """What this op must NOT change, in the requester's words.
+
+    A named preservation requirement (`preservation_invariant`), judged
+    on the read-back against the state the edit was authorized against.
+    The engine never guesses which row is "the music bed": the plan
+    names the row it means."""
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:
@@ -239,6 +254,7 @@ class EditOperation:
             "depends_on": list(self.depends_on),
             "preconditions": [copy.deepcopy(c) for c in self.preconditions],
             "postconditions": [copy.deepcopy(c) for c in self.postconditions],
+            "preservation": [copy.deepcopy(r) for r in self.preservation],
         }
 
     @classmethod
@@ -259,6 +275,8 @@ class EditOperation:
                                 (data.get("preconditions") or ())),
             postconditions=tuple(dict(c) for c in
                                  (data.get("postconditions") or ())),
+            preservation=tuple(dict(r) for r in
+                                (data.get("preservation") or ())),
         )
 
 
@@ -286,6 +304,20 @@ class EditRequest:
     expected_model_revision: int | None = None
     originator: dict = field(default_factory=dict)
     preconditions: tuple = ()
+    preservation: tuple = ()
+    """What this request must NOT change, in the requester's words.
+
+    Named preservation requirements (`preservation_invariant`), carried
+    in the plan and judged on the read-back. An unknown name is refused
+    when the request is read: a requirement nobody can judge is a
+    promise nobody is keeping."""
+    backend_constraints: tuple = ()
+    """What the ROUTE must satisfy, in the requester's words.
+
+    A constraint may only NARROW the router's choice - it can demand a
+    direct patch, forbid a full rebuild, demand staging - and it can
+    never widen it. The model does not choose a backend; it states a
+    requirement the router satisfies or refuses by name."""
     idempotency_key: str = ""
     version: int = REQUEST_VERSION
 
@@ -310,6 +342,10 @@ class EditRequest:
                 f"originator kind {kind!r} is unknown; "
                 f"one of {list(ORIGINATOR_KINDS)}")
         _check_operations(self.operations)
+        _check_preservation(self.preservation)
+        for operation in self.operations:
+            _check_preservation(operation.preservation)
+        _check_backend_constraints(self.backend_constraints)
 
     @property
     def has_plan_changes(self) -> bool:
@@ -335,6 +371,8 @@ class EditRequest:
             "originator": copy.deepcopy(self.originator),
             "operations": [op.to_dict() for op in self.operations],
             "preconditions": [copy.deepcopy(c) for c in self.preconditions],
+            "preservation": [copy.deepcopy(r) for r in self.preservation],
+            "backend_constraints": list(self.backend_constraints),
             "idempotency_key": (self.idempotency_key or self.id),
         }
 
@@ -346,6 +384,7 @@ class EditRequest:
                    - {"version", "id", "project", "timeline", "timeline_id",
                       "expected_base_generation", "expected_model_revision",
                       "originator", "operations", "preconditions",
+                      "preservation", "backend_constraints",
                       "idempotency_key"})
         if unknown:
             raise EditRequestError(
@@ -367,10 +406,43 @@ class EditRequest:
                 for op in (data.get("operations") or ())),
             preconditions=tuple(dict(c) for c in
                                 (data.get("preconditions") or ())),
+            preservation=tuple(dict(r) for r in
+                                (data.get("preservation") or ())),
+            backend_constraints=tuple(str(c) for c in
+                                      (data.get("backend_constraints") or ())),
             idempotency_key=str(data.get("idempotency_key") or data.get("id")
                                 or ""),
             version=int(data.get("version") or REQUEST_VERSION),
         )
+
+
+def _check_preservation(requirements: Sequence[Mapping[str, Any]]) -> None:
+    """Refuse a preservation requirement the engine cannot judge.
+
+    The vocabulary is `preservation_invariant`'s, and the refusal is
+    ITS refusal, so a plan that names a requirement nobody can prove is
+    refused the same way everywhere.
+    """
+    from library.tools import preservation_invariant
+
+    try:
+        preservation_invariant.validate_requirements(requirements)
+    except Exception as exc:
+        raise EditRequestError(str(exc)) from exc
+
+
+def _check_backend_constraints(constraints: Sequence[str]) -> None:
+    """Refuse a route constraint the router does not know.
+
+    An unknown constraint is refused rather than ignored: a constraint
+    nobody reads is a declaration nothing honours.
+    """
+    unknown = [str(c) for c in constraints
+               if str(c) not in BACKEND_CONSTRAINTS]
+    if unknown:
+        raise EditRequestError(
+            f"unknown backend constraint(s) {unknown}; one of "
+            f"{list(BACKEND_CONSTRAINTS)}")
 
 
 def _check_operations(operations: Sequence[EditOperation]) -> None:
@@ -463,7 +535,8 @@ class CompiledEdit:
                  project: str = "", timeline: str = "",
                  idempotency_key: str = "",
                  preconditions: Sequence[Mapping] = (),
-                 postconditions: Sequence[Mapping] = ()
+                 postconditions: Sequence[Mapping] = (),
+                 preservation: Sequence[Mapping] = ()
                  ) -> dict:
         """The EditPatch dict for the direct/staged patch path."""
         from library.tools import edit_patch as _patch
@@ -485,6 +558,7 @@ class CompiledEdit:
             "operations": [dict(op) for op in self.operations],
             "preconditions": [dict(c) for c in preconditions],
             "postconditions": [dict(c) for c in postconditions],
+            "preservation": [dict(r) for r in preservation],
         }
         return _patch.EditPatch.from_dict(patch).to_dict()
 
@@ -906,6 +980,8 @@ def from_touchup_spec(spec: Mapping[str, Any], *,
         originator=dict(originator or {"kind": "agent",
                                        "name": "reel touchup"}),
         operations=tuple(built),
+        preservation=tuple(dict(r) for r in
+                          (spec.get("preservation") or ())),
         idempotency_key=str(spec.get("idempotency_key")
                             or spec.get("id") or ""),
     )

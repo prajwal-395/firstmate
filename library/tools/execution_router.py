@@ -128,6 +128,28 @@ ROUTE_MUTATION_SCOPE: Mapping[str, str] = {
 #: AXI-41: the one guard every route's ownership is enforced by.
 TRANSACTION_OWNERSHIP_ENFORCED_BY = "library/tools/resolve_lock.py"
 
+#: The constraints a plan may put on the ROUTE, and the routes each one
+#: admits. A constraint may only NARROW the choice: it names routes the
+#: router may pick, and it can never make a route eligible that the
+#: evidence would not have chosen. The model does not pick a backend; it
+#: states a requirement the router satisfies or refuses by name.
+#:
+#: `no_full_rebuild` is stated as a mutation scope rather than a route
+#: name, because a full rebuild is the one route that disturbs everything
+#: it does not carry over - and a plan that must not disturb the rest of
+#: the reel says so in those terms.
+BACKEND_CONSTRAINT_ROUTES: Mapping[str, tuple[str, ...]] = {
+    "direct_patch_only": ("edit_patch", "edit_patch.property"),
+    "staged_only": ("reel_touchup", "composed_edit.structural",
+                    "full_rebuild"),
+}
+
+#: The constraints that are about a route's MUTATION SCOPE rather than
+#: its name.
+BACKEND_CONSTRAINT_SCOPES: Mapping[str, tuple[str, ...]] = {
+    "no_full_rebuild": ("targeted", "none"),
+}
+
 
 def _ownership(broker_kind: str, *, lease: str, writes: bool) -> dict:
     """One route's transaction ownership, in the common shape."""
@@ -346,6 +368,7 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
         "timeline_state": context.get("timeline_state", "unknown"),
         "preservation_constraints": _preservation_constraints(
             operations, context),
+        "backend_constraints": list(context.get("backend_constraints", ())),
         "safety_class": safety[0] if len(safety) == 1 else safety or "unknown",
         "cost": _cost_basis(context),
         "minimum_mutation": context.get("minimum_mutation", backend),
@@ -873,6 +896,78 @@ def decision_for_prepared_request(prepared, *, operations: Sequence[dict] | None
 
 
 def route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> ExecutionDecision:
+    """Choose a backend for an already compiled edit and explain every choice.
+
+    Strategy selection lands before any Resolve write. Existing-item
+    property setters use EditPatch's targeted native property executor and
+    must not reconstruct the timeline. Incremental is selected only on an
+    affirmative eligibility result - eligibility evidence is that backend's
+    own qualification basis, so it precedes the algebra proof checks; an
+    ineligible result is surfaced as a named refusal and never converted
+    into a rebuild here. An explicit full rebuild never tries incremental,
+    even beside affirmative eligibility. Unknown or uncompilable operations
+    are refused, and op-specific conditions (required params, item
+    identity, media type) are checked before a targeted backend is named.
+    VC-11 safety classes decide direct vs staged vs refused after the
+    strategy arms: no caller flag can widen a class to direct, and nothing
+    goes direct without the per-op proof.
+    """
+    context = dict(context or {})
+    constraints = tuple(str(c) for c in
+                        (context.get("backend_constraints") or ()))
+    decision = _route_compiled_edit(compiled_edit, context=context)
+    if not constraints:
+        return decision
+    violation = _constraint_violation(decision.backend, constraints)
+    if not violation:
+        return decision
+    admitted = sorted({route for constraint in constraints
+                       for route in _routes_admitted_by(constraint)})
+    raise RoutingRefused(
+        f"the chosen route {decision.backend!r} breaks the plan's "
+        f"constraint {violation!r}",
+        what=(f"the plan requires {violation!r}, and the route the "
+              f"evidence chose ({decision.backend!r}) does not satisfy it"),
+        fix=(f"the constraint admits {admitted or 'no route'}; re-plan the "
+             "edit so the eligible route satisfies it, or drop the "
+             "constraint"),
+        category="unsupported")
+
+
+def _routes_admitted_by(constraint: str) -> tuple[str, ...]:
+    """The routes one constraint admits."""
+    routes = BACKEND_CONSTRAINT_ROUTES.get(constraint)
+    if routes is not None:
+        return routes
+    scopes = BACKEND_CONSTRAINT_SCOPES.get(constraint)
+    if scopes is None:
+        return ()
+    return tuple(route for route, scope in ROUTE_MUTATION_SCOPE.items()
+                 if scope in scopes)
+
+
+def _constraint_violation(backend: str, constraints: Sequence[str]) -> str:
+    """The constraint this route breaks, or "" when it breaks none.
+
+    A constraint the router does not know is a refusal, not a pass: a
+    constraint nobody reads is a declaration nothing honours.
+    """
+    for constraint in constraints:
+        routes = BACKEND_CONSTRAINT_ROUTES.get(constraint)
+        if routes is not None:
+            if backend not in routes:
+                return constraint
+            continue
+        scopes = BACKEND_CONSTRAINT_SCOPES.get(constraint)
+        if scopes is None:
+            return constraint
+        scope = ROUTE_MUTATION_SCOPE.get(backend, "")
+        if scope not in scopes:
+            return constraint
+    return ""
+
+
+def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> ExecutionDecision:
     """Choose a backend for an already compiled edit and explain every choice.
 
     Strategy selection lands before any Resolve write. Existing-item

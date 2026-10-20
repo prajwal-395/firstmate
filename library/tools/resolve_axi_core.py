@@ -836,6 +836,19 @@ def _failure_receipt(*, request: Any, backend: str, generation: Any,
         "execution_routing": dict(decision),
     }
     return standardize_receipt(failure_receipt)
+def _named_preservation(request: Any) -> tuple:
+    """The request's preservation requirements, and its operations'.
+
+    The request may name what must not change, and so may an operation
+    inside it. They travel together: the patch carries both, and the
+    read-back judges them against the state the edit was authorized
+    against.
+    """
+    named = [dict(requirement) for requirement in request.preservation]
+    for operation in request.operations:
+        named.extend(dict(requirement)
+                      for requirement in operation.preservation)
+    return tuple(named)
 
 
 def _execute_registered_backend(*, backend: str, plan: Mapping,
@@ -1405,6 +1418,10 @@ def _route_context(request, operation_ids, operations, resolve=None) -> dict:
     from library.tools import axi_qualification_state
 
     context = _protected_route_context(request, operation_ids)
+    # The plan's own constraints on the ROUTE. They narrow the choice
+    # and never widen it; the router refuses a route that breaks one.
+    context["backend_constraints"] = tuple(
+        str(constraint) for constraint in request.backend_constraints)
     # The shadow store is keyed by the RESOLVE project name, and a
     # request may name the Ren project FOLDER instead - the same reverse
     # lookup the base snapshot uses, so the inspection names the same
