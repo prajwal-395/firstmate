@@ -199,6 +199,41 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
             except ScratchProjectError as exc:
                 if "cannot find timeline" not in str(exc):
                     raise
+                if str(state.get("project", "")).startswith("Ren "):
+                    # A Ren-owned origin can be rebuilt independently of
+                    # its old timeline ids (qualification fixtures do this
+                    # during refresh). Keep scratch recovery independent of
+                    # those fixtures: reopen the recorded scratch project,
+                    # which is where the user's copied work lives.
+                    scratch_name = _name(state.get("scratch_project"))
+                    if not _listed(manager, scratch_name):
+                        raise ScratchProjectError(
+                            f"cannot recover scratch origin: recorded Ren-owned "
+                            f"project {scratch_name!r} is not available") from exc
+                    project = switch_project(manager, scratch_name)
+                    if not project or project.GetName() != scratch_name:
+                        raise ScratchProjectError(
+                            f"cannot recover scratch origin: could not reopen "
+                            f"{scratch_name!r}") from exc
+                    timeline = project.GetCurrentTimeline()
+                    page = state.get("page")
+                    if (page is not None and resolve.GetCurrentPage() != page
+                            and (not resolve.OpenPage(page)
+                                 or resolve.GetCurrentPage() != page)):
+                        raise ScratchProjectError(
+                            f"cannot recover scratch origin: could not return "
+                            f"to page {page!r}") from exc
+                    result = {
+                        "project": scratch_name,
+                        "timeline": timeline.GetName() if timeline else None,
+                        "page": page,
+                        "verified": bool(timeline),
+                        "timeline_restored": False,
+                        "reason": (f"origin timeline is gone; reopened recorded "
+                                   f"scratch project {scratch_name!r}"),
+                    }
+                    path.unlink(missing_ok=True)
+                    return result
                 # The ORIGIN's project is open and its recorded timeline
                 # is gone - the reel was rebuilt since. The machine is
                 # back where the record wanted it, and a timeline that

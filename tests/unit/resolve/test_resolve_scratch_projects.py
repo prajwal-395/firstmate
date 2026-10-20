@@ -504,3 +504,44 @@ def test_a_recorded_origin_completes_when_its_timeline_is_gone(
     assert restored["timeline_restored"] is False
     assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
     assert not origin.exists()
+
+
+def test_missing_ren_owned_origin_timeline_reopens_recorded_scratch_project(
+        monkeypatch, tmp_path):
+    """Catches restore depending on the Ren Qualification fixture timeline.
+
+    After a broker restart the origin project may be open, but qualification
+    refreshes can replace its timeline ids. Recovery must return to the
+    recorded scratch project without requiring that fixture timeline.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    qualification = Project(
+        "Ren Qualification", [Timeline("fm-scratch qualify", "old-fixture")])
+    scratch_project = Project(
+        "Ren Scratch - breaktest", [Timeline("Reel 13", "copied-reel")])
+    manager.projects[qualification.name] = qualification
+    manager.projects[scratch_project.name] = scratch_project
+    manager.current = qualification
+    monkeypatch.setattr(
+        scratch, "switch_project",
+        lambda current_manager, name: current_manager.LoadProject(name))
+
+    scratch.open_project(resolve, manager, scratch_project.name)
+    assert manager.GetCurrentProject().GetName() == scratch_project.name
+
+    # A broker restart put Resolve back on the origin project, whose fixture
+    # timeline has since been replaced.
+    qualification.timelines = []
+    qualification.current = None
+    manager.current = qualification
+
+    restored = scratch.restore_recorded(resolve, manager)
+
+    assert restored["project"] == scratch_project.name
+    assert restored["timeline"] == "Reel 13"
+    assert restored["verified"] is True
+    assert restored["timeline_restored"] is False
+    assert manager.GetCurrentProject().GetName() == scratch_project.name
+    assert not origin.exists()
