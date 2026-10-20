@@ -21,7 +21,14 @@ import sys
 import uuid
 from pathlib import Path
 
-from library.tools import edit_algebra, edit_ledger, edit_operations, edit_preview
+from library.tools import (
+    candidate_treatments,
+    edit_algebra,
+    edit_ledger,
+    edit_operations,
+    edit_preview,
+    treatment_rulings,
+)
 
 FORMAT = "edit_spec/1"
 STATUSES = ("resolved", "needs_clarification")
@@ -317,6 +324,136 @@ def _validate_program(program) -> None:
         _nonempty_string(reel, "program.reel")
 
 
+def _validate_candidates(candidates) -> None:
+    """Validate a set of candidate treatments.
+
+    A candidate set preserves AT LEAST TWO treatments: one plan is not a
+    choice, and a set of one is a decision the editor never saw.  Each
+    treatment names itself, explains itself and carries a complete
+    executable program, so every alternative in the set is a plan that
+    could actually be run.
+    """
+    from library.tools import candidate_treatments
+
+    if not isinstance(candidates, list):
+        raise EditSpecError("candidates must be a list")
+    if not candidates:
+        return
+    if len(candidates) < 2:
+        raise EditSpecError(
+            "candidates must preserve at least two treatments")
+    for index, candidate in enumerate(candidates):
+        label = f"candidates[{index}]"
+        if not isinstance(candidate, dict):
+            raise EditSpecError(f"{label} must be an object")
+        _nonempty_string(candidate.get("name"), f"{label}.name")
+        _nonempty_string(candidate.get("rationale"), f"{label}.rationale")
+        _validate_program(candidate.get("program"))
+        criteria = candidate.get("criteria")
+        if criteria is not None and not isinstance(criteria, list):
+            raise EditSpecError(f"{label}.criteria must be a list")
+        try:
+            candidate_treatments.treatment(
+                f"candidate-{index + 1}",
+                candidate["name"], candidate["rationale"],
+                (candidate.get("program") or {}).get("ops") or (),
+                categories=candidate.get("categories") or (),
+                evidence_refs=candidate.get("evidence_refs") or (),
+                duration_seconds=candidate.get("duration_seconds"),
+                criteria=criteria or ())
+        except candidate_treatments.CandidateError as exc:
+            raise EditSpecError(f"{label}: {exc}") from exc
+
+
+def _validate_no_change(conclusion) -> None:
+    """Validate an explicit conclusion that nothing should change.
+
+    The conclusion carries its reason: "the material is already adequate"
+    without saying why is indistinguishable from a plan nobody made.
+    """
+    if not isinstance(conclusion, dict):
+        raise EditSpecError("no_change must be an object")
+    _nonempty_string(conclusion.get("reason"), "no_change.reason")
+    evidence = conclusion.get("evidence_refs")
+    if evidence is not None and (
+            not isinstance(evidence, list)
+            or any(not isinstance(item, str) or not item.strip()
+                   for item in evidence)):
+        raise EditSpecError(
+            "no_change.evidence_refs must be a list of non-empty strings")
+
+
+def _validate_ruling(row) -> None:
+    """Validate the editor's ruling on the proposal.
+
+    The outcome is one of three, a correction carries its reason, and
+    the editor's own words go in first: the quote is what makes the
+    ruling readable later.
+    """
+    from library.tools import treatment_rulings
+
+    if not isinstance(row, dict):
+        raise EditSpecError("ruling must be an object")
+    outcome = str(row.get("outcome") or "")
+    if outcome not in treatment_rulings.OUTCOMES:
+        raise EditSpecError(
+            f"ruling.outcome must be one of {list(treatment_rulings.OUTCOMES)}")
+    scope = str(row.get("scope") or treatment_rulings.SCOPE_PROJECT)
+    if scope not in treatment_rulings.SCOPES:
+        raise EditSpecError(
+            f"ruling.scope must be one of {list(treatment_rulings.SCOPES)}")
+    reason = str(row.get("reason") or "").strip()
+    if outcome in treatment_rulings.CORRECTIONS and not reason:
+        raise EditSpecError(
+            f"a {outcome} ruling needs a reason: a correction nobody "
+            "explained teaches nothing")
+    words = row.get("editor_words")
+    if words is not None and not isinstance(words, str):
+        raise EditSpecError("ruling.editor_words must be a string")
+    try:
+        treatment_rulings.ruling(
+            outcome, reason, scope=scope,
+            editor_words=words or "",
+            preference_slot=row.get("preference_slot") or "",
+            stated_by=row.get("stated_by") or "")
+    except treatment_rulings.RulingError as exc:
+        raise EditSpecError(f"ruling: {exc}") from exc
+
+
+def candidate_set_for_spec(spec: dict) -> dict | None:
+    """The candidate set a spec carries, built for comparison.
+
+    A spec with `candidates` offers several treatments; a spec with
+    `no_change` concludes that the material is already adequate.  A spec
+    with neither carries no candidate set - there is nothing to compare
+    and nothing to conclude.
+    """
+    from library.tools import candidate_treatments
+
+    validated = validate_spec(spec)
+    rows = validated.get("candidates") or []
+    if rows:
+        treatments = []
+        for index, candidate in enumerate(rows):
+            treatments.append(candidate_treatments.treatment(
+                str(candidate.get("treatment_id")
+                    or f"candidate-{index + 1}"),
+                candidate["name"], candidate["rationale"],
+                (candidate.get("program") or {}).get("ops") or (),
+                categories=candidate.get("categories") or (),
+                evidence_refs=candidate.get("evidence_refs") or (),
+                duration_seconds=candidate.get("duration_seconds"),
+                criteria=candidate.get("criteria") or ()))
+        return candidate_treatments.build(
+            validated.get("request") or "", treatments)
+    conclusion = validated.get("no_change")
+    if conclusion:
+        return candidate_treatments.no_change(
+            validated.get("request") or "", conclusion["reason"],
+            evidence_refs=conclusion.get("evidence_refs") or ())
+    return None
+
+
 def validate_spec(value: dict) -> dict:
     """Validate a host translation and return a detached JSON-shaped copy."""
     if not isinstance(value, dict):
@@ -360,22 +497,46 @@ def validate_spec(value: dict) -> dict:
             raise EditSpecError(
                 f"{label}.program must contain exactly one reel.opening "
                 "edit_program")
+    candidates = value.get("candidates")
+    if candidates is not None:
+        _validate_candidates(candidates)
+    conclusion = value.get("no_change")
+    if conclusion is not None:
+        _validate_no_change(conclusion)
+    ruling = value.get("ruling")
+    if ruling is not None:
+        _validate_ruling(ruling)
     program = value.get("program")
     clauses = value.get("clauses")
-    if alternatives and program is not None:
+    if alternatives and candidates:
         raise EditSpecError(
-            "opening alternatives require an editor choice; do not include "
+            "a spec carries one set of alternatives: use `candidates`, not "
+            "`opening_alternatives`, when the request is not about a reel's "
+            "opening")
+    if (candidates or conclusion) and program is not None:
+        raise EditSpecError(
+            "candidate treatments require an editor choice; do not include "
             "an executable program")
-    if (program is None and not alternatives
+    if (program is None and not alternatives and not candidates
+            and not conclusion
             and (not isinstance(clauses, list) or not clauses)):
         raise EditSpecError(
             "clauses must be a non-empty list with one operation per "
-            "clause, a program, or at least two opening alternatives")
+            "clause, a program, at least two opening alternatives, a set "
+            "of candidate treatments, or a no-change conclusion")
     if program is not None:
         _validate_program(program)
         return copy.deepcopy(value)
     if alternatives and clauses is None:
         return copy.deepcopy(value)
+    if candidates and clauses is None:
+        return copy.deepcopy(value)
+    if conclusion:
+        return copy.deepcopy(value)
+    if candidates:
+        raise EditSpecError(
+            "a candidate set is the whole answer: put every change in the "
+            "candidates rather than beside them")
     if not isinstance(clauses, list) or not clauses:
         raise EditSpecError(
             "clauses must be a non-empty list with one operation per clause")
@@ -429,6 +590,19 @@ def questions_for_spec(spec: dict) -> list[dict]:
             "question": ("Which opening alternative should Ren execute? "
                          + "; ".join(row["name"] for row in alternatives)),
         })
+    candidates = validated.get("candidates") or []
+    if candidates:
+        questions.append({
+            "clause_id": "candidate-choice",
+            "missing_referent": "which candidate treatment to execute",
+            "question": ("Which candidate should Ren execute? "
+                         + "; ".join(row["name"] for row in candidates)),
+        })
+    if validated.get("no_change"):
+        # A conclusion that nothing should change asks nothing: the
+        # editor is not asked to choose between a change and no change,
+        # the reasoning is on file with the decision.
+        return questions
     available_reels = validated.get("available_reels", [])
     for clause in validated.get("clauses") or []:
         if clause["status"] == "needs_clarification":
@@ -1196,6 +1370,27 @@ def _expected_schema() -> str:
         }],
         "additionalProperties": True,
     }
+    criterion = {
+        "type": "object",
+        "required": ["criterion", "kind"],
+        "properties": {
+            "criterion": {"type": "string", "minLength": 1},
+            "kind": {"enum": list(candidate_treatments.CRITERION_KINDS)},
+            "verdict": {"enum": list(candidate_treatments.VERDICTS)},
+            "reason": {"type": "string", "minLength": 1},
+            "evidence_refs": {"type": "array", "items": {
+                "type": "string", "minLength": 1}},
+            "constraint": {"enum": sorted(candidate_treatments.CONSTRAINTS)},
+            "params": {"type": "object"},
+        },
+        "allOf": [
+            {"if": {"properties": {"kind": {"const": "brief"}}},
+             "then": {"required": ["verdict", "reason"]}},
+            {"if": {"properties": {"kind": {"const": "constraint"}}},
+             "then": {"required": ["constraint"]}},
+        ],
+        "additionalProperties": False,
+    }
     return json.dumps({
         "type": "object",
         "required": ["format", "request"],
@@ -1217,6 +1412,49 @@ def _expected_schema() -> str:
             }},
             "clauses": {"type": "array", "minItems": 1,
                          "items": clause},
+            "candidates": {"type": "array", "minItems": 2,
+                "items": {
+                "type": "object",
+                "required": ["name", "rationale", "program"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "rationale": {"type": "string", "minLength": 1},
+                    "program": program,
+                    "criteria": {"type": "array", "items": criterion},
+                    "categories": {"type": "array",
+                                   "items": {"type": "string",
+                                             "minLength": 1}},
+                    "evidence_refs": {"type": "array",
+                                      "items": {"type": "string",
+                                                "minLength": 1}},
+                    "duration_seconds": {"type": "number"},
+                },
+                "additionalProperties": False,
+            }},
+            "no_change": {
+                "type": "object",
+                "required": ["reason"],
+                "properties": {
+                    "reason": {"type": "string", "minLength": 1},
+                    "evidence_refs": {"type": "array",
+                                      "items": {"type": "string",
+                                                "minLength": 1}},
+                },
+                "additionalProperties": False,
+            },
+            "ruling": {
+                "type": "object",
+                "required": ["outcome"],
+                "properties": {
+                    "outcome": {"enum": list(treatment_rulings.OUTCOMES)},
+                    "reason": {"type": "string", "minLength": 1},
+                    "scope": {"enum": list(treatment_rulings.SCOPES)},
+                    "editor_words": {"type": "string"},
+                    "preference_slot": {"type": "string", "minLength": 1},
+                    "stated_by": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
             "implicated": {"type": "array", "items": {
                 "type": "object", "required": ["node_id", "why"],
                 "properties": {"node_id": {"type": "string"},
@@ -1224,7 +1462,9 @@ def _expected_schema() -> str:
         },
         "anyOf": [{"required": ["program"]},
                    {"required": ["clauses"]},
-                   {"required": ["opening_alternatives"]}],
+                   {"required": ["opening_alternatives"]},
+                   {"required": ["candidates"]},
+                   {"required": ["no_change"]}],
         "additionalProperties": True,
     }, ensure_ascii=False)
 
@@ -1596,6 +1836,28 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "executable primary program; the proposal will ask the editor "
         "which one to use. The operation is prepared and executed through "
         "AXI as a narrow structural edit; never substitute a full rebuild. "
+        "For a request that is SUBJECTIVE and not about a reel's opening, "
+        "return `candidates`: at least two candidate treatments, each with "
+        "a name, a rationale and its own complete executable `program`, and "
+        "no other executable answer; the proposal will ask the editor which "
+        "one to use and keep every candidate's reasoning on file. Judge each "
+        "candidate against the criteria the request implies and return them "
+        "in that candidate's `criteria`: a `brief` criterion carries your "
+        "verdict (`pass`, `fail` or `not_measured`) with the reason and the "
+        "evidence it rests on, and a `constraint` criterion names one of "
+        "the measurable constraints the engine runs. When the material "
+        "already achieves what the editor asked for, return `no_change` with "
+        "the reason and the evidence that it already does, and no program "
+        "at all: saying that nothing needs changing is an answer, and it "
+        "is recorded as one. "
+        "When the request carries the editor's ANSWER to a question you "
+        "asked, also return `ruling`: `outcome` is `accepted`, `rejected` "
+        "or `modified` - `modified` means the plan you proposed did not "
+        "stand and they changed it - `reason` says why they decided that "
+        "(a rejection or a modification needs one), `editor_words` quotes "
+        "their own sentence, `scope` is `project` unless they said the "
+        "preference is theirs in general, and `preference_slot` names a "
+        "registered preference slot only when they named one. "
         "When `decision_candidates` is present, also return `implicated`: "
         "a list of {node_id, why} naming each candidate decision this note "
         "is about, and an empty list when it is about none. "
@@ -1665,26 +1927,15 @@ def load_response_spec(project_folder: str, request_id: str) -> dict:
 
 def proposal_for_spec(project_folder: str, spec_id: str) -> dict:
     """Render a resolved edit spec as a reviewable proposal, without writes."""
+    from library.tools import candidate_treatments
+
     spec = load_response_spec(project_folder, spec_id)
     questions = questions_for_spec(spec)
     clauses = spec.get("clauses") or []
     program = spec.get("program") or {}
     if program:
         clauses = program.get("ops") or []
-    categories = {
-        "voice_isolation": "audio", "clip_lut": "color",
-        "span_retime": "sequence", "drop_fragment": "sequence",
-        "caption_fix": "captions", "retime": "sequence",
-        "grade": "color", "angle_plan": "sequence",
-        "transition": "sequence", "shot_selection": "sequence",
-        "speech_selection": "dialogue", "story_pacing": "sequence",
-        "music_selection": "audio", "audio_mix": "audio",
-        "look": "color", "visual_effect": "graphics",
-        "sound_effect": "audio", "subject_effect": "graphics",
-        "motion_graphic": "graphics", "brand_asset": "graphics",
-        "end_card": "graphics", "transform_override": "sequence",
-        "redraw_closer": "sequence",
-    }
+    categories = candidate_treatments.OP_CATEGORIES
     planned = []
     for clause in clauses:
         op = clause.get("op") or ""
@@ -1694,14 +1945,18 @@ def proposal_for_spec(project_folder: str, spec_id: str) -> dict:
                         "category": categories.get(op, "unknown"),
                         "values": clause.get("values") or {}})
     changed = {row["category"] for row in planned if row["category"] != "unknown"}
-    all_categories = ("dialogue", "sequence", "captions", "graphics", "color", "audio")
+    all_categories = candidate_treatments.CATEGORIES
     complete = not questions and all(row["category"] != "unknown" for row in planned)
+    candidate_set = candidate_set_for_spec(spec)
     return {"status": "needs_clarification" if questions else "proposal",
             "request": spec.get("request") or "",
             "reel": spec.get("reel") or program.get("reel") or "",
             "planned_changes": planned, "questions": questions,
             "opening_alternatives": copy.deepcopy(
                 spec.get("opening_alternatives") or []),
+            "candidates": candidate_set,
+            "no_change": copy.deepcopy(candidate_set.get("no_change"))
+            if candidate_set and candidate_set.get("no_change") else None,
             "untouched_categories": [c for c in all_categories if c not in changed]
                 if complete else [],
             "note": "Proposed edits only. No timeline changes have been made."}

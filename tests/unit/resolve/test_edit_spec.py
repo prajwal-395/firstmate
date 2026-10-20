@@ -1231,3 +1231,189 @@ def test_a_project_yaml_without_a_resolve_project_name_says_which_key(tmp_path):
     with pytest.raises(edit_spec.EditSpecError) as raised:
         edit_spec._resolve_project_name(str(project))
     assert "resolve.project_name" in str(raised.value)
+
+
+def _candidate_spec(**overrides):
+    """A spec offering two candidate treatments for a subjective request."""
+    def program(key):
+        return {
+            "kind": "edit_program", "reel": "Reel 01 - a",
+            "base_generation": "3", "idempotency_key": key,
+            "ops": [{"op": "clip.trim", "text": "trim the head",
+                     "params": {"unique_id": "clip-a", "in_frame": 0,
+                                "out_frame": 120}}],
+        }
+
+    spec = {
+        "format": edit_spec.FORMAT,
+        "request": "the opening feels slow",
+        "candidates": [
+            {"name": "Claim first", "rationale": "The claim lands the point.",
+             "program": program("claim-first"),
+             "criteria": [{"criterion": "the claim lands first",
+                           "kind": "brief", "verdict": "pass",
+                           "reason": "the claim is spoken first",
+                           "evidence_refs": ["transcript:1"]}]},
+            {"name": "Question first", "rationale": "Opens on a question.",
+             "program": program("question-first"),
+             "criteria": [{"criterion": "the claim lands first",
+                           "kind": "brief", "verdict": "fail",
+                           "reason": "the claim is buried",
+                           "evidence_refs": ["transcript:1"]}]},
+        ],
+    }
+    spec.update(overrides)
+    return spec
+
+
+def test_a_subjective_request_offers_candidates_and_asks_which_one():
+    """Catches: a set of candidate treatments accepted but never offered,
+    so the editor was asked to choose from a plan they never saw."""
+    spec = _candidate_spec()
+    assert edit_spec.validate_spec(spec) == spec
+    question = edit_spec.questions_for_spec(spec)[0]
+    assert question["missing_referent"] == "which candidate treatment to execute"
+    assert "Claim first" in question["question"]
+    assert "Question first" in question["question"]
+
+
+def test_one_candidate_is_not_a_choice():
+    """Catches: a set of one accepted as alternatives, so the editor chose
+    between nothing and something."""
+    spec = _candidate_spec()
+    spec["candidates"] = spec["candidates"][:1]
+    with pytest.raises(edit_spec.EditSpecError,
+                       match="at least two treatments"):
+        edit_spec.validate_spec(spec)
+
+
+def test_candidates_and_an_executable_program_cannot_travel_together():
+    """Catches: a spec offering candidates that also carries the program
+    to run, so the editor's choice was never the thing that landed."""
+    spec = _candidate_spec()
+    spec["program"] = {
+        "kind": "edit_program", "reel": "Reel 01 - a",
+        "base_generation": "3", "idempotency_key": "claim-first",
+        "ops": [{"op": "clip.trim", "text": "trim the head",
+                 "params": {"unique_id": "clip-a"}}],
+    }
+    with pytest.raises(edit_spec.EditSpecError,
+                       match="require an editor choice"):
+        edit_spec.validate_spec(spec)
+
+
+def test_a_candidate_without_a_rationale_is_refused():
+    """Catches: a candidate nobody can weigh against another, so the
+    comparison was theatre."""
+    spec = _candidate_spec()
+    spec["candidates"][0]["rationale"] = "  "
+    with pytest.raises(edit_spec.EditSpecError, match="rationale"):
+        edit_spec.validate_spec(spec)
+
+
+def test_a_candidate_criterion_the_model_did_not_judge_is_refused():
+    """Catches: a brief criterion with no verdict accepted, so the engine
+    would supply a judgement of its own."""
+    spec = _candidate_spec()
+    spec["candidates"][0]["criteria"] = [
+        {"criterion": "the claim lands first", "kind": "brief",
+         "reason": "it does"}]
+    with pytest.raises(edit_spec.EditSpecError):
+        edit_spec.validate_spec(spec)
+
+
+def test_the_candidate_set_carries_the_evaluation_and_the_risk():
+    """Catches: the set built without its judgement, so the comparison
+    had nothing to compare."""
+    candidate_set = edit_spec.candidate_set_for_spec(_candidate_spec())
+    assert len(candidate_set["treatments"]) == 2
+    verdicts = {row["criterion"]: row["verdict"]
+                for row in candidate_set["treatments"][0]["evaluation"]}
+    assert verdicts["the claim lands first"] == "pass"
+    assert candidate_set["treatments"][0]["risk"]["level"]
+
+
+def test_a_no_change_conclusion_asks_nothing_and_concludes():
+    """Catches: 'nothing needs changing' treated as a gap, so the editor
+    was asked a question about a decision that had already been made."""
+    spec = {
+        "format": edit_spec.FORMAT,
+        "request": "the opening feels slow",
+        "no_change": {"reason": "the claim already lands first",
+                      "evidence_refs": ["transcript:1"]},
+    }
+    assert edit_spec.validate_spec(spec) == spec
+    assert edit_spec.questions_for_spec(spec) == []
+    candidate_set = edit_spec.candidate_set_for_spec(spec)
+    assert candidate_set["no_change"]["reason"] == "the claim already lands first"
+    assert candidate_set["treatments"] == []
+
+
+def test_a_no_change_conclusion_with_no_reason_is_refused():
+    """Catches: 'nothing to do' accepted with no reason, so the decision
+    could not be told from a plan nobody made."""
+    spec = {
+        "format": edit_spec.FORMAT,
+        "request": "the opening feels slow",
+        "no_change": {"reason": "  "},
+    }
+    with pytest.raises(edit_spec.EditSpecError, match="no_change.reason"):
+        edit_spec.validate_spec(spec)
+
+
+def _ruling_spec(ruling):
+    """A translation that answers a question AND reports the ruling."""
+    return {
+        "format": edit_spec.FORMAT,
+        "request": "the opening feels slow",
+        "program": {
+            "kind": "edit_program", "reel": "Reel 01 - a",
+            "base_generation": "3", "idempotency_key": "opening-1",
+            "ops": [{"op": "clip.set_property", "text": "scale the caption",
+                     "params": {"unique_id": "cap-1", "key": "ZoomX",
+                                "value": 1.25}}],
+        },
+        "ruling": ruling,
+    }
+
+
+def test_a_spec_may_carry_the_editor_s_ruling():
+    """Catches: the ruling dropped from the translation, so the editor's
+    accept/reject/modify never reached the record."""
+    spec = _ruling_spec({"outcome": "rejected",
+                          "reason": "the opening hides the claim",
+                          "editor_words": "it buries the point",
+                          "scope": "project"})
+    assert edit_spec.validate_spec(spec) == spec
+
+
+def test_a_rejection_with_no_reason_is_refused():
+    """Catches: a rejection accepted with no reason, so a correction
+    nobody explained was recorded as one."""
+    with pytest.raises(edit_spec.EditSpecError, match="needs a reason"):
+        edit_spec.validate_spec(_ruling_spec({"outcome": "rejected"}))
+
+
+def test_a_ruling_with_an_unknown_outcome_is_refused():
+    """Catches: an outcome outside the three recorded as one of them."""
+    with pytest.raises(edit_spec.EditSpecError, match="ruling.outcome"):
+        edit_spec.validate_spec(_ruling_spec({"outcome": "maybe"}))
+
+
+def test_a_ruling_naming_an_unknown_preference_slot_is_refused():
+    """Catches: an editor-wide ruling addressed to a slot the engine
+    does not have, so the preference had nowhere to travel to."""
+    with pytest.raises(edit_spec.EditSpecError, match="preference slot"):
+        edit_spec.validate_spec(_ruling_spec(
+            {"outcome": "accepted", "scope": "editor",
+             "preference_slot": "opening.always_leads_with_a_question"}))
+
+
+def test_a_ruling_alone_is_not_an_answer():
+    """Catches: a translation carrying only a ruling, so the editor's
+    verdict was recorded with no plan it was about."""
+    with pytest.raises(edit_spec.EditSpecError, match="clauses must be"):
+        edit_spec.validate_spec({
+            "format": edit_spec.FORMAT,
+            "request": "the opening feels slow",
+            "ruling": {"outcome": "accepted"}})

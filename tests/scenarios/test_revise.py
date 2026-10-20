@@ -588,3 +588,66 @@ def test_a_marker_note_over_a_recorded_decision_is_judged_in_the_same_translatio
         f"ren edit {project} --rerun select_broll",
         f"ren build {project} --only-reel 2"]
     assert _ledger(project) == [] and _outcomes(project) == []
+
+
+def test_a_subjective_request_offers_candidates_and_asks_which_one(
+        project, live):
+    """Catches: a subjective request carried out as one unexamined plan, or
+    candidates offered without the editor being asked to choose."""
+    from library.tools import revise
+
+    started = revise.start(project, "the opening feels slow", reel=REEL)
+    assert started["status"] == revise.STATUS_AWAITING
+
+    def candidate(name, rationale, key):
+        return {"name": name, "rationale": rationale,
+                "program": {"kind": "edit_program", "reel": REEL,
+                            "base_generation": "1",
+                            "idempotency_key": key,
+                            "anchor": {"kind": "reel"},
+                            "ops": [_scale("cap-1", "ZoomX")]},
+                "criteria": [{"criterion": "the claim lands first",
+                              "kind": "brief", "verdict": "pass",
+                              "reason": "the claim is spoken first",
+                              "evidence_refs": ["transcript:1"]}]}
+
+    _answer(project, started, {
+        "request": "the opening feels slow",
+        "candidates": [candidate("Claim first", "The claim lands the point.",
+                                 "claim-first"),
+                       candidate("Question first", "Opens on a question.",
+                                 "question-first")]})
+    result = revise.advance(project, started["revise_id"], **live.options)
+
+    assert result["status"] == revise.STATUS_QUESTION
+    question = result["question"]
+    assert question["missing_referent"] == "which candidate treatment to execute"
+    assert "Claim first" in question["question"]
+    assert "Question first" in question["question"]
+    # Nothing was executed while the editor was being asked.
+    assert live.applied == []
+    assert _ledger(project) == []
+
+
+def test_a_no_change_conclusion_settles_the_note_and_changes_nothing(
+        project, live):
+    """Catches: 'the material is already adequate' left as an open
+    question, so the note held the project and nothing recorded that
+    anyone had looked."""
+    from library.tools import candidate_treatments, revise
+
+    started = revise.start(project, "the opening feels slow", reel=REEL)
+    _answer(project, started, {
+        "request": "the opening feels slow",
+        "no_change": {"reason": "the claim already lands first",
+                      "evidence_refs": ["transcript:1"]}})
+    result = revise.advance(project, started["revise_id"], **live.options)
+
+    assert result["status"] == revise.STATUS_NO_CHANGE
+    assert "Nothing needed changing" in result["reply"]
+    assert live.applied == []
+    assert _ledger(project) == []
+    records = candidate_treatments.read_records(str(project))
+    assert len(records) == 1
+    assert records[0]["candidate_decision"]["decision"] == "no_change"
+    assert records[0]["no_change"]["reason"] == "the claim already lands first"

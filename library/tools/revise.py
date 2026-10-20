@@ -78,8 +78,9 @@ STATUS_REBUILT = "rebuilt"
 STATUS_UNVERIFIED = "unverified"
 STATUS_REFUSED = "refused"
 STATUS_INCOMPLETE = "incomplete"
+STATUS_NO_CHANGE = "no_change"
 FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT,
-            STATUS_UNVERIFIED, STATUS_REFUSED)
+            STATUS_UNVERIFIED, STATUS_REFUSED, STATUS_NO_CHANGE)
 
 #: The three buckets a revision's status falls into. `FINISHED` says which
 #: statuses END a revision; these say what the revision DID, which is a
@@ -936,6 +937,166 @@ def _settle_refusal(project: str, record: dict, spec: dict, reason: str,
                 **(detail or {})})
 
 
+def _settle_no_change(project: str, record: dict, spec: dict,
+                      proposal: dict) -> dict:
+    """Settle a translation that concluded nothing should change.
+
+    "The material is already adequate" is an ANSWER, not a gap, so it is
+    settled like an answer: the decision and its reason go on file as a
+    project-level decision record, the note is addressed, and nothing is
+    written to the timeline.  A no-change conclusion that left the note
+    open would be indistinguishable from a plan nobody made.
+    """
+    from library.tools import candidate_treatments
+
+    conclusion = proposal.get("no_change") or {}
+    reason = str(conclusion.get("reason") or "")
+    candidate_set = candidate_treatments.no_change(
+        record.get("note") or spec.get("request") or "", reason,
+        evidence_refs=conclusion.get("evidence_refs") or ())
+    decision = {"decision": candidate_treatments.NO_CHANGE,
+                "operations": [], "categories": []}
+    revision = candidate_treatments.record(
+        project, candidate_set, decision, author=ORIGINATOR_NAME,
+        reason=reason)
+    _record_ruling(project, record, spec,
+                   str(revision.get("revision_id") or ""))
+    record["candidate_decision"] = {
+        "revision_id": revision.get("revision_id"),
+        "decision": candidate_treatments.NO_CHANGE,
+        "reason": reason,
+    }
+    note = _find_note(project, record["note_id"])
+    if note is not None:
+        _addressed(project, note, "no change needed", reason, reason)
+    _status(record, STATUS_NO_CHANGE)
+    return _result(project, _save(project, record))
+
+
+def _program_signature(operations) -> str:
+    """A stable signature of a program's operations.
+
+    Two programs that carry the same operations in the same order are
+    the same plan, whatever the candidate set calls it.  The signature
+    is what matches a landed program back to the candidate it came from.
+    """
+    import json
+
+    rows = []
+    for operation in operations or ():
+        if not isinstance(operation, dict):
+            continue
+        rows.append({
+            "op": str(operation.get("op") or ""),
+            "params": operation.get("params") or {},
+            "anchor": operation.get("anchor") or {},
+        })
+    return json.dumps(rows, sort_keys=True, ensure_ascii=False)
+
+
+def _chosen_candidate(candidate_set: dict, program: dict) -> str:
+    """Which candidate the landed program came from, or "" when none.
+
+    The match is on the operations themselves: the editor's answer is
+    translated into a plan, and the plan that landed is compared with
+    the candidates that were offered.  Exactly one match names the
+    candidate; no match, or more than one, names none, because a
+    decision record that guessed would be worse than one that says the
+    choice was not one of the offered candidates.
+    """
+    signature = _program_signature((program or {}).get("ops") or ())
+    if not signature:
+        return ""
+    matches = []
+    for candidate in (candidate_set or {}).get("treatments") or ():
+        if _program_signature(candidate.get("operations") or ()) == signature:
+            matches.append(str(candidate.get("treatment_id") or ""))
+    if len(matches) != 1:
+        return ""
+    return matches[0]
+
+
+def _record_candidate_decision(project: str, record: dict,
+                               spec: dict) -> str:
+    """Keep the candidate set and the choice as a project-level decision.
+
+    The alternatives that LOST are kept with the same care as the one
+    that won: the decision record carries every candidate, its reasoning
+    and its evaluation, so the reasoning behind the choice can be read
+    back later.  Returns the decision's revision id, or "" when there
+    was no candidate set to decide between.
+    """
+    from library.tools import candidate_treatments
+
+    candidate_set = record.get("candidate_set") or {}
+    if not candidate_set.get("treatments"):
+        return ""
+    program = spec.get("program") or {}
+    treatment_id = _chosen_candidate(candidate_set, program)
+    try:
+        if treatment_id:
+            decision = candidate_treatments.select(
+                candidate_set, treatment_id, overruled_by="the editor",
+                override_reason="the editor chose this candidate")
+        else:
+            decision = {
+                "decision": candidate_treatments.SELECTED,
+                "treatment_id": "",
+                "operations": program.get("ops") or [],
+                "categories": [],
+            }
+    except candidate_treatments.CandidateError:
+        return ""
+    revision = candidate_treatments.record(
+        project, candidate_set, decision, author=ORIGINATOR_NAME,
+        reason=str(record.get("note") or ""))
+    record["candidate_decision"] = {
+        "revision_id": revision.get("revision_id"),
+        "decision": decision.get("decision"),
+        "treatment_id": decision.get("treatment_id") or "",
+    }
+    return str(revision.get("revision_id") or "")
+
+
+def _record_ruling(project: str, record: dict, spec: dict,
+                   revision_id: str) -> None:
+    """Keep what the editor decided about the proposal, and why.
+
+    The ruling lands on the candidate decision record, so the record
+    says what the editor decided about the plan it proposed.  A
+    rejection or a modification also becomes a project learning, so the
+    next run in THIS project knows better; a project learning cannot
+    reach another project, which is what keeps a project-scoped
+    preference where it was stated.
+    """
+    from library.tools import treatment_rulings
+
+    row = spec.get("ruling")
+    if not isinstance(row, dict) or not revision_id:
+        return
+    try:
+        ruling = treatment_rulings.ruling(
+            str(row.get("outcome") or ""), str(row.get("reason") or ""),
+            scope=str(row.get("scope")
+                      or treatment_rulings.SCOPE_PROJECT),
+            editor_words=str(row.get("editor_words") or ""),
+            preference_slot=str(row.get("preference_slot") or ""),
+            stated_by=str(row.get("stated_by") or ""))
+    except treatment_rulings.RulingError:
+        return
+    ruling["decision_revision"] = revision_id
+    recorded = treatment_rulings.record(
+        project, revision_id, ruling, author=ORIGINATOR_NAME)
+    record["ruling"] = {
+        "revision_id": revision_id,
+        "outcome": ruling["outcome"],
+        "reason": ruling["reason"],
+        "scope": ruling["scope"],
+        "generalizable": ruling["generalizable"],
+        "learning_id": (recorded.get("learning") or {}).get("id") or "",
+    }
+
+
 def _result(project: str, record: dict) -> dict:
     """What the host reads: the state, and the one line to tell the person."""
     status = record["status"]
@@ -953,6 +1114,11 @@ def _result(project: str, record: dict) -> dict:
             if record.get("failed_command") else
             "AXI did not return a committed, verified receipt; the note "
             "remains unresolved."),
+        STATUS_NO_CHANGE: (
+            "Nothing needed changing: "
+            + str((record.get("candidate_decision") or {}).get("reason")
+                  or "the existing material already achieves the request")
+            + ". Nothing was written to the timeline."),
     }.get(status) or (record.get("change") or {}).get("summary")
     out = {key: record.get(key) for key in (
         "revise_id", "status", "note", "note_id", "source", "reel", "anchor",
@@ -960,6 +1126,7 @@ def _result(project: str, record: dict) -> dict:
         "spec_id", "proposal", "classification", "route", "change",
         "commands", "decisions", "verification", "question", "failed_command",
         "landed_generation", "scope", "supersedes", "prior_bases",
+        "candidate_set", "candidate_decision", "ruling",
         "edit_request", "preparation", "execution_receipt")}
     out["reply"] = reply
     if status == STATUS_AWAITING:
@@ -1014,9 +1181,17 @@ def advance(project, revise_id: str, *, answer: str = "",
     spec = edit_spec.load_response_spec(project, record["spec_id"])
     proposal = edit_spec.proposal_for_spec(project, record["spec_id"])
     record["proposal"] = proposal
+    candidate_set = proposal.get("candidates")
+    if candidate_set and candidate_set.get("treatments"):
+        # The set the editor was asked to choose from. It is kept on the
+        # record so the decision can name the candidate that was chosen
+        # and so the alternatives that lost survive the choice.
+        record["candidate_set"] = candidate_set
     if proposal["questions"]:
         _status(record, STATUS_QUESTION, question=proposal["questions"][0])
         return _result(project, _save(project, record))
+    if proposal.get("no_change"):
+        return _settle_no_change(project, record, spec, proposal)
     record["decisions"] = _fold_decisions(project, record, spec)
     note = _find_note(project, record["note_id"])
     classification = classify(spec, frame=note.frame if note else None,
@@ -1073,6 +1248,8 @@ def advance(project, revise_id: str, *, answer: str = "",
             recovery_class=refused.recovery_class) from refused
     record.update({key: value for key, value in outcome.items()
                    if key != "status"})
+    revision_id = _record_candidate_decision(project, record, spec)
+    _record_ruling(project, record, spec, revision_id)
     _status(record, outcome["status"])
     return _result(project, _save(project, record))
 

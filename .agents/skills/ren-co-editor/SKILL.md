@@ -480,6 +480,7 @@ happened next:
 |---|---|
 | `awaiting_translation` | Answer the `LLM_REQUEST_READY` file exactly as below, then run `ren revise <project>` again |
 | `question` | Ask the person `reply` (it is exactly one question), then `ren revise <project> --answer "<their words>"` |
+| `no_change` | Ren looked, and the existing material already achieves the request. Nothing was written to the timeline; say so, and say why |
 | `patched` / `touched` | A change was applied. Check its AXI receipt and requested result before reporting completion |
 | `rebuilt` | The owning steps rebuilt that reel. Check the operation receipt and requested result before reporting completion |
 | `incomplete` | The request did not complete. Inspect actual state and the refusal or failure; do not report delivery or retry until its recovery path is clear |
@@ -493,6 +494,29 @@ edit is not verified completion, a staged timeline is not a promoted
 reel, and a promoted reel is not delivered until the signed-off export
 and its checks exist. `--plan` stops after showing what would change.
 Changing a signed-off reel asks first (`needs_question`), like a rebuild.
+
+**A subjective request may come back as choices, not a plan.** When the
+editor asks for something the footage can answer in more than one honest
+way ("the opening feels slow", "make it punchier"), the translation
+returns SEVERAL candidate treatments and `ren revise` asks which one to
+use. Show the person each candidate's name and what it changes, in their
+words, and answer with `ren revise <project> --answer "<their words>"`.
+Every candidate and the reasoning behind it is kept on file, including
+the ones that lost, so a later question about why this cut was chosen has
+an answer.
+
+**"Nothing needs changing" is an answer.** When the material already
+achieves what was asked for, the translation returns a no-change
+conclusion with its reason and the evidence it rests on, `ren revise`
+settles it, and nothing is written to the timeline. Report it as what it
+is: Ren looked and left it alone.
+
+**What the editor decided is recorded.** When they answer a question
+about a proposal, the translation reports whether they accepted, rejected
+or MODIFIED it, and why, in their own words. A modification is not a
+rejection: the plan as proposed did not stand. If they said the
+preference is theirs in general, it is recorded as editor-wide - and it
+still does not reach another project on its own.
 
 The steps `ren revise` composes remain available one by one. Link the
 existing note id for a pulled marker; a direct chat or CLI request creates
