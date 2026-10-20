@@ -41,15 +41,23 @@ so every existing subclass is coded without touching its file; a
 subclass that needs a code that survives a rename sets `CODE`
 explicitly, and a raise site that needs one for this instance passes
 `code=`. The human shape `render()` never carries the code - it stays
-out of prose a machine would parse - and `to_dict()` carries all seven
+out of prose a machine would parse - and `to_dict()` carries all eight
 fields (`code`, `what`, `why`, `fix`, `user_message`, `recovery_class`,
-`conflict_class`).
+`conflict_class`, `ask_reason`).
 
 A refusal may also name the CONFLICT CLASS it came from - the kind of
 badness the refusal is about - so a host can act on the class without
 parsing the prose. The classes are enumerated by
 `library/tools/edit_conflict.py`; a refusal that is not about a
 conflict carries an empty string.
+
+A refusal that asks the PERSON carries an ASK REASON: which of the
+three things genuinely demands them - the intent is not determinate, the
+change is not authorized, or the available evidence does not settle it.
+`needs_question` says THAT a question is needed; the ask reason says
+WHY, and it is the difference between asking the person and the host
+improvising a question for them. A refusal that does not ask carries
+an empty reason.
 """
 
 from __future__ import annotations
@@ -63,6 +71,46 @@ import traceback
 
 REFUSAL_EXIT_CODE = 4
 """Exit code for a refusal with a fix. Part of the contract below."""
+
+
+ASK_REASONS = ("ambiguous_intent", "missing_authorization",
+               "insufficient_evidence")
+"""The three things that genuinely demand a person, and the reasons a
+refusal names when it asks one.
+
+`ambiguous_intent` - the request means more than one thing, and the
+choice changes the result.
+`missing_authorization` - the change is the person's to approve, and
+nobody has said yes.
+`insufficient_evidence` - what is on the record does not settle it, so
+a judgement would be a guess.
+
+A refusal that does not ask the person carries no reason. This is the
+ONE vocabulary of them: `library/tools/nothing_to_decide.py` is the
+sibling for the MODEL, and it is deliberately a different module,
+because "the model had nothing to decide" and "the person had nothing
+to decide" are different sentences.
+"""
+
+
+def ask_reason(*, intent_unambiguous: bool, authorized: bool,
+               evidence_sufficient: bool) -> str:
+    """Whether a person is needed, and why. Empty means proceed.
+
+    The one place that answers "does this genuinely demand a person",
+    so "ask only when it must" has one spelling rather than a habit.
+    The three questions are the three reasons, and the order is the
+    order they bite: an ambiguous intent cannot be answered by more
+    evidence, and an unauthorized change cannot be answered by a
+    clearer intent.
+    """
+    if not intent_unambiguous:
+        return "ambiguous_intent"
+    if not authorized:
+        return "missing_authorization"
+    if not evidence_sufficient:
+        return "insufficient_evidence"
+    return ""
 
 
 EXIT_CONTRACT = """\
@@ -104,9 +152,16 @@ class RenRefusal(RuntimeError, ValueError):
     """One of auto_recoverable, needs_question or blocked. Families
     override this only when their safe recovery is known."""
 
+    ASK_REASON = ""
+    """Why a person is needed, when one is. One of `ASK_REASONS`, or
+    empty for a refusal that does not ask. A family that asks sets this
+    (or passes `ask_reason=` at the raise site), so a host can tell an
+    ambiguous request from an unauthorized one from an unproven one
+    without reading the prose."""
+
     def __init__(self, what: str, why: str, fix: str, code: str = "",
                  user_message: str = "", recovery_class: str = "",
-                 conflict_class: str = "") -> None:
+                 conflict_class: str = "", ask_reason: str = "") -> None:
         missing = [name for name, value in
                    (("what", what), ("why", why), ("fix", fix))
                    if not (isinstance(value, str) and value.strip())]
@@ -131,6 +186,12 @@ class RenRefusal(RuntimeError, ValueError):
             raise ValueError("recovery_class must be auto_recoverable, "
                              "needs_question or blocked")
         self.conflict_class = conflict_class.strip()
+        self.ask_reason = (ask_reason.strip()
+                           or type(self).ASK_REASON.strip())
+        if self.ask_reason and self.ask_reason not in ASK_REASONS:
+            raise ValueError(
+                f"ask_reason must be one of {list(ASK_REASONS)}, or empty; "
+                f"got {self.ask_reason!r}")
         super().__init__(self.render())
 
     def render(self) -> str:
@@ -146,7 +207,8 @@ class RenRefusal(RuntimeError, ValueError):
                 "why": self.why, "fix": self.fix,
                 "user_message": self.user_message,
                 "recovery_class": self.recovery_class,
-                "conflict_class": self.conflict_class}
+                "conflict_class": self.conflict_class,
+                "ask_reason": self.ask_reason}
 
 
 def _default_code(class_name: str) -> str:

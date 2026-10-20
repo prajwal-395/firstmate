@@ -459,6 +459,7 @@ def refusal_payload(verb_name: str, what: str, why: str, fix: str) -> dict:
                              "The requested change has not been confirmed; "
                              "resolve the issue below before continuing."),
             "recovery_class": "blocked", "conflict_class": "",
+            "ask_reason": "",
             "verb": verb_name}
 
 

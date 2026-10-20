@@ -93,6 +93,7 @@ class AssignmentDecisionRequired(RenRefusal):
 
     CODE = "REN_ASSIGNMENT_DECISION_REQUIRED"
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "missing_authorization"
 
     def __init__(self, what: str, *, assignment_id: str, effect: dict,
                  question: str, authorize: str) -> None:

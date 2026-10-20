@@ -194,6 +194,7 @@ class TimelineMovedSinceTouch(UndoRefused):
                     "Should I undo against the updated cut?")
 
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "ambiguous_intent"
 
 
 class UndoNotVerified(RuntimeError):

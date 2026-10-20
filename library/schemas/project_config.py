@@ -53,6 +53,7 @@ class ProjectConfigInvalid(RenRefusal):
     """
 
     CODE = "REN_PROJECT_CONFIG_INVALID"
+    ASK_REASON = "ambiguous_intent"
     USER_MESSAGE = ("This project's config needs a fix before Ren can "
                     "run it. Nothing ran; read verbs still answer.")
     RECOVERY_CLASS = "needs_question"

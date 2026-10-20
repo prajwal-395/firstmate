@@ -4876,7 +4876,8 @@ def _summary_refusal(summary: dict) -> "RenRefusal":
             code=info.get("code") or "",
             user_message=info.get("user_message") or "",
             recovery_class=info.get("recovery_class") or "",
-            conflict_class=info.get("conflict_class") or "")
+            conflict_class=info.get("conflict_class") or "",
+            ask_reason=info.get("ask_reason") or "")
     reason = summary.get("reason") or "the run refused before starting"
     first_line = (reason.splitlines() or [""])[0].strip() or reason
     fix = summary.get("fix") or (

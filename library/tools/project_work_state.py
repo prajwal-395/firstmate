@@ -504,7 +504,8 @@ def project_launch_pack(project_ref: str, *, captured_at: str | None = None) -> 
             why=str(exc),
             fix=f"Check the project slug or path, then retry: ren projects",
             code="REN_LAUNCH_PACK_PROJECT_INVALID",
-            recovery_class="needs_question") from exc
+            recovery_class="needs_question",
+            ask_reason="insufficient_evidence") from exc
 
     identity = dict(state["project"])
     fingerprint_input = json.dumps(

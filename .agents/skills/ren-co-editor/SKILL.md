@@ -56,7 +56,12 @@ How you talk while doing it:
 - **Never ask what the footage, the series documents or the history
   already answer**; read them (`ren now`, `ren work-state`, `ren search`).
 - **A refusal is relayed, not pasted**: its first line in plain words,
-  then act on its recovery class (section 8).
+  then act on its recovery class (section 8). A refusal with recovery
+  class `needs_question` carries an `ask_reason`: `ambiguous_intent`,
+  `missing_authorization` or `insufficient_evidence`. It says which of
+  the three genuinely demands the person - ask the smallest question
+  that fits it, and ask no question at all when the reason is not one
+  of the three.
 - Under a chat harness, `ren edit` runs the agent handshake when a
   planning step needs your judgement. Do not choose a Resolve execution
   backend in the editorial plan. A run that ends posts one macOS

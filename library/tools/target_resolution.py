@@ -83,6 +83,7 @@ class TargetAmbiguousRefused(TargetResolutionRefused):
 
     CODE = "REN_TARGET_AMBIGUOUS"
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "ambiguous_intent"
     USER_MESSAGE = ("More than one clip matches what you described, so I "
                     "changed nothing. The options below name them all.")
 

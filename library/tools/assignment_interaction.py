@@ -170,7 +170,8 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             effect["reason"],
             f"the operation effect {effect['effect']!r} requires a human decision",
             "resolve the decision for this assignment, then resubmit",
-            code="REN_ASSIGNMENT_DECISION_REQUIRED", recovery_class="needs_question").to_dict()
+            code="REN_ASSIGNMENT_DECISION_REQUIRED", recovery_class="needs_question",
+            ask_reason="missing_authorization").to_dict()
         from library.tools import assignment_refusal
 
         refusal["kind"] = assignment_refusal.classify(refusal)["kind"]

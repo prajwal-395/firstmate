@@ -1062,7 +1062,8 @@ def apply_patch(patch, *, resolve, project, timeline,
                 user_message=("The edit may have landed. I saved the current "
                               "timeline state for review before continuing."),
                 recovery_class="needs_question",
-                conflict_class="uncertain_mutation")
+                conflict_class="uncertain_mutation",
+                ask_reason="insufficient_evidence")
             # The reversal that is available, and the gate that says the
             # work may not resume until the restored state is verified
             # (PRES-021, PRES-022).
