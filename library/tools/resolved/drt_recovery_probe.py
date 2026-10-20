@@ -175,10 +175,17 @@ def run(job: dict, resolve) -> dict:
                     f"new_timelines={added!r}")
             uid, name = matches[0]
             timeline = _timeline_by_uid(project, uid)
-            if not project.SetCurrentTimeline(timeline):
-                raise JobRefused(f"{KIND} could not select the imported timeline")
-            from library.tools.resolve_lock import assert_current_timeline
-            assert_current_timeline(project, timeline)
+            # Establishing the cursor is a write to shared Resolve
+            # state, so it goes through the guarded implementation -
+            # which sets, reads back and refuses without an exclusive
+            # lease - under an explicit exclusive section the guard
+            # contract recognises, inside the broker's whole-take lease.
+            from library.tools.resolve_lock import (
+                assert_current_timeline, resolve_lease,
+            )
+            with resolve_lease(
+                    f"{KIND} select imported timeline", exclusive=True):
+                assert_current_timeline(project, timeline)
             actual = _timeline_facts(timeline)
             if actual != expected:
                 raise JobRefused(

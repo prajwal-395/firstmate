@@ -865,6 +865,18 @@
   ],
   [
     "library/tools/edit_algebra.py",
+    "_apply_track_add",
+    "AddTrack",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
+    "_apply_track_add",
+    "SetTrackName",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
     "<module>",
     "AddMarker",
     1
@@ -910,12 +922,6 @@
     "<module>",
     "SetClipsLinked",
     2
-  ],
-  [
-    "library/tools/edit_algebra.py",
-    "<module>",
-    "AddTrack",
-    1
   ],
   [
     "library/tools/edit_algebra.py",
@@ -2073,6 +2079,12 @@
     "library/tools/resolve_swapback.py",
     "delete_fusion_key",
     "DeleteKeyFrames",
+    1
+  ],
+  [
+    "library/tools/resolved/drt_recovery_probe.py",
+    "perform",
+    "ImportTimelineFromFile",
     1
   ],
   [

@@ -96,7 +96,7 @@ def _write(project: os.PathLike | str, doc: Mapping[str, Any]) -> None:
             # decision when both statuses are terminal review outcomes.
             merged["status"] = (
                 new_status if new_rank > old_rank or
-                (new_rank == old_rank == 3 and
+                (new_rank == old_rank and new_rank >= 3 and
                  str(incoming.get("updated_at") or "") >=
                  str(existing.get("updated_at") or "")) else old_status)
             merged["version"] = actual + 1

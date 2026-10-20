@@ -227,7 +227,7 @@ const VERBS: &[Verb] = &[
     Verb { name: "safe-zones", group: "Reels", summary: "Put a platform safe-zone guide on reel timelines, switched off so it never renders" },
     Verb { name: "sign-off", group: "Reels", summary: "Record the captain's sign-off on a built reel" },
     Verb { name: "purge", group: "Reels", summary: "Plan (default) or --apply the lean-retention purge" },
-    Verb { name: "workspace-gc", group: "Maintenance", summary: "Plan or apply bounded collection of unreachable Ren workspace data" },
+    Verb { name: "workspace-gc", group: "Maintenance", summary: "Plan, quarantine, or restore unreachable Ren workspace data" },
     Verb { name: "storage", group: "Maintenance", summary: "Account for storage and reconcile owned lifecycle artifacts" },
     Verb { name: "storage-status", group: "Maintenance", summary: "Read the registered storage inventory and disk pressure" },
     Verb { name: "storage-plan", group: "Maintenance", summary: "Preview an exact-identity storage cleanup plan" },

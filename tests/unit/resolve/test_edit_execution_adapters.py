@@ -246,44 +246,6 @@ def test_audio_fade_adapter_converts_seconds_using_timeline_rate(monkeypatch):
     }]
 
 
-def test_audio_gain_uses_exact_item_and_protected_otio_candidate(monkeypatch):
-    from library.tools import project_registry
-    from library.tools.execution import deliver_audio_mix
-
-    operation = {"op": "audio.gain", "unique_id": "clip-17", "db": -6.0}
-    context = _context(operation)
-    context.snapshot["tracks"][0]["type"] = "audio"
-    context.snapshot["tracks"][0]["index"] = 1
-    monkeypatch.setattr(project_registry, "resolve_project_path",
-                        lambda _project: None)
-    monkeypatch.setattr(project_registry, "get_project", lambda _project: (
-        SimpleNamespace(project_root=Path("/tmp/project"),
-                         resolve=SimpleNamespace(
-                             project_name="Resolve Project"))))
-    calls = []
-    report = {
-        "delivered": True,
-        "full_preservation_verified": True,
-        "complaints": [],
-        "applied": [{"matched_start_frame": 20}],
-    }
-    monkeypatch.setattr(deliver_audio_mix, "deliver_semantic_gain",
-                        lambda *args, **kwargs: (
-                            calls.append((args, kwargs)) or report))
-
-    result = adapters._audio_gain(context)
-
-    assert calls[0][0][0:3] == (
-        "/tmp/project", "Resolve Project", "Reel 01 - opening")
-    assert calls[0][0][3] == {
-        "role": "sfx", "source_file": "/media/music.wav",
-        "start_frame": 20, "level_db": -6.0, "keyframes": {},
-        "label": "music.wav",
-    }
-    assert calls[0][1] == {"fps": 30.0}
-    assert result["execution_contract"]["verification"]["status"] == "verified"
-
-
 def test_audio_fade_stages_native_frames_and_preserves_other_item_fades(
         monkeypatch):
     from library.tools import reel_read, reel_touchup

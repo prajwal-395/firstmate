@@ -5,8 +5,8 @@ import pytest
 from library.tools.resolved import drt_recovery_probe, jobs
 
 
-def test_prepare_is_exclusive_borrowing_qualification_and_closed(monkeypatch,
-                                                                tmp_path):
+def test_prepare_is_exclusive_qualification_only_and_closed(monkeypatch,
+                                                             tmp_path):
     archive = tmp_path / "recovery.drt"
     archive.write_bytes(b"fixture")
     monkeypatch.setattr(
@@ -19,7 +19,11 @@ def test_prepare_is_exclusive_borrowing_qualification_and_closed(monkeypatch,
     assert shape["mode"] == "exclusive"
     assert shape["qualification"] is True
     assert shape["project"] == jobs.QUALIFICATION_PROJECT
-    assert drt_recovery_probe.KIND in jobs.BORROWING_QUALIFICATION_KINDS
+    # qualification_only by design: the probe requires Ren Qualification
+    # open and manages its own scratch-project lifecycle with a recorded
+    # origin, so it must NOT join the borrow-and-restore set - the
+    # worker's non-borrowing open check enforces the entry project.
+    assert drt_recovery_probe.KIND not in jobs.BORROWING_QUALIFICATION_KINDS
     assert drt_recovery_probe.KIND in jobs.RUNNING_CANCELLATION_KINDS
 
     with pytest.raises(jobs.JobRefused, match="unknown field"):
