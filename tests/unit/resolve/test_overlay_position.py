@@ -134,6 +134,7 @@ def test_position_adapter_maps_deltas_to_a_staged_touchup(monkeypatch):
         calls.append(spec)
         operation = spec["acceptance_operations"][0]
         return {
+            "journal": "journal-touchup-test",
             "transaction": {"verification": {"status": "verified"}},
             "acceptance_contracts": [{
                 "operation": operation["op"], "passed": True,

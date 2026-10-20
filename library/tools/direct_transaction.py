@@ -307,7 +307,7 @@ def execute(*, decision, operations: Sequence[Mapping[str, Any]],
     if prior_states.get(txid) == "committed":
         prior = prior_events[txid]
         requested_intent = tuple(dict(op) for op in operations)
-        if list(requested_intent) != prior.get("operations"):
+        if requested_intent != tuple(prior.get("operations") or ()):
             raise DirectTransactionRefused(
                 "transaction id was already used for different operations")
         observed = prior.get("observed_state", prior.get("recovered_state"))

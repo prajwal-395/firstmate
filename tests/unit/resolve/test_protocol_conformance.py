@@ -8,9 +8,7 @@ over.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -372,6 +370,9 @@ _EXAMPLE_OPS = {
     "overlay.position": {"unique_id": "clip_1", "dx": 0.0, "dy": -40.0},
     "overlay.entry_motion": {"unique_id": "clip_1", "frames": 10},
     "hold.repair_window": {"unique_id": "clip_1"},
+    "reel.opening": {"unique_id": "clip_1", "brief": "start with the claim",
+                      "edits": [{"op": "clip.trim", "unique_id": "clip_1",
+                                 "in_frame": 10, "out_frame": 48}]},
     "transform_override": {"unique_id": "clip_1", "key": "Pan",
                            "value": 0.5},
     "span_retime": {"unique_id": "clip_1", "percent": 1.5},

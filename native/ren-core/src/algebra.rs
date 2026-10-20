@@ -464,7 +464,7 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
     },
     OpDeclaration {
         id: "multicam.select_angle", domain: "picture_transform",
-        required: &["unique_id", "angle_index"],
+        required: &["unique_id", "speaker_id", "assignment_basis", "source_file", "source_in_frame", "source_out_frame", "sync_evidence_id"],
         merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
         item: true, has_apply: false,
         inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous angle") },
@@ -530,6 +530,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
     },
     OpDeclaration {
         id: "overlay.swap_pixels", domain: "fusion",
+        required: &["unique_id", "file"],
+        merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
+        item: true, has_apply: false,
+        inverse: Inverse { op: None, self_inverse: true, reason: String::from("the inverse carries the previous file") },
+    },
+    OpDeclaration {
+        id: "overlay.replace", domain: "fusion",
         required: &["unique_id", "file"],
         merge: MergeSemantics::Replace, temporal: TemporalEffect::Local,
         item: true, has_apply: false,
@@ -786,12 +793,7 @@ fn reel_opening_item_uids(edits: &serde_json::Value) -> Vec<String> {
     match edits.as_array() {
         Some(list) => list
             .iter()
-            .filter_map(|entry| {
-                entry
-                    .get("unique_id")?
-                    .as_str()
-                    .map(String::from)
-            })
+            .filter_map(|entry| entry.get("unique_id")?.as_str().map(String::from))
             .collect(),
         None => Vec::new(),
     }
@@ -942,6 +944,7 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
         } => Some((*record_frame, *record_frame + duration.unwrap_or(1))),
         EditOp::OverlayRemove { unique_id } => item_span(base, &unique_id.0),
         EditOp::OverlaySwapPixels { unique_id, .. } => item_span(base, &unique_id.0),
+        EditOp::OverlayReplace { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayResize { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayPosition { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::OverlayEntryMotion { unique_id, .. } => item_span(base, &unique_id.0),
@@ -1366,6 +1369,10 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             KeyPart::Text("overlay".to_string()),
             KeyPart::Text(unique_id.0.clone()),
         ],
+        EditOp::OverlayReplace { unique_id, .. } => vec![
+            KeyPart::Text("overlay".to_string()),
+            KeyPart::Text(unique_id.0.clone()),
+        ],
         EditOp::OverlayResize { unique_id, .. } => vec![
             KeyPart::Text("overlay".to_string()),
             KeyPart::Text(unique_id.0.clone()),
@@ -1529,6 +1536,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::CompoundFlatten { unique_id } => Some(unique_id.0.clone()),
         EditOp::OverlayRemove { unique_id } => Some(unique_id.0.clone()),
         EditOp::OverlaySwapPixels { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::OverlayReplace { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayResize { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayPosition { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::OverlayEntryMotion { unique_id, .. } => Some(unique_id.0.clone()),

@@ -1205,13 +1205,29 @@
       "description": "Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.",
       "type": "object",
       "properties": {
-        "angle_index": {
-          "type": "integer",
-          "format": "int64"
+        "assignment_basis": {
+          "type": "string"
         },
         "op": {
           "type": "string",
           "const": "multicam.select_angle"
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "source_in_frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "source_out_frame": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "speaker_id": {
+          "type": "string"
+        },
+        "sync_evidence_id": {
+          "type": "string"
         },
         "unique_id": {
           "$ref": "#/$defs/ClipId"
@@ -1220,7 +1236,12 @@
       "required": [
         "op",
         "unique_id",
-        "angle_index"
+        "speaker_id",
+        "assignment_basis",
+        "source_file",
+        "source_in_frame",
+        "source_out_frame",
+        "sync_evidence_id"
       ]
     },
     {
@@ -1428,6 +1449,27 @@
       ]
     },
     {
+      "description": "Replace an approved overlay file while preserving its placement.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "op": {
+          "type": "string",
+          "const": "overlay.replace"
+        },
+        "unique_id": {
+          "$ref": "#/$defs/ClipId"
+        }
+      },
+      "required": [
+        "op",
+        "unique_id",
+        "file"
+      ]
+    },
+    {
       "type": "object",
       "properties": {
         "height": {
@@ -1458,10 +1500,12 @@
       "type": "object",
       "properties": {
         "dx": {
-          "type": "number"
+          "type": "number",
+          "format": "double"
         },
         "dy": {
-          "type": "number"
+          "type": "number",
+          "format": "double"
         },
         "op": {
           "type": "string",

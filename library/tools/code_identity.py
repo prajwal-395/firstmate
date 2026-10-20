@@ -94,11 +94,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #
 STEP_IMPLEMENTATION_DEPS = {
     "step_1_06_object_segmentation": (
-        # Catalog and segmentation both traverse the edit receipt/cleanup
-        # adapters during project-model publication; changes invalidate both.
         "library/tools/artifact_lifecycle.py",
         "library/tools/cache_lifecycle.py",
         "library/tools/edit_execution_adapters.py",
+        "library/tools/edit_state_preservation.py",
+        "library/tools/git_guard.py",
         "library/tools/execution/deliver_audio_mix.py",
         "library/tools/execution/remove_proof.py",
         "library/tools/proof_cleanup.py",
@@ -630,6 +630,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/artifact_lifecycle.py",
         "library/tools/cache_lifecycle.py",
         "library/tools/edit_execution_adapters.py",
+        "library/tools/edit_state_preservation.py",
+        "library/tools/git_guard.py",
         "library/tools/execution/deliver_audio_mix.py",
         "library/tools/execution/remove_proof.py",
         "library/tools/proof_cleanup.py",
@@ -1169,6 +1171,10 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/storage_lifecycle.py',
     ),
     "step_1_02_catalog_footage": (
+        # The catalog's executor closure imports state preservation and Git
+        # checks before it can safely publish edits to a project timeline.
+        "library/tools/edit_state_preservation.py",
+        "library/tools/git_guard.py",
         # The catalog can commit timeline edit receipts and deliver audio
         # artifacts; keep those execution and cleanup paths in its cache key.
         "library/tools/artifact_lifecycle.py",
@@ -1749,6 +1755,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/artifact_lifecycle.py",
         "library/tools/cache_lifecycle.py",
         "library/tools/edit_execution_adapters.py",
+        "library/tools/edit_state_preservation.py",
+        "library/tools/git_guard.py",
         "library/tools/execution/deliver_audio_mix.py",
         "library/tools/execution/remove_proof.py",
         "library/tools/proof_cleanup.py",
@@ -2313,6 +2321,8 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/artifact_lifecycle.py",
         "library/tools/cache_lifecycle.py",
         "library/tools/edit_execution_adapters.py",
+        "library/tools/edit_state_preservation.py",
+        "library/tools/git_guard.py",
         "library/tools/execution/deliver_audio_mix.py",
         "library/tools/execution/remove_proof.py",
         "library/tools/proof_cleanup.py",

@@ -199,6 +199,7 @@ def test_clip_remove_readback_carries_only_declared_link_groups():
     after["tracks"][1]["clips"] = [
         _clip("music-new", 100, 200, track_type="audio", track_index=1,
               track_name="A1", source_file="c-audio.wav", media_type="Audio",
+              source_in_frame=200, source_out_frame=300,
               linked_unique_ids=["c-new"])]
     evidence = _remove_readback_evidence(before, after, "b", removed, None)
     assert evidence["downstream_continuity_preserved"] is True

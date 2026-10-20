@@ -144,8 +144,7 @@ def test_broll_insert_acceptance_names_speech_preservation_and_collateral():
 def test_broll_insert_is_registered_but_stays_fail_closed():
     """Defect: an implemented adapter that reads as production-enabled
     before live qualification routes an unproven cover onto the reel."""
-    from library.tools import edit_algebra, edit_execution_adapters
-    from library.tools import resolve_axi_core
+    from library.tools import edit_algebra, edit_execution_adapters, resolve_axi_core
 
     edit_execution_adapters.register_builtin_edit_executors()
     assert ("broll.insert", "resolve_axi") in set(
@@ -298,22 +297,17 @@ def test_broll_insert_claims_only_a_journaled_verified_placement(monkeypatch):
         adapters._broll_insert(_context(_operation(), base))
 
 
-def test_broll_insert_inverse_terminates_in_the_delete_insert_pair():
+def test_broll_insert_inverse_uses_the_delete_insert_pair():
     """Defect: a cover with no undo leaves the A-roll buried - its inverse
     deletes the placed item through the proven delete path."""
     from library.tools import edit_algebra
 
     spec = edit_algebra.get("broll.insert")
     assert spec is not None and spec.inverse.op == "clip.delete"
-    seen, current = set(), "broll.insert"
-    while current is not None:
-        assert current not in seen
-        seen.add(current)
-        step = edit_algebra.ALGEBRA[current].inverse
-        if step.self_inverse or step.op is None:
-            break
-        current = step.op
-    assert seen == {"broll.insert", "clip.delete", "clip.insert"}
+    # clip.delete and clip.insert are mutual inverses by design, so the
+    # inverse chain closes on that pair rather than terminating at None.
+    assert edit_algebra.get("clip.delete").inverse.op == "clip.insert"
+    assert edit_algebra.get("clip.insert").inverse.op == "clip.delete"
 
 
 def test_broll_insert_previews_as_a_cover_placement_without_touching_speech():

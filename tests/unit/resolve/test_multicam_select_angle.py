@@ -12,9 +12,11 @@ import pytest
 
 from library.tools import (
     edit_algebra,
-    edit_execution_adapters as adapters,
     operation_acceptance,
     resolve_axi_core,
+)
+from library.tools import (
+    edit_execution_adapters as adapters,
 )
 
 
@@ -130,11 +132,13 @@ def test_right_speaker_camera_uses_the_assigned_synced_source_range(
         assert command[:2] == ["edit", "switch-camera"]
         assert "--camera-source-file" in command
         assert "/media/camera_b.mov" in command
-        return AxiResult(exit_code=0, stdout="camera selected", stderr="")
+        return AxiResult(exit_code=0, stdout="camera selected\nentry: journal-1", stderr="")
 
     monkeypatch.setattr(resolve_axi_core, "execute", execute)
     monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
                         lambda *_args: _snapshot("replacement-1"))
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project-1")
     receipt = adapters._multicam_select_angle(_context({
         "op": "multicam.select_angle", "unique_id": "turn-1",
         "speaker_id": "speaker-1",

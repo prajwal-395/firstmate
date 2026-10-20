@@ -46,9 +46,10 @@ def test_legacy_live_evidence_does_not_fill_missing_qualification_fields():
     for backend in ("reel_touchup", "composed_edit"):
         assert edit_algebra.status("clip.set_property", backend).production_enabled is False
 
-    # Availability on a backend is not qualification on that backend.
+    # This exact backend now has a complete passed qualification record;
+    # only the older marker evidence above remains incomplete.
     assert edit_algebra.status("clip.set_property", "edit_patch").compilable
-    assert not edit_algebra.is_production_enabled(
+    assert edit_algebra.is_production_enabled(
         "clip.set_property", "edit_patch")
     assert not edit_algebra.is_production_enabled(
         "clip.trim", "edit_patch")

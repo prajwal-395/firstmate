@@ -33,10 +33,10 @@ def test_safety_class_policies_close_the_direct_bypass():
 
 
 def test_declared_inverse_is_not_proof():
-    # clip.set_property names its own inverse, but no qualification evidence
-    # proves it on edit_patch - so the name alone authorizes nothing.
-    assert edit_algebra.get("clip.set_property").inverse.self_inverse is True
-    assert edit_algebra.proven_inverse("clip.set_property", "edit_patch") == ()
+    # clip.move names its own inverse, but no qualification evidence proves
+    # it on edit_patch - so the name alone authorizes nothing.
+    assert edit_algebra.get("clip.move").inverse.self_inverse is True
+    assert edit_algebra.proven_inverse("clip.move", "edit_patch") == ()
     assert edit_algebra.proven_inverse("marker.add", "edit_patch") != ()
 
 

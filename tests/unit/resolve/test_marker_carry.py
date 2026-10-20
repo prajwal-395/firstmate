@@ -802,6 +802,9 @@ class _Item_2:
     def GetMediaPoolItem(self):
         return self._pool
 
+    def GetLinkedItems(self):
+        return []
+
 
 class _Timeline_2:
     """Resolve declined on an occupied frame, and so does this fake."""

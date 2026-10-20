@@ -549,8 +549,10 @@ def clip_detail(item, track_type: str, track_index: int,
     comp_names = list(_call(item, "GetFusionCompNameList", []) or [])
     try:
         linked_unique_ids = sorted({
-            str(linked.GetUniqueId()) for linked in (item.GetLinkedItems() or [])
-            if linked is not None and linked.GetUniqueId()
+            str(linked_id) for linked in (item.GetLinkedItems() or [])
+            if linked is not None
+            for linked_id in [_call(linked, "GetUniqueId", "")]
+            if linked_id
         })
     except Exception as unreadable:
         raise ReelReadError(

@@ -202,7 +202,12 @@ def inspect_fixture(manifest_path: Path | str) -> dict[str, Any]:
             or root.parent != Path(tempfile.gettempdir()).resolve()):
         raise ValueError("fixture cleanup is restricted to owned temp roots")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("schema") != SCHEMA or manifest.get("owned_root") != str(root):
+    recorded_root = manifest.get("owned_root")
+    try:
+        owns_root = Path(recorded_root).expanduser().resolve(strict=True) == root
+    except (TypeError, OSError, RuntimeError):
+        owns_root = False
+    if manifest.get("schema") != SCHEMA or not owns_root:
         raise ValueError("fixture ownership marker does not match this root")
     expected = {MARKER} | {row["filename"] for row in manifest["asset_recipes"]}
     actual = {path.name for path in root.iterdir()}

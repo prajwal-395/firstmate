@@ -150,6 +150,11 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         row["last_event"] = event
         if fields.get("stage") in {"operation_applying", "operation_applied"}:
             operation = fields.get("operation", fields.get("op"))
+            if operation is None:
+                operations = fields.get("operations") or ()
+                index = fields.get("index")
+                if isinstance(index, int) and 0 <= index < len(operations):
+                    operation = operations[index]
             operation_id = (operation.get("op")
                             if isinstance(operation, Mapping) else operation)
             operation_row = {"index": fields.get("index"),

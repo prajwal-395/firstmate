@@ -961,18 +961,6 @@
   ],
   [
     "library/tools/editor_edit_carry.py",
-    "_composed",
-    "SetClipEnabled",
-    1
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
-    "_composed",
-    "SetClipColor",
-    1
-  ],
-  [
-    "library/tools/editor_edit_carry.py",
     "_apply_splits",
     "Insertion",
     1
@@ -2527,18 +2515,6 @@
   ],
   [
     "library/tools/undo_journal.py",
-    "_write_inverse",
-    "SetClipColor",
-    1
-  ],
-  [
-    "library/tools/undo_journal.py",
-    "_revert_in_place",
-    "SetClipEnabled",
-    1
-  ],
-  [
-    "library/tools/undo_journal.py",
     "_revert_in_place",
     "DeleteFusionCompByName",
     1
@@ -2703,6 +2679,60 @@
     "library/tools/resolve_scratch_projects.py",
     "retire_exact",
     "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "AddFlag",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipsLinked",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "SetClipsLinked",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "discard_unverified",
+    "DeleteClips",
     1
   ]
 ]

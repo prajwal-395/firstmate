@@ -463,11 +463,13 @@ def test_registered_full_request_verification_catches_late_operation_loss():
         {"op": "clip.delete", "unique_id": "clip-1"},
         {"op": "clip.delete", "unique_id": "clip-2"},
     ]
-    before = {"tracks": [{"type": "video", "index": 1, "clips": [
+    before = {"start_frame": 0, "end_frame": 20,
+              "tracks": [{"type": "video", "index": 1, "clips": [
         {"unique_id": "clip-1", "record_in": 0, "record_out": 10},
         {"unique_id": "clip-2", "record_in": 10, "record_out": 20},
     ]}]}
-    after = {"tracks": [{"type": "video", "index": 1, "clips": [
+    after = {"start_frame": 0, "end_frame": 20,
+             "tracks": [{"type": "video", "index": 1, "clips": [
         {"unique_id": "clip-2", "record_in": 10, "record_out": 20},
     ]}]}
     receipts = [{"operation_index": index, "receipt": {

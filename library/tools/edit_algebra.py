@@ -2609,7 +2609,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
              "dy positive down, so up by 40 output pixels is dy=-40). "
              "Size, timing and every other item are preserved. The staged "
              "candidate adapter lowers the translated box through the "
-             "geometry model to rendered-pixel verification; live "
+             "geometry model to rendered-pixel verification; live Resolve "
              "qualification remains deferred."),
     "overlay.entry_motion": AlgebraOp(
         id="overlay.entry_motion", domain="fusion",
@@ -3051,17 +3051,21 @@ def _verify_replace(op, after):
 
 def _verify_multicam_select_angle(op, after):
     """The assigned camera and synchronized range replace the turn."""
-    clip = _clip(after, op["unique_id"])
-    if clip is None:
-        return f"clip {op['unique_id']!r} is not on the timeline"
-    if clip.get("source_file") != op["source_file"]:
-        return (f"clip {op['unique_id']!r} reads source "
-                f"{clip.get('source_file')!r}, not assigned camera "
-                f"{op['source_file']!r}")
-    for key in ("source_in_frame", "source_out_frame"):
-        if not _same_value(clip.get(key), op[key]):
-            return (f"clip {op['unique_id']!r} reads {key}="
-                    f"{clip.get(key)!r}, not synced range {op[key]!r}")
+    if _clip(after, op["unique_id"]) is not None:
+        return (f"camera switch left target {op['unique_id']!r} in place; "
+                "the replacement identity did not read back")
+    matches = [clip for clip in shadow.clips(after)
+               if clip.get("source_file") == op["source_file"]
+               and _same_value(clip.get("source_in_frame"),
+                               op["source_in_frame"])
+               and _same_value(clip.get("source_out_frame"),
+                               op["source_out_frame"])]
+    if not matches:
+        return (f"no replacement reads assigned camera "
+                f"{op['source_file']!r} at the synchronized source range")
+    if len(matches) != 1:
+        return (f"the assigned camera {op['source_file']!r} reads back "
+                f"{len(matches)} times at the synchronized source range")
     return None
 
 
@@ -3590,10 +3594,6 @@ def _executor_coverage() -> dict[str, set[str]]:
         "clip.move", "overlay.swap_pixels", "overlay.replace", "overlay.add", "overlay.remove",
         "clip.set_enabled", "clip.ripple", "clip.slip", "retime", "clip.set_property",
         "audio.fade", "audio.gain", "transition", "overlay.resize", "overlay.position", "clip.split", "clip.slide", "clip.roll", "track.add", "overlay.entry_motion", "hold.repair_window",
-        # Protected compound-only staged adapters. The router admits these
-        # only in the two exact multi-operation shapes handled by the shared
-        # candidate transaction path below.
-        "clip.trim", "clip.insert", "clip.replace", "caption.style",
     }
     # `composed_edit.set_properties` is the measured in-place property
     # writer. Other touch-up operations compile through the workflow but

@@ -335,7 +335,15 @@ pub enum EditOp {
     MulticamAngle { unique_id: ClipId, angle_index: i64 },
     /// Show the camera assigned to the marked speaker for their speaking turn, preserving the edit points.
     #[serde(rename = "multicam.select_angle")]
-    MulticamSelectAngle { unique_id: ClipId, angle_index: i64 },
+    MulticamSelectAngle {
+        unique_id: ClipId,
+        speaker_id: String,
+        assignment_basis: String,
+        source_file: String,
+        source_in_frame: i64,
+        source_out_frame: i64,
+        sync_evidence_id: String,
+    },
 
     // ── compound (domain: timeline_structure) ────────────────────────
     /// Nest clips into one compound item; flatten restores them.
@@ -386,6 +394,9 @@ pub enum EditOp {
     /// An overlay's pixels for a re-rendered file.
     #[serde(rename = "overlay.swap_pixels")]
     OverlaySwapPixels { unique_id: ClipId, file: String },
+    /// Replace an approved overlay file while preserving its placement.
+    #[serde(rename = "overlay.replace")]
+    OverlayReplace { unique_id: ClipId, file: String },
     #[serde(rename = "overlay.resize")]
     OverlayResize {
         unique_id: ClipId,
@@ -394,11 +405,7 @@ pub enum EditOp {
     },
     /// Move an overlay by a signed output-pixel delta, preserving its size and timing.
     #[serde(rename = "overlay.position")]
-    OverlayPosition {
-        unique_id: ClipId,
-        dx: f64,
-        dy: f64,
-    },
+    OverlayPosition { unique_id: ClipId, dx: f64, dy: f64 },
     #[serde(rename = "overlay.entry_motion")]
     OverlayEntryMotion { unique_id: ClipId, frames: i64 },
     /// Rebind the media windows on a freeze-hold tail without changing its picture.
@@ -552,6 +559,7 @@ impl EditOp {
             EditOp::OverlayAdd { .. } => "overlay.add",
             EditOp::OverlayRemove { .. } => "overlay.remove",
             EditOp::OverlaySwapPixels { .. } => "overlay.swap_pixels",
+            EditOp::OverlayReplace { .. } => "overlay.replace",
             EditOp::OverlayResize { .. } => "overlay.resize",
             EditOp::OverlayPosition { .. } => "overlay.position",
             EditOp::OverlayEntryMotion { .. } => "overlay.entry_motion",

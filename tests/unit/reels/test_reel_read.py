@@ -9,17 +9,18 @@ marker alongside the timeline-level ones, because its marker half IS
 import ast
 import json
 from pathlib import Path
+
 import pytest
+
+from library.tools import reel_fusion_comps as comps
 from library.tools import reel_read
 from library.tools import reel_replace_guard as guard
-from library.tools import reel_fusion_comps as comps
 from tests.resolve_double import (
     FakeProject,
     FakeTimeline,
     FakeTimelineItem,
     TimelineItemSpec,
 )
-
 
 REEL = "Reel 09 - moment"
 
@@ -35,7 +36,7 @@ class _Pool:
 
     def GetClipProperty(self, name):
         return {"File Path": self._path, "Frames": "5000",
-                "Comments": "", "Resolution": "1920x1080"}.get(name, "")
+                "Resolution": "1920x1080", "Comments": ""}.get(name, "")
 
     def GetMarkers(self):
         return dict(self._markers)
@@ -673,7 +674,8 @@ def test_build_with_none_records_none(tmp_path):
 
 class _MatteItem(_Item):
     def __init__(self, name, comps):
-        super().__init__(name, 0, 100, 0, None, fusion=len(comps))
+        super().__init__(name, 0, 100, 0, _Pool("/media/matte-source.mov"),
+                         fusion=len(comps))
         self._named = comps
         self.opened = []
 
@@ -689,7 +691,7 @@ def _matte_comp(keyframes, geometry=None):
     from library.tools import edit_algebra
     from tests.resolve_double import FakeTool, matte_comp_from_text
 
-    item = _Item("c", 0, 100, 0, _Pool("c"))
+    item = _Item("c", 0, 100, 0, _Pool("/media/matte-source.mov"))
     path = edit_algebra._build_matte_comp(item, "m-matte", geometry or {},
                                           keyframes)
     with open(path, encoding="utf-8") as handle:

@@ -40,6 +40,7 @@ def _context(operation):
 def _verified_touchup_receipt(spec):
     operation = spec["acceptance_operations"][0]
     return {
+        "journal": "journal-touchup-test",
         "transaction": {"verification": {"status": "verified"}},
         "acceptance_contracts": [{
             "operation": operation["op"], "passed": True,

@@ -351,7 +351,7 @@ def _remove_readback_evidence(before: Mapping, after: Mapping,
             downstream_ok = False
             continue
         old_links = {mapping[str(link)] for link in old_by_id[uid]["linked_unique_ids"]
-                     if str(link) in moved_ids and str(link) in mapping}
+                     if str(link) in mapping}
         new_links = {str(link) for link in new_by_id[mapped]["linked_unique_ids"]}
         if old_links != new_links:
             downstream_ok = False
@@ -511,6 +511,27 @@ def _broll_insert(context) -> dict:
             f"match the marked source range {source_in}..{source_out} "
             "(inclusive): the cover plays the whole marked range exactly")
     before = context.snapshot
+    prepared_video_tracks = [track for track in before.get("tracks", [])
+                             if str(track.get("type")) == "video"]
+    prepared_indexes = [int(track["index"])
+                        for track in prepared_video_tracks]
+    if not prepared_indexes or track_index != max(prepared_indexes):
+        raise ValueError(
+            "broll.insert cover must use the topmost video track so the "
+            "placed picture cannot be hidden by a higher video layer")
+    prepared_cover = [track for track in prepared_video_tracks
+                      if int(track["index"]) == track_index]
+    if len(prepared_cover) != 1:
+        raise ValueError(
+            f"broll.insert cover track V{track_index} is absent from "
+            "the prepared timeline - create the row before covering it")
+    if any(int(clip["record_in"]) < record_out
+           and record_in < int(clip["record_out"])
+           for clip in prepared_cover[0].get("clips") or []):
+        raise ValueError(
+            f"broll.insert cover span {record_in}..{record_out} is "
+            f"occupied on V{track_index} - refusing rather than "
+            "stacking a second cover")
     live_before = resolve_axi_core.read_live_timeline(
         context.request.project, context.request.timeline)
     live_tracks = live_before.get("tracks", [])
@@ -1651,7 +1672,7 @@ def _touchup(context) -> dict:
                              "touchup_receipt": receipt},
             },
             "recovery": {
-                "status": "available",
+                "status": "recorded",
                 "action": "undo the touch-up journal entry and verify its read-back",
                 "reference": {
                     "kind": "undo_journal_entry",

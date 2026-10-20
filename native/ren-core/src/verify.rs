@@ -308,21 +308,13 @@ fn verify_ripple(op: &EditOp, after: &Snapshot) -> Option<String> {
 fn verify_reel_opening(op: &EditOp, after: &Snapshot) -> Option<String> {
     let edits = match op {
         EditOp::ReelOpening { edits, .. } => edits,
-        _ => {
-            return Some(
-                "reel.opening verifier reached a non-opening op".to_string(),
-            )
-        }
+        _ => return Some("reel.opening verifier reached a non-opening op".to_string()),
     };
     let Some(list) = edits.as_array() else {
-        return Some(
-            "reel.opening carries no structural edits to read back".to_string(),
-        );
+        return Some("reel.opening carries no structural edits to read back".to_string());
     };
     if list.is_empty() {
-        return Some(
-            "reel.opening carries no structural edits to read back".to_string(),
-        );
+        return Some("reel.opening carries no structural edits to read back".to_string());
     }
     for (index, entry) in list.iter().enumerate() {
         let nested: EditOp = match serde_json::from_value(entry.clone()) {
@@ -442,19 +434,37 @@ fn verify_replace(op: &EditOp, after: &Snapshot) -> Option<String> {
 fn verify_multicam_select_angle(op: &EditOp, after: &Snapshot) -> Option<String> {
     let EditOp::MulticamSelectAngle {
         unique_id,
-        angle_index,
+        source_file,
+        source_in_frame,
+        source_out_frame,
+        ..
     } = op
     else {
         return None;
     };
-    if after.clip(&unique_id.0).is_none() {
-        return Some(format!("clip {unique_id:?} is not on the timeline"));
+    if after.clip(&unique_id.0).is_some() {
+        return Some(format!(
+            "camera switch left target {unique_id:?} in place; the replacement identity did not read back"
+        ));
     }
-    // The snapshot model carries no per-item angle list, so a switch
-    // the read-back cannot see is a failure, never a pass.
-    Some(format!(
-        "clip {unique_id:?} carries no readable angle {angle_index}: the timeline inventory exposes no angle list, so the switch cannot be verified"
-    ))
+    let matches = after
+        .clips()
+        .into_iter()
+        .filter(|clip| {
+            clip.source_file == *source_file
+                && clip.source_in_frame == Some(*source_in_frame)
+                && clip.source_out_frame == Some(*source_out_frame)
+        })
+        .count();
+    match matches {
+        0 => Some(format!(
+            "no replacement reads assigned camera {source_file:?} at the synchronized source range"
+        )),
+        1 => None,
+        count => Some(format!(
+            "the assigned camera {source_file:?} reads back {count} times at the synchronized source range"
+        )),
+    }
 }
 
 fn verify_broll_insert(op: &EditOp, after: &Snapshot) -> Option<String> {
@@ -964,9 +974,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         | EditOp::MaskEdit { .. }
         | EditOp::MaskTrack { .. } => verify_mask(op, after),
         EditOp::MulticamAngle { .. } => None,
-        EditOp::MulticamSelectAngle { .. } => {
-            verify_multicam_select_angle(op, after)
-        }
+        EditOp::MulticamSelectAngle { .. } => verify_multicam_select_angle(op, after),
         EditOp::CompoundCreate { .. } => verify_presence(op, after, true, "compound"),
         EditOp::CompoundFlatten { .. } => verify_presence(op, after, false, "compound"),
         EditOp::TrackAdd { .. } => verify_track_named(op, after),
@@ -976,6 +984,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::OverlayAdd { .. } => None,
         EditOp::OverlayRemove { .. } => verify_presence(op, after, false, "overlay"),
         EditOp::OverlaySwapPixels { .. } => None,
+        EditOp::OverlayReplace { .. } => None,
         EditOp::OverlayResize { .. } => None,
         EditOp::OverlayPosition { .. } => None,
         EditOp::OverlayEntryMotion { .. } => None,
