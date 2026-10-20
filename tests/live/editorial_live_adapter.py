@@ -29,15 +29,20 @@ read-back spans.
 from __future__ import annotations
 
 import json
-import subprocess
-import tempfile
+import os
+import re
+import textwrap
+import time
 from pathlib import Path
 from time import perf_counter
 
 from tests.live import small_edit_qualification as q
 
 PROJECT = "Ren Qualification"
-TIMELINE = "fm-scratch qualify"
+#: The PROTECTED fixture timeline. This adapter does not write on it:
+#: its batches work on a disposable copy (see `_working_timeline`), so
+#: the fixture every live lane shares keeps its state.
+TIMELINE = q.PROTECTED_TIMELINE
 LOGO = "fm-qual-logo-180x64.png"
 
 REPORT_DIR = Path(__file__).resolve().parent / "reports"
@@ -147,7 +152,7 @@ def _build_request(operations: list, instruction: str,
             expected_effect=instruction))
     return edit_request.EditRequest(
         id=edit_request._request_id(),
-        project=PROJECT, timeline=TIMELINE,
+        project=PROJECT, timeline=_working_timeline(),
         operations=tuple(built),
         originator={"kind": "instruction", "name": originator_name,
                     "detail": instruction})
@@ -238,7 +243,7 @@ def _route_executing(ops: list[dict], entry: str,
 
     try:
         request = edit_request.from_axi_operations(
-            ops, project=PROJECT, timeline=TIMELINE,
+            ops, project=PROJECT, timeline=_working_timeline(),
             originator={"kind": "instruction", "name": "ren revise (axc)",
                         "detail": entry})
     except edit_request.EditRequestError as exc:
@@ -260,13 +265,26 @@ def _route_executing(ops: list[dict], entry: str,
 
 
 def _broker_script() -> str:
-    return '''\
+    """The broker script, with every case isolated.
+
+    A case that raised used to end the WHOLE batch: the script died
+    before its result line, the session step exited non-zero, and the
+    receipt carried no JSON at all - so one failing case cost every
+    other case its evidence (measured 2026-10-20: three AXI-11 requests
+    reported "Fixture batch emitted no JSON"). Each case now runs
+    inside its own guard: a failed case is reported as a JSON failure
+    and the cases around it keep their evidence.
+    """
+    return _with_isolated_cases(_BROKER_SCRIPT)
+
+
+_BROKER_SCRIPT = '''\
 import contextlib, io, json, time
 from pathlib import Path
 from library.tools import edit_patch, resolve_axi
 
 PROJECT = "Ren Qualification"
-TIMELINE = "fm-scratch qualify"
+TIMELINE = "@AXC_TIMELINE@"
 PROJECT_DIR = "@FM_QUAL_PROJECT_DIR@"
 TASK = "@AXC_TASK@"
 OPENING_BRIEF = """@AXC_BRIEF@"""
@@ -1363,13 +1381,110 @@ result = {"cases": results}
 '''
 
 
+#: The case blocks of the broker script: `if TASK in (...)` headers and
+#: the code under them.
+_CASE_HEADER = re.compile(r"^if TASK in \((?P<names>[^)]*)\):$")
+
+#: The result line the script ends with; the isolated script writes its
+#: own, so the body of a case never carries it.
+_RESULT_LINE = 'result = {"cases": results}'
+
+
+def _case_bodies(script: str) -> tuple[str, dict[str, str], list[str]]:
+    """The broker script's prologue, its case bodies and their names.
+
+    The cases are the `if TASK in (...)` blocks: each header names the
+    cases it belongs to (the last name is the case; `all` is the
+    sweep), and the body is the code under it.
+    """
+    prologue: list[str] = []
+    bodies: dict[str, str] = {}
+    order: list[str] = []
+    current: str | None = None
+    body: list[str] = []
+    for line in script.splitlines(keepends=True):
+        header = _CASE_HEADER.match(line.rstrip("\n"))
+        if header:
+            if current is not None:
+                bodies[current] = "".join(body)
+            names = [name.strip().strip('"')
+                     for name in header.group("names").split(",")
+                     if name.strip()]
+            current = names[-1] if names else ""
+            order.append(current)
+            body = []
+            continue
+        if current is None:
+            if line.strip() == _RESULT_LINE:
+                break
+            prologue.append(line)
+            continue
+        if line.strip() == _RESULT_LINE:
+            continue
+        body.append(line)
+    if current is not None:
+        bodies[current] = "".join(body)
+    return "".join(prologue), bodies, order
+
+
+def _with_isolated_cases(script: str) -> str:
+    """The broker script, with each case inside its own guard.
+
+    The batch ALWAYS ends with its JSON result: a case that raises is
+    reported as a failure under its own name, the setup that failed is
+    reported as the batch's failure, and the cases that ran keep their
+    evidence.
+    """
+    prologue, bodies, order = _case_bodies(script)
+    lines = prologue.splitlines(keepends=True)
+    setup_at = next((index for index, line in enumerate(lines)
+                     if line.startswith("ensure_tracks(")), len(lines))
+    preamble = "".join(lines[:setup_at])
+    setup = "".join(lines[setup_at:])
+    table = "_CASE_BODIES = {\n" + "".join(
+        f"    {name!r}: {textwrap.dedent(body)!r},\n"
+        for name, body in bodies.items()) + "}\n"
+    cases = "".join(f"    {name!r},\n" for name in order)
+    return (
+        preamble
+        + table
+        + "results = {}\n"
+        + "_failure = ''\n"
+        + "try:\n"
+        + textwrap.indent(setup, "    ")
+        + "    for _case in (\n" + cases + "    ):\n"
+        + "        if TASK != 'all' and TASK != _case:\n"
+        + "            continue\n"
+        + "        try:\n"
+        + "            exec(_CASE_BODIES[_case], globals())\n"
+        + "        except Exception as _exc:\n"
+        + "            results[_case] = {'error': f'{type(_exc).__name__}: "
+        + "{_exc}'}\n"
+        + "            try:\n"
+        + "                teardown()\n"
+        + "            except Exception as _teardown_exc:\n"
+        + "                results[_case]['teardown_error'] = (\n"
+        + "                    f'{type(_teardown_exc).__name__}: "
+        + "{_teardown_exc}')\n"
+        + "except Exception as _exc:\n"
+        + "    _failure = f'{type(_exc).__name__}: {_exc}'\n"
+        + "result = {'cases': results}\n"
+        + "if _failure:\n"
+        + "    result['failure'] = _failure\n"
+    )
+
+
 _EVIDENCE_CACHE: dict = {}
+
+#: The disposable timeline this adapter's batches write on; one per
+#: adapter run (see `_working_timeline`).
+_WORKING_TIMELINE: str | None = None
 
 
 
 
 def _recover_timeline() -> None:
-    """Empty the private scratch timeline after a failed batch.
+    """Empty the working timeline after a failed batch.
 
     A batch that raises mid-case skips its teardown and poisons the
     next task's assert_empty; recovery removes exactly what is there
@@ -1378,12 +1493,67 @@ def _recover_timeline() -> None:
     The implementation is shared with the generalization matrix, which
     needs the same restoration.
     """
-    q.recover_timeline()
+    q.recover_timeline(_working_timeline())
+
+
+def _working_timeline() -> str:
+    """The DISPOSABLE timeline this adapter's batches write on.
+
+    The protected fixture (`fm-scratch qualify`) is shared with the
+    other live lanes, so this adapter never writes on it: it works on a
+    disposable copy of it, created by the fixture step and cleared
+    before every batch. One name per adapter run, so a run leaves one
+    timeline behind rather than one per batch.
+    """
+    global _WORKING_TIMELINE
+    if _WORKING_TIMELINE is None:
+        stamp = (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+                 + "-" + os.urandom(3).hex())
+        _WORKING_TIMELINE = q.disposable_timeline_name(stamp)
+    return _WORKING_TIMELINE
+
+
+def _batch_failure(reason: str, detail: str, **extra) -> RuntimeError:
+    """A failure the report can read: a JSON document, not a sentence.
+
+    The lane reads a failed request's reason out of the report, and a
+    sentence has to be parsed by a human. A batch that emitted nothing
+    is the failure this fixes (measured 2026-10-20: "Fixture batch
+    emitted no JSON"), so the failure IS the JSON the batch would have
+    printed.
+    """
+    document = {"category": "fixture_batch_failed", "reason": reason,
+                "detail": detail, **extra}
+    return RuntimeError(json.dumps(document, indent=2, default=str))
+
+
+def _cases_payload(stdout: str) -> dict:
+    """The batch's own result block, wherever it sits in the stdout.
+
+    The AXI prints its run receipt around the script's output, and the
+    receipt carries JSON of its own, so the first block in the stdout
+    is not always the batch's result. The block that carries the CASES
+    is the batch's.
+    """
+    decoder = json.JSONDecoder()
+    index = stdout.find("{\n")
+    while index >= 0:
+        try:
+            payload, _ = decoder.raw_decode(stdout[index:])
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and "cases" in payload:
+            return payload
+        index = stdout.find("{\n", index + 1)
+    raise _batch_failure(
+        "no_json", f"the batch printed no JSON result: {stdout[-2000:]}")
 
 
 def _evidence_batch(task_id: str) -> dict:
     """One fixture batch for one task; returns the cases mapping."""
+    working = _working_timeline()
     script = _broker_script().replace("@AXC_TASK@", task_id)
+    script = script.replace("@AXC_TIMELINE@", working)
     script = script.replace("@FM_QUAL_PROJECT_DIR@",
                             _run_store())
     script = script.replace("@AXC_BRIEF@",
@@ -1394,21 +1564,25 @@ def _evidence_batch(task_id: str) -> dict:
     script = script.replace("@AXC_CAPTION_ONE@", caption_one)
     script = script.replace("@AXC_CAPTION_TWO@", caption_two)
     batch = q._qualification_batch(
-        q._select_timeline_script() + script)
+        q._select_timeline_script(working) + script, timeline=working)
     steps = (batch.get("result") or {}).get("steps", [])
     if not steps:
-        raise RuntimeError(
-            f"qualification batch returned no steps: {batch}")
-    stdout = steps[0]["stdout"]
-    start = stdout.find("{\n")
-    if start < 0:
-        raise RuntimeError(
-            f"JSON result block is missing: {stdout[-2000:]}")
-    payload, _ = json.JSONDecoder().raw_decode(stdout[start:])
+        raise _batch_failure(
+            "no_steps", f"the qualification batch returned no steps: {batch}")
+    stdout = q.result_stdout(batch)
+    payload = _cases_payload(stdout)
     cases = payload["cases"]
+    if payload.get("failure"):
+        raise _batch_failure(
+            "setup_failed", str(payload["failure"]), cases=list(cases))
     if task_id not in cases:
-        raise RuntimeError(
-            f"live batch ran no case for task {task_id!r}")
+        raise _batch_failure(
+            "no_case", f"the live batch ran no case for task {task_id!r}",
+            cases=list(cases))
+    case = cases[task_id]
+    if isinstance(case, dict) and case.get("error"):
+        raise _batch_failure(
+            "case_failed", str(case["error"]), task=task_id)
     return cases
 
 
@@ -1445,12 +1619,9 @@ def _evidence(task_id: str) -> dict:
 
 def _evidence_all() -> dict:
     """Run every broker case once (Level-2 cached batch, no per-task clock)."""
-    keys = ("resize_logo", "add_logo_five_seconds", "trim_pause",
-            "move_lower_third", "replace_graphic", "remove_broll",
-            "insert_relevant_broll", "restyle_captions",
-            "right_speaker_camera", "improve_opening",
-            "compound_move_and_resize", "compound_trim_and_replace")
+    working = _working_timeline()
     script = _broker_script().replace("@AXC_TASK@", "all")
+    script = script.replace("@AXC_TIMELINE@", working)
     script = script.replace("@FM_QUAL_PROJECT_DIR@", _run_store())
     script = script.replace("@AXC_BRIEF@", _opening_brief_text())
     script = script.replace("@AXC_ASSIGNMENT@", _assignment_json())
@@ -1458,17 +1629,17 @@ def _evidence_all() -> dict:
     script = script.replace("@AXC_CAPTION_ONE@", caption_one)
     script = script.replace("@AXC_CAPTION_TWO@", caption_two)
     batch = q._qualification_batch(
-        q._select_timeline_script() + script)
+        q._select_timeline_script(working) + script, timeline=working)
     steps = (batch.get("result") or {}).get("steps", [])
     if not steps:
-        raise RuntimeError(
-            f"qualification batch returned no steps: {batch}")
-    stdout = steps[0]["stdout"]
-    start = stdout.find("{\n")
-    if start < 0:
-        raise RuntimeError(
-            f"JSON result block is missing: {stdout[-2000:]}")
-    payload, _ = json.JSONDecoder().raw_decode(stdout[start:])
+        raise _batch_failure(
+            "no_steps", f"the qualification batch returned no steps: {batch}")
+    stdout = q.result_stdout(batch)
+    payload = _cases_payload(stdout)
+    if payload.get("failure"):
+        raise _batch_failure(
+            "setup_failed", str(payload["failure"]),
+            cases=list(payload["cases"]))
     return payload["cases"]
 
 

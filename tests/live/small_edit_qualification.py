@@ -152,6 +152,13 @@ def run_batch(actions: dict[str, Callable[[], dict]]) -> dict:
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = "Ren Qualification"
 TIMELINE = "fm-scratch qualify"
+
+#: The PROTECTED fixture timeline. Every live lane shares it, so the
+#: fixture must never delete it, rename it or duplicate over it, and a
+#: lane that needs its own working copy takes a DISPOSABLE one
+#: (`disposable_timeline_name`) instead of writing on this one.
+PROTECTED_TIMELINE = TIMELINE
+
 REN = ROOT / "bin" / "ren"
 LOGO = Path("/tmp/fm-qual-logo-180x64.png")
 LOGO_ALT = Path("/tmp/fm-qual-logo-alt-180x64.png")
@@ -159,9 +166,79 @@ TIGHT_CAPTION = Path("/tmp/fm-qual-tight-caption-480x120.png")
 FULL_FRAME_CAPTION = Path("/tmp/fm-qual-full-frame-caption-1920x1080.png")
 
 
+def disposable_timeline_name(stamp: str, *,
+                             protected: str = PROTECTED_TIMELINE) -> str:
+    """The DISPOSABLE timeline one batch writes on.
+
+    The name keeps the protected fixture's name in front, so the
+    broker's fixture scoping (`fm-scratch*` inside `Ren Qualification`)
+    still recognises the timeline, and the stamp in front of it, so two
+    batches never share one timeline and a batch's leftovers can never
+    reach the next one.
+    """
+    tail = str(stamp or "").strip()
+    if not tail:
+        raise ValueError("a disposable timeline name needs a stamp")
+    return f"{protected} {tail}"
+
+
+def fixture_source_candidates(
+        protected: str = PROTECTED_TIMELINE) -> tuple[str, ...]:
+    """The timelines a disposable fixture may be duplicated from.
+
+    The protected fixture comes first: it is the fixture the live
+    lanes share and its content is the content a batch wants.
+    `Q Spine` is the qualification project's own fixture, and the
+    fallback when the protected one is absent (a Resolve restart can
+    leave the project with its two standard timelines and no scratch
+    timeline - measured 2026-10-20).
+    """
+    return (protected, "Q Spine")
+
+
+def _fixture_refusal(detail: str) -> str:
+    """What the fixture step refused, when it refused.
+
+    `already_exists` is the AXI refusing to double a name that is
+    taken - the disposable is already there, so the batch needs no
+    duplication. `no_source` is the source timeline being absent, so
+    the next candidate is tried. Anything else is a real failure.
+    """
+    if "already exists" in detail:
+        return "already_exists"
+    if "no timeline named exactly" in detail:
+        return "no_source"
+    return ""
+
+
+def duplicate_command(timeline: str, source: str) -> list[str]:
+    """The AXI call that creates a working timeline by duplicating a source.
+
+    The duplication is the AXI's sanctioned path: a `run` script that
+    adds a timeline is refused by the project inventory guard, so the
+    copy is made by the verb itself, as its own session step. The
+    SOURCE is only ever read - the protected fixture is duplicated, not
+    written on.
+    """
+    return ["timeline", "duplicate", "--project", PROJECT,
+            "--timeline", source, "--name", timeline, "--apply"]
+
+
 def _qualification_batch(script: str, *, wait_seconds: int = 180,
-                         timeout_seconds: int = 240) -> dict:
-    """Run all production edits in one switching qualification borrow."""
+                         timeout_seconds: int = 240,
+                         timeline: str | None = None,
+                         source: str | None = None) -> dict:
+    """Run all production edits in one switching qualification borrow.
+
+    `timeline` names the timeline the batch writes on. `None` means the
+    shared protected fixture, exactly as every live lane has always run
+    it. A named timeline is a DISPOSABLE one: the session creates it
+    FIRST by duplicating the protected fixture - read-only, so the
+    protected one is never written on and never duplicated over - and
+    the batch then works on that clean copy. The duplication is its own
+    session step, because a `run` script that adds a timeline is
+    refused by the AXI's project inventory guard.
+    """
     if not REN.is_file():
         raise RuntimeError(f"Ren CLI not found: {REN}")
     with tempfile.TemporaryDirectory(prefix="fm-small-edit-run-record-") as root:
@@ -177,43 +254,115 @@ def _qualification_batch(script: str, *, wait_seconds: int = 180,
                 mode="w", encoding="utf-8", suffix=".py",
                 prefix="fm-small-edit-batch-", dir="/tmp",
                 delete=False) as f:
-            f.write(_select_timeline_script() + script)
+            # The working timeline is selected here, so a batch that
+            # names one works on it whatever the cursor was on. A caller
+            # that selects it too is harmless: the selection only moves
+            # the cursor when it is not already there.
+            f.write(_select_timeline_script(
+                timeline or TIMELINE, clear=bool(timeline)) + script)
             script_path = Path(f.name)
 
-        def run_command(timeline: str | None, path: Path,
-                        purpose: str) -> list[str]:
-            command = ["run", "--project", PROJECT]
-            if timeline:
-                command.extend(["--timeline", timeline])
-            command.extend(["--file", str(path), "--unsafe", "--json",
-                            "--purpose", purpose, "--scope", "project",
-                            "--project-dir", str(root_path)])
-            return command
+        def run_command(path: Path, purpose: str) -> list[str]:
+            return ["run", "--project", PROJECT,
+                    "--file", str(path), "--unsafe", "--json",
+                    "--purpose", purpose, "--scope", "project",
+                    "--project-dir", str(root_path)]
 
-        steps = [{"resolve_axi": run_command(
-            None, script_path, "Run Tier B small-edit qualification batch")}]
+        batch_step = {"resolve_axi": run_command(
+            script_path, "Run Tier B small-edit qualification batch")}
+        attempts: list[list[dict]] = []
+        if timeline:
+            sources = ([source] if source
+                       else list(fixture_source_candidates()))
+            attempts.extend(
+                [[{"resolve_axi": duplicate_command(timeline, candidate)},
+                  batch_step] for candidate in sources])
+        # A disposable that is ALREADY there needs no duplication: the
+        # AXI refuses to double a name, and that refusal is not a
+        # failure of the batch.
+        attempts.append([batch_step])
+
+        detail = ""
         try:
-            proc = subprocess.run(
-                [str(REN), "resolved", "submit",
-                 "resolve.qualification_session",
-                 json.dumps({"project": PROJECT, "steps": steps}),
-                 "--qualification", "--wait", str(wait_seconds)],
-                cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                timeout=timeout_seconds, check=False)
+            index = 0
+            while index < len(attempts):
+                receipt = _submit_session(attempts[index], wait_seconds,
+                                          timeout_seconds)
+                if receipt.get("state") == "done" and receipt.get("result"):
+                    return receipt
+                detail = _failure_detail(receipt)
+                # Only the FIXTURE step is retried: a batch that failed
+                # has already run its cases, and running it again would
+                # write twice.
+                refusal = (_fixture_refusal(detail)
+                           if _failed_step(receipt) == 0 else "")
+                if not refusal:
+                    break
+                if refusal == "already_exists":
+                    # The disposable is already there - the AXI refuses
+                    # to double a name - so the batch needs no
+                    # duplication at all.
+                    attempts = [attempts[-1]]
+                    index = 0
+                    continue
+                index += 1
         finally:
             script_path.unlink(missing_ok=True)
-        if proc.returncode:
-            raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
+        raise RuntimeError("qualification batch failed: " + detail)
+
+
+def _failed_step(receipt: dict) -> int | None:
+    """Which step of a refused session failed, when the receipt says."""
+    result = receipt.get("result")
+    if isinstance(result, dict) and "failed_step" in result:
         try:
-            receipt = json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
+            return int(result["failed_step"])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _submit_session(steps: list[dict], wait_seconds: int,
+                    timeout_seconds: int) -> dict:
+    """Submit one borrowed qualification session and return its receipt.
+
+    A refused session still answers with a receipt, and the receipt
+    carries the step that refused and why - that is the evidence the
+    caller needs, so a receipt is returned even when the CLI reports a
+    failure.
+    """
+    proc = subprocess.run(
+        [str(REN), "resolved", "submit",
+         "resolve.qualification_session",
+         json.dumps({"project": PROJECT, "steps": steps}),
+         "--qualification", "--wait", str(wait_seconds)],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+        timeout=timeout_seconds, check=False)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        if proc.returncode:
             raise RuntimeError(
-                f"broker returned non-JSON receipt: {proc.stdout}") from exc
-        if receipt.get("state") != "done" or not receipt.get("result"):
-            raise RuntimeError(
-                "qualification batch failed: "
-                + _failure_detail(receipt))
-        return receipt
+                proc.stderr.strip() or proc.stdout.strip()) from exc
+        raise RuntimeError(
+            f"broker returned non-JSON receipt: {proc.stdout}") from exc
+
+
+def result_stdout(receipt: dict) -> str:
+    """The stdout of the step that carries the batch's own result.
+
+    A session runs several steps - the fixture's own steps first - so
+    the result block is in the LAST step that has one, not in the first
+    step, which is the fixture's.
+    """
+    result = receipt.get("result")
+    steps = (result or {}).get("steps") if isinstance(result, dict) else []
+    steps = [step for step in (steps or ()) if isinstance(step, dict)]
+    for step in reversed(steps):
+        stdout = str(step.get("stdout") or "")
+        if stdout.find("{\n") >= 0:
+            return stdout
+    return str(steps[-1].get("stdout") or "") if steps else ""
 
 
 def _failure_detail(receipt: dict) -> str:
@@ -244,20 +393,71 @@ def _failure_detail(receipt: dict) -> str:
     return detail or json.dumps(receipt, default=str)[:2000]
 
 
-def _select_timeline_script() -> str:
+def _select_timeline_script(timeline: str = TIMELINE, *,
+                            clear: bool | None = None) -> str:
+    """Select the timeline the batch writes on, and clear it if it is ours.
+
+    `clear` defaults to True for a DISPOSABLE timeline and False for the
+    protected one: a disposable copy carries the source's items, and the
+    batch must start from an empty timeline; the protected fixture is
+    shared with the other live lanes, so its content is never wiped
+    here (its own recovery path owns that).
+    """
+    if clear is None:
+        clear = timeline != PROTECTED_TIMELINE
     return f'''\
 project = manager.GetCurrentProject()
 matches = [project.GetTimelineByIndex(i)
            for i in range(1, int(project.GetTimelineCount() or 0) + 1)
            if project.GetTimelineByIndex(i)
-           and project.GetTimelineByIndex(i).GetName() == {TIMELINE!r}]
-if len(matches) != 1 or not project.SetCurrentTimeline(matches[0]):
-    raise RuntimeError("could not make the exact private scratch timeline current")
+           and project.GetTimelineByIndex(i).GetName() == {timeline!r}]
+if len(matches) != 1:
+    raise RuntimeError("could not find the exact working timeline "
+                       + {timeline!r})
+# Resolve answers SetCurrentTimeline with False when the timeline is
+# ALREADY current, so selecting it twice in one session would read as a
+# failure. Only a timeline that is not current is set.
+_current = project.GetCurrentTimeline()
+if not (_current is not None
+        and str(_current.GetUniqueId() or "")
+        == str(matches[0].GetUniqueId() or "")):
+    if not project.SetCurrentTimeline(matches[0]):
+        raise RuntimeError("could not make the exact working timeline current")
 current = project.GetCurrentTimeline()
 if current.GetUniqueId() != matches[0].GetUniqueId():
-    raise RuntimeError("private scratch timeline did not read back as current")
+    raise RuntimeError("working timeline did not read back as current")
+{_CLEAR_SCRIPT if clear else ""}
 result = {{"timeline": current.GetName(), "id": current.GetUniqueId()}}
 '''
+
+
+#: What a DISPOSABLE working timeline is cleared of before a batch: the
+#: items the source timeline carried, and the fixture's own markers.
+#: One clip at a time, re-collecting between deletes: deleting a
+#: linked pair's picture invalidates its audio entry, so a batch delete
+#: leaves the timeline dirty.
+_CLEAR_SCRIPT = """\
+doomed = []
+for _kind in ("video", "audio", "subtitle"):
+    for _index in range(1, int(current.GetTrackCount(_kind) or 0) + 1):
+        doomed.extend(current.GetItemListInTrack(_kind, _index) or ())
+for _round in range(8):
+    _left = []
+    for _kind in ("audio", "video", "subtitle"):
+        for _index in range(1, int(current.GetTrackCount(_kind) or 0) + 1):
+            _left.extend(current.GetItemListInTrack(_kind, _index) or ())
+    if not _left:
+        break
+    if not bool(current.DeleteClips([_left[0]], False)):
+        raise RuntimeError("could not clear the working timeline")
+else:
+    raise RuntimeError("could not clear the working timeline")
+for _color in ("Yellow", "Green", "Blue"):
+    try:
+        current.DeleteMarkersByColor(_color)
+    except Exception:
+        pass
+"""
 
 
 def _initialize_run_store(root: Path) -> None:
@@ -339,14 +539,16 @@ print("RECOVERED")
 """
 
 
-def recover_timeline() -> None:
-    """Empty and normalize the private qualification timeline.
+def recover_timeline(timeline: str = TIMELINE) -> None:
+    """Empty and normalize one qualification timeline.
 
-    The fixture owns this timeline, so restoring it is a fixture action:
-    the items a dead batch left, the markers it placed, and the video
-    rows it expects (Video 1/V2/V3). It refuses rather than deletes a
-    row that still carries items - a row with content is not a leftover
-    of this fixture and must not be removed by a recovery.
+    The fixture owns the timeline it recovers, so restoring it is a
+    fixture action: the items a dead batch left, the markers it placed,
+    and the video rows it expects (Video 1/V2/V3). It refuses rather
+    than deletes a row that still carries items - a row with content is
+    not a leftover of this fixture and must not be removed by a
+    recovery. The PROTECTED fixture is only recovered when the caller
+    names it: a disposable working timeline is the one a batch owns.
     """
     root = Path(tempfile.mkdtemp(prefix="axc-recover-"))
     (root / "project.yaml").write_text(
@@ -356,7 +558,8 @@ def recover_timeline() -> None:
     with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", dir="/tmp",
             delete=False) as handle:
-        handle.write(_select_timeline_script() + script)
+        handle.write(_select_timeline_script(timeline, clear=False)
+                     + script)
         path = Path(handle.name)
     try:
         completed = subprocess.run(
