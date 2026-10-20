@@ -78,6 +78,7 @@ How a DRX reaches a run:
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from typing import Any, Mapping, Optional
@@ -587,9 +588,11 @@ def _decode_frame_rgb(frame_path: str):
         capture_output=True, encoding="utf-8", errors="replace",
         timeout=60, check=False)
     size = probe.stdout.strip()
-    if "x" not in size:
-        raise RuntimeError(f"could not read the frame size of {frame_path}")
-    width, height = (int(part) for part in size.split("x", 1))
+    dimensions = re.findall(r"(\d{2,5})\s*x\s*(\d{2,5})", size)
+    if not dimensions:
+        raise RuntimeError(
+            f"could not read the frame size of {frame_path}: {size!r}")
+    width, height = (int(part) for part in dimensions[-1])
     res = subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-i", frame_path,
          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],

@@ -359,6 +359,7 @@ def _live_batch_script() -> str:
                  if key in selected}
     return f'''\
 import contextlib, io, json, re, time
+from pathlib import Path
 from library.tools import resolve_axi
 
 PROJECT = {PROJECT!r}
@@ -573,9 +574,10 @@ def cleanup(expected_items):
                     collateral.append("refused fixture cleanup of " + name)
                     return {{"clean": False, "observations": observations,
                             "collateral_changes": collateral}}
-                expected_path = ("/Users/prajwal/.local/share/vep/qualification/"
-                                 "622307e41719/" + name
-                                 if name.startswith("qual_") else "/tmp/" + name)
+                expected_path = (str(Path.home() / ".local/share/vep/qualification/"
+                                     "622307e41719" / name)
+                                 if name.startswith("qual_") else
+                                 str(Path("/tmp") / name))
                 if path != expected_path:
                     collateral.append("refused fixture cleanup path mismatch for "
                                       + name)
