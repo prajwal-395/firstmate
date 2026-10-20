@@ -4721,6 +4721,330 @@ def _preflight_replace_delete(uid: str) -> str:
     return ""
 
 
+def _linked_items(item):
+    """Read Resolve's explicit link group, failing closed on unreadable links."""
+    try:
+        linked = list(item.GetLinkedItems() or [])
+    except Exception as exc:
+        raise AxiError(f"linked-item state could not be read ({exc})") from exc
+    items = [item, *linked]
+    by_uid = {}
+    for member in items:
+        try:
+            uid = str(member.GetUniqueId() or "")
+        except Exception as exc:
+            raise AxiError(f"a linked item has no readable identity ({exc})") from exc
+        if not uid:
+            raise AxiError("a linked item has no stable Resolve identity")
+        by_uid[uid] = member
+    return list(by_uid.values())
+
+
+def _ripple_member_snapshot(item, track_type, track_index):
+    """Capture the source and native state a replacement must preserve."""
+    span = _item_span(item)
+    try:
+        source_in = int(span["source_in"])
+        source_out = int(span["source_out"])
+        record_in = int(span["record_in"])
+        record_out = int(span["record_out"])
+        pool_item = item.GetMediaPoolItem()
+        pool_uid = str(pool_item.GetUniqueId() or "") if pool_item else ""
+    except Exception as exc:
+        raise AxiError(f"{span.get('name')!r} cannot be safely re-placed ({exc})") from exc
+    if pool_item is None or record_out <= record_in:
+        raise AxiError(f"{span.get('name')!r} has unsupported media or span")
+    try:
+        from library.tools import edit_state_preservation
+        from library.tools.reel_read import _speed_percent
+
+        speed = _speed_percent(item)
+        preservation_state = edit_state_preservation.capture(
+            item, picture=track_type == "video")
+    except edit_state_preservation.StatePreservationError as exc:
+        raise AxiError(
+            f"{span.get('name')!r} cannot be safely re-placed ({exc})") from exc
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise AxiError(
+            f"{span.get('name')!r} speed state cannot be read ({exc})") from exc
+    if speed is None or abs(speed - 100.0) > 1e-6:
+        raise AxiError(
+            f"{span.get('name')!r} is retimed; this replacement path cannot "
+            "preserve speed changes")
+    # The shared preservation contract re-links by live handle after each
+    # group has been re-placed below, so old native ids are only evidence.
+    preservation_state = dict(preservation_state)
+    preservation_state["linked_item_ids"] = []
+    return {
+        "item": item, "uid": str(span["uid"]), "name": str(span["name"]),
+        "track_type": track_type, "track_index": int(track_index),
+        "record_in": record_in, "record_out": record_out,
+        "source_in": source_in, "source_out": source_out,
+        "duration": record_out - record_in, "pool_item": pool_item,
+        "pool_uid": pool_uid,
+        "preservation_state": preservation_state,
+    }
+
+
+def _track_ripple_inventory(timeline):
+    """Read structural identity and span without requiring unrelated state carry."""
+    rows = []
+    for track_type in ("video", "audio"):
+        count = int(timeline.GetTrackCount(track_type) or 0)
+        for track_index in range(1, count + 1):
+            for item in timeline.GetItemListInTrack(track_type, track_index) or []:
+                span = _item_span(item)
+                try:
+                    pool_item = item.GetMediaPoolItem()
+                    pool_uid = str(pool_item.GetUniqueId() or "") if pool_item else ""
+                    start = int(span["record_in"])
+                    end = int(span["record_out"])
+                    source_in = (None if span["source_in"] is None
+                                 else int(span["source_in"]))
+                    uid = str(span["uid"] or "")
+                except (TypeError, ValueError, AttributeError) as exc:
+                    raise AxiError(
+                        f"timeline {track_type}{track_index} contains an item "
+                        f"whose structural identity cannot be verified ({exc})") from exc
+                if not uid or end <= start:
+                    raise AxiError(
+                        f"timeline {track_type}{track_index} contains an item "
+                        "without a stable structural identity or positive span")
+                rows.append({
+                    "uid": uid, "name": str(span["name"] or ""),
+                    "track_type": track_type, "track_index": track_index,
+                    "record_in": start, "record_out": end,
+                    "source_in": source_in,
+                    "source_end_exclusive": (
+                        None if source_in is None else source_in + end - start),
+                    "pool_uid": pool_uid,
+                })
+    return rows
+
+
+def cmd_edit_track_ripple_remove(args) -> int:
+    """Close one track's gap, shifting only its later items and link groups."""
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        journal = None
+        try:
+            timeline, is_current, note = _target_timeline(project, args.timeline)
+            target, track_type, track_index, uid = _edit_item_by_identity(
+                timeline, args)
+            target_span = _item_span(target)
+            start, end = int(target_span["record_in"]), int(target_span["record_out"])
+            duration = end - start
+            if duration <= 0:
+                raise AxiError("target clip has no positive record duration")
+            rows = []
+            for kind in ("video", "audio"):
+                for row in range(1, int(timeline.GetTrackCount(kind) or 0) + 1):
+                    for live_item in timeline.GetItemListInTrack(kind, row) or []:
+                        span = _item_span(live_item)
+                        rows.append((kind, row, live_item, span))
+            target_group = _linked_items(target)
+            target_ids = {str(member.GetUniqueId()) for member in target_group}
+            target_records = []
+            for kind, row, member, span in rows:
+                if str(span["uid"]) in target_ids:
+                    target_records.append(_ripple_member_snapshot(member, kind, row))
+            if target_ids != {record["uid"] for record in target_records}:
+                raise AxiError("an explicitly linked target is not on a readable timeline track")
+
+            target_track_successors = [
+                (member, span) for kind, row, member, span in rows
+                if kind == track_type and row == track_index
+                and int(span["record_in"]) >= end]
+            successor_groups = []
+            claimed = set(target_ids)
+            for member, span in sorted(target_track_successors,
+                                       key=lambda pair: int(pair[1]["record_in"])):
+                group = _linked_items(member)
+                records = []
+                for linked in group:
+                    linked_uid = str(linked.GetUniqueId())
+                    if linked_uid in claimed:
+                        raise AxiError(
+                            "two ripple items share a link group; refusing ambiguous movement")
+                    hits = [(kind, row, live, live_span)
+                            for kind, row, live, live_span in rows
+                            if str(live_span["uid"]) == linked_uid]
+                    if len(hits) != 1:
+                        raise AxiError(
+                            f"linked item {linked_uid!r} is not uniquely present")
+                    kind, row, live, _ = hits[0]
+                    records.append(_ripple_member_snapshot(live, kind, row))
+                    claimed.add(linked_uid)
+                successor_groups.append(records)
+            moved_records = [record for group in successor_groups
+                             for record in group]
+            destination_claims = {
+                (record["track_type"], record["track_index"],
+                 record["record_in"] - duration,
+                 record["record_out"] - duration)
+                for record in moved_records}
+            affected_ids = target_ids | {record["uid"] for record in moved_records}
+            for kind, row, _live_item, span in rows:
+                uid_here = str(span["uid"])
+                if uid_here in affected_ids:
+                    continue
+                old_in, old_out = int(span["record_in"]), int(span["record_out"])
+                if any(dest_kind == kind and dest_row == row
+                       and dest_in < old_out and old_in < dest_out
+                       for dest_kind, dest_row, dest_in, dest_out
+                       in destination_claims):
+                    raise AxiError(
+                        f"track-scoped ripple would overlap unrelated {kind}{row} content")
+
+            if not args.apply:
+                emit([kv_block("track_ripple_remove_plan", {
+                    "timeline": timeline.GetName() + (" (current)" if is_current else ""),
+                    "target": target_span["name"], "track": f"{track_type}{track_index}",
+                    "record_span": f"[{start}, {end})", "shifted_groups": len(successor_groups),
+                    "shift_frames": duration,
+                    "linked_target_items": len(target_records) - 1,
+                }), note, "dry run - pass --apply to journal and close the gap"])
+                return 0
+            _assert_cursor_on(resolve, timeline.GetName())
+            before_rows = _track_ripple_inventory(timeline)
+            with _journal_write(
+                    args, timeline=timeline, project=project,
+                    spec={"verb": "edit_track_ripple_remove",
+                          "timeline": timeline.GetName(), "unique_id": uid,
+                          "track": f"{track_type}{track_index}",
+                          "record_in": start, "record_out": end,
+                          "shifted_groups": len(successor_groups)},
+                    gate_class="edit_track_ripple_remove") as (journal, state):
+                if not timeline.DeleteClips(
+                        [record["item"] for record in target_records], False):
+                    raise AxiError("Resolve refused the local target and linked-item delete")
+                if any(_presence(timeline, record["uid"])
+                       for record in target_records):
+                    raise AxiError("the target or an explicitly linked item remained after delete")
+
+                for group in successor_groups:
+                    if not timeline.DeleteClips(
+                            [record["item"] for record in group], False):
+                        raise AxiError("Resolve refused to clear a shifted link group")
+                    if any(_presence(timeline, record["uid"]) for record in group):
+                        raise AxiError("a shifted original remained before re-placement")
+                    replacements = []
+                    for record in group:
+                        media_type = {"video": 1, "audio": 2}.get(
+                            record["track_type"])
+                        if media_type is None:
+                            raise AxiError(
+                                f"linked {record['track_type']} items cannot be re-placed safely")
+                        replacement, error = _replace_item(
+                            timeline, project.GetMediaPool(), None,
+                            record["source_in"], record["source_out"],
+                            record["record_in"] - duration,
+                            record["track_index"], media_type,
+                            pool_item=record["pool_item"],
+                            preservation_state=record["preservation_state"],
+                            write_context={"project": project.GetName(),
+                                           "timeline_id": timeline.GetUniqueId(),
+                                           "timeline_name": timeline.GetName()})
+                        if error:
+                            raise AxiError(error)
+                        replacements.append(replacement)
+                    if len(replacements) > 1:
+                        if not timeline.SetClipsLinked(replacements, True):
+                            raise AxiError("Resolve refused to restore an explicit link group")
+                        replacement_ids = {str(item.GetUniqueId()) for item in replacements}
+                        if any(replacement_ids - {str(item.GetUniqueId())}
+                               - {str(linked.GetUniqueId()) for linked in
+                                  (item.GetLinkedItems() or [])}
+                               for item in replacements):
+                            raise AxiError("replacement link group did not read back")
+
+                # Verify the requested track's complete post-removal sequence.
+                final_items = list(timeline.GetItemListInTrack(
+                    track_type, track_index) or [])
+                final_spans = sorted((_item_span(item) for item in final_items),
+                                     key=lambda span: int(span["record_in"]))
+                actual_starts = [int(span["record_in"]) for span in final_spans]
+                if any(record["record_in"] - duration not in actual_starts
+                       for group in successor_groups for record in group
+                       if record["track_type"] == track_type
+                       and record["track_index"] == track_index):
+                    raise AxiError("the downstream track sequence did not close the removed gap")
+                after_rows = _track_ripple_inventory(timeline)
+                before_by_uid = {str(record["uid"]): record
+                                 for record in before_rows}
+                after_by_uid = {str(record["uid"]): record
+                                for record in after_rows}
+                expected_moves = moved_records
+                for old_uid, old_record in before_by_uid.items():
+                    if old_uid in target_ids:
+                        if old_uid in after_by_uid:
+                            raise AxiError("the target or its linked items remain")
+                        continue
+                    if old_uid in affected_ids:
+                        if old_uid in after_by_uid:
+                            raise AxiError("a shifted original item remained on the timeline")
+                        continue
+                    if old_uid not in affected_ids:
+                        new = after_by_uid.get(old_uid)
+                        if (new is None or _trim_row_semantic_signature(new)
+                                != _trim_row_semantic_signature(old_record)):
+                            raise AxiError("an unrelated item changed during track ripple")
+                for record in expected_moves:
+                    if _presence(timeline, record["uid"]):
+                        raise AxiError("a shifted original item remained on the timeline")
+                    wanted_in = record["record_in"] - duration
+                    wanted_out = record["record_out"] - duration
+                    matches = [candidate for candidate in after_rows
+                               if candidate["track_type"] == record["track_type"]
+                               and candidate["track_index"] == record["track_index"]
+                               and candidate["pool_uid"] == record["pool_uid"]
+                               and candidate["source_in"] == record["source_in"]
+                               and candidate["source_end_exclusive"] == record["source_in"] + record["duration"]
+                               and candidate["record_in"] == wanted_in
+                               and candidate["record_out"] == wanted_out]
+                    if len(matches) != 1:
+                        raise AxiError("a downstream item did not read back at its exact shifted span")
+                if len(after_rows) != len(rows) - len(target_records):
+                    raise AxiError("the timeline item count differs from the scoped ripple plan")
+                state["success"] = True
+            emit([kv_block("track_ripple_removed", {
+                "timeline": timeline.GetName(), "target": target_span["name"],
+                "target_absent": "yes", "track": f"{track_type}{track_index}",
+                "shifted_groups": len(successor_groups), "shift_frames": duration,
+                "journal_entry": journal["id"] if journal else "unavailable",
+            }), _journal_block(journal), note])
+            return 0
+        except AxiError as exc:
+            if journal:
+                return fail(
+                    f"{exc} Recovery is required from journal entry "
+                    f"{journal['id']}; it records the full pre-edit timeline.",
+                    f"ren undo {args.project} --list")
+            return fail(str(exc), exc.fix or f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        except (AttributeError, TypeError, ValueError, KeyError) as exc:
+            if journal:
+                return fail(
+                    f"track-scoped ripple remove failed ({type(exc).__name__}: "
+                    f"{exc}). Recovery is required from journal entry "
+                    f"{journal['id']}; it records the full pre-edit timeline.",
+                    f"ren undo {args.project} --list")
+            return fail(f"track-scoped ripple remove failed ({type(exc).__name__}: {exc})",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        except Exception as exc:  # noqa: BLE001 - Resolve bridge errors vary by API call
+            if journal:
+                return fail(
+                    f"track-scoped ripple remove failed ({type(exc).__name__}: "
+                    f"{exc}). Recovery is required from journal entry "
+                    f"{journal['id']}; it records the full pre-edit timeline.",
+                    f"ren undo {args.project} --list")
+            return fail(f"track-scoped ripple remove failed ({type(exc).__name__}: {exc})",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+
+
 def cmd_edit_delete(args) -> int:
     """Delete one item off the reel through a generation patch.
 
@@ -8742,6 +9066,12 @@ def build_parser() -> Parser:
     q.add_argument("--track-to", default="",
                    help="destination track (default stays)")
     q.set_defaults(func=cmd_edit_move)
+
+    q = esubs.add_parser(
+        "track-ripple-remove",
+        help="remove an item and close the gap on its track and explicit links")
+    _edit_scope(q, "track-scoped ripple remove")
+    q.set_defaults(func=cmd_edit_track_ripple_remove)
 
     q = esubs.add_parser("transform", help="move one item's output-frame "
                                              "position in pixels")

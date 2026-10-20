@@ -3440,7 +3440,7 @@ _IMPLEMENTATION_EVIDENCE = {
     ),
     ("clip.remove", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_remove",
-        "library/tools/resolve_axi_core_commands.py:cmd_edit_delete",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_track_ripple_remove",
     ),
     ("clip.trim", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_trim",
@@ -3538,8 +3538,10 @@ _BACKEND_OPERATION_LIMITATIONS = {
         (("track-scoped ripple is unavailable; the EditPatch executor refuses "
           "before writing because Resolve's native ripple affects every track"),),
     ("clip.remove", "resolve_axi"):
-        (("track-scoped ripple is unavailable; the AXI adapter refuses before "
-          "writing because Resolve's native ripple affects every track"),),
+        (("track-scoped executor re-places only the target track's later items "
+          "and explicit link groups; production remains disabled until live "
+          "qualification proves continuity, unrelated-track preservation, and "
+          "journal recovery"),),
     ("clip.ripple", "reel_touchup"):
         ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
     ("clip.slip", "reel_touchup"):

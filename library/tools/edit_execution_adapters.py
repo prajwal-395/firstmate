@@ -139,16 +139,15 @@ def _verified_command(context, command: list[str], operation: dict,
         # turn command prose into evidence for this operation.
         operation_matches = None
     if operation_id == "clip.remove" and before_clip is not None:
-        # A ripple moves every later cut, so the collateral scan excuses
-        # the rippled range and judges predecessors strictly; the
-        # downstream rule above judges what moved.
-        affected: tuple = ((int(before_clip["record_in"]),
-                             int(before["end_frame"])),)
+        # The removal verifier accounts for every item one-to-one, allowing
+        # only the target's explicit link group to disappear and the target
+        # track's later items (plus their explicit links) to move by the
+        # exact removed duration.
+        evidence["unrelated_items_unchanged"] = (
+            evidence.get("downstream_continuity_preserved") is True)
     else:
-        affected = ()
-    unrelated = _unrelated_changes(before, after, target_id,
-                                   affected_spans=affected)
-    evidence["unrelated_items_unchanged"] = not unrelated
+        evidence["unrelated_items_unchanged"] = not _unrelated_changes(
+            before, after, target_id)
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},
         readback_passed=operation_matches, evidence=evidence)
@@ -274,64 +273,100 @@ def _remove_readback_evidence(before: Mapping, after: Mapping,
     target_in = int(before_clip["record_in"])
     target_out = int(before_clip["record_out"])
     duration = target_out - target_in
-    evidence = {"target_absent": after_clip is None}
-    after_clips = [clip for track in after["tracks"]
-                   for clip in track["clips"]]
-    after_by_id = {str(clip["unique_id"]): clip for clip in after_clips}
-    track_clips = [clip for track in after["tracks"]
-                   for clip in track["clips"]
-                   if (str(track["type"])
-                       == str(before_clip.get("track_type") or "video")
-                       and int(track["index"])
-                       == int(before_clip.get("track_index") or 1))]
-    successors = [clip for clip in track_clips
-                  if int(clip["record_in"]) >= target_in]
-    if successors:
-        evidence["gap_closed"] = (
-            min(int(clip["record_in"]) for clip in successors) == target_in)
-    else:
-        evidence["gap_closed"] = all(
-            int(clip["record_out"]) <= target_in for clip in track_clips)
+    target_row = (str(before_clip["track_type"]),
+                  int(before_clip["track_index"]))
+    old_clips = [clip for track in before["tracks"]
+                 for clip in track["clips"]]
+    new_clips = [clip for track in after["tracks"]
+                 for clip in track["clips"]]
+    old_by_id = {str(clip["unique_id"]): clip for clip in old_clips}
+    new_by_id = {str(clip["unique_id"]): clip for clip in new_clips}
+
+    def link_closure(seed_ids):
+        closure = set(seed_ids)
+        changed = True
+        while changed:
+            changed = False
+            for clip in old_clips:
+                uid = str(clip["unique_id"])
+                if uid in closure:
+                    added = {str(linked) for linked in clip["linked_unique_ids"]} - closure
+                    if added:
+                        closure.update(added)
+                        changed = True
+        return closure
+
+    removed_ids = link_closure({target_id})
+    moved_roots = {
+        str(clip["unique_id"]) for clip in old_clips
+        if (str(clip["track_type"]), int(clip["track_index"])) == target_row
+        and int(clip["record_in"]) >= target_out
+    }
+    moved_ids = link_closure(moved_roots) - removed_ids
+    evidence = {"target_absent": after_clip is None
+                and removed_ids.isdisjoint(new_by_id)}
+    mapping = {}
+    matched_after = set()
     downstream_ok = True
-    for track in before["tracks"]:
-        for clip in track["clips"]:
-            unique_id = str(clip["unique_id"])
-            if unique_id == target_id:
-                continue
-            after_match = after_by_id.get(unique_id)
-            if after_match is None:
-                if (int(clip["record_in"]) == target_in
-                        and int(clip["record_out"]) == target_out):
-                    continue
+    for clip in old_clips:
+        uid = str(clip["unique_id"])
+        if uid in removed_ids:
+            if uid in new_by_id:
                 downstream_ok = False
-                continue
-            if (int(clip["record_in"]) >= target_in
-                    and int(clip["record_out"]) <= target_out):
-                # A survivor that lived entirely inside the removed span -
-                # an orphaned linked partner or a stacked item the ripple
-                # should have taken with the picture. (A successor the
-                # ripple moved INTO that span is judged by its shift
-                # below, not here.)
-                downstream_ok = False
-                continue
-            if (int(after_match["duration"]) != int(clip["duration"])
-                    or int(after_match["source_in_frame"])
-                    != int(clip["source_in_frame"])
-                    or int(after_match["source_out_frame"])
-                    != int(clip["source_out_frame"])):
-                downstream_ok = False
-                continue
-            shifted = (int(after_match["record_in"])
-                       - int(clip["record_in"]))
-            if shifted not in (0, -duration) or (
-                    int(clip["record_out"]) <= target_in
-                    and shifted != 0):
-                downstream_ok = False
-    new_ids = (set(after_by_id)
-               - {str(clip["unique_id"]) for track in before["tracks"]
-                  for clip in track["clips"]})
-    if new_ids:
+            continue
+        moving = uid in moved_ids
+        shift = -duration if moving else 0
+        expected_in = int(clip["record_in"]) + shift
+        expected_out = int(clip["record_out"]) + shift
+        candidates = [candidate for candidate in new_clips
+                      if (str(candidate["track_type"]),
+                          int(candidate["track_index"]))
+                      == (str(clip["track_type"]), int(clip["track_index"]))
+                      and candidate["source_file"] == clip["source_file"]
+                      and int(candidate["source_in_frame"])
+                      == int(clip["source_in_frame"])
+                    and int(candidate["source_in_frame"])
+                    + int(candidate["duration"])
+                    == int(clip["source_in_frame"])
+                    + int(clip["duration"])
+                      and int(candidate["duration"]) == int(clip["duration"])
+                      and int(candidate["record_in"]) == expected_in
+                      and int(candidate["record_out"]) == expected_out
+                      and str(candidate["unique_id"]) not in matched_after]
+        if len(candidates) != 1:
+            downstream_ok = False
+            continue
+        candidate = candidates[0]
+        candidate_id = str(candidate["unique_id"])
+        matched_after.add(candidate_id)
+        mapping[uid] = candidate_id
+        if not moving and candidate_id != uid:
+            downstream_ok = False
+    expected_after_count = len(old_clips) - len(removed_ids)
+    if len(new_clips) != expected_after_count or len(matched_after) != expected_after_count:
         downstream_ok = False
+    for uid in moved_ids:
+        mapped = mapping.get(uid)
+        if mapped is None:
+            downstream_ok = False
+            continue
+        old_links = {mapping[str(link)] for link in old_by_id[uid]["linked_unique_ids"]
+                     if str(link) in moved_ids and str(link) in mapping}
+        new_links = {str(link) for link in new_by_id[mapped]["linked_unique_ids"]}
+        if old_links != new_links:
+            downstream_ok = False
+
+    target_track = [clip for clip in new_clips
+                    if (str(clip["track_type"]), int(clip["track_index"]))
+                    == target_row]
+    next_old = min((int(clip["record_in"]) for clip in old_clips
+                    if (str(clip["track_type"]), int(clip["track_index"]))
+                    == target_row and int(clip["record_in"]) >= target_out),
+                   default=None)
+    evidence["gap_closed"] = (
+        next_old is None or any(
+            int(clip["record_in"]) == next_old - duration
+            for clip in target_track))
     evidence["downstream_continuity_preserved"] = downstream_ok
     return evidence
 
@@ -378,19 +413,26 @@ def _remove(context) -> dict:
     """Remove a clip with gap closure scoped to the requested track.
 
     `clip.remove` means close the gap on the target track. Resolve's
-    native ripple delete is timeline-wide, so it cannot safely implement
-    that contract when other tracks contain downstream material. A local
-    delete is the distinct `clip.delete` operation; never silently
-    substitute it when the requested track-scoped ripple is unavailable.
+    native ripple delete is timeline-wide, so the guarded AXI command
+    performs a local remove plus verified replacements on the target
+    track and explicit link groups. Qualification remains disabled until
+    live evidence proves continuity and recovery.
     """
     if context.operation.get("close_gap") is False:
         raise ValueError(
             "clip.remove cannot disable gap closure; use clip.delete for "
             "a local deletion")
-    raise ValueError(
-        "clip.remove track-scoped gap closure is refused before writing: "
-        "Resolve's native ripple is timeline-wide, and no qualified "
-        "track-scoped ripple executor is available")
+    row, index = _target_position_for_context(
+        context, str(context.operation["unique_id"]))
+    return _verified_command(context, [
+        "edit", "track-ripple-remove", "--track", row, "--index",
+        str(index), *_target_identity_args(
+            context, str(context.operation["unique_id"])),
+        "--project-folder", _project_folder(context), "--require-recovery",
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ], {**context.operation, "op": "clip.remove"},
+       "AXI undo journal entry for the complete track-scoped ripple")
 
 
 def _caption_fix(context) -> dict:

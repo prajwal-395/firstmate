@@ -19,6 +19,7 @@ def _clip(uid, start, end, **extra):
         "source_in_frame": start, "source_out_frame": end,
         "left_offset": start, "right_offset": 0,
         "source_file": f"{uid}.mov", "media_type": "Video",
+        "linked_unique_ids": [],
         "source_frames": end - start, "media_pool_item_id": f"pool-{uid}",
         "clip_color": "", "flags": [], "enabled": True,
         "transform": {"Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0, "ZoomY": 1.0},
@@ -141,6 +142,72 @@ def test_clip_remove_never_claims_local_delete_as_gap_closure():
         "target_absent", "gap_closed",
         "downstream_continuity_preserved", "unrelated_items_unchanged",
     ]
+
+
+def test_clip_remove_readback_moves_only_its_track_and_explicit_links():
+    """Defect: an all-track ripple moved later speech and falsely passed
+    when any clip was either stationary or one duration earlier."""
+    from library.tools.edit_execution_adapters import _remove_readback_evidence
+
+    before = _base_snapshot()
+    audio_before = _clip(
+        "speech", 200, 300, track_type="audio", track_index=1,
+        track_name="A1", source_file="speech.wav", media_type="Audio")
+    before["tracks"][1]["clips"].append(audio_before)
+    removed = before["tracks"][0]["clips"][1]
+    after = _base_snapshot()
+    after["tracks"][0]["clips"] = [
+        after["tracks"][0]["clips"][0],
+        _clip("c-new", 100, 200, source_in_frame=200,
+              source_out_frame=300, source_file="c.mov")]
+    after["tracks"][1]["clips"] = [audio_before]
+    evidence = _remove_readback_evidence(
+        before, after, "b", removed, None)
+    assert evidence["target_absent"] is True
+    assert evidence["gap_closed"] is True
+    assert evidence["downstream_continuity_preserved"] is True
+
+    audio_moved = _clip(
+        "speech", 100, 200, track_type="audio", track_index=1,
+        track_name="A1", source_file="speech.wav", media_type="Audio")
+    bad_after = {**after, "tracks": [after["tracks"][0],
+                                     {**after["tracks"][1],
+                                      "clips": [audio_moved]}]}
+    bad = _remove_readback_evidence(before, bad_after, "b", removed, None)
+    assert bad["downstream_continuity_preserved"] is False
+
+
+def test_clip_remove_readback_carries_only_declared_link_groups():
+    """Defect: a scoped ripple either left linked audio behind or moved
+    unrelated audio merely because it occupied the same downstream span."""
+    from library.tools.edit_execution_adapters import _remove_readback_evidence
+
+    before = _base_snapshot()
+    before["tracks"][0]["clips"][2]["linked_unique_ids"] = ["music"]
+    music = _clip("music", 200, 300, track_type="audio", track_index=1,
+                  track_name="A1", source_file="c-audio.wav",
+                  media_type="Audio", linked_unique_ids=["c"])
+    before["tracks"][1]["clips"].append(music)
+    removed = before["tracks"][0]["clips"][1]
+
+    after = _base_snapshot()
+    after["tracks"][0]["clips"] = [
+        after["tracks"][0]["clips"][0],
+        _clip("c-new", 100, 200, source_in_frame=200,
+              source_out_frame=300, source_file="c.mov",
+              linked_unique_ids=["music-new"])]
+    after["tracks"][1]["clips"] = [
+        _clip("music-new", 100, 200, track_type="audio", track_index=1,
+              track_name="A1", source_file="c-audio.wav", media_type="Audio",
+              linked_unique_ids=["c-new"])]
+    evidence = _remove_readback_evidence(before, after, "b", removed, None)
+    assert evidence["downstream_continuity_preserved"] is True
+
+    # Moving an unlinked audio bed is outside the operation's declared scope.
+    after["tracks"][1]["clips"][0]["linked_unique_ids"] = []
+    outside_scope = _remove_readback_evidence(
+        before, after, "b", removed, None)
+    assert outside_scope["downstream_continuity_preserved"] is False
 
 
 def test_clip_remove_has_a_registered_resolve_axi_backend():

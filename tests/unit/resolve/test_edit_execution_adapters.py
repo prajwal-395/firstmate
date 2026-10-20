@@ -19,6 +19,8 @@ def _context(operation):
                 "duration": 60, "source_file": "/media/music.wav",
                 "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
                 "enabled": True, "clip_color": "", "flags": [],
+                "track_type": "video", "track_index": 2,
+                "linked_unique_ids": [],
             }],
         }]},
         request=SimpleNamespace(id="request-1", project="project-1",
@@ -160,18 +162,21 @@ def test_target_identity_must_resolve_exactly_once():
         adapters._target_position(snapshot, "duplicate")
 
 
-def test_clip_remove_refuses_unscoped_ripple_before_resolve_write():
-    """Defect: Resolve's timeline-wide ripple can alter tracks outside
-    the requested track when closing a gap."""
+def test_clip_remove_uses_track_scoped_executor_and_not_timeline_ripple(monkeypatch):
+    """Defect: the old remove adapter refused because Resolve's native
+    ripple was timeline-wide; the scoped command is now the only route."""
     context = _context({
         "op": "clip.remove", "unique_id": "clip-17", "close_gap": True,
     })
-    context.snapshot["tracks"][0]["index"] = 1
-    context.snapshot["tracks"][0]["clips"][0]["track_type"] = "video"
-    context.snapshot["tracks"][0]["clips"][0]["track_index"] = 1
+    commands = []
+    monkeypatch.setattr(adapters, "_project_folder", lambda _context: "/tmp/project")
+    monkeypatch.setattr(adapters, "_verified_command", lambda *args: (
+        commands.append(args[1]) or {"status": "committed"}))
+    receipt = adapters._remove(context)
 
-    with pytest.raises(ValueError, match="track-scoped gap closure"):
-        adapters._remove(context)
+    assert commands[0][:3] == ["edit", "track-ripple-remove", "--track"]
+    assert "--project-folder" in commands[0]
+    assert receipt["status"] == "committed"
 
 
 def test_clip_remove_cannot_be_changed_to_local_delete():

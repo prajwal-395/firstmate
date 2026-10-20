@@ -547,6 +547,15 @@ def clip_detail(item, track_type: str, track_index: int,
         pool_item_id = _call(pool_item, "GetMediaId", "")
         media_type = _call(pool_item, "GetClipProperty", None, "Type")
     comp_names = list(_call(item, "GetFusionCompNameList", []) or [])
+    try:
+        linked_unique_ids = sorted({
+            str(linked.GetUniqueId()) for linked in (item.GetLinkedItems() or [])
+            if linked is not None and linked.GetUniqueId()
+        })
+    except Exception as unreadable:
+        raise ReelReadError(
+            f"the linked-item group on {name!r} could not be read "
+            f"({unreadable}); refusing a partial timeline identity.") from unreadable
     return {
         "unique_id": _call(item, "GetUniqueId", ""),
         "name": name or "",
@@ -564,6 +573,7 @@ def clip_detail(item, track_type: str, track_index: int,
         "media_type": media_type,
         "source_frames": pool_frames,
         "media_pool_item_id": pool_item_id,
+        "linked_unique_ids": linked_unique_ids,
         "clip_color": _call(item, "GetClipColor", ""),
         "flags": list(_call(item, "GetFlagList", []) or []),
         # Unknown stays unknown. A replacement snapshot must not turn a
