@@ -1437,7 +1437,7 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
         EditOp::EndCard { .. } => plan_key("end_card"),
 
         // ── reel opening: one opening tighten writes one opening ────
-        EditOp::ReelOpening { unique_id } => vec![
+        EditOp::ReelOpening { unique_id, .. } => vec![
             KeyPart::Text("reel".to_string()),
             KeyPart::Text("opening".to_string()),
             KeyPart::Text(unique_id.0.clone()),
@@ -1562,7 +1562,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::MotionGraphic { .. } => None,
         EditOp::BrandAsset { .. } => None,
         EditOp::EndCard { .. } => None,
-        EditOp::ReelOpening { unique_id } => Some(unique_id.0.clone()),
+        EditOp::ReelOpening { unique_id, .. } => Some(unique_id.0.clone()),
     }
 }
 
