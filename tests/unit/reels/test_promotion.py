@@ -27,9 +27,11 @@ A guard nobody has watched fire is not a guard: cases 1, 2 and the
 unreadable half assert the raise, not just the report.
 """
 from __future__ import annotations
+
 import json
 import zipfile
 from unittest.mock import patch
+
 import pytest
 
 
@@ -39,27 +41,20 @@ def _leases_off_machine(tmp_path, monkeypatch):
     directory = tmp_path / "locks"
     directory.mkdir()
     monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(directory))
+import dataclasses
+import os
+import sys
+from contextlib import ExitStack
+
 from library.tools import reel_replace_guard as guard
-from library.tools.reel_build import (
-    ReelBuildError,
-    PromotionFailure,
-    promote_staged_reels,
-)
-from tests.promotion_test_helpers import no_a_roll_track_plans
-from tests.resolve_double import (
-    FakeProject,
-    FakeTimeline,
-)
-
-
-from tests.resolve_double import (
-    TimelineItemSpec as FakeItem,
-)
-from tests.promotion_test_helpers import (
-    install_fake_timeline_snapshots,
-)
+from library.tools import reel_signoff as signoff
 from library.tools import staging_holds as holds
 from library.tools.execution import remove_proof as proof_ex
+from library.tools.plan_provenance import (
+    built_from_snapshot,
+    is_snapshot_superseded,
+)
+from library.tools.project_layout import Area
 from library.tools.proof_cleanup import (
     PROTECTED_TIMELINES,
     ProofRemovalRefused,
@@ -67,23 +62,12 @@ from library.tools.proof_cleanup import (
     discover_scratch_timelines,
     plan_proof_removal,
 )
-from library.tools.resolve_organization import Artefact
-from tests.resolve_double import timeline_item
-import sys
-from library.tools.versions import store as bvc
-from library.tools.plan_provenance import (
-    built_from_snapshot,
-    is_snapshot_superseded,
+from library.tools.reel_build import (
+    PromotionFailure,
+    ReelBuildError,
+    promote_staged_reels,
+    recover_interrupted_promotions,
 )
-from contextlib import ExitStack
-from tests.resolve_double import (
-    FakeResolve,
-    TimelineItemSpec,
-)
-from library.tools import reel_signoff as signoff
-import dataclasses
-import os
-from library.tools.project_layout import Area
 from library.tools.reel_placed_assets import (
     PlacedAssetInScratch,
     assert_placeable,
@@ -91,6 +75,22 @@ from library.tools.reel_placed_assets import (
     promote_cards,
     promote_frame_overlays,
     promote_to_durable,
+)
+from library.tools.resolve_organization import Artefact
+from library.tools.versions import store as bvc
+from tests.promotion_test_helpers import (
+    install_fake_timeline_snapshots,
+    no_a_roll_track_plans,
+)
+from tests.resolve_double import (
+    FakeProject,
+    FakeResolve,
+    FakeTimeline,
+    TimelineItemSpec,
+    timeline_item,
+)
+from tests.resolve_double import (
+    TimelineItemSpec as FakeItem,
 )
 
 
@@ -702,9 +702,47 @@ def test_promotion_refuses_reused_timeline_id_before_mutation(project_dir):
     assert resolve.deleted == []
 
 
+def test_interrupted_promotion_with_missing_candidate_keeps_approved_timeline(
+        project_dir):
+    """Defect: recovery must not retire the approved reel without its candidate."""
+    import json
+
+    approved = FakeTimeline(FINAL, uid="approved-timeline-id")
+    resolve = FakeProject([FakeTimeline(MASTER), approved])
+    transaction_id = "a" * 32
+    journal_dir = (project_dir / "pipeline_output" / "review"
+                   / "promotion_transactions")
+    journal_dir.mkdir(parents=True)
+    (journal_dir / f"{transaction_id}.json").write_text(json.dumps({
+        "version": 1,
+        "transaction_id": transaction_id,
+        "project": resolve.GetName(),
+        "state": "prepared",
+        "preserve_originals": [],
+        "rows": [{
+            "final": FINAL,
+            "staging": f"{FINAL} (rebuild staging)",
+            "backup": f"{FINAL} (backup)",
+            "candidate_id": "missing-candidate-id",
+            "candidate_key": "",
+            "candidate_transaction_id": None,
+            "original_id": "approved-timeline-id",
+            "base_revision": None,
+            "incoming_rows": [],
+        }],
+    }), encoding="utf-8")
+
+    with pytest.raises(ReelBuildError, match="journaled candidate identity is absent"):
+        recover_interrupted_promotions(resolve, str(project_dir))
+
+    assert approved.GetName() == FINAL
+    assert resolve.deleted == []
+
+
 def test_retiring_archive_receipt_binds_timeline_id_inventory_and_asset_hash(
         tmp_path, monkeypatch):
     import hashlib
+
     from library.tools import reel_build, reel_replace_guard
     from library.tools.versions import store
 
@@ -1463,7 +1501,7 @@ def test_guard_still_refuses_a_held_lossy_staging_and_keeps_the_hold(project_dir
     promotion; the row-diff guard (issue #925) still refuses a
     promotion that would LOSE a row - and the hold is retained,
     which is the safe direction on both halves."""
-    from library.tools.reel_build import ReelBuildError, STAGING_SUFFIX
+    from library.tools.reel_build import STAGING_SUFFIX, ReelBuildError
     staging = PROMOTE_FINAL + STAGING_SUFFIX
     retired = FakeTimeline(PROMOTE_FINAL, video=_full_rows())
     staged = FakeTimeline(
@@ -2216,7 +2254,7 @@ def test_promoting_a_missing_file_is_refused_not_placed(tmp_path):
 
 def test_cards_promote_to_the_card_area(tmp_path):
     """Dict cards and frozen PlannedCard-shaped dataclasses alike."""
-    project, src = _project(tmp_path)
+    project, _src = _project(tmp_path)
 
     @dataclasses.dataclass(frozen=True)
     class _Card:
