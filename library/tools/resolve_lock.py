@@ -649,6 +649,75 @@ def active_holder() -> Optional[Lease]:
         return holder()
 
 
+def release_instance() -> bool:
+    """Give the instance back NOW, from outside the lease's own body.
+
+    The flock is this process's, and the process may be about to die (a
+    worker whose broker is gone). Only the FENCE is dropped: the
+    accounting is left alone, because a lease body still inside its
+    section must find the lock gone rather than a second holder behind
+    it.
+
+    The lease RECORD stays on disk. A record with no flock behind it is
+    the stale lease the status reports - and another writer may already
+    be publishing its own, so nothing here unlinks it.
+
+    Returns whether this process held the instance.
+    """
+    with _state_lock:
+        hold = _lease_hold
+        if hold is None:
+            return False
+        try:
+            _unflock(hold["handle"])
+        except (OSError, ValueError):  # pragma: no cover - already gone
+            pass
+        return True
+
+
+@dataclass(frozen=True)
+class LeaseStatus:
+    """What the instance is doing NOW: the flock's answer, and the record.
+
+    The flock is the truth and the JSON record is a diagnostic. A killed
+    writer releases the flock and leaves its record behind, so a record
+    with no flock behind it is STALE: it names a holder that is gone, and
+    reading it as "busy" calls a free instance busy - which is what
+    `ren resolved status` did on 2026-10-20, when a dead holder's record
+    outlived the worker that was still holding the lock.
+
+    `active` is the holder the flock says (None where the instance is
+    free); `recorded` is the record on disk, whoever wrote it.
+    """
+
+    active: Optional[Lease]
+    recorded: Optional[Lease]
+
+    @property
+    def busy(self) -> bool:
+        """Whether the instance is held RIGHT NOW."""
+        return self.active is not None
+
+    @property
+    def stale(self) -> bool:
+        """Whether a record survives without a flock behind it."""
+        return self.active is None and self.recorded is not None
+
+
+def lease_status() -> LeaseStatus:
+    """The instance's lease, answered by the flock and read beside it.
+
+    The one place that says whether the instance is busy. A status that
+    reads the record alone (`holder()`) reports a dead holder as busy;
+    a status that reads the flock alone cannot say that the record left
+    behind is stale. This answers both, and never unlinks the record:
+    another writer may already be publishing its own.
+    """
+    active = active_holder()
+    recorded = holder()
+    return LeaseStatus(active=active, recorded=recorded)
+
+
 def held() -> bool:
     """Does THIS process hold the instance (or stand in for holding it)?"""
     with _state_lock:

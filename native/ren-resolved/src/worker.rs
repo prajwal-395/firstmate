@@ -60,6 +60,16 @@ impl WorkerResponse {
     }
 }
 
+/// The broker's own pid, in the environment of every worker it starts.
+///
+/// The worker ends when that pid is gone: it holds the instance lease
+/// while it works, and a worker that outlives its broker holds the one
+/// Resolve against everyone else. The daemon's own shutdown kills an
+/// idle worker; the worker watches this pid for the case where the
+/// broker died with a job in flight (measured 2026-10-20: an orphan
+/// worker held the instance flock for 3h10m after `ren resolved stop`).
+pub const BROKER_PID_ENV: &str = "REN_RESOLVED_BROKER_PID";
+
 /// Launch the Python interpreter for a worker.
 ///
 /// `PIPELINE_PYTHON` is the ladder's answer (set by `bin/vep` and the
@@ -82,6 +92,8 @@ pub struct Worker {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
     stdout: Option<BufReader<std::process::ChildStdout>>,
+    /// Set when the broker stopped this worker: it must not start again.
+    stopped: bool,
 }
 
 impl Worker {
@@ -90,10 +102,14 @@ impl Worker {
             child: None,
             stdin: None,
             stdout: None,
+            stopped: false,
         }
     }
 
     fn ensure_started(&mut self) -> Result<(), String> {
+        if self.stopped {
+            return Err("the Resolve worker was stopped with the broker".to_string());
+        }
         if self.child.is_some() {
             return Ok(());
         }
@@ -101,6 +117,10 @@ impl Worker {
         let mut child = Command::new(&interpreter)
             .arg("-m")
             .arg("library.tools.resolved.worker")
+            // The worker ends when this broker is gone: it holds the
+            // instance lock while it works, so one that outlives its
+            // broker holds the one Resolve against everyone else.
+            .env(BROKER_PID_ENV, std::process::id().to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -263,14 +283,24 @@ impl Worker {
         self.stdin = None;
         self.stdout = None;
     }
+
+    /// End this worker: it must not outlive the broker that started it.
+    ///
+    /// The worker holds the instance lease while it works, so a worker
+    /// left running after the broker stops holds the one Resolve against
+    /// every later writer, which then times out waiting for an instance
+    /// nobody is using. Stopping it here is the broker's half of that
+    /// promise; a worker that was inside a job when the broker died ends
+    /// itself instead (it watches the broker's pid).
+    pub fn stop(&mut self) {
+        self.stopped = true;
+        self.restart();
+    }
 }
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.stop();
     }
 }
 

@@ -580,17 +580,22 @@ class _Handler(socketserver.StreamRequestHandler):
         if op == "ping":
             from dataclasses import asdict
 
-            from library.tools.resolve_lock import active_holder
+            from library.tools.resolve_lock import lease_status
             # The lease is machine-wide (instance dir), not per broker
-            # socket: every broker reports the same holder.
-            lease = active_holder()
+            # socket: every broker reports the same holder. The FLOCK
+            # says whether the instance is held; the record beside it is
+            # stale when nothing holds it.
+            lease = lease_status()
             return {
                 "ok": True,
                 "pid": os.getpid(),
                 "serving": True,
                 "responsive": True,
-                "busy": lease is not None,
-                "lease": asdict(lease) if lease is not None else None,
+                "busy": lease.busy,
+                "lease": (asdict(lease.active)
+                          if lease.active is not None else None),
+                "stale_lease": (asdict(lease.recorded)
+                                if lease.stale else None),
             }
         if op == "submit":
             return broker.submit(request["kind"], request.get("params", {}),

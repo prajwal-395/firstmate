@@ -520,6 +520,30 @@ impl Broker {
         let mut state = lock.lock().unwrap();
         state.stopping = true;
         cond.notify_all();
+        drop(state);
+        self.stop_workers();
+    }
+
+    /// End the workers: the broker's stop must not leave one behind.
+    ///
+    /// The worker holds the instance lease while it works, so a worker
+    /// that outlives the broker holds the one Resolve against every
+    /// later writer - which then times out waiting for an instance
+    /// nobody is using (measured 2026-10-20: an orphan worker held the
+    /// instance flock for 3h10m after `ren resolved stop`).
+    ///
+    /// The worker mutex is taken WITHOUT blocking: a worker inside a job
+    /// holds it for the length of that job, and the broker's stop must
+    /// not wait for a job to finish. A worker that is inside a job when
+    /// the broker goes ends itself instead - it watches the broker's pid
+    /// and gives the instance back when the broker is gone.
+    pub fn stop_workers(&self) {
+        if let Ok(mut worker) = self.prepare_worker.try_lock() {
+            worker.stop();
+        }
+        if let Ok(mut worker) = self.execution_worker.try_lock() {
+            worker.stop();
+        }
     }
 
     // ── internals ────────────────────────────────────────────────

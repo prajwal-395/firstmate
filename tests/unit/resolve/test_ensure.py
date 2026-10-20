@@ -361,6 +361,7 @@ def test_the_cli_status_reports_an_absent_socket_as_not_serving(
         "responsive": False,
         "busy": False,
         "lease": None,
+        "stale_lease": None,
         "binary": "none",
         "rebuild": "not applicable",
     }

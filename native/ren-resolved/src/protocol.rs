@@ -72,7 +72,7 @@ fn default_wait() -> f64 {
 }
 
 /// `{"ok": true, "pid": N, "serving": true, "responsive": true,
-///   "busy": false, "lease": null}`
+///   "busy": false, "lease": null, "stale_lease": null}`
 #[derive(serde::Serialize)]
 pub struct PingReply {
     pub ok: bool,
@@ -80,11 +80,17 @@ pub struct PingReply {
     pub serving: bool,
     pub responsive: bool,
     pub busy: bool,
+    /// The holder the instance FLOCK says, if any.
     pub lease: Option<LeaseStatus>,
+    /// A lease record with no flock behind it: the instance is free and
+    /// the record names a holder that is gone (2026-10-20: a dead
+    /// holder's record read as "busy" for hours after the lock was
+    /// free).
+    pub stale_lease: Option<LeaseStatus>,
 }
 
 /// A diagnostic snapshot of the exclusive Resolve lease, when one is held.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct LeaseStatus {
     pub owner: String,
     pub purpose: String,

@@ -34,14 +34,131 @@ project's timelines after a restart.
 The worker keeps its Resolve connection across requests, as the Python
 broker does; a `probe` reconnects, because the watchdog must not trust a
 connection a restart has invalidated.
+
+THE WORKER DOES NOT OUTLIVE ITS BROKER. The worker holds the instance
+lease while it works, and the instance is the one Resolve: a worker
+left running after its broker stopped holds the one Resolve against
+every later writer, which then times out waiting for an instance nobody
+is using (measured 2026-10-20: an orphan worker held the instance flock
+for 3h10m after `ren resolved stop`, and every writer refused with
+"timed out waiting for Resolve"). The daemon names its own pid in the
+worker's environment, and the worker ends when that pid is gone - giving
+the instance back first, and leaving the lease record behind as the
+stale record the status reports.
 """
 
 from __future__ import annotations
 
 import contextlib
 import json
+import os
 import sys
+import threading
+import time
 from typing import Optional
+
+
+#: The broker's own pid, in the environment of every worker it starts.
+#: The daemon is the worker's owner: it schedules the work, and it is
+#: the thing that dies when the broker stops. A worker that outlives it
+#: keeps the one Resolve's lock with it - the daemon's own shutdown
+#: races its detached threads, so the worker's process outlived the
+#: broker that started it and every later writer timed out waiting for
+#: an instance nobody was using (measured 2026-10-20: an orphan worker
+#: held the flock for 3h10m after `ren resolved stop`).
+BROKER_PID_ENV = "REN_RESOLVED_BROKER_PID"
+
+#: How often the worker checks that its broker is still there. A second
+#: is short enough that the lock is not held long after the broker goes,
+#: and long enough that the check costs nothing.
+BROKER_WATCH_SECONDS = 1.0
+
+
+def broker_pid() -> int:
+    """The pid of the broker this worker belongs to, or 0 where none.
+
+    0 means the worker was not started by a broker (an operator running
+    it by hand), and then there is no broker to lose: the worker stays.
+    """
+    raw = (os.environ.get(BROKER_PID_ENV) or "").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
+
+
+def broker_alive(pid: int) -> bool:
+    """Whether the broker is still running.
+
+    A pid this process cannot signal is still alive (it belongs to
+    somebody else); a pid nobody answers for is gone.
+    """
+    if pid <= 0:
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _release_the_instance() -> None:
+    """Give the one Resolve back: the lock this process holds.
+
+    The worker holds the instance lease while it works, so a worker
+    that outlives its broker holds the one Resolve against every later
+    writer - and every later writer times out waiting for an instance
+    nobody is using (measured 2026-10-20: an orphan worker held the
+    instance flock for 3h10m after `ren resolved stop`).
+
+    The lease RECORD stays: the worker did not get to clean up, and a
+    record with no flock behind it is what the status reports as stale.
+    """
+    from library.tools import resolve_lock
+    try:
+        resolve_lock.release_instance()
+    except Exception:  # noqa: BLE001 - the exit is the point
+        pass
+
+
+def _release_and_exit() -> None:
+    """Give the instance back and leave.
+
+    The kernel drops the flock when this process goes, so the instance
+    is free the moment the worker is gone. The lease RECORD stays: the
+    worker did not get to clean up, and a record with no flock behind it
+    is exactly what the status reports as stale. Nothing here unlinks
+    it - another writer may already be publishing its own.
+    """
+    _release_the_instance()
+    try:
+        sys.stderr.write(
+            "ren-resolved worker: the broker is gone - releasing the "
+            "Resolve instance and exiting\n")
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001 - the exit is the point
+        pass
+    os._exit(0)
+
+
+def _watch_the_broker(pid: int) -> None:
+    """Exit when the broker is gone: a worker must not outlive its broker.
+
+    The worker holds the instance lease while it works, so a worker that
+    outlives its broker holds the one Resolve against everyone else -
+    and the broker is exactly what died. This thread is the other half
+    of the daemon's own shutdown: the daemon kills an idle worker, and
+    this catches the worker that was inside a job when the broker went.
+    """
+    while True:
+        time.sleep(BROKER_WATCH_SECONDS)
+        if broker_alive(pid):
+            continue
+        _release_and_exit()
 
 
 def _reply(request_id: str, ok: bool, result=None, error: str = "",
@@ -341,14 +458,30 @@ def main() -> int:
     belonged and the job failed with "the worker's answer was not JSON".
     A job's prints belong on stderr; the receipt already carries what
     they said.
+
+    THE WORKER DOES NOT OUTLIVE ITS BROKER. The daemon says which pid it
+    is (`BROKER_PID_ENV`), and a watcher thread ends the worker when that
+    pid is gone - the worker holds the instance lease while it works, so
+    one that outlives its broker holds the one Resolve against everyone
+    else. The check also runs before every request, so a worker whose
+    broker died between two jobs does not start another one.
     """
     from library.tools.resolved import client
     client.mark_executor()
+    pid = broker_pid()
+    if pid:
+        threading.Thread(target=_watch_the_broker, args=(pid,),
+                         daemon=True).start()
     protocol_out = sys.stdout
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
+        if pid and not broker_alive(pid):
+            # The broker is gone: taking this lease would hold the one
+            # Resolve against everyone else, for a broker that will
+            # never answer for it.
+            _release_and_exit()
         try:
             request = json.loads(line)
         except ValueError as exc:

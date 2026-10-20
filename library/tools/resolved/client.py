@@ -159,17 +159,24 @@ def ping(path=None) -> Optional[dict]:
             return _exchange(sock, stream, {"op": "ping"},
                              CONNECT_TIMEOUT_SECONDS)
     except (OSError, ValueError, BrokerError):
-        from library.tools.resolve_lock import holder
+        from library.tools.resolve_lock import lease_status
         # The lease is machine-wide: a slow broker still reports the
-        # instance holder, whatever socket was pinged.
-        lease = holder()
+        # instance holder, whatever socket was pinged. The FLOCK says
+        # whether the instance is held; the record beside it says who
+        # held it last, and is stale when nothing holds the flock
+        # (2026-10-20: a dead holder's record read as "busy" for hours
+        # after the lock was free).
+        status = lease_status()
         return {
             "ok": False,
             "pid": None,
             "serving": True,
             "responsive": False,
-            "busy": lease is not None,
-            "lease": asdict(lease) if lease is not None else None,
+            "busy": status.busy,
+            "lease": (asdict(status.active)
+                      if status.active is not None else None),
+            "stale_lease": (asdict(status.recorded)
+                            if status.stale else None),
         }
 
 

@@ -730,6 +730,49 @@ The rule the measurement buys is narrower than the captain's diagnosis and stron
 
 Two `SetSetting`-shaped lies were found on the way and are recorded in `library/steps/step_6_01_render/probe_resolve_capabilities.py`: `Timeline.SetTrackEnable` returns True from every page and only takes effect with the Edit page open - a render taken in between silently used the wrong track set - and `GalleryStillAlbum.ExportStills` and `TimelineItem.ExportLUT` both return False and write nothing at all on this build, in every format, from every page, to every destination tried, which leaves the capture button unable to produce a PNG and a one-frame Deliver render as the working substitute.
 
+### a-worker-outlived-its-broker-holding-the-one-resolve
+
+The break test, 2026-10-20: twelve ordinary `ren revise` requests through the
+scratch project completed **0 edits**, and the lane was blocked for hours on
+
+```
+ren-resolved did not grant 'build reels connect': timed out waiting for Resolve
+```
+
+`ren resolved stop` stopped the broker, and its `library.tools.resolved.worker`
+(ppid 1, alive 3h10m) survived it and kept the instance flock on
+`resolve_instance.lock`. Restarting the broker started a second worker beside
+the orphan, and the second could not have the instance either: one flock, one
+Resolve, and a holder nobody was waiting for. Killing that exact orphan freed
+the flock, and the lane ran.
+
+Two defects, both measured on the captain's machine:
+
+* **The worker outlived its broker.** The daemon's shutdown drops its workers
+  through `Drop`, and the daemon's execute thread holds one of them in an
+  `Arc` - so the worker's process could outlive the broker that started it.
+  A worker holds the instance lease while it works, so an orphan worker is a
+  holder of the one Resolve with no broker to answer for it. The daemon now
+  names its own pid in the worker's environment (`REN_RESOLVED_BROKER_PID`)
+  and ends the worker when that pid is gone, and it stops its workers as it
+  stops.
+* **The status called a free instance busy.** `ren resolved status` reported
+  `busy: true` with the dead holder's pid (72326) for hours after the flock
+  was free, because the client's fallback path read the diagnostic lease
+  RECORD instead of probing the flock. The record is what a killed holder
+  leaves behind; the flock is the truth. The status now answers from the flock
+  (`resolve_lock.lease_status`) and reports a record with no flock behind it
+  as **stale** - and never unlinks it, because another writer may already be
+  publishing its own.
+
+The record the break test left was still on the machine afterwards, naming
+`pid-72326` and a Reel 13 staging purpose. Under the old code the status read
+it as a live lease; under the new code the same file is reported as a stale
+record and the instance reads free.
+
+The rules the measurement buys: **a worker must not outlive its broker**, and
+**a status reads the flock, never the record**.
+
 ---
 
 ## Section 6 - the spine contract

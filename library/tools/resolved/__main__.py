@@ -123,15 +123,31 @@ def main(argv=None) -> int:
 
 
 def _status(answer: dict | None) -> dict:
-    """The process status plus any lease holding Resolve right now."""
-    result = ({"serving": False, "pid": None, "responsive": False,
-               "busy": False, "lease": None} if answer is None else {
-        "serving": answer.get("serving", True),
-        "pid": answer.get("pid"),
-        "responsive": answer.get("responsive", True),
-        "busy": bool(answer.get("busy", False)),
-        "lease": answer.get("lease"),
-    })
+    """The process status plus any lease holding Resolve right now.
+
+    The lease is answered by the FLOCK, never by the record alone: a
+    killed holder leaves its record behind, and reading that record as
+    "busy" called a free instance busy for hours on 2026-10-20. A record
+    with no flock behind it is reported as stale - the instance is free,
+    and the record names a holder that is gone. The record is never
+    unlinked from here: another writer may already be publishing its own.
+    """
+    from dataclasses import asdict
+
+    from library.tools.resolve_lock import lease_status
+
+    lease = lease_status()
+    result = {
+        "serving": False if answer is None else answer.get("serving", True),
+        "pid": None if answer is None else answer.get("pid"),
+        "responsive": (False if answer is None
+                       else answer.get("responsive", True)),
+        "busy": lease.busy,
+        "lease": (asdict(lease.active)
+                  if lease.active is not None else None),
+        "stale_lease": (asdict(lease.recorded)
+                        if lease.stale else None),
+    }
     if answer is None:
         result["binary"] = "none"
         result["rebuild"] = "not applicable"
