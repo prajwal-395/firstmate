@@ -88,7 +88,7 @@ from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 QUALIFICATION_PROJECT = "Ren Qualification"
 
 KINDS = ("lease", "timeline.snapshot", "timeline.observe_current",
-         "timeline.apply_patch",
+         "timeline.apply_patch", "timeline.semantic_edit",
          "resolve_axi", "fusion.registry_summary",
          "resolve.ui_transaction", "reel.promote_staged",
          "reel.prepare_qualification_fixture",
@@ -119,6 +119,7 @@ INTERRUPT_POLICIES = {
     "resolve.activity_probe": "checkpoint:borrowed-context-restored",
     "resolve_axi": "commit:successful-recorded-run",
     "timeline.apply_patch": "commit:verified-editpatch-generation",
+    "timeline.semantic_edit": "commit:verified-semantic-generation",
     "resolve.ui_transaction": "commit:verified-ui-transaction",
     "resolve.qualification_session": "commit:all-steps-completed",
     "reel.promote_staged": "commit:promotion-record-verified",
@@ -250,6 +251,11 @@ def activity_description(kind: str, params: dict) -> str:
         return one_line(purpose)
     if kind == "timeline.snapshot":
         return one_line(f"Reading {params['timeline']} in {params['project']}")
+    if kind == "timeline.semantic_edit":
+        request = params["request"]
+        return one_line(
+            f"Applying semantic edits to {request['timeline']} in "
+            f"{request['project']}")
     if kind == "timeline.apply_patch":
         patch = params["patch"]
         return one_line(f"Applying edits to {patch['timeline']}")
@@ -432,6 +438,28 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
                  "project": project, "timeline": timeline,
                  "locality": phase.locality,
                  "coalesce_key": _coalesce_key(kind, patch_id)}
+    elif kind == "timeline.semantic_edit":
+        from library.tools.edit_request import EditRequest, EditRequestError
+        request_data = params.get("request")
+        if not isinstance(request_data, dict):
+            raise JobRefused(
+                "timeline.semantic_edit needs 'request', an object")
+        try:
+            request = EditRequest.from_dict(request_data)
+        except (EditRequestError, TypeError, ValueError) as exc:
+            raise JobRefused(f"invalid semantic edit request: {exc}") from exc
+        backend = _required(params, "backend", kind)
+        if backend in {"edit_patch", "edit_patch.property", "no_op"}:
+            raise JobRefused(
+                f"{backend!r} uses a different semantic execution path")
+        base_generation = params.get("base_generation")
+        if (not isinstance(base_generation, int)
+                or isinstance(base_generation, bool) or base_generation < 1):
+            raise JobRefused(
+                "timeline.semantic_edit needs a positive base_generation")
+        shape = {"mode": EXCLUSIVE, "priority": "mutation", "executed": True,
+                 "project": request.project, "timeline": request.timeline,
+                 "locality": "timeline", "coalesce_key": None}
     elif kind == "fusion.registry_summary":
         # A project-less read: it names no project because it reads the
         # Fusion registry, not a timeline. SHARED - it writes nothing.
@@ -685,6 +713,27 @@ def _run_impl(job: dict, resolve) -> dict | None:
         # mode decides - log in production (a hard refusal on the live
         # edit path needs live evidence first), refuse in tests/dev.
         protocol_conformance.validate(params["patch"], "edit-patch")
+    if kind == "timeline.semantic_edit":
+        from library.tools.resolved import cancellation
+
+        _start_checkpoint(job)
+        project = _open_project(resolve, job["project"])
+        timeline = _timeline(project, job["timeline"])
+        with (write_scope(project=job["project"],
+                          timeline_name=job["timeline"],
+                          run_id=job.get("id")),
+              resolve_lock.cursor_excursion(project, timeline, purpose)):
+            cancellation.checkpoint(job["id"])
+            from library.tools import resolve_axi_core
+            try:
+                receipt = resolve_axi_core.execute_semantic_edit_job(job)
+            except ValueError as exc:
+                raise JobRefused(str(exc)) from exc
+        if receipt.get("status") == "committed":
+            return _commit_checkpoint(job, receipt)
+        raise JobRefused(
+            "semantic edit did not reach verified committed completion",
+            result=receipt)
     if kind == "resolve.qualification_session":
         # The broker never switches - except through borrowed(), which
         # saves the open project first and reads the restore back. If the

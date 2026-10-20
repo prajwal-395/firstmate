@@ -106,13 +106,11 @@ class EditExecutionContext:
 
 EditExecutor = Callable[[EditExecutionContext], Mapping[str, Any]]
 _EDIT_EXECUTORS: dict[tuple[str, str], EditExecutor] = {}
-_SEMANTIC_EXECUTION_RESULTS: dict[str, dict[str, Any]] = {}
 _EDIT_EXECUTOR_LOCK = threading.RLock()
 _ROUTER_QUALIFIED_BACKENDS = frozenset({
     "incremental", "resolve_native_invocation",
 })
 _ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup"})
-_SEMANTIC_RESULT_LIMIT = 256
 
 
 def register_edit_executor(operation_id: str, backend_id: str,
@@ -591,6 +589,27 @@ def _plan_request(request) -> dict[str, Any]:
     return _prepare_request_plan(request)[0]
 
 
+def execute_semantic_edit_job(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Execute one broker-owned semantic edit against its queued generation."""
+    request = _request_from_any(job["params"]["request"])
+    plan, request, preparation, compiled, generation, snapshot = (
+        _prepare_request_plan(request))
+    expected_generation = job["params"]["base_generation"]
+    if generation.generation != expected_generation:
+        raise ValueError(
+            f"semantic edit base generation {expected_generation} is stale; "
+            f"recorded head is {generation.generation}")
+    backend = str(plan["backend"])
+    if backend != job["params"]["backend"]:
+        raise ValueError(
+            f"semantic edit route changed while queued: "
+            f"{job['params']['backend']} to {backend}")
+    return _execute_registered_backend(
+        backend=backend, plan=plan, request=request,
+        preparation=preparation, compiled=compiled, generation=generation,
+        snapshot=snapshot, owner=str(job.get("owner") or "resolve-axi"))
+
+
 def prepare_edit_request(request) -> dict[str, Any]:
     """Prepare and route one semantic request without contacting Resolve."""
     return _plan_request(request)
@@ -641,7 +660,7 @@ def submit_edit_request_async(request, *, authorized: bool = False,
     if authorized is not True:
         raise PermissionError("semantic edits require explicit authorization")
     request = _request_from_any(request)
-    plan, request, _prepared, compiled, generation, snapshot = (
+    plan, request, _prepared, compiled, generation, _snapshot = (
         _prepare_request_plan(request))
     if plan["backend"] == "no_op":
         from library.tools.transaction_receipt import lifecycle
@@ -677,20 +696,18 @@ def submit_edit_request_async(request, *, authorized: bool = False,
                 "receipt": receipt}
     backend = str(plan["backend"])
     if backend not in {"edit_patch", "edit_patch.property"}:
-        receipt = _execute_registered_backend(
-            backend=backend, plan=plan, request=request,
-            preparation=_prepared, compiled=compiled,
-            generation=generation, snapshot=snapshot, owner=owner)
-        handle = f"edit:{request.id}"
-        with _EDIT_EXECUTOR_LOCK:
-            _SEMANTIC_EXECUTION_RESULTS[handle] = receipt
-            while len(_SEMANTIC_EXECUTION_RESULTS) > _SEMANTIC_RESULT_LIMIT:
-                _SEMANTIC_EXECUTION_RESULTS.pop(
-                    next(iter(_SEMANTIC_EXECUTION_RESULTS)))
-        return {"id": handle, "request_id": request.id,
-                "backend": backend,
-                "status": receipt["status"], "plan": plan,
-                "result": receipt, "receipt": receipt}
+        from library.tools.resolved import client
+        job = client.submit(
+            "timeline.semantic_edit",
+            {"request": request.to_dict(), "backend": backend,
+             "base_generation": generation.generation},
+            owner=owner, idempotency_key=request.idempotency_key)
+        if job.get("coalesced"):
+            current = retrieve_edit_request(str(job["id"]))
+            return {**current, "request_id": request.id, "backend": backend,
+                    "plan": plan}
+        return {**job, "request_id": request.id, "backend": backend,
+                "plan": plan, "status": "queued"}
     patch = compiled.to_patch(
         _patch_capability(compiled), base_generation=generation.generation,
         project=request.project, timeline=request.timeline,
@@ -710,12 +727,6 @@ def retrieve_edit_request(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
         raise ValueError("job id must be a non-empty string")
     if wait < 0:
         raise ValueError("wait must be non-negative")
-    with _EDIT_EXECUTOR_LOCK:
-        semantic_result = _SEMANTIC_EXECUTION_RESULTS.get(job_id)
-    if semantic_result is not None:
-        return {"id": job_id, "status": semantic_result.get("status"),
-                "result": semantic_result,
-                "error": semantic_result.get("refusal")}
     from library.tools.resolved import client
     job = client.result(job_id, wait=wait)
     if job is None:
@@ -724,8 +735,12 @@ def retrieve_edit_request(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
     if isinstance(result, Mapping) and "execution_contract" not in result:
         from library.tools.transaction_orchestration import standardize_receipt
         result = standardize_receipt(dict(result))
-    return {"id": job_id, "status": job.get("state", job.get("status")),
-            "result": result, "error": job.get("error")}
+    state = job.get("state", job.get("status"))
+    status = {"done": "completed", "rejected": "refused"}.get(state, state)
+    return {"id": job_id, "status": status, "state": state,
+            "result": result, "error": job.get("error"),
+            "wait_seconds": job.get("wait_seconds"),
+            "hold_seconds": job.get("hold_seconds")}
 
 
 def submit_edit_request(request, *, authorized: bool = False,
@@ -736,24 +751,34 @@ def submit_edit_request(request, *, authorized: bool = False,
         request, authorized=authorized, owner=owner)
     if submitted.get("status") == "already_satisfied":
         return submitted["receipt"]
-    if submitted.get("receipt") is not None:
-        return submitted["receipt"]
     job_id = submitted.get("id")
     if not isinstance(job_id, str) or not job_id:
         raise RuntimeError("broker did not return an edit job id")
-    return retrieve_edit_request(job_id, wait=timeout)
+    completed = retrieve_edit_request(job_id, wait=timeout)
+    if completed.get("status") == "completed" and isinstance(
+            completed.get("result"), Mapping):
+        receipt = dict(completed["result"])
+        receipt["job_timing"] = {
+            "wait_seconds": completed.get("wait_seconds"),
+            "resolve_lease_seconds": completed.get("hold_seconds"),
+        }
+        return receipt
+    return completed
 
 
 def cancel_edit_request(job_id: str) -> dict[str, Any]:
     """Request cancellation only through the broker's declared safe path."""
     if not isinstance(job_id, str) or not job_id.strip():
         raise ValueError("job id must be a non-empty string")
-    with _EDIT_EXECUTOR_LOCK:
-        if job_id in _SEMANTIC_EXECUTION_RESULTS:
-            return {"id": job_id, "status": "not_cancellable",
-                    "reason": "the synchronous adapter has completed"}
     from library.tools.resolved import client
-    return client.call({"op": "cancel", "id": job_id})
+    reply = client.call({"op": "cancel", "id": job_id})
+    job = reply.get("job")
+    if not isinstance(job, Mapping):
+        return reply
+    state = job.get("state")
+    status = {"done": "completed", "rejected": "refused"}.get(state, state)
+    return {**reply, "id": job_id, "state": state, "status": status,
+            "cancellation_requested": state == "running"}
 
 
 def plan_transaction(transaction) -> dict[str, Any]:

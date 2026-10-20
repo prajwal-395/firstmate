@@ -23,6 +23,7 @@ Two shapes of job, because Resolve's handles cannot cross a process:
 
 * EXECUTED - the broker runs it on its own Resolve connection:
   `timeline.snapshot`, `timeline.observe_current`, `timeline.apply_patch`,
+  `timeline.semantic_edit`,
   `resolve_axi`,
   `resolve.ui_transaction`, `reel.promote_staged` (typed and restricted
   to the already-open `Ren Qualification` project), and
