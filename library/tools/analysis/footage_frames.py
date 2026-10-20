@@ -103,7 +103,15 @@ ACTION_PATTERNS = (
     ("gesturing", r"\bgestur(?:e|ing|es)\b"),
     ("waving", r"\bwav(?:e|ing|es)\b"),
     ("clapping", r"\bclap(?:ping|s)?\b"),
-    ("pointing", r"\bpoint(?:ing|s)?\b"),
+    # "pointing" matches the GESTURE, not the noun.  A bare "point" is
+    # overwhelmingly a noun, and it appeared in two of the sixteen
+    # committed editorial queries as one: "to sit under the pricing
+    # point" (E09) and "GEO just SEO two point oh" (E08).  Both are
+    # picture/text queries about something else, and the refusal cost
+    # E09 every window it could have returned (measured 2026-10-20, see
+    # docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).  The
+    # verb forms and the "points at" reading still refuse.
+    ("pointing", r"\bpoint(?:ing|ed)\b|\bpoints?\s+at\b"),
     ("nodding", r"\bnod(?:ding|s)?\b"),
     ("shrugging", r"\bshrug(?:ging|s)?\b"),
 )

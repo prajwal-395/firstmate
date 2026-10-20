@@ -2748,3 +2748,24 @@ def test_staleness_notices_the_code_that_cuts_the_segments_changed(
     assert report["analysis_version"] == "changed"
     assert report["stale"] is True
     assert "cut" in report["analysis_version_reason"]
+
+
+def test_a_noun_point_is_not_a_gesture(frame_index):
+    """A refusal is a false observation, and a noun is not a gesture.
+
+    The action gate matched a bare "point", so two of the sixteen
+    committed editorial queries were refused for a word that meant
+    something else: "to sit under the pricing point" (E09) and "GEO just
+    SEO two point oh" (E08).  The gesture readings still refuse
+    (measured 2026-10-20, see
+    docs/benchmarks/2026-10-20-editorial-retrieval-benchmark.md).
+    """
+    for query in ("a shot of the open laptop on the desk, to sit under "
+                  "the pricing point",
+                  "the pushback from the marketing directors, the one "
+                  "calling GEO just SEO two point oh"):
+        assert footage_frames.action_refusal_match(query) is None, query
+    for query in ("a person pointing at the door",
+                  "he points at the screen",
+                  "the sign pointed at the crowd"):
+        assert footage_frames.action_refusal_match(query) == "pointing", query
