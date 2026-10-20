@@ -95,6 +95,24 @@ class _Manager:
     def GetCurrentFolder(self):
         return self.folder_path[-1] if self.folder_path else ""
 
+    def GetProjectListInCurrentFolder(self):
+        return [name for name, path in self.project_folders.items()
+                if path == self.folder_path and name in self.projects]
+
+    def DeleteProject(self, name):
+        if name not in self.GetProjectListInCurrentFolder():
+            return False
+        del self.projects[name]
+        del self.project_folders[name]
+        return True
+
+    def CreateProject(self, name):
+        project = _Project(name, [])
+        self.projects[name] = project
+        self.project_folders[name] = self.folder_path
+        self.open = project
+        return project
+
     def GotoParentFolder(self):
         if not self.folder_path:
             return False
@@ -172,6 +190,29 @@ def test_the_borrow_restores_a_nested_project_folder(monkeypatch):
     assert manager.folder_path == (
         "Lucie Content", "Social Media", "Podcast")
     assert podcast.GetCurrentTimeline().GetUniqueId() == "uid-second"
+
+
+def test_rebuild_replaces_root_qualification_from_a_nested_captain_folder():
+    """The folder-scoped project list must not hide stale Q Spine."""
+    manager, captain = _captain()
+    manager.folder_tree = {
+        (): ("Lucie Content",),
+        ("Lucie Content",): ("Social Media",),
+        ("Lucie Content", "Social Media"): ("Podcast",),
+        ("Lucie Content", "Social Media", "Podcast"): (),
+    }
+    manager.folder_path = ("Lucie Content", "Social Media", "Podcast")
+    manager.project_folders[captain.GetName()] = manager.folder_path
+    old_qualification = manager.projects[qp.QUALIFICATION_PROJECT]
+    manager.project_folders[qp.QUALIFICATION_PROJECT] = ()
+
+    project = qp._create_qualification_project(manager)
+
+    assert project is manager.GetCurrentProject()
+    assert project is not old_qualification
+    assert manager.folder_path == ()
+    assert manager.project_folders[qp.QUALIFICATION_PROJECT] == ()
+    assert manager.GetCurrentProject().GetName() == qp.QUALIFICATION_PROJECT
 
 
 def test_a_restore_that_does_not_read_back_raises():

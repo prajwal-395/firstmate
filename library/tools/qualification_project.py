@@ -697,6 +697,41 @@ def restore(resolve, found: dict) -> None:
 
 # ── RESOLVE: building the project ───────────────────────────────────
 
+def _create_qualification_project(manager):
+    """Replace Qualification in its canonical Project Manager folder.
+
+    Resolve's project list is scoped to the current folder. The project
+    we borrowed from can live several folders below the Project Manager
+    root; checking there misses the existing Qualification project, and
+    ``CreateProject`` can then return that stale project instead of a
+    clean fixture. Its old ``Q Spine`` makes the first timeline create
+    fail even though the borrow and project creation appeared to work.
+    """
+    if manager.GotoRootFolder() is False:
+        raise QualificationError(
+            "Resolve refused to navigate to the Project Manager root "
+            "before rebuilding Ren Qualification")
+    projects = manager.GetProjectListInCurrentFolder() or []
+    if (QUALIFICATION_PROJECT in projects
+            and not manager.DeleteProject(QUALIFICATION_PROJECT)):
+        raise QualificationError(
+            f"could not delete the old {QUALIFICATION_PROJECT!r}")
+    if QUALIFICATION_PROJECT in (
+            manager.GetProjectListInCurrentFolder() or []):
+        raise QualificationError(
+            f"the old {QUALIFICATION_PROJECT!r} still appears in the "
+            "Project Manager root after deletion")
+    project = manager.CreateProject(QUALIFICATION_PROJECT)
+    if not project:
+        raise QualificationError(f"could not create {QUALIFICATION_PROJECT!r}")
+    current = manager.GetCurrentProject()
+    if not current or current.GetName() != QUALIFICATION_PROJECT:
+        raise QualificationError(
+            f"created {QUALIFICATION_PROJECT!r}, but Resolve opened "
+            f"{current.GetName() if current else None!r}")
+    return project
+
+
 def rebuild(resolve, media: dict):
     """DELETE + CREATE the qualification project; returns it, open.
 
@@ -705,14 +740,7 @@ def rebuild(resolve, media: dict):
     """
     from library.tools.resolve_lock import assert_current_timeline
     manager = resolve.GetProjectManager()
-    if (QUALIFICATION_PROJECT in (manager.GetProjectListInCurrentFolder()
-                                  or [])
-            and not manager.DeleteProject(QUALIFICATION_PROJECT)):
-        raise QualificationError(
-            f"could not delete the old {QUALIFICATION_PROJECT!r}")
-    project = manager.CreateProject(QUALIFICATION_PROJECT)
-    if not project:
-        raise QualificationError(f"could not create {QUALIFICATION_PROJECT!r}")
+    project = _create_qualification_project(manager)
     for key, value in (("timelineFrameRate", str(FPS)),
                        ("timelineResolutionWidth", str(WIDTH)),
                        ("timelineResolutionHeight", str(HEIGHT))):
