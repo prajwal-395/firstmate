@@ -52,7 +52,7 @@ from tests.live import small_edit_qualification as small
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT = small.PROJECT
-TIMELINE = small.TIMELINE
+TIMELINE = os.environ.get("REN_AXI_QUAL_TIMELINE", small.TIMELINE)
 REN = small.REN
 REPORT_DIR = ROOT / "tests" / "live" / "reports"
 REGISTRY_DIR = REPORT_DIR / "registry"
@@ -114,7 +114,7 @@ PRIMITIVES = (
               "edit_patch.apply_live_patch (reel.build capability)",
               "commit",
               ("placed_on_named_track", "exact_record_start",
-               "exact_source_range", "other_tracks_untouched")),
+               "exact_source_range", "existing_items_untouched")),
     Primitive("insert_to_absent_track_refused", "AXI-010",
               "Refuse an insertion onto a track the timeline does not have",
               "clip.insert", "resolve_axi",
@@ -132,6 +132,12 @@ PRIMITIVES = (
               "clip.delete", "resolve_axi", "resolve-axi edit delete",
               "commit",
               ("target_absent", "gap_left", "other_track_untouched")),
+    Primitive("delete_linked_effects", "AXI-011",
+              "Delete a linked A/V clip with existing transforms and retiming",
+              "clip.delete", "resolve_axi", "resolve-axi edit delete",
+              "commit",
+              ("video_target_absent", "linked_audio_preserved",
+               "other_items_untouched")),
 
     # ── AXI-012: trimming, in/out preservation and source-range validation
     Primitive("trim_narrows_source_range", "AXI-012",
@@ -386,16 +392,21 @@ def _cases() -> dict:
         # ── AXI-010 ──
         "insert_at_frame_on_track": {
             "operation": "clip.insert",
-            "setup": [],
+            "setup": [_place("qual_a.mp4", 1, 0, source_out=95,
+                             media="both"),
+                      _place("qual_b.mp4", 1, 96, source_out=71,
+                             media="both"),
+                      _place("qual_c.mp4", 2, 144, source_out=47)],
             "commands": [_patch(
                 [{"op": "clip.insert", "unique_id": "axi-prim-insert-1",
                   "track_type": "video", "track_index": 2,
                   "record_in": 48, "record_out": 96,
-                  "media_pool_item": "$pool:qual_b.mp4",
+                  "media_pool_item": "$pool:" + OWNED_VIDEO_A.name,
                   "source_in": 0, "source_out": 48}],
                 ["timeline_structure"], "insert-on-track-2",
                 capability="reel.build")],
             "targets": [],
+            "qualification_params": {"track_type": "video"},
         },
         "insert_to_absent_track_refused": {
             "operation": "clip.insert",
@@ -419,6 +430,28 @@ def _cases() -> dict:
             "commands": [_edit("delete", "--track", "video1", "--index", "0",
                                "--apply")],
             "targets": ["qual_a.mp4"],
+        },
+        "delete_linked_effects": {
+            "operation": "clip.delete",
+            "setup": [_place("qual_a.mp4", 1, 0, source_out=95,
+                             media="both"),
+                      _place("qual_b.mp4", 1, 96, source_out=71,
+                             media="both"),
+                      _place("qual_c.mp4", 2, 0, source_out=47),
+                      _patch(
+                          [{"op": "clip.set_property",
+                            "unique_id": "$qual_a.mp4@video", "key": "Pan",
+                            "value": 24.0}],
+                          ["picture_transform"], "delete-target-transform"),
+                      _patch(
+                          [{"op": "retime.segments",
+                            "unique_id": "$qual_a.mp4@video",
+                            "segments": [{"record_frame": 0,
+                                          "percent": 90.0}]}],
+                          ["timeline_structure"], "delete-target-retime")],
+            "commands": [_edit("delete", "--track", "video1", "--index",
+                               "0", "--apply")],
+            "targets": [{"name": "qual_a.mp4", "kind": "video"}],
         },
         # ── AXI-012 ──
         "trim_narrows_source_range": {
@@ -560,9 +593,13 @@ def _cases() -> dict:
         "broll_insert_keeps_dialogue": {
             "operation": "broll.insert",
             "setup": [_place("qual_a.mp4", 1, 0, source_out=95,
-                             media="both")],
+                             media="both"),
+                      _place("qual_b.mp4", 1, 96, source_out=71,
+                             media="both"),
+                      _place("qual_c.mp4", 2, 144, source_out=47)],
             "commands": [_place(OWNED_VIDEO_A.name, 2, 40, source_out=39)],
-            "targets": ["qual_a.mp4", OWNED_VIDEO_A.name],
+            "targets": [{"name": "qual_a.mp4", "kind": "video"}],
+            "qualification_params": {"track_type": "video"},
         },
         "broll_replace_keeps_dialogue": {
             "operation": "clip.replace",
@@ -738,8 +775,22 @@ OWNED_OVERLAY_A = "__AXI_OVERLAY_A__"
 OWNED_OVERLAY_B = "__AXI_OVERLAY_B__"
 
 ALLOWED_NAMES = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
-                 OWNED_VIDEO_A, OWNED_VIDEO_B,
-                 OWNED_OVERLAY_A, OWNED_OVERLAY_B}
+                 # The fixture's own overlays: the logo and the caption
+                 # cards it places are the fixture's too.
+                 "fm-qual-logo-180x64.png",
+                 "fm-qual-logo-alt-180x64.png",
+                 "fm-qual-tight-caption-480x120.png",
+                 "fm-qual-full-frame-caption-1920x1080.png",
+                 # A TIMELINE item is named by its FILE name, not by the
+                 # path the fixture imported it from: comparing the item's
+                 # name against the path made the cleanup refuse to
+                 # remove the fixture's own media, and the leftover broke
+                 # the next case's placement ("the item count did not
+                 # move", measured 2026-10-20).
+                 OWNED_VIDEO_A.rsplit("/", 1)[-1],
+                 OWNED_VIDEO_B.rsplit("/", 1)[-1],
+                 OWNED_OVERLAY_A.rsplit("/", 1)[-1],
+                 OWNED_OVERLAY_B.rsplit("/", 1)[-1]}
 
 
 def call(argv):
@@ -751,6 +802,25 @@ def call(argv):
             code = exc.code if isinstance(exc.code, int) else 1
     return {"argv": argv, "exit_code": int(code or 0),
             "stdout": out.getvalue(), "stderr": err.getvalue()}
+
+
+#: The last cleanup the fixture ran, so a case that cannot find its
+#: target can say what the cleanup did before it.
+LAST_CLEANUP = None
+
+
+def _frame(value):
+    """A frame number, or None where Resolve reports none.
+
+    An unreadable frame is not a confirmed zero: the read says it could
+    not be measured and the judge that needs it says so.
+    """
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def live_state():
@@ -803,10 +873,12 @@ def live_state():
                     "kind": kind, "track": index, "track_name": track_name,
                     "name": str(item.GetName()),
                     "source_path": source_path, "media_type": media_type,
-                    "source_in": int(item.GetSourceStartFrame()),
-                    "source_out": int(item.GetSourceEndFrame()),
-                    "record_in": int(item.GetStart()),
-                    "record_out": int(item.GetEnd()),
+                    # A frame Resolve does not report is None, not zero:
+                    # an unreadable source range is not a confirmed one.
+                    "source_in": _frame(item.GetSourceStartFrame()),
+                    "source_out": _frame(item.GetSourceEndFrame()),
+                    "record_in": _frame(item.GetStart()),
+                    "record_out": _frame(item.GetEnd()),
                     "transform": item.GetProperty() or {},
                     "enabled": enabled, "fusion_comps": comps,
                     "linked_unique_ids": linked, "speed": speed, "cdl": cdl,
@@ -826,9 +898,29 @@ def live_state():
             "track_names": track_names, "items": rows}
 
 
+def _frame(value):
+    """A frame number, or None where Resolve reports none."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def by_name(state, name):
-    return [row for row in state.get("items", [])
+    """The row with this name, the VIDEO row first.
+
+    A linked A/V pair is TWO rows with the SAME name, so a name alone
+    resolves to two and the scenario that addresses the video row cannot
+    (measured 2026-10-20: "the fixture does not hold exactly one item
+    named qual_a.mp4 (2)"). The video row is what an operation on the
+    picture addresses; an audio-only target still resolves by name.
+    """
+    rows = [row for row in state.get("items", [])
             if row.get("name") == name]
+    video = [row for row in rows if row.get("kind") == "video"]
+    return video or rows
 
 
 def pool_item_id(name):
@@ -866,11 +958,28 @@ def resolve_ids(state, operations):
         if isinstance(uid, str) and uid.startswith("$pool:"):
             row["media_pool_item"] = pool_item_id(uid[len("$pool:"):])
         elif isinstance(uid, str) and uid.startswith("$"):
-            matches = by_name(state, uid[1:])
+            wanted = uid[1:]
+            kind = ""
+            if "@" in wanted:
+                wanted, kind = wanted.rsplit("@", 1)
+            matches = ([row for row in state.get("items", [])
+                        if row.get("name") == wanted
+                        and row.get("kind") == kind]
+                       if kind else by_name(state, wanted))
             if len(matches) != 1:
                 raise RuntimeError(
                     "the fixture does not hold exactly one item named "
-                    + uid[1:] + " (" + str(len(matches)) + ")")
+                    + uid[1:] + " (" + str(len(matches)) + ")"
+                    + ("; the setup was refused: "
+                       + repr(state.get("setup_refusals"))[:600]
+                       if state.get("setup_refusals") else "")
+                    + ("; the carried cleanup: "
+                       + repr(LAST_CLEANUP)[:400]
+                       if LAST_CLEANUP else "")
+                    + "; the timeline holds: "
+                    + repr([(row.get("kind"), row.get("name"),
+                             row.get("record"))
+                            for row in state.get("items", [])])[:400])
             row["unique_id"] = matches[0]["unique_id"]
         resolved.append(row)
     return resolved
@@ -921,11 +1030,14 @@ def route_refusal(spec):
             "stderr": ""}
 
 
-def qualification_state(operation, targets):
+def qualification_state(operation, targets, params=None):
     """The MEASURED runtime state, in the recorded predicate vocabulary."""
     from library.tools import axi_qualification_state
 
-    operations = [{"op": operation, "unique_id": uid} for uid in targets]
+    params = params or {}
+    operations = ([{"op": operation, **params, "unique_id": uid}
+                   for uid in targets] or
+                  [{"op": operation, **params}])
     try:
         return axi_qualification_state.inspect(
             project=PROJECT, timeline=TIMELINE, operations=operations,
@@ -950,6 +1062,35 @@ def import_owned_media():
             names.append(str(item.GetName()))
         except Exception:
             continue
+    if len(names) != len(paths):
+        # The import is the fixture's own media, and a case that cannot
+        # place it cannot judge anything: the refusal names what landed
+        # and what did not.
+        raise RuntimeError(
+            "the owned media did not import: " + repr(names) + " of "
+            + repr([str(path) for path in paths]))
+    _pooled = []
+    for _folder in _walk_pool(pool.GetRootFolder()):
+        for _item in _folder.GetClipList() or []:
+            try:
+                _pooled.append(str(_item.GetName()))
+            except Exception:
+                continue
+    if not [name for name in names if name in _pooled]:
+        raise RuntimeError(
+            "the owned media imported but the pool does not hold it: "
+            + repr(names) + " of " + repr(sorted(_pooled)[:40]))
+    # The AXI's own pool lookup is what a placement asks for, so the
+    # fixture checks THAT and not only its own walk: a fixture whose
+    # media the placement cannot see is a fixture that cannot judge.
+    from library.tools import resolve_axi_core_commands as _axi
+    try:
+        _axi._pool_find_clip(manager.GetCurrentProject(),
+                             str(OWNED_VIDEO_A).rsplit("/", 1)[-1], "")
+    except Exception as exc:
+        raise RuntimeError(
+            "the AXI pool lookup cannot see the imported media: "
+            + str(exc))
     return names
 
 
@@ -993,7 +1134,15 @@ def remove_owned_tracks():
 
 
 def cleanup():
-    """Remove exactly what the fixture placed, or name what is left."""
+    """Remove exactly what the fixture placed, or name what is left.
+
+    An item the fixture does not own is NEVER removed - but it does not
+    stop the fixture's own items from being removed either: refusing
+    everything left every case's leftovers in place, and the next case
+    then placed onto a timeline that was not empty ("the fixture does not
+    hold exactly one item named qual_a.mp4 (2)", measured 2026-10-20).
+    """
+    global LAST_CLEANUP
     timeline = manager.GetCurrentProject().GetCurrentTimeline()
     collateral = []
     for _ in range(8):
@@ -1004,25 +1153,32 @@ def cleanup():
                 for item in timeline.GetItemListInTrack(kind, index) or ():
                     name = str(item.GetName())
                     if name not in ALLOWED_NAMES:
+                        # Not ours: it is left exactly where it is, and
+                        # the case that finds it is told.
                         collateral.append("refused fixture cleanup of "
                                           + name)
-                        return {"clean": False,
-                                "collateral_changes": collateral}
+                        continue
                     doomed.append(item)
         if not doomed:
             break
-        if not timeline.DeleteClips(doomed, False):
-            collateral.append("the fixture items could not be deleted")
-            return {"clean": False, "collateral_changes": collateral}
+        # One at a time: deleting a linked pair's picture invalidates
+        # its audio entry, and a batch delete then fails on the stale
+        # entry and leaves the timeline dirty (measured 2026-10-20).
+        for _item in doomed:
+            if not timeline.DeleteClips([_item], False):
+                collateral.append("the fixture items could not be deleted")
+                return {"clean": False, "collateral_changes": collateral}
     remaining = []
     for kind in ("video", "audio", "subtitle"):
         count = int(timeline.GetTrackCount(kind) or 0)
         for index in range(1, count + 1):
-            if timeline.GetItemListInTrack(kind, index):
-                remaining.append(kind + str(index))
+            for item in timeline.GetItemListInTrack(kind, index) or ():
+                if str(item.GetName()) in ALLOWED_NAMES:
+                    remaining.append(kind + str(index))
     if remaining:
         collateral.append("the fixture left items on " + ",".join(remaining))
-    return {"clean": not collateral, "collateral_changes": collateral}
+    LAST_CLEANUP = {"clean": not remaining, "collateral_changes": collateral}
+    return LAST_CLEANUP
 
 
 def select_timeline():
@@ -1031,16 +1187,36 @@ def select_timeline():
                for index in range(1, int(project.GetTimelineCount() or 0) + 1)
                if project.GetTimelineByIndex(index)
                and project.GetTimelineByIndex(index).GetName() == TIMELINE]
-    if len(matches) != 1 or not project.SetCurrentTimeline(matches[0]):
-        raise RuntimeError("the private scratch timeline is not selectable")
+    if len(matches) != 1:
+        raise RuntimeError(
+            "the private scratch timeline is not selectable: "
+            + repr([str(t.GetName()) for t in matches]) + " of "
+            + repr([str(project.GetTimelineByIndex(index).GetName())
+                    for index in range(1, int(project.GetTimelineCount() or 0) + 1)]))
+    # Resolve answers SetCurrentTimeline with False when the timeline is
+    # ALREADY current, so a second selection in the same session would
+    # read as a failure (measured 2026-10-20). Only a timeline that is
+    # not current is set.
+    _current = project.GetCurrentTimeline()
+    if not (_current is not None
+            and str(_current.GetUniqueId() or "")
+            == str(matches[0].GetUniqueId() or "")):
+        if not project.SetCurrentTimeline(matches[0]):
+            raise RuntimeError(
+                "the private scratch timeline is not selectable: Resolve "
+                "refused to make it current")
     return project.GetCurrentTimeline().GetUniqueId()
 
 
 if not Path(PROJECT_DIR).is_dir():
     raise RuntimeError("the batch project dir was not stamped by the runner")
 select_timeline()
-imported = import_owned_media()
-setup = {"imported": imported}
+# The owned media is imported PER CASE: every case's cleanup removes it
+# again (so one case's replacement never becomes the next case's
+# fixture), and an import that only ran once left the second case
+# placing a pool item that was already gone ("no clip named
+# 'fm-qual-owned-a.mp4' under the pool root", measured 2026-10-20).
+setup = {"imported": []}
 
 baseline = call(["items", "--project", PROJECT, "--timeline", TIMELINE,
                  "--refresh-live"])
@@ -1056,18 +1232,44 @@ for name, case in CASES.items():
     started = time.perf_counter()
     before = live_state()
     setup_receipts = []
+    # Every case starts from a clean timeline: the fixture owns this
+    # timeline, and a case that failed mid-placement left an item that
+    # made the NEXT case's placement read as "the item count did not
+    # move" (measured 2026-10-20).
+    _carried = cleanup()
+    setup["imported"] = import_owned_media()
     for argv in case.get("setup", []):
         receipt = call(argv)
         setup_receipts.append(receipt)
         if receipt["exit_code"]:
+            # The setup is the fixture's own placement: a refusal here
+            # is why the case's target is missing, so it is printed
+            # rather than only counted.
+            print("AXI_SETUP_REFUSED" + repr({
+                "case": name, "argv": argv,
+                "stdout": (receipt.get("stdout") or "")[-600:],
+                "stderr": (receipt.get("stderr") or "")[-600:]}),
+                flush=True)
             break
     after_setup = live_state()
+    after_setup["carried_cleanup"] = _carried
+    after_setup["setup_refusals"] = [
+        {"argv": receipt.get("argv"),
+         "stdout": (receipt.get("stdout") or "")[-500:],
+         "stderr": (receipt.get("stderr") or "")[-500:]}
+        for receipt in setup_receipts if receipt.get("exit_code")]
     targets = []
     for target in case.get("targets", []):
-        matches = by_name(after_setup, target)
+        if isinstance(target, dict):
+            matches = [row for row in by_name(after_setup, target["name"])
+                       if row.get("kind") == target["kind"]]
+        else:
+            matches = by_name(after_setup, target)
         if len(matches) == 1:
             targets.append(matches[0]["unique_id"])
-    state = qualification_state(case.get("operation", "clip.delete"), targets)
+    state = qualification_state(
+        case.get("operation", "clip.delete"), targets,
+        case.get("qualification_params"))
     receipts = []
     for command in case.get("commands", []):
         if not isinstance(command, dict):
@@ -1109,8 +1311,16 @@ result = {"cases": results, "setup": setup}
 
 def _broker_script(cases: dict) -> str:
     script = BROKER_SCRIPT
-    script = script.replace("__AXI_PROJECT__", repr(PROJECT))
-    script = script.replace("__AXI_TIMELINE__", repr(TIMELINE))
+    # The placeholders sit INSIDE the assignment's own quotes, so
+    # replacing the placeholder alone leaves the value quoted twice:
+    # TIMELINE = "'fm-scratch qualify'" - a name no timeline carries, and
+    # the scenario's own target never resolved (measured 2026-10-20 on the
+    # first live run of these scenarios). The whole assignment is
+    # replaced, so the value is the value.
+    script = script.replace(
+        'PROJECT = "__AXI_PROJECT__"', f"PROJECT = {PROJECT!r}")
+    script = script.replace(
+        'TIMELINE = "__AXI_TIMELINE__"', f"TIMELINE = {TIMELINE!r}")
     script = script.replace("__AXI_PROJECT_DIR__", "@FM_QUAL_PROJECT_DIR@")
     script = script.replace("__AXI_DISPOSABLE__", "@AXC_DISPOSABLE_PROJECT@")
     script = script.replace("__AXI_CASES__", repr(cases))
@@ -1138,6 +1348,16 @@ def _one(state: dict, name: str) -> dict | None:
     return rows[0] if len(rows) == 1 else None
 
 
+def _frame(value):
+    """A frame number, or None where the read reported none."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _source_bounds(row: dict | None) -> tuple:
     """The clip's source range as INCLUSIVE bounds.
 
@@ -1149,9 +1369,11 @@ def _source_bounds(row: dict | None) -> tuple:
     """
     if not row:
         return ()
-    source_in = int(row["source_in"])
-    source_out = int(row["source_out"])
-    duration = int(row["record_out"]) - int(row["record_in"])
+    source_in = _frame(row["source_in"])
+    source_out = _frame(row["source_out"])
+    duration = _frame(row["record_out"]) - _frame(row["record_in"])
+    if source_in is None or source_out is None or duration is None:
+        return ()
     if duration == source_out - source_in + 1:
         return (source_in, source_out)
     if duration == source_out - source_in:
@@ -1162,16 +1384,21 @@ def _source_bounds(row: dict | None) -> tuple:
 def _record_span(row: dict | None) -> tuple:
     if not row:
         return ()
-    return (int(row["record_in"]), int(row["record_out"]))
+    return (_frame(row["record_in"]), _frame(row["record_out"]))
 
 
 def _unchanged(before: dict, after: dict, name: str) -> bool:
-    old = _one(before, name)
-    new = _one(after, name)
-    if old is None or new is None:
+    old = _items(before, name)
+    new = _items(after, name)
+    if not old or len(old) != len(new):
         return False
-    return (_record_span(old) == _record_span(new)
-            and _source_bounds(old) == _source_bounds(new))
+
+    def signature(row: dict) -> tuple:
+        return (row.get("kind"), row.get("track"), _record_span(row),
+                _source_bounds(row), tuple(row.get("linked_unique_ids") or ()))
+
+    return sorted(map(signature, old), key=repr) == sorted(
+        map(signature, new), key=repr)
 
 
 def _approx(left, right, tolerance: float = 0.01) -> bool:
@@ -1189,15 +1416,26 @@ def _property(row: dict | None, key: str):
 
 def _judge_insert_at_frame_on_track(case: dict) -> dict:
     after = case["after"]
-    placed = _one(after, "qual_b.mp4")
+    placed = _one(after, OWNED_VIDEO_A.name)
     source = _source_bounds(placed)
+    before_items = case["after_setup"].get("items", [])
+    after_items = after.get("items", [])
+    existing_ids = {str(row.get("unique_id") or "")
+                    for row in before_items}
+    remaining = [row for row in after_items
+                 if str(row.get("unique_id") or "") in existing_ids]
+    def signature(row: dict) -> tuple:
+        return (row.get("unique_id"), row.get("kind"), row.get("track"),
+                _record_span(row), _source_bounds(row))
     return {
         "placed_on_named_track": bool(placed) and placed["track"] == 2
         and placed["kind"] == "video",
         "exact_record_start": bool(placed)
         and int(placed["record_in"]) == 48,
         "exact_source_range": source == (0, 47),
-        "other_tracks_untouched": not _items(after, "qual_a.mp4"),
+        "existing_items_untouched": len(remaining) == len(before_items)
+        and sorted(map(signature, remaining), key=repr)
+        == sorted(map(signature, before_items), key=repr),
     }
 
 
@@ -1227,6 +1465,34 @@ def _judge_remove_leaves_gap(case: dict) -> dict:
         "target_absent": not _items(after, "qual_a.mp4"),
         "gap_left": bool(survivor) and int(survivor["record_in"]) == 96,
         "other_track_untouched": not _items(after, "qual_c.mp4"),
+    }
+
+
+def _judge_delete_linked_effects(case: dict) -> dict:
+    before = case["after_setup"].get("items", [])
+    after = case["after"].get("items", [])
+    video_before = [row for row in before if row.get("name") == "qual_a.mp4"
+                    and row.get("kind") == "video"]
+    audio_before = [row for row in before if row.get("name") == "qual_a.mp4"
+                    and row.get("kind") == "audio"]
+    audio_after = [row for row in after if row.get("name") == "qual_a.mp4"
+                   and row.get("kind") == "audio"]
+    unrelated_before = [row for row in before
+                        if row.get("name") != "qual_a.mp4"]
+    unrelated_after = [row for row in after
+                       if row.get("name") != "qual_a.mp4"]
+    def signature(row: dict) -> tuple:
+        return (row.get("unique_id"), row.get("kind"), row.get("track"),
+                _record_span(row), _source_bounds(row))
+    return {
+        "video_target_absent": len(video_before) == 1 and not [
+            row for row in after if row.get("unique_id")
+            == video_before[0].get("unique_id")],
+        "linked_audio_preserved": len(audio_before) == len(audio_after) == 1
+        and signature(audio_before[0]) == signature(audio_after[0]),
+        "other_items_untouched": sorted(map(signature, unrelated_before),
+                                         key=repr)
+        == sorted(map(signature, unrelated_after), key=repr),
     }
 
 
@@ -1350,12 +1616,15 @@ def _judge_broll_insert(case: dict) -> dict:
     before = case["after_setup"]
     after = case["after"]
     cover = _one(after, OWNED_VIDEO_A.name)
-    aroll = _one(after, "qual_a.mp4")
+    aroll = [row for row in _items(after, "qual_a.mp4")
+             if row.get("kind") == "video"]
+    audio = [row for row in _items(after, "qual_a.mp4")
+             if row.get("kind") == "audio"]
     return {
         "cover_on_cover_track": bool(cover) and cover["track"] == 2,
         "aroll_unchanged": _unchanged(before, after, "qual_a.mp4"),
-        "dialogue_audio_unchanged": bool(aroll)
-        and bool(aroll.get("linked_unique_ids")),
+        "dialogue_audio_unchanged": len(aroll) == len(audio) == 1
+        and bool(aroll[0].get("linked_unique_ids")),
     }
 
 
@@ -1510,6 +1779,7 @@ JUDGES = {
     "insert_to_absent_track_refused": _judge_insert_refused,
     "remove_ripple_closes_gap": _judge_remove_ripple,
     "remove_leaves_gap": _judge_remove_leaves_gap,
+    "delete_linked_effects": _judge_delete_linked_effects,
     "trim_narrows_source_range": _judge_trim,
     "trim_past_handles_refused": _judge_trim_refused,
     "move_keeps_unrelated_state": _judge_move,
@@ -1560,30 +1830,59 @@ _PREDICATE_FIELDS = (
 )
 
 
-def _predicates(measured: dict) -> list[dict]:
-    state = measured.get("state") or {}
+def _predicates(measured_states: list[dict]) -> list[dict]:
+    """The conditions every scenario that earned the pair was measured in.
+
+    A field the scenarios agree on is an `equals`; a field they differ on
+    is a `one_of` over the values they were measured in - the union of
+    the conditions the evidence was ACTUALLY earned under, which is the
+    pattern the W1-W4 widening used. One scenario's measurement alone
+    would narrow a row to that one composition and refuse the others
+    (measured 2026-10-20: the delete of a linked audio twin was
+    refused because only the video side had been measured).
+    """
+    values: dict[str, list[str]] = {}
+    for measured in measured_states:
+        state = (measured or {}).get("state") or {}
+        for field in _PREDICATE_FIELDS:
+            value = state.get(field)
+            if value in (None, ""):
+                continue
+            values.setdefault(field, [])
+            if str(value) not in values[field]:
+                values[field].append(str(value))
     predicates = []
     for field in _PREDICATE_FIELDS:
-        value = state.get(field)
-        if value in (None, ""):
+        seen = values.get(field)
+        if not seen:
             continue
-        predicate = {"field": field, "operator": "equals",
-                     "value": str(value)}
+        predicate = {
+            "field": field,
+            "operator": "equals" if len(seen) == 1 else "one_of",
+            "value": seen[0] if len(seen) == 1 else seen,
+        }
         predicates.append(axi_qualification.canonical_predicate(predicate))
     return predicates
 
 
 def _qualification_result(primitive: Primitive, scenarios: list[dict],
-                          measured: dict) -> dict:
+                          measured: list[dict]) -> dict:
     """One current-schema qualification document for this pair."""
     checks: dict = {}
     for scenario in scenarios:
         checks.update(scenario.get("checks") or {})
-    state = measured.get("state") or {}
+    states = [(row or {}).get("state") or {} for row in measured]
+    state = states[0] if states else {}
+    coverage_dimensions = {}
+    for field in axi_qualification.PREDICATE_FIELDS:
+        values = []
+        for measured_state in states:
+            value = measured_state.get(field)
+            if value not in (None, "") and str(value) not in values:
+                values.append(str(value))
+        coverage_dimensions[field] = values
     coverage = {
-        "dimensions": {field: [str(state[field])]
-                       for field in axi_qualification.PREDICATE_FIELDS
-                       if state.get(field) not in (None, "")},
+        "dimensions": coverage_dimensions,
         "configurations": ["measured_qualification_timeline"],
         "uncovered": {},
         "source": "measured",
@@ -1603,8 +1902,8 @@ def _qualification_result(primitive: Primitive, scenarios: list[dict],
         },
         "semantic_boundary": {
             "applies_to": [
-                f"{primitive.operation} on {primitive.backend} in the "
-                "measured qualification state"],
+                (f"{primitive.operation} on {primitive.backend} in the "
+             "measured qualification state")],
             "does_not_apply_to": [
                 "states or operation/backend pairs not named by this evidence"],
         },
@@ -1686,15 +1985,17 @@ def _registry_rows(report: dict) -> tuple[list[tuple[tuple[str, str], dict]],
             })
             continue
         groups.setdefault(key, []).append(row)
-        measured[key] = row.get("case", {}).get("qualification_state") or {}
+        measured.setdefault(key, []).append(
+            row.get("case", {}).get("qualification_state") or {})
     rows = []
     for key, scenarios in groups.items():
         primitive = next(item for item in PRIMITIVES
                          if (item.operation, item.backend) == key)
-        state = measured[key].get("state") or {}
+        states = [(item or {}).get("state") or {} for item in measured[key]]
         missing_dimensions = [
             field for field in axi_qualification.PREDICATE_FIELDS
-            if state.get(field) in (None, "")]
+            if not any(state.get(field) not in (None, "")
+                       for state in states)]
         if missing_dimensions:
             gaps.append({
                 "operation_id": primitive.operation,
@@ -1867,7 +2168,22 @@ def main() -> int:
     _owned_media()
     if os.environ.get("REN_LIVE_RESOLVE") != "1":
         raise SystemExit("set REN_LIVE_RESOLVE=1 to run against Resolve")
-    cases = _cases()
+    if os.environ.get("REN_AXI_QUAL_TIMELINE"):
+        if (not TIMELINE.startswith("fm-axi-qual-")
+                and TIMELINE != "fm-scratch frames smoke"):
+            raise ValueError("live qualification must use a named scratch timeline")
+        small.TIMELINE = TIMELINE
+    selected = os.environ.get("REN_AXI_QUAL_ONLY")
+    all_cases = _cases()
+    if selected:
+        wanted = set(selected.split(","))
+        unknown = wanted - set(all_cases)
+        if unknown:
+            raise ValueError(f"unknown qualification scenario IDs: {sorted(unknown)}")
+        cases = {name: case for name, case in all_cases.items()
+                 if name in wanted}
+    else:
+        cases = all_cases
     script = _broker_script(cases)
     receipt = small._qualification_batch(script, wait_seconds=900,
                                          timeout_seconds=960)
@@ -1875,16 +2191,42 @@ def main() -> int:
     if not steps:
         raise RuntimeError(
             f"the qualification batch returned no steps: {receipt}")
-    stdout = steps[0].get("stdout", "")
+    stdout = small.result_stdout(receipt)
     start = stdout.find("{\n")
     if start < 0:
-        raise RuntimeError("the qualification batch printed no JSON result")
+        steps_detail = json.dumps(steps, indent=2, default=str)
+        raise RuntimeError(
+            "the qualification batch printed no JSON result; stdout="
+            + repr(stdout[-4000:]) + "; steps=" + steps_detail[-6000:])
     payload, _ = json.JSONDecoder().raw_decode(stdout[start:])
     by_id = {row["id"]: row for row in payload.get("cases", [])}
     actions = {primitive.id: _make_action(primitive, by_id)
-               for primitive in PRIMITIVES}
+               for primitive in PRIMITIVES if primitive.id in cases}
     report = run_batch(actions)
-    written, gaps = _write_registry_results(report)
+    existing_report = {}
+    if selected and REPORT_PATH.is_file():
+        existing_report = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+        merged = {row["id"]: row
+                  for row in existing_report.get("results", [])}
+        merged.update({row["id"]: row for row in report["results"]})
+        report["results"] = [merged[key] for key in merged]
+        report["scenarios"] = len(report["results"])
+        report["passed"] = sum(row["status"] == "pass"
+                               for row in report["results"])
+        report["failed"] = sum(row["status"] == "fail"
+                               for row in report["results"])
+    # Registry evidence is limited to this run's scenarios. Include the
+    # previously measured AXI-011 deletion cases so the broadened predicate
+    # covers the full delete pair rather than replacing its earlier row.
+    registry_report = report
+    if selected:
+        pair_ids = set(cases) | {"remove_leaves_gap"}
+        registry_report = {
+            **report,
+            "results": [row for row in report["results"]
+                        if row["id"] in pair_ids],
+        }
+    written, gaps = _write_registry_results(registry_report)
     report["registry_results"] = written
     report["promotion_gaps"] = gaps
     REPORT_DIR.mkdir(parents=True, exist_ok=True)

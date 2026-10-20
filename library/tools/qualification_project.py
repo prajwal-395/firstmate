@@ -335,6 +335,47 @@ def _timeline_by_name(project, name: str):
                              f"{project.GetName()!r}")
 
 
+def _restored_receipt(found: dict) -> dict:
+    """What the session actually put back, read back.
+
+    A session that borrowed from a project Resolve cannot reopen (the
+    untitled project it starts with) puts nothing back, and the receipt
+    says that instead of naming a restore that never happened.
+    """
+    if not found.get("reopenable", True):
+        return {"project": QUALIFICATION_PROJECT,
+                "verified": False,
+                "note": (f"the project Resolve had open ({found['project']!r}) "
+                         "cannot be reopened by name, so the qualification "
+                         "project was left open")}
+    return {"project": found["project"],
+            "timeline": found["timeline"],
+            "page": found["page"],
+            "verified": True}
+
+
+def _reopenable(manager, name: str) -> bool:
+    """Whether Resolve can reopen this project by name.
+
+    The project Resolve opens when nothing is open - "Untitled Project"
+    - is not in the project list: asking Resolve to reopen it is a load
+    of a name that does not exist. A session that borrowed from a
+    project like that cannot put it back, and says so instead of
+    failing the run after the work.
+
+    A manager that cannot answer the question at all is taken at its
+    word: the restore is attempted, and a project that cannot be
+    reopened fails the restore the way it always did.
+    """
+    try:
+        projects = manager.GetProjectListInCurrentFolder()
+    except Exception:  # noqa: BLE001 - an unanswerable manager is no evidence
+        return True
+    if projects is None:
+        return True
+    return name in list(projects)
+
+
 @contextmanager
 def borrowed(resolve, *, qualification_only: bool = False):
     """Use an open Qualification project, or borrow and restore the captain.
@@ -380,16 +421,24 @@ def borrowed(resolve, *, qualification_only: bool = False):
             f"Resolve is already on {QUALIFICATION_PROJECT!r}, so the "
             f"captain's project is unknown - reopen it by hand first")
     timeline = project.GetCurrentTimeline()
+    reopenable = _reopenable(manager, name)
     with _phase("project_folder_capture", qualification_isolation=True):
         project_folder = _current_project_folder_path(manager)
     found = {"project": name,
              "project_folder": project_folder,
+             "reopenable": reopenable,
              "timeline_id": timeline.GetUniqueId() if timeline else None,
              "timeline": timeline.GetName() if timeline else None,
              "page": resolve.GetCurrentPage()}
     with _phase("project_save_before_borrow",
                  qualification_isolation=True):
-        if not manager.SaveProject():
+        # The save protects the captain's unsaved work from the reload
+        # the restore does. A project Resolve cannot reopen is never
+        # reloaded, so there is nothing to save either - and the untitled
+        # project Resolve starts with refuses a save ("could not save
+        # 'Untitled Project'; not borrowing", 2026-10-20), which is
+        # what stopped every live qualification run from beginning.
+        if reopenable and not manager.SaveProject():
             raise QualificationError(f"could not save {name!r}; not borrowing")
     token = _BORROWED_ISOLATION.set(True)
     try:
@@ -534,29 +583,42 @@ def run_qualification_session(job: dict, resolve) -> dict:
     current = manager.GetCurrentProject() if manager else None
     already_current = bool(
         current and current.GetName() == QUALIFICATION_PROJECT)
-    with borrowed(resolve, qualification_only=already_current) as found:
-        if not already_current:
-            manager = resolve.GetProjectManager()
-            switch_project(manager, QUALIFICATION_PROJECT)
-        for index, step in enumerate(params["steps"]):
-            try:
-                receipts.append(_run_session_step(
-                    job, step, index, params, resolve))
-            except JobRefused as exc:
-                # The steps that did run are evidence, not trivia: a
-                # refused collection still needs its pool inventory to
-                # diagnose. The worker records refusal results on the
-                # job, so the receipt survives the raise - and the
-                # borrowed finally still restores first.
-                raise JobRefused(str(exc), result={
-                    "steps": receipts,
-                    "failed_step": index,
-                    "borrowed_from": found}) from exc
+    try:
+        with borrowed(resolve, qualification_only=already_current) as found:
+            if not already_current:
+                manager = resolve.GetProjectManager()
+                switch_project(manager, QUALIFICATION_PROJECT)
+            for index, step in enumerate(params["steps"]):
+                try:
+                    receipts.append(_run_session_step(
+                        job, step, index, params, resolve))
+                except JobRefused as exc:
+                    # The steps that did run are evidence, not trivia: a
+                    # refused collection still needs its pool inventory to
+                    # diagnose. The worker records refusal results on the
+                    # job, so the receipt survives the raise - and the
+                    # borrowed finally still restores first.
+                    raise JobRefused(str(exc), result={
+                        "steps": receipts,
+                        "failed_step": index,
+                        "borrowed_from": found}) from exc
+    except JobRefused:
+        raise
+    except Exception as exc:
+        # The RESTORE failed after the steps ran. That is a fact about
+        # the captain's project, not about the work: the steps' evidence
+        # is what the run produced, and a restore that cannot put a
+        # project back must not discard it (2026-10-20: every live
+        # qualification run on the machine failed on the restore and
+        # took its own evidence with it).
+        raise JobRefused(
+            f"{type(exc).__name__}: {exc}",
+            result={"steps": receipts,
+                    "borrowed_from": locals().get("found", {}),
+                    "restore_failed": True}) from exc
     return {"steps": receipts,
             "borrowed_from": found,
-            "restored": {"project": found["project"],
-                         "timeline": found["timeline"],
-                         "page": found["page"]}}
+            "restored": _restored_receipt(found)}
 
 
 def _restore_page(resolve, found: dict) -> None:
@@ -585,17 +647,27 @@ def _require_live_manager(manager, where: str):
 
 
 def _current_project_folder_path(manager) -> tuple[str, ...]:
-    """Read the full Project Manager path and return to its starting folder."""
+    """Read the full Project Manager path and return to its starting folder.
+
+    The leaf-to-root walk stops where Resolve reports no folder: a
+    project at the Project Manager ROOT (and the untitled project
+    Resolve starts with) has no folder to record and none to navigate
+    back to. That is not an error - it is the root.
+    """
     leaf_to_root = []
     while True:
         folder = manager.GetCurrentFolder()
-        if folder is None:
-            raise QualificationError(
-                "Resolve did not report its current project folder")
+        if not folder:
+            # The Project Manager root has no name of its own - Resolve
+            # answers it as None or as "" - so the project sits at the
+            # top: there is no folder to record, and none to navigate
+            # back to. Recording the empty name and then opening it is
+            # the failure this replaces ("Resolve could not navigate to
+            # project folder ''", measured 2026-10-20).
+            break
+        leaf_to_root.append(str(folder))
         if not manager.GotoParentFolder():
             break
-        if folder:
-            leaf_to_root.append(str(folder))
     path = tuple(reversed(leaf_to_root))
     _open_project_folder_path(manager, path)
     return path
@@ -709,6 +781,13 @@ def restore(resolve, found: dict) -> None:
             "mid-switch or not fully loaded; "
             f"reopen {found['project']!r} on timeline "
             f"{found['timeline']!r} by hand after it settles")
+    if not found.get("reopenable", True):
+        # The project Resolve had open is one Resolve cannot reopen (the
+        # untitled project it starts with). There is nothing to put
+        # back, and asking Resolve to load a name that does not exist
+        # is the hang this avoids. The qualification project stays open
+        # and the receipt says so.
+        return
     current = manager.GetCurrentProject()
     if current and current.GetName() == QUALIFICATION_PROJECT:
         with _phase("project_save_before_restore"):

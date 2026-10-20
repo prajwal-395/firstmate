@@ -1,0 +1,95 @@
+{
+  "actual_state": {
+    "checks": {
+      "matte_read_back": true,
+      "other_clip_untouched": true
+    },
+    "measurement": {
+      "clip_composition": "single_video_clip",
+      "linked_audio_configuration": "no_linked_audio",
+      "media_type": "video + audio",
+      "project_name": "Ren Qualification",
+      "resolve_version": "21.1.0.14",
+      "timeline_name": "fm-scratch qualify",
+      "timeline_structure": "multi_item_timeline"
+    },
+    "scenarios": [
+      "fusion_matte_placed"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+  ],
+  "backend": "edit_patch",
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#fusion_matte_placed",
+  "expected_state": {
+    "matte_read_back": true,
+    "other_clip_untouched": true
+  },
+  "operation_id": "mask.create",
+  "preservation_checks": [
+    {
+      "check": "matte_read_back",
+      "result": "passed"
+    },
+    {
+      "check": "other_clip_untouched",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one private scratch timeline; the checks are the ones the scenarios name: matte_read_back, other_clip_untouched"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "production entry: edit_patch.apply_live_patch"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "project_name",
+      "operator": "equals",
+      "value": "Ren Qualification"
+    },
+    {
+      "field": "timeline_name",
+      "operator": "equals",
+      "value": "fm-scratch qualify"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video + audio"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "single_video_clip"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v1",
+  "supported_media_types": [
+    "video + audio"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
+  ]
+}

@@ -5661,6 +5661,12 @@ def cmd_edit_track_ripple_remove(args) -> int:
                             pool_item=record["pool_item"],
                             preservation_state=record["preservation_state"],
                             write_context={"project": project.GetName(),
+                                           # The re-place carries the
+                                           # approved transform, and a
+                                           # transform write is anchored
+                                           # to a project folder.
+                                           "project_folder":
+                                               args.project_folder or None,
                                            "timeline_id": timeline.GetUniqueId(),
                                            "timeline_name": timeline.GetName()})
                         if error:
@@ -6281,13 +6287,25 @@ def cmd_edit_switch_camera(args) -> int:
             drop_error = _drop_original(resolve, project, timeline, uid)
             if drop_error:
                 return fail(drop_error, f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            # The re-place carries the approved transform, and a
+            # transform write is anchored to a project folder: without
+            # one the switch refuses ("cannot find the project folder for
+            # transform write", measured 2026-10-20).
+            multicam_context = {
+                "project": project.GetName(),
+                "project_folder": args.project_folder or None,
+                "timeline_id": timeline.GetUniqueId(),
+                "timeline_name": timeline.GetName(),
+            }
             replacement, error = _replace_item(
                 timeline, pool, None, args.source_in, args.source_out,
                 record_in, track_index, 1, pool_item=camera_pool_item,
-                preservation_state=target_state)
+                preservation_state=target_state,
+                write_context=multicam_context)
             if error:
                 restored, restore_error = _restore_trim_snapshot(
-                    timeline, pool, before, uid)
+                    timeline, pool, before, uid,
+                    write_context=multicam_context)
                 suffix = (f"; original timeline restored ({restored is not None})"
                           if not restore_error else
                           f"; restoration could not be proven ({restore_error})")

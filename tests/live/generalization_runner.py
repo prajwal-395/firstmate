@@ -391,7 +391,14 @@ for case in CASES:
                           "--to", str(end),
                           "--target-unique-id", target["unique_id"],
                           "--apply", "--project", PROJECT,
-                          "--timeline", TIMELINE])
+                          "--timeline", TIMELINE,
+                          # The re-place restores the approved transform,
+                          # and a transform write is anchored to a
+                          # project folder: without one the restore
+                          # fails and the move refuses ("the re-place did
+                          # not preserve supported editorial state",
+                          # measured 2026-10-20).
+                          "--project-folder", PROJECT_DIR])
             if moved["exit_code"]:
                 raise RuntimeError("reorder step refused: "
                                    + moved["stdout"] + moved["stderr"])
@@ -550,6 +557,7 @@ for case in CASES:
                             str(track_index_of(before,
                                                victim["unique_id"])),
                             "--target-unique-id", victim["unique_id"],
+                            "--project-folder", PROJECT_DIR,
                             "--expected-source-file", victim["source_path"],
                             "--expected-source-in-frame",
                             str(victim["source_in"]),
@@ -619,6 +627,7 @@ for case in CASES:
                                              target["unique_id"])),
                           "--to", str(end),
                           "--target-unique-id", target["unique_id"],
+                          "--project-folder", PROJECT_DIR,
                           "--expected-source-file", target["source_path"],
                           "--expected-source-in-frame",
                           str(target["source_in"]),
@@ -803,7 +812,7 @@ def run_matrix(live: bool = True) -> dict:
     if not steps:
         raise RuntimeError(
             f"generalization batch returned no steps: {batch}")
-    stdout = steps[0]["stdout"]
+    stdout = q.result_stdout(batch)
     start = stdout.find("{\n")
     if start < 0:
         raise RuntimeError(

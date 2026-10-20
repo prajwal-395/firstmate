@@ -509,6 +509,66 @@ def test_borrow_marks_the_session_and_clears_it(lock_dir):
     assert qp.qualification_session_active() is None
 
 
+class _UnreopenableManager:
+    """Resolve with the project it starts with: one it cannot reopen.
+
+    Resolve opens "Untitled Project" when nothing is open, and it is not
+    in the project list. Asking Resolve to reopen it is a load of a
+    name that does not exist.
+    """
+
+    def __init__(self, project):
+        self._project = project
+        self.loaded = []
+
+    def GetCurrentProject(self):
+        return self._project
+
+    def GetCurrentFolder(self):
+        return None
+
+    def GotoParentFolder(self):
+        return False
+
+    def GotoRootFolder(self):
+        return True
+
+    def GetProjectListInCurrentFolder(self):
+        return [qp.QUALIFICATION_PROJECT]
+
+    def SaveProject(self):
+        return True
+
+    def LoadProject(self, name):
+        self.loaded.append(name)
+        return None
+
+
+def test_a_borrow_from_a_project_resolve_cannot_reopen_leaves_it_alone(
+        lock_dir, monkeypatch):
+    """Defect: the qualification session could not start at all.
+
+    Resolve was on the untitled project it opens with (measured
+    2026-10-20, after a restart), so the borrow refused with "Resolve
+    did not report its current project folder" and every live
+    qualification run on the machine failed before it began.
+
+    A session that borrowed from a project Resolve cannot reopen must
+    say so and leave it alone: asking Resolve to load a name that does
+    not exist is what held a broker worker for half an hour.
+    """
+    monkeypatch.setattr(resolve_lock, "exclusive_held", lambda: True)
+    resolve = _UnreopenableManager(_Project("Untitled Project", []))
+
+    with qp.borrowed(resolve) as found:
+        assert found["project"] == "Untitled Project"
+        assert found["reopenable"] is False
+        assert found["project_folder"] == ()
+
+    assert resolve.loaded == [], "the restore asked Resolve to load a name"
+    assert qp.qualification_session_active() is None
+
+
 def test_session_marker_cleared_when_restore_fails(lock_dir):
     """A restore that raises must not leave the watcher stood down: the
     marker clears in the finally behind the restore."""

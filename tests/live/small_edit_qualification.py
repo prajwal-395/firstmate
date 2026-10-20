@@ -224,8 +224,8 @@ def duplicate_command(timeline: str, source: str) -> list[str]:
             "--timeline", source, "--name", timeline, "--apply"]
 
 
-def _qualification_batch(script: str, *, wait_seconds: int = 180,
-                         timeout_seconds: int = 240,
+def _qualification_batch(script: str, *, wait_seconds: int = 900,
+                         timeout_seconds: int = 960,
                          timeline: str | None = None,
                          source: str | None = None) -> dict:
     """Run all production edits in one switching qualification borrow.
@@ -237,7 +237,8 @@ def _qualification_batch(script: str, *, wait_seconds: int = 180,
     protected one is never written on and never duplicated over - and
     the batch then works on that clean copy. The duplication is its own
     session step, because a `run` script that adds a timeline is
-    refused by the AXI's project inventory guard.
+    refused by the AXI's project inventory guard. The borrow is exclusive
+    and can wait behind other work, so allow the broker queue to clear.
     """
     if not REN.is_file():
         raise RuntimeError(f"Ren CLI not found: {REN}")
@@ -263,8 +264,13 @@ def _qualification_batch(script: str, *, wait_seconds: int = 180,
             script_path = Path(f.name)
 
         def run_command(path: Path, purpose: str) -> list[str]:
+            # These batches run only on the disposable qualification
+            # timeline selected above. The script boundary uses dynamic
+            # Python, so AXI requires this explicit acknowledgement even
+            # though the shared source and proof timelines are never targets.
             return ["run", "--project", PROJECT,
                     "--file", str(path), "--unsafe", "--json",
+                    "--acknowledge-copy-grades",
                     "--purpose", purpose, "--scope", "project",
                     "--project-dir", str(root_path)]
 

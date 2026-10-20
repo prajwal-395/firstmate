@@ -27,9 +27,9 @@
     }
   ],
   "task_count": 10,
-  "passed": 6,
-  "failed": 4,
-  "first_attempt_passes": 6,
+  "passed": 0,
+  "failed": 10,
+  "first_attempt_passes": 0,
   "results": [
     {
       "id": "move_lower_third",
@@ -37,579 +37,13 @@
       "operation": "overlay.position",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "move": {
-          "patch_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-          "status": "committed",
-          "resolve_write_status": "committed",
-          "base_generation": 823,
-          "project": "Ren Qualification",
-          "timeline": "fm-scratch qualify",
-          "requested_operation_count": 2,
-          "expected_state": {
-            "operations": [
-              {
-                "op": "clip.set_property",
-                "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-                "key": "Pan",
-                "value": 0.0
-              },
-              {
-                "op": "clip.set_property",
-                "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-                "key": "Tilt",
-                "value": -40.0
-              }
-            ],
-            "postconditions": []
-          },
-          "readback": {
-            "project": "Ren Qualification",
-            "timeline": "fm-scratch qualify",
-            "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
-            "generation": 824,
-            "hash": "2417e032cb13294ca59a311e474daff0bf832b7af8cd40ac1cc7d12e306718bd",
-            "source": "patch",
-            "patch_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-            "recorded_at": 1792475124.875712,
-            "verified_at": 1792475124.875712,
-            "model_revision": null,
-            "nle_binding_ids": []
-          },
-          "backend": "edit_patch",
-          "idempotency_key": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-          "operations": [
-            {
-              "index": 0,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            },
-            {
-              "index": 1,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            }
-          ],
-          "unrelated_changes": [],
-          "acceptance_contracts": [
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            },
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            }
-          ],
-          "stopped": null,
-          "recovery_result": {
-            "status": "not_attempted",
-            "reason": "transaction verified"
-          },
-          "journal": {
-            "intent_persisted": true,
-            "errors": []
-          },
-          "postcondition_failures": [],
-          "exclusive_hold_seconds": 0.0821,
-          "project_model_commit": {
-            "status": "not_required",
-            "revision": null
-          },
-          "generation": 824,
-          "fingerprint": "2417e032cb13294ca59a311e474daff0bf832b7af8cd40ac1cc7d12e306718bd",
-          "recovery": null,
-          "planned": {
-            "status": "planned",
-            "patch_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178"
-          },
-          "validated": {
-            "status": "validated",
-            "base_generation": 823
-          },
-          "executing": {
-            "status": "completed",
-            "stopped": null
-          },
-          "applied": {
-            "status": "applied",
-            "operations": 2,
-            "requested": 2,
-            "complete": true
-          },
-          "verified": {
-            "status": "verified",
-            "acceptance_contracts_passed": true
-          },
-          "committed": {
-            "status": "committed",
-            "generation": 824,
-            "project_model": {
-              "status": "not_required",
-              "revision": null
-            }
-          },
-          "delivered": {
-            "status": "not_requested"
-          },
-          "lifecycle": {
-            "stage": "COMMITTED",
-            "ids": {
-              "transaction_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-              "idempotency_key": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify"
-            },
-            "expected_state": {
-              "operations": [
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-                  "key": "Pan",
-                  "value": 0.0
-                },
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-                  "key": "Tilt",
-                  "value": -40.0
-                }
-              ],
-              "postconditions": []
-            },
-            "actual_state": {
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify",
-              "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
-              "generation": 824,
-              "hash": "2417e032cb13294ca59a311e474daff0bf832b7af8cd40ac1cc7d12e306718bd",
-              "source": "patch",
-              "patch_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-              "recorded_at": 1792475124.875712,
-              "verified_at": 1792475124.875712,
-              "model_revision": null,
-              "nle_binding_ids": []
-            },
-            "affected_changes": [
-              {
-                "index": 0,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              },
-              {
-                "index": 1,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              }
-            ],
-            "unrelated_changes": [],
-            "backend": "edit_patch",
-            "route_selection": null,
-            "verification": {
-              "outcome": {
-                "status": "verified",
-                "acceptance_contracts_passed": true
-              },
-              "acceptance_contracts": [
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                },
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                }
-              ]
-            },
-            "recovery": null,
-            "recovery_result": {
-              "status": "not_attempted",
-              "reason": "transaction verified"
-            },
-            "persistence": {
-              "status": "committed",
-              "generation": 824,
-              "project_model": {
-                "status": "not_required",
-                "revision": null
-              }
-            },
-            "promotion": null,
-            "delivery": {
-              "status": "not_requested"
-            },
-            "history": [
-              "PLANNED",
-              "VALIDATED",
-              "EXECUTING",
-              "APPLIED",
-              "VERIFIED",
-              "COMMITTED"
-            ]
-          },
-          "execution_contract": {
-            "status": "committed",
-            "backend": "edit_patch",
-            "verification": {
-              "status": "verified",
-              "checks": [
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                },
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                }
-              ],
-              "missing": [],
-              "evidence": {
-                "acceptance_check_count": 2,
-                "readback_present": true
-              },
-              "layers": {
-                "stored_state": {
-                  "status": "verified",
-                  "checks": 2
-                },
-                "rendered_pixels": {
-                  "status": "not_measured",
-                  "evidence": {}
-                },
-                "rendered_audio": {
-                  "status": "not_measured",
-                  "evidence": {}
-                }
-              }
-            },
-            "recovery": {
-              "status": "not_attempted",
-              "action": "none",
-              "reason": "transaction verified",
-              "evidence": {
-                "recovery_record_present": true
-              }
-            },
-            "limitations": [],
-            "receipt": {
-              "transaction_id": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178",
-              "idempotency_key": "ren-118dc50d43de2980b3520180c7a5b694a072eaf23888de7b0e6e89e131997178"
-            }
-          }
-        }
-      },
-      "checks": {
-        "moved_up_40px": true,
-        "size_unchanged": true,
-        "timing_unchanged": true,
-        "other_items_unchanged": true
-      },
+      "status": "fail",
+      "outcome": "missing_evidence",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-axi-qual-steer-015-20261020c (current)\n  unsafe: yes\n  cursor_before: fm-axi-qual-steer-015-20261020c\n  cursor_after: fm-axi-qual-steer-015-20261020c\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-axi-qual-steer-015-20261020c\"`\nrecorded:\n  run_id: 20261020T210051308958Z-3fcc7fed17b2\n  scope: project\n  project: Ren Qualification\n  timeline: fm-axi-qual-steer-015-20261020c\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-o_637m1t/pipeline_output/review/resolve_scripts/runs/20261020T210051308958Z-3fcc7fed17b2.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-o_637m1t/pipeline_output/review/recovery_archives/fm-axi-qual-steer-015-20261020c--9d9cc95201--custom-20261020T210051308958Z-3fcc7fed17b2.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-o_637m1t/pipeline_output/review/recovery_archives/fm-axi-qual-steer-015-20261020c--9d9cc95201--custom-20261020T210051514560Z-342017f2675a.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "overlay.position",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_db2dcc6357044809",
-        "phases": {
-          "discovery_s": 3.5832999856211245e-05,
-          "routing_s": 0.0008923340064939111,
-          "live_execution_s": 19.803258750005625
-        }
-      },
-      "backend_selection": {
-        "selected": "edit_patch.property",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.set_property; production routing fails closed (clip.set_property: runtime qualification state was not inspected)"
-          },
-          "protected_experimental": {
-            "selected": "edit_patch.property"
-          },
-          "selected": "edit_patch.property"
-        },
-        "executed_entry": "edit_patch.apply_live_patch",
-        "basis": "task overlay.position executes through the production clip.set_property path; the router selects edit_patch.property under production and the read-back above verifies the 40 px move"
-      },
-      "elapsed_seconds": 19.803535334001936,
-      "instruction_to_verified_seconds": 19.803535750004812,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "before": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "ed9349e4-9dd7-4fe7-a16c-301c5ab1ef40",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "b1fb88ce-b90f-4ab7-811a-c2f948df543f",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "f7a12b75-3f82-4156-80bb-df381547e08a",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-tight-caption-480x120.png",
-            "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              120,
-              120
-            ],
-            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          }
-        ],
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "ed9349e4-9dd7-4fe7-a16c-301c5ab1ef40",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "b1fb88ce-b90f-4ab7-811a-c2f948df543f",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "f7a12b75-3f82-4156-80bb-df381547e08a",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-tight-caption-480x120.png",
-            "unique_id": "98db73df-879f-482d-b923-3d250fd2a79b",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              120,
-              120
-            ],
-            "source_path": "/tmp/fm-qual-tight-caption-480x120.png",
-            "pan": 0.0,
-            "tilt": -40.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          }
-        ]
-      }
+      "checks": {},
+      "elapsed_seconds": 8.015363209007774,
+      "instruction_to_verified_seconds": null
     },
     {
       "id": "resize_logo",
@@ -617,575 +51,13 @@
       "operation": "overlay.resize",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "patch": {
-          "patch_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-          "status": "committed",
-          "resolve_write_status": "committed",
-          "base_generation": 825,
-          "project": "Ren Qualification",
-          "timeline": "fm-scratch qualify",
-          "requested_operation_count": 3,
-          "expected_state": {
-            "operations": [
-              {
-                "op": "clip.set_property",
-                "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                "key": "Scaling",
-                "value": 1
-              },
-              {
-                "op": "clip.set_property",
-                "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                "key": "ZoomX",
-                "value": 1.0
-              },
-              {
-                "op": "clip.set_property",
-                "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                "key": "ZoomY",
-                "value": 1.0
-              }
-            ],
-            "postconditions": []
-          },
-          "readback": {
-            "project": "Ren Qualification",
-            "timeline": "fm-scratch qualify",
-            "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
-            "generation": 826,
-            "hash": "471fb527476fce79de8dab0cd1a1f52bee594990f8351589366d7a926c116fad",
-            "source": "patch",
-            "patch_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-            "recorded_at": 1792475131.8166468,
-            "verified_at": 1792475131.8166468,
-            "model_revision": null,
-            "nle_binding_ids": []
-          },
-          "backend": "edit_patch",
-          "idempotency_key": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-          "operations": [
-            {
-              "index": 0,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            },
-            {
-              "index": 1,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            },
-            {
-              "index": 2,
-              "op": "clip.set_property",
-              "returned": true,
-              "failure": null
-            }
-          ],
-          "unrelated_changes": [],
-          "acceptance_contracts": [
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            },
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            },
-            {
-              "id": "acceptance:clip.set_property",
-              "operation": "clip.set_property",
-              "checks": [
-                "operation_readback_matches_request",
-                "unrelated_items_unchanged"
-              ],
-              "structural_source": "timeline_readback",
-              "passed": true,
-              "results": [
-                {
-                  "check": "operation_readback_matches_request",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": null
-                },
-                {
-                  "check": "unrelated_items_unchanged",
-                  "passed": true,
-                  "status": "passed",
-                  "evidence": true
-                }
-              ],
-              "missing": [],
-              "failed": []
-            }
-          ],
-          "stopped": null,
-          "recovery_result": {
-            "status": "not_attempted",
-            "reason": "transaction verified"
-          },
-          "journal": {
-            "intent_persisted": true,
-            "errors": []
-          },
-          "postcondition_failures": [],
-          "exclusive_hold_seconds": 0.0685,
-          "project_model_commit": {
-            "status": "not_required",
-            "revision": null
-          },
-          "generation": 826,
-          "fingerprint": "471fb527476fce79de8dab0cd1a1f52bee594990f8351589366d7a926c116fad",
-          "recovery": null,
-          "planned": {
-            "status": "planned",
-            "patch_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755"
-          },
-          "validated": {
-            "status": "validated",
-            "base_generation": 825
-          },
-          "executing": {
-            "status": "completed",
-            "stopped": null
-          },
-          "applied": {
-            "status": "applied",
-            "operations": 3,
-            "requested": 3,
-            "complete": true
-          },
-          "verified": {
-            "status": "verified",
-            "acceptance_contracts_passed": true
-          },
-          "committed": {
-            "status": "committed",
-            "generation": 826,
-            "project_model": {
-              "status": "not_required",
-              "revision": null
-            }
-          },
-          "delivered": {
-            "status": "not_requested"
-          },
-          "lifecycle": {
-            "stage": "COMMITTED",
-            "ids": {
-              "transaction_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-              "idempotency_key": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify"
-            },
-            "expected_state": {
-              "operations": [
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                  "key": "Scaling",
-                  "value": 1
-                },
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                  "key": "ZoomX",
-                  "value": 1.0
-                },
-                {
-                  "op": "clip.set_property",
-                  "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-                  "key": "ZoomY",
-                  "value": 1.0
-                }
-              ],
-              "postconditions": []
-            },
-            "actual_state": {
-              "project": "Ren Qualification",
-              "timeline": "fm-scratch qualify",
-              "timeline_id": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
-              "generation": 826,
-              "hash": "471fb527476fce79de8dab0cd1a1f52bee594990f8351589366d7a926c116fad",
-              "source": "patch",
-              "patch_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-              "recorded_at": 1792475131.8166468,
-              "verified_at": 1792475131.8166468,
-              "model_revision": null,
-              "nle_binding_ids": []
-            },
-            "affected_changes": [
-              {
-                "index": 0,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              },
-              {
-                "index": 1,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              },
-              {
-                "index": 2,
-                "op": "clip.set_property",
-                "returned": true,
-                "failure": null
-              }
-            ],
-            "unrelated_changes": [],
-            "backend": "edit_patch",
-            "route_selection": null,
-            "verification": {
-              "outcome": {
-                "status": "verified",
-                "acceptance_contracts_passed": true
-              },
-              "acceptance_contracts": [
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                },
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                },
-                {
-                  "id": "acceptance:clip.set_property",
-                  "operation": "clip.set_property",
-                  "checks": [
-                    "operation_readback_matches_request",
-                    "unrelated_items_unchanged"
-                  ],
-                  "structural_source": "timeline_readback",
-                  "passed": true,
-                  "results": [
-                    {
-                      "check": "operation_readback_matches_request",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": null
-                    },
-                    {
-                      "check": "unrelated_items_unchanged",
-                      "passed": true,
-                      "status": "passed",
-                      "evidence": true
-                    }
-                  ],
-                  "missing": [],
-                  "failed": []
-                }
-              ]
-            },
-            "recovery": null,
-            "recovery_result": {
-              "status": "not_attempted",
-              "reason": "transaction verified"
-            },
-            "persistence": {
-              "status": "committed",
-              "generation": 826,
-              "project_model": {
-                "status": "not_required",
-                "revision": null
-              }
-            },
-            "promotion": null,
-            "delivery": {
-              "status": "not_requested"
-            },
-            "history": [
-              "PLANNED",
-              "VALIDATED",
-              "EXECUTING",
-              "APPLIED",
-              "VERIFIED",
-              "COMMITTED"
-            ]
-          },
-          "execution_contract": {
-            "status": "committed",
-            "backend": "edit_patch",
-            "verification": {
-              "status": "verified",
-              "checks": [
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                },
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                },
-                {
-                  "passed": true,
-                  "operation": "clip.set_property",
-                  "failures": []
-                }
-              ],
-              "missing": [],
-              "evidence": {
-                "acceptance_check_count": 3,
-                "readback_present": true
-              },
-              "layers": {
-                "stored_state": {
-                  "status": "verified",
-                  "checks": 3
-                },
-                "rendered_pixels": {
-                  "status": "not_measured",
-                  "evidence": {}
-                },
-                "rendered_audio": {
-                  "status": "not_measured",
-                  "evidence": {}
-                }
-              }
-            },
-            "recovery": {
-              "status": "not_attempted",
-              "action": "none",
-              "reason": "transaction verified",
-              "evidence": {
-                "recovery_record_present": true
-              }
-            },
-            "limitations": [],
-            "receipt": {
-              "transaction_id": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755",
-              "idempotency_key": "ren-3a61709ddefbac25fd8b55125815fd42519a396da48de52dbd5e7c887cb76755"
-            }
-          }
-        }
-      },
-      "checks": {
-        "single_logo_placed": true,
-        "width_180px": true,
-        "anchor_unchanged": true,
-        "timing_unchanged": true,
-        "base_clips_untouched": true
-      },
+      "status": "fail",
+      "outcome": "missing_evidence",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210059088053Z-25ecf74f5b9a\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-dcdpmqbm/pipeline_output/review/resolve_scripts/runs/20261020T210059088053Z-25ecf74f5b9a.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-dcdpmqbm/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210059088053Z-25ecf74f5b9a.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-dcdpmqbm/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210059258735Z-6de3e8999da1.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "overlay.resize",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_d58ec1b37fba44ed",
-        "phases": {
-          "discovery_s": 1.8999999156221747e-05,
-          "routing_s": 4.154099588049576e-05,
-          "live_execution_s": 6.880474958001287
-        }
-      },
-      "backend_selection": {
-        "selected": "edit_patch.property",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.set_property, clip.set_property, clip.set_property; production routing fails closed (clip.set_property: runtime qualification state was not inspected; clip.set_property: runtime qualification state was not inspected; clip.set_property: runtime qualification state was not inspected)"
-          },
-          "protected_experimental": {
-            "selected": "edit_patch.property"
-          },
-          "selected": "edit_patch.property"
-        },
-        "executed_entry": "edit_patch.apply_live_patch",
-        "basis": "task overlay.resize executes through the production clip.set_property path; the router selects edit_patch.property under production and the live receipt above is that backend's commit"
-      },
-      "elapsed_seconds": 6.880805374996271,
-      "instruction_to_verified_seconds": 6.880805957996927,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "202fc8d7-2a4f-47d0-bc3c-86ec02469361",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "f6c0f89e-e0dc-4f5a-b960-689121527f89",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "e7fcb512-a5bb-47d3-80d3-6b88b9021d6b",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-logo-180x64.png",
-            "unique_id": "a835ffbb-1965-48b7-8f23-996824a92401",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              64,
-              64
-            ],
-            "source_path": "/tmp/fm-qual-logo-180x64.png",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 1
-          }
-        ]
-      }
+      "checks": {},
+      "elapsed_seconds": 7.075151833007112,
+      "instruction_to_verified_seconds": null
     },
     {
       "id": "add_logo_five_seconds",
@@ -1193,164 +65,13 @@
       "operation": "overlay.add",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "place": {
-          "argv": [
-            "edit",
-            "place",
-            "--clip",
-            "fm-qual-logo-180x64.png",
-            "--media",
-            "video",
-            "--track",
-            "3",
-            "--record",
-            "96",
-            "--source-in",
-            "0",
-            "--source-out",
-            "119",
-            "--apply",
-            "--project",
-            "Ren Qualification",
-            "--timeline",
-            "fm-scratch qualify"
-          ],
-          "exit_code": 0,
-          "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: fm-qual-logo-180x64.png\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  fm-qual-logo-180x64.png,96,216,64,64,01758a80-8bbd-4572-8108-e14b710ae672\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
-          "stderr": ""
-        }
-      },
-      "checks": {
-        "logo_over_final_five_seconds": true,
-        "other_items_unchanged": true
-      },
+      "status": "fail",
+      "outcome": "missing_evidence",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210106190160Z-01d330cfef0b\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-xklc4yzs/pipeline_output/review/resolve_scripts/runs/20261020T210106190160Z-01d330cfef0b.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-xklc4yzs/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210106190160Z-01d330cfef0b.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-xklc4yzs/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210106342547Z-1a86f6587e35.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "overlay.add",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_20478208b37e4cc0",
-        "phases": {
-          "discovery_s": 1.9082996004726738e-05,
-          "routing_s": 3.550000110408291e-05,
-          "live_execution_s": 6.624065832998895
-        }
-      },
-      "backend_selection": {
-        "selected": "edit_patch",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.insert; production routing fails closed"
-          },
-          "protected_experimental": {
-            "selected": "edit_patch"
-          },
-          "selected": "edit_patch"
-        },
-        "executed_entry": "resolve-axi edit place",
-        "basis": "router refuses clip.insert under production and selects edit_patch under the qualification-run policy; the live-qualified journaled place entry executed it and the read-back above verifies it | capability gap: reel.touchup declares no clip.insert, so the router-selected edit_patch pair cannot execute; the journaled place verb is the qualified physical path"
-      },
-      "elapsed_seconds": 6.62434362500062,
-      "instruction_to_verified_seconds": 6.624344041003496,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "e97fb910-9be2-42c6-a5f8-dc0a61a53954",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "db50e74a-9d35-4369-bce6-fcea2227a1b5",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "dc5bf9f1-2246-4d36-9b41-4d2a7a46e7c3",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 3,
-            "track_name": "V3",
-            "name": "fm-qual-logo-180x64.png",
-            "unique_id": "01758a80-8bbd-4572-8108-e14b710ae672",
-            "record": [
-              96,
-              216
-            ],
-            "source": [
-              64,
-              64
-            ],
-            "source_path": "/tmp/fm-qual-logo-180x64.png",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          }
-        ]
-      }
+      "checks": {},
+      "elapsed_seconds": 6.992959041992435,
+      "instruction_to_verified_seconds": null
     },
     {
       "id": "trim_pause",
@@ -1360,10 +81,10 @@
       "evaluation_level": 2,
       "status": "fail",
       "outcome": "missing_evidence",
-      "error": "RuntimeError: qualification batch failed: step 0 exited 1: qualify--0735472139--custom-20261020T054544759026Z-55e9e4c6501b.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: pause video trim refused: error: trim refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210113165539Z-54afcf29eae3\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-bf6vj1m1/pipeline_output/review/resolve_scripts/runs/20261020T210113165539Z-54afcf29eae3.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-bf6vj1m1/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210113165539Z-54afcf29eae3.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-bf6vj1m1/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210113347639Z-51b022d4f63f.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
       "checks": {},
-      "elapsed_seconds": 6.881074958997488,
+      "elapsed_seconds": 7.0897339999937685,
       "instruction_to_verified_seconds": null
     },
     {
@@ -1374,10 +95,10 @@
       "evaluation_level": 2,
       "status": "fail",
       "outcome": "missing_evidence",
-      "error": "RuntimeError: qualification batch failed: step 0 exited 1: y_archives/fm-scratch_qualify--0735472139--custom-20261020T054604658256Z-dfaeb4c6953e.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not delete the replace target: error: EditPatch refused or failed the delete (no production-qualified executor is available for: clip.delete; production routing fails closed).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210120957193Z-fcbc196d06bd\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-g05kcp_n/pipeline_output/review/resolve_scripts/runs/20261020T210120957193Z-fcbc196d06bd.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-g05kcp_n/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210120957193Z-fcbc196d06bd.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-g05kcp_n/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210121187404Z-ce506f15fe9d.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
       "checks": {},
-      "elapsed_seconds": 19.819028707999678,
+      "elapsed_seconds": 7.9516322079871316,
       "instruction_to_verified_seconds": null
     },
     {
@@ -1386,8 +107,8 @@
       "operation": "caption.style",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
+      "status": "fail",
+      "outcome": "unsafe_failure",
       "receipt": {
         "status": "committed",
         "rerendered": [
@@ -1409,35 +130,38 @@
         "operation": "caption.style",
         "discovered_from_request": true,
         "algebra_present": true,
-        "request_id": "edit_req_c6bd5cdabf1c44ef",
+        "request_id": "edit_req_0bba7e138cd448ee",
         "phases": {
-          "discovery_s": 7.604099664604291e-05,
-          "routing_s": 8.350000280188397e-05,
-          "live_execution_s": 21.992058458999963
+          "discovery_s": 8.583298767916858e-05,
+          "routing_s": 0.00013587500143330544,
+          "live_execution_s": 11.598900249999133
         }
       },
       "backend_selection": {
-        "selected": "resolve_axi_core.execute_semantic_edit_job",
-        "selection_correct": true,
+        "selected": "",
+        "selection_correct": false,
+        "selected_by_axi": false,
+        "production_entry_executed": true,
         "router_refusal": "EditRequestError: op 0 ('caption.style') is missing required parameters: style",
         "executed_entry": "resolve_axi_core.execute_semantic_edit_job",
-        "basis": "each caption.style card is rendered by the existing subtitles.rerender_swap path and independently verified"
+        "basis": "each caption.style card is rendered by the existing subtitles.rerender_swap path and independently verified",
+        "capability_gap": ""
       },
-      "elapsed_seconds": 21.99221129200305,
-      "instruction_to_verified_seconds": 21.99221150000085,
+      "elapsed_seconds": 11.599388333008392,
+      "instruction_to_verified_seconds": 11.59938908299955,
       "fixture_setup_seconds": null,
       "execution_mode": "request",
       "observed": {
         "per_caption": [
           {
-            "unique_id": "c8859512-b900-4530-99dd-d7b81989ab05",
+            "unique_id": "eb1906f2-4750-444a-b4bd-029105fc2884",
             "verified": true,
             "text_preserved": true,
             "timing_preserved": true,
             "style_applied": true
           },
           {
-            "unique_id": "e5581814-f06f-48bf-b9e9-f4005cfa16d3",
+            "unique_id": "032aa030-d9c8-474d-9eb3-bbe076af91e9",
             "verified": true,
             "text_preserved": true,
             "timing_preserved": true,
@@ -1452,188 +176,13 @@
       "operation": "clip.remove",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "delete": {
-          "argv": [
-            "edit",
-            "track-ripple-remove",
-            "--track",
-            "video2",
-            "--index",
-            "0",
-            "--target-unique-id",
-            "dc09a272-b96c-4413-8cc6-734146f6e684",
-            "--expected-source-file",
-            "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "--expected-source-in-frame",
-            "0",
-            "--expected-source-out-frame",
-            "40",
-            "--expected-record-in-frame",
-            "100",
-            "--expected-record-out-frame",
-            "140",
-            "--apply",
-            "--project",
-            "Ren Qualification",
-            "--timeline",
-            "fm-scratch qualify",
-            "--project-folder",
-            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-dlaci27p",
-            "--require-recovery"
-          ],
-          "exit_code": 0,
-          "stdout": "track_ripple_removed:\n  timeline: fm-scratch qualify\n  target: qual_c.mp4\n  target_absent: yes\n  track: video2\n  shifted_groups: 0\n  shift_frames: 40\n  journal_entry: 20261020T054633Z-fm-scratch-qualify-453952\njournal:\n  entry: 20261020T054633Z-fm-scratch-qualify-453952\n  status: applied\n",
-          "stderr": ""
-        }
-      },
-      "checks": {
-        "broll_target_absent": true,
-        "cover_track_emptied": true,
-        "underlying_speech_and_audio_unchanged": true,
-        "linked_audio_in_sync": true
-      },
+      "status": "fail",
+      "outcome": "missing_evidence",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210140139072Z-14052c3b9ea6\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-jfghj1eb/pipeline_output/review/resolve_scripts/runs/20261020T210140139072Z-14052c3b9ea6.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-jfghj1eb/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210140139072Z-14052c3b9ea6.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-jfghj1eb/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210140397994Z-1a9e72fd701d.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "clip.remove",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_78328aa869a742e5",
-        "phases": {
-          "discovery_s": 2.295799640705809e-05,
-          "routing_s": 0.0001028340047923848,
-          "live_execution_s": 6.843865582995932
-        }
-      },
-      "backend_selection": {
-        "selected": "edit_patch",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: no production-qualified executor is available for: clip.remove; production routing fails closed (clip.remove: runtime qualification state was not inspected)"
-          },
-          "protected_experimental": {
-            "selected": "edit_patch"
-          },
-          "selected": "edit_patch"
-        },
-        "executed_entry": "resolve-axi edit track-ripple-remove",
-        "basis": "router refuses clip.remove under production and selects edit_patch under the qualification-run policy, but no patch capability declares clip.remove, so the guarded track-scoped ripple verb executed the removal and the read-back above verifies cover removal with A-roll and audio untouched and unmoved | capability gap: reel.touchup declares no clip.remove, so the router-selected edit_patch pair cannot execute; the guarded track-scoped ripple verb is the qualified physical path"
-      },
-      "elapsed_seconds": 6.844203042004665,
-      "instruction_to_verified_seconds": 6.844203375003417,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "before_spans": [
-          "('audio', 'qual_a.mp4', (0, 96))",
-          "('audio', 'qual_b.mp4', (96, 168))",
-          "('audio', 'qual_c.mp4', (168, 216))",
-          "('video', 'qual_a.mp4', (0, 96))",
-          "('video', 'qual_b.mp4', (96, 168))",
-          "('video', 'qual_c.mp4', (100, 140))",
-          "('video', 'qual_c.mp4', (168, 216))"
-        ],
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "10592c56-0210-45b0-a51c-a4d054535f62",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "5da49c0f-97a6-451c-8b9a-fccc81a79424",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "3bbb428c-5eb0-4787-bf68-f91beb576ceb",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_a.mp4",
-            "record": [
-              0,
-              96
-            ]
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_b.mp4",
-            "record": [
-              96,
-              168
-            ]
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_c.mp4",
-            "record": [
-              168,
-              216
-            ]
-          }
-        ]
-      }
+      "checks": {},
+      "elapsed_seconds": 7.608659958001226,
+      "instruction_to_verified_seconds": null
     },
     {
       "id": "insert_relevant_broll",
@@ -1641,223 +190,13 @@
       "operation": "broll.insert",
       "production_entry": "ren revise / Resolve AXI transaction",
       "evaluation_level": 2,
-      "status": "pass",
-      "outcome": "success",
-      "receipt": {
-        "status": "committed",
-        "place": {
-          "argv": [
-            "edit",
-            "place",
-            "--clip",
-            "qual_c.mp4",
-            "--media",
-            "video",
-            "--track",
-            "2",
-            "--record",
-            "100",
-            "--source-in",
-            "0",
-            "--source-out",
-            "39",
-            "--apply",
-            "--project",
-            "Ren Qualification",
-            "--timeline",
-            "fm-scratch qualify",
-            "--project-folder",
-            "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-qual-92-dlaci27p",
-            "--require-recovery"
-          ],
-          "exit_code": 0,
-          "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_c.mp4,100,140,0,40,b0a1d278-7e35-48c7-aa23-35537b008bb3\njournal:\n  entry: 20261020T054640Z-fm-scratch-qualify-1e25bf\n  status: applied\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
-          "stderr": ""
-        }
-      },
-      "checks": {
-        "cover_over_marked_phrase": true,
-        "underlying_speech_kept": true,
-        "linked_audio_untouched": true
-      },
+      "status": "fail",
+      "outcome": "missing_evidence",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210147901277Z-ac230ba2d2a7\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-d21qc24i/pipeline_output/review/resolve_scripts/runs/20261020T210147901277Z-ac230ba2d2a7.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-d21qc24i/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210147901277Z-ac230ba2d2a7.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-d21qc24i/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210148122074Z-835905fd74a3.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
-      "benchmark": {
-        "attempts": 1
-      },
-      "discovery": {
-        "operation": "broll.insert",
-        "discovered_from_request": true,
-        "algebra_present": true,
-        "request_id": "edit_req_b9ebf33797a2441c",
-        "phases": {
-          "discovery_s": 2.7499998395796865e-05,
-          "routing_s": 3.7707999581471086e-05,
-          "live_execution_s": 7.10914466700342
-        }
-      },
-      "backend_selection": {
-        "selected": "resolve-axi edit place",
-        "selection_correct": true,
-        "router_routes": {
-          "production": {
-            "selected": "",
-            "refusal": "RoutingRefused: no production-qualified executor is available for: broll.insert; production routing fails closed (broll.insert: runtime qualification state was not inspected)"
-          },
-          "protected_experimental": {
-            "selected": "",
-            "refusal": "RoutingRefused: no backend is proven for operations: broll.insert"
-          },
-          "selected": ""
-        },
-        "executed_entry": "resolve-axi edit place",
-        "basis": "router refuses broll.insert under production and protected policies (no qualified backend; refusals on record); the journaled small-edit place entry executed the cover and the read-back above verifies span and speech preservation"
-      },
-      "elapsed_seconds": 7.109369625002728,
-      "instruction_to_verified_seconds": 7.10936995800148,
-      "fixture_setup_seconds": null,
-      "execution_mode": "request",
-      "observed": {
-        "before_spans": [
-          [
-            "qual_a.mp4",
-            [
-              0,
-              96
-            ]
-          ],
-          [
-            "qual_b.mp4",
-            [
-              96,
-              168
-            ]
-          ],
-          [
-            "qual_c.mp4",
-            [
-              168,
-              216
-            ]
-          ]
-        ],
-        "items": [
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_a.mp4",
-            "unique_id": "ad7aa3fb-d62f-4652-9c67-8e88f3c088e2",
-            "record": [
-              0,
-              96
-            ],
-            "source": [
-              0,
-              95
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_b.mp4",
-            "unique_id": "60b2f74e-e11e-44fb-855a-fc76373cd72d",
-            "record": [
-              96,
-              168
-            ],
-            "source": [
-              0,
-              71
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 1,
-            "track_name": "Video 1",
-            "name": "qual_c.mp4",
-            "unique_id": "3c764e10-5a48-4e75-a8bf-897c6131b663",
-            "record": [
-              168,
-              216
-            ],
-            "source": [
-              0,
-              47
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "video",
-            "track": 2,
-            "track_name": "V2",
-            "name": "qual_c.mp4",
-            "unique_id": "b0a1d278-7e35-48c7-aa23-35537b008bb3",
-            "record": [
-              100,
-              140
-            ],
-            "source": [
-              0,
-              40
-            ],
-            "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
-            "pan": 0.0,
-            "tilt": 0.0,
-            "zoomx": 1.0,
-            "zoomy": 1.0,
-            "scaling": 0
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_a.mp4",
-            "record": [
-              0,
-              96
-            ]
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_b.mp4",
-            "record": [
-              96,
-              168
-            ]
-          },
-          {
-            "kind": "audio",
-            "track": 1,
-            "name": "qual_c.mp4",
-            "record": [
-              168,
-              216
-            ]
-          }
-        ],
-        "phrase_span": [
-          100,
-          140
-        ]
-      }
+      "checks": {},
+      "elapsed_seconds": 7.715228707995266,
+      "instruction_to_verified_seconds": null
     },
     {
       "id": "right_speaker_camera",
@@ -1867,10 +206,10 @@
       "evaluation_level": 2,
       "status": "fail",
       "outcome": "missing_evidence",
-      "error": "RuntimeError: speaker camera switch refused: error: camera switch refused before writing: no production-qualified executor is available for: clip.delete; production routing fails closed\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210158631873Z-0fdda707677b\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-8i64zi8h/pipeline_output/review/resolve_scripts/runs/20261020T210158631873Z-0fdda707677b.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-8i64zi8h/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210158631873Z-0fdda707677b.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: ckup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-8i64zi8h/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210158817127Z-5e1f85798099.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed multicam fixture: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
       "checks": {},
-      "elapsed_seconds": 6.9888250840012915,
+      "elapsed_seconds": 10.56630583399965,
       "instruction_to_verified_seconds": null
     },
     {
@@ -1881,10 +220,10 @@
       "evaluation_level": 2,
       "status": "fail",
       "outcome": "missing_evidence",
-      "error": "RuntimeError: qualification batch failed: step 0 exited 1: _qualify--0735472139--custom-20261020T054654381924Z-169369547e64.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: opening tighten refused: error: trim refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
+      "error": "RuntimeError: JSON result block is missing: FIXTURE_TIMELINE{'exit': 0, 'out': 'the named private scratch timeline already exists', 'err': ''}\nrun:\n  timeline: fm-scratch qualify (current)\n  unsafe: yes\n  cursor_before: fm-scratch qualify\n  cursor_after: fm-scratch qualify\n  cursor_moved: no\nnull\nhelp[2]:\n  Run `resolve-axi timeline list`\n  Run `resolve-axi markers --timeline \"fm-scratch qualify\"`\nrecorded:\n  run_id: 20261020T210205745452Z-48bebfa41eb9\n  scope: project\n  project: Ren Qualification\n  timeline: fm-scratch qualify\n  caller: pid-8756\n  path: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-0zd2zesh/pipeline_output/review/resolve_scripts/runs/20261020T210205745452Z-48bebfa41eb9.json\n  project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-0zd2zesh/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210205745452Z-48bebfa41eb9.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\n\n--- the batch failed: step 1 exited 1: drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-0zd2zesh/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T210205926631Z-491738e224ab.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: could not seed qual_a.mp4: error: no clip named 'qual_a.mp4' under the pool root.\nhelp: resolve-axi pool\n.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
       "collateral_changes": [],
       "checks": {},
-      "elapsed_seconds": 6.65571858399926,
+      "elapsed_seconds": 7.131615708000027,
       "instruction_to_verified_seconds": null
     }
   ],
@@ -1893,6 +232,7 @@
     "name": "semantic_execution",
     "agent_receives_expected_operation": true,
     "agent_receives_expected_target": true,
+    "agent_receives_asset_selection": true,
     "agent_receives_editorial_decision": true,
     "compound_request_count": 0,
     "limitations": [
@@ -1907,9 +247,9 @@
       "intent_interpretation": {
         "status": "measured",
         "value": 1.0,
-        "measured": 6,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       },
       "target_resolution": {
         "status": "not_measured",
@@ -1921,30 +261,30 @@
       "capability_discovery": {
         "status": "measured",
         "value": 1.0,
-        "measured": 6,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       },
       "backend_selection_correctness": {
         "status": "measured",
-        "value": 1.0,
-        "measured": 6,
+        "value": 0.0,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       },
       "first_attempt_execution": {
         "status": "measured",
-        "value": 1.0,
-        "measured": 6,
+        "value": 0.0,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       },
       "verification": {
         "status": "measured",
         "value": 1.0,
-        "measured": 6,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       },
       "collateral_change_rate": {
         "status": "measured",
@@ -1970,32 +310,32 @@
       "delivery": {
         "status": "measured",
         "value": 0.0,
-        "measured": 6,
+        "measured": 1,
         "total": 10,
-        "not_measured": 4
+        "not_measured": 9
       }
     },
     "outcomes": {
-      "success": 6,
+      "success": 0,
       "safe_refusal": 0,
       "reasoning_failure": 0,
-      "unsafe_failure": 0,
-      "missing_evidence": 4
+      "unsafe_failure": 1,
+      "missing_evidence": 9
     },
     "latency_seconds": {
       "status": "measured",
-      "measured_tasks": 6,
-      "mean_instruction_to_verified": 11.542411763668497,
-      "median_instruction_to_verified": 6.995087957999203,
+      "measured_tasks": 1,
+      "mean_instruction_to_verified": 11.59938908299955,
+      "median_instruction_to_verified": 11.59938908299955,
       "per_request_instruction_to_verified": {
-        "move_lower_third": 19.803535750004812,
-        "resize_logo": 6.880805957996927,
-        "add_logo_five_seconds": 6.624344041003496,
+        "move_lower_third": null,
+        "resize_logo": null,
+        "add_logo_five_seconds": null,
         "trim_pause": null,
         "replace_graphic": null,
-        "restyle_captions": 21.99221150000085,
-        "remove_broll": 6.844203375003417,
-        "insert_relevant_broll": 7.10936995800148,
+        "restyle_captions": 11.59938908299955,
+        "remove_broll": null,
+        "insert_relevant_broll": null,
         "right_speaker_camera": null,
         "improve_opening": null
       },
