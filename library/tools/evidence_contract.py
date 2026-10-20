@@ -383,6 +383,17 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": False,
         "description": "M5 timed PANNs sound event, or a complete empty event set over the measured source interval.",
     },
+    "audio.sound_class": {
+        "unit": "record",
+        "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "VI-034 what the clip measured of one sound class: "
+        "PRESENT when an event of that class was measured, ABSENT when "
+        "the clip's sound events were measured over the whole clip and "
+        "nothing of that class reached the threshold, and UNCERTAIN when "
+        "the measurement did not run - which carries no coverage and "
+        "claims nothing.",
+    },
     "image.salient_boxes": {
         "unit": "normalized",
         "kind": EvidenceType.MEASUREMENT,
@@ -1078,6 +1089,7 @@ MODALITY_TO_MEASUREMENT: dict[str, str] = {
     "scene": "video.scene_segment",
     "scene_boundary": "video.scene_boundary",
     "sound_event": "audio.sound_event",
+    "sound_class": "audio.sound_class",
     "object_track_sample": "object.track_sample",
     "object_detection": "object.detection",
     "object_appearance": "object.appearance",

@@ -61,6 +61,10 @@ def diarization_der(reference: Sequence[dict], estimate: Sequence[dict],
 
     The current M1 contract is speaker turns; overlapped reference regions
     are reported unsupported rather than flattened into a misleading score.
+    The overlap-aware scorer lives in
+    ``library.tools.diarization_eval.diarization_metrics`` (and its
+    ``overlap_metrics``, which scores the overlap alone), and this
+    refusal says where it is rather than leaving a reader to find it.
     """
     if collar_seconds < 0:
         raise ValueError("collar_seconds must be non-negative")
@@ -78,7 +82,10 @@ def diarization_der(reference: Sequence[dict], estimate: Sequence[dict],
         if len(active_ref) > 1:
             return {"status": "unsupported_overlap", "der": None,
                     "collar_seconds": collar_seconds,
-                    "method": "time-weighted diarization error rate"}
+                    "method": "time-weighted diarization error rate",
+                    "overlap_aware_scorer": (
+                        "library.tools.diarization_eval.diarization_metrics "
+                        "and library.tools.diarization_eval.overlap_metrics")}
         if active_ref and active_hyp:
             overlaps[active_ref[0]][active_hyp[0]] += right - left
     # Cluster labels are arbitrary: choose the one-to-one mapping with

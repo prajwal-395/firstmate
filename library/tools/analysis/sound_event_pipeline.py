@@ -79,6 +79,14 @@ MERGE_GAP_SECONDS = 0.25
 CHUNK_SECONDS = 60
 TARGET_SAMPLE_RATE = 32000
 
+FRAME_RATE_HZ = 100.0
+"""The detector's frame rate: 100 frames per second, so a frame is ten
+milliseconds and a reported boundary is located to that grid.
+
+Stated here because the module docstring had it as prose and the
+readers of a measurement need the number: a boundary's resolution is
+part of what the boundary means."""
+
 MODEL_CHECKPOINT_NAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
 MODEL_MD5 = "70539c43c18b6a289b3199c503a82c5a"
 MODEL_LICENCE = "CC-BY-4.0"

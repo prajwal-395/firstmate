@@ -446,6 +446,63 @@ def timeline_record(slots: Sequence, duration: float,
 
 # ── scoring against a reference ─────────────────────────────────────
 
+def as_turn_rows(spans, *, speakers_by_track=None) -> list[dict]:
+    """The measured crosstalk as the turn rows an overlap-aware scorer
+    reads.
+
+    The arm measures CROSSTALK BETWEEN TRACKS: two cameras that both
+    heard the two talkers at once. A reference speaks in PEOPLE, so the
+    track each voice was heard on has to be mapped onto the person who
+    spoke it. That map is supplied by the caller, because this arm
+    cannot know it: two cameras that both heard the same person are two
+    tracks and one person.
+
+    With no map, the rows carry the track names as they are. That
+    scores the crosstalk's TIMING against a reference that names people,
+    and reads as confusion rather than as the mapping failure it is.
+
+    A track the map does not cover is left OUT rather than carried as a
+    person: a voice with no name is not a voice with an invented one.
+    """
+    rows: list[dict] = []
+    for span in spans:
+        start = float(getattr(span, "start", None) if not isinstance(span, dict)
+                      else span["start"])
+        end = float(getattr(span, "end", None) if not isinstance(span, dict)
+                    else span["end"])
+        voices = (tuple(span["voices"]) if isinstance(span, dict)
+                  else tuple(getattr(span, "voices", ())))
+        if end <= start:
+            continue
+        if speakers_by_track is not None:
+            mapped: list[str] = []
+            for voice in voices:
+                person = speakers_by_track.get(voice)
+                if person is not None and person not in mapped:
+                    mapped.append(person)
+            if not mapped:
+                continue
+            voices = tuple(mapped)
+        if not voices:
+            continue
+        rows.append({"start": round(start, 3), "end": round(end, 3),
+                     "speakers": list(voices)})
+    rows.sort(key=lambda row: (row["start"], row["end"]))
+    return rows
+
+
+def as_turn_rows_of(document, *, speakers_by_track=None) -> list[dict]:
+    """The crosstalk on a transcript, as turn rows an overlap-aware
+    scorer reads.
+
+    A transcript that never measured crosstalk produces no rows: that
+    is "not measured", and the scorer is told so rather than handed an
+    empty estimate that reads as "nobody ever talked over anybody".
+    """
+    return as_turn_rows(spans_of(document) or [],
+                        speakers_by_track=speakers_by_track)
+
+
 def score(hypothesis: Sequence, reference: Sequence, duration: float,
           collar: float = SCORE_COLLAR_S) -> dict:
     """Time-weighted precision and recall of crosstalk spans. Pure.

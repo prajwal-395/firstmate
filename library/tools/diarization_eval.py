@@ -5,6 +5,12 @@ overlap and uncertain predictions. It keeps diarization (who spoke when
 inside one recording) separate from persistent identity matching across
 recordings. Model probabilities are retained as observations; this module
 does not assume that different models' scores are calibrated alike.
+
+``overlap_metrics`` scores the OVERLAP alone: the reference's regions
+where two or more people spoke at once. A whole-file DER spends most of
+its denominator on the seconds where one person spoke, which every
+diarizer gets right, and reads the answer to "how well did it separate
+two people talking over each other" out of that noise.
 """
 
 from __future__ import annotations
@@ -92,16 +98,54 @@ def _speaker_mapping(reference: Sequence[dict], estimate: Sequence[dict],
     return {ref: hyp for ref, hyp in zip(best, hyps)}
 
 
+def overlap_regions(reference_rows: Sequence[Mapping[str, Any]]
+                    ) -> list[dict]:
+    """The reference's OVERLAP regions: where two or more people spoke
+    at once.
+
+    Each region is `{"start", "end", "speakers"}` on the reference's
+    own clock. A reference with no overlap has no regions, and that is
+    the answer "this recording holds no overlapping speech", not an
+    error.
+    """
+    reference = _turns(reference_rows, "reference")
+    boundaries = sorted({edge for row in reference
+                         for edge in (row["start"], row["end"])})
+    regions: list[dict] = []
+    for left, right in pairwise(boundaries):
+        if right <= left:
+            continue
+        midpoint = (left + right) / 2
+        speakers = _active(reference, midpoint)
+        if len(speakers) < 2:
+            continue
+        if regions and regions[-1]["end"] == left:
+            regions[-1]["end"] = right
+            regions[-1]["speakers"] = sorted(
+                set(regions[-1]["speakers"]) | speakers)
+            continue
+        regions.append({"start": left, "end": right,
+                        "speakers": sorted(speakers)})
+    return regions
+
+
 def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
                         estimate_rows: Sequence[Mapping[str, Any]], *,
                         collar_seconds: float = 0.25,
-                        change_tolerance_seconds: float = 0.5) -> dict:
+                        change_tolerance_seconds: float = 0.5,
+                        overlap_only: bool = False) -> dict:
     """Return overlap-aware DER components and missed speaker-change counts.
 
     DER uses reference speaker time as denominator, a global optimal
     one-to-one speaker mapping, and a collar around reference boundaries.
     On each scored region, miss and false alarm account for cardinality
     differences; confusion accounts for unmatched simultaneous voices.
+
+    `overlap_only` scores ONLY the reference's overlap regions, where
+    two or more people spoke at once. That is the separation question
+    asked of the hard seconds only: a whole-file DER spends most of its
+    denominator on the seconds where one person spoke, which every
+    diarizer gets right.
     """
     if collar_seconds < 0 or change_tolerance_seconds < 0:
         raise ValueError("collars and tolerances must be non-negative")
@@ -114,7 +158,8 @@ def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
                 "miss_seconds": 0.0, "false_alarm_seconds": 0.0,
                 "confusion_seconds": 0.0, "scored_speaker_seconds": 0.0,
                 "speaker_mapping": {}, "collar_seconds": collar_seconds,
-                "method": "overlap-aware time-weighted DER"}
+                "method": "overlap-aware time-weighted DER",
+                "overlap_only": overlap_only}
     mapping = _speaker_mapping(reference, estimate, boundaries)
     miss = false_alarm = confusion = scored = 0.0
     collar_edges = [edge for row in reference
@@ -127,6 +172,8 @@ def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
                for edge in collar_edges):
             continue
         refs = _active(reference, midpoint)
+        if overlap_only and len(refs) < 2:
+            continue
         hyps = _active(estimate, midpoint)
         scored += (right - left) * len(refs)
         mapped = {mapping.get(ref) for ref in refs} - {None}
@@ -161,6 +208,7 @@ def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
             matched_indices.add(index)
             matched_changes += 1
     errors = miss + false_alarm + confusion
+    regions = overlap_regions(reference_rows) if overlap_only else []
     return {
         "status": "measured" if scored else "no_scored_speech",
         "der": round(errors / scored, 6) if scored else None,
@@ -171,6 +219,10 @@ def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
         "speaker_mapping": mapping,
         "collar_seconds": collar_seconds,
         "method": "overlap-aware time-weighted DER",
+        "overlap_only": overlap_only,
+        "overlap_regions": len(regions),
+        "overlap_seconds": round(
+            sum(region["end"] - region["start"] for region in regions), 6),
         "speaker_changes": {
             "reference": len(ref_changes), "estimate": len(hyp_changes),
             "matched": matched_changes,
@@ -184,6 +236,28 @@ def diarization_metrics(reference_rows: Sequence[Mapping[str, Any]],
         },
         "uncertain_estimate_turns": sum(row["uncertain"] for row in estimate),
     }
+
+
+def overlap_metrics(reference_rows: Sequence[Mapping[str, Any]],
+                    estimate_rows: Sequence[Mapping[str, Any]], *,
+                    collar_seconds: float = 0.25,
+                    change_tolerance_seconds: float = 0.5) -> dict:
+    """The DER of the OVERLAP alone: the seconds where two people spoke
+    at once, and nowhere else.
+
+    This is the separation question asked of the hard seconds. A
+    whole-file DER spends most of its denominator on the seconds where
+    one person spoke, which every diarizer gets right, and reads the
+    answer to "how well did it separate two people talking over each
+    other" out of the noise of that.
+    """
+    result = diarization_metrics(
+        reference_rows, estimate_rows,
+        collar_seconds=collar_seconds,
+        change_tolerance_seconds=change_tolerance_seconds,
+        overlap_only=True)
+    result["method"] = "overlap-aware time-weighted DER over the overlap"
+    return result
 
 
 def evaluate_record(record: Mapping[str, Any]) -> dict:

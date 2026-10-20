@@ -60,7 +60,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:motion` is what the cut and effect planners (4.02, 4.03) read instead of the per-sample flow series: per block, the clip's dominant direction and motion kind plus the action onsets and apexes inside the block's own range, joinable by `block_position` and addressable through `anchor: {motion_peak}` / `{action_onset}` with `occurrence`. The model still decides; the measurement is context.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - `view:sectiongrid` is what a step reads to address a musical section by LABEL instead of by seconds: one row per measured section (label, span, first-downbeat seconds) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions` and `plan_vfx`; the boundary series stays withheld and the post-bridge resolves every `anchor: {section}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model - a section it cannot give stays absent, never guessed.
-- `view:soundevents` is what a step reads to address a non-speech sound by LABEL instead of by seconds: one row per block with a source clip, carrying the measured event spans inside the block's own source range (label, timeline span, confidence) plus the measurement's provenance. Declared by `plan_transitions`, `plan_vfx` and `plan_sfx`; the frame series stays withheld and the post-bridge resolves every `anchor: {event}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model's own AudioSet vocabulary - voiced speech withheld, a label no clip measured stays absent, never guessed.
+- `view:soundevents` is what a step reads to address a non-speech sound by LABEL instead of by seconds: one row per block with a source clip, carrying the measured event spans inside the block's own source range (label, timeline span, confidence) plus the measurement's provenance, AND what the clip measured of every sound class (impact, applause, laughter, music, environmental) inside that block - PRESENT, ABSENT, or UNCERTAIN, where ABSENT is a measured absence and UNCERTAIN claims nothing. Declared by `plan_transitions`, `plan_vfx` and `plan_sfx`; the frame series stays withheld and the post-bridge resolves every `anchor: {event}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model's own AudioSet vocabulary - voiced speech withheld, a label no clip measured stays absent, never guessed.
 - `view:region_exposure` is what step 5.01 reads instead of its own `region_stats` bridge output: per clip and person region, the subject's luma median, colour, skin vector and sharpness against OUTSIDE every person, over the seconds the clip plays, with the difference in stops. A clip it could not read is one line under `not_read`. The bridge output it reads is NOT restored beside it - a bridge key a declared view reads is the view's source (`model_task.project_context`). A `subject_grades` entry cites a row's `basis_id` (`library/tools/region_stats.py`).
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
@@ -1226,6 +1226,17 @@ SOUNDEVENTS_LEGEND = {
         "instead of on a word. A label no clip measured stays "
         "absent, never guessed."
     ),
+    "classes": (
+        "Each block also carries what the clip measured of every "
+        "sound class: impact, applause, laughter, music, "
+        "environmental. A class is PRESENT when an event of it was "
+        "measured in the block, ABSENT when the clip's sound events "
+        "were measured over the whole clip and nothing of that class "
+        "reached the threshold, and UNCERTAIN when that measurement "
+        "did not run - which claims nothing. 'Absent' is a finding, "
+        "not a silence: it means the recording was measured and held "
+        "none."
+    ),
     "how_to_address_an_event": (
         "By LABEL and occurrence through a sub-block anchor, never by "
         "seconds: a cut, effect or sound entry carries anchor "
@@ -1257,6 +1268,7 @@ def _soundevents(data: dict) -> dict:
     source range, or no measured clip is NAMED in one line, not
     silently absent.
     """
+    from library.tools import sound_class
     from library.tools.sound_events import events_in_block, measured
     from library.tools.spine_contract import source_to_timeline
 
@@ -1312,12 +1324,19 @@ def _soundevents(data: dict) -> dict:
                 "confidence": event["confidence"],
             })
         spans.sort(key=lambda s: (s["start_seconds"], s["end_seconds"]))
+        reading = sound_class.class_reading(
+            summary, source_start=float(src_start), source_end=float(src_end))
         rows.append({
             "block_position": position,
             "clip_id": clip_id,
             "sound_event_method": summary.get("sound_event_method",
                                               "unmeasured"),
             "events": spans,
+            "classes": {
+                name: {"state": entry["state"],
+                       "labels": entry["labels"],
+                       "seconds": entry["seconds"]}
+                for name, entry in reading["classes"].items()},
         })
 
     view: dict = {"legend": SOUNDEVENTS_LEGEND}

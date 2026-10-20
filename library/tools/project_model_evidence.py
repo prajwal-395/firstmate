@@ -2247,6 +2247,88 @@ def _migrate_sound(builder: _Builder, digest: str, asset_id: str,
             event.get("start"), event.get("end"), "sound_event",
             {"label": event.get("label")}, event.get("confidence"),
             "library.steps.step_1_04_temporal_index", evidence=native)
+    _migrate_sound_classes(builder, digest, asset_id, clock_id, duration,
+                           m5, method_fresh, freshness)
+
+
+def _migrate_sound_classes(builder: _Builder, digest: str, asset_id: str,
+                           clock_id: str, duration: float | None,
+                           m5: dict, method_fresh: bool,
+                           freshness: str) -> None:
+    """VI-034: one observation per sound class, saying PRESENT, ABSENT
+    or UNCERTAIN.
+
+    The events say what was heard. They do not say what was NOT heard,
+    and a clip whose events were never measured reads the same as a
+    clip where nothing was found. The class reading is what carries
+    that difference: a measured absence is a finding with COMPLETE
+    coverage over the clip, and an unmeasured class is UNAVAILABLE,
+    which is the absence of an answer.
+
+    A stale or superseded producer is UNCERTAIN rather than absent: the
+    measurement ran, but this is not the measurement the pipeline would
+    make today, so it says nothing about the class either way.
+    """
+    from library.tools import sound_class
+
+    if not duration:
+        return
+    ticks = sec_to_ticks(0.0, duration)
+    if ticks is None:
+        return
+    method = m5.get("method")
+    if freshness == "stale":
+        summary_method = ("unmeasured: the clip's sound events are stale "
+                           "against the source")
+    elif not method_fresh:
+        summary_method = (f"unmeasured: the clip's sound events carry "
+                          f"method {method!r}, which is not the current "
+                          f"producer")
+    else:
+        summary_method = method
+    reading = sound_class.class_reading({
+        "sound_event_method": summary_method,
+        "sound_events": m5.get("sound_events") or [],
+        "duration": duration,
+    })
+    for name, entry in reading["classes"].items():
+        state = entry["state"]
+        if state == sound_class.STATE_UNCERTAIN:
+            native = evidence_contract.EvidenceRecord(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=ticks[0], end_tick=ticks[1],
+                target_entity_id=None, target_region=None,
+                evidence_type=evidence_contract.EvidenceType.MEASUREMENT,
+                measurement_type="audio.sound_class",
+                value={"sound_class": name, "state": state,
+                       "reason": reading["reason"]},
+                unit="record", method=str(summary_method),
+                sample_resolution=None,
+                coverage=evidence_contract.CoverageKind.UNAVAILABLE,
+                coverage_samples=0, coverage_sample_rate_hz=0.0,
+                provenance_id=_prov_id(digest, "m5"),
+                processing_status=(
+                    evidence_contract.ProcessingStatus.UNAVAILABLE),
+                freshness=freshness)
+        else:
+            samples = len(entry["events"])
+            native = evidence_contract.new_measurement(
+                asset_id=asset_id, clock_id=clock_id,
+                start_tick=ticks[0], end_tick=ticks[1],
+                measurement_type="audio.sound_class",
+                value={"sound_class": name, "state": state,
+                       "labels": entry["labels"],
+                       "seconds": entry["seconds"]},
+                method=str(summary_method),
+                provenance_id=_prov_id(digest, "m5"),
+                coverage=evidence_contract.CoverageKind.COMPLETE,
+                coverage_samples=samples,
+                coverage_sample_rate_hz=0.0)
+            native = replace(native, freshness=freshness)
+        builder.observation(
+            digest, "m5", asset_id, clock_id, 0.0, duration, "sound_class",
+            {"sound_class": name, "state": state}, None,
+            "library.steps.step_1_04_temporal_index", evidence=native)
 
 
 def _m7_slot_fresh(digest: str, root: Path | None) -> bool:

@@ -669,6 +669,45 @@ def test_a_measured_pause_carries_its_reading_and_its_reason(
     assert reading["coverage"]["sound_events"] == "measured"
 
 
+def test_a_sound_class_reads_present_and_absent_and_uncertain(
+        fixture_project):
+    """A class the clip measured, a class it measured as absent, and a
+    class nobody measured are three different answers.
+
+    D1's sound slot carries the current producer, so its classes are
+    present or absent. D2's carries a superseded method, so its
+    classes say nothing at all.
+    """
+    from library.tools.analysis import sound_event_pipeline
+
+    _write(fixture_project["memory"] / D1 / "sound.json", {
+        "content_digest": D1, "status": "measured",
+        "method": sound_event_pipeline.METHOD,
+        "sound_events": [{"label": "Applause", "start": 1.5, "end": 1.7,
+                          "confidence": 0.9}]})
+
+    model, _report = _migrate(fixture_project)
+
+    rows = [o for o in model["observations"]
+            if o["modality"] == "sound_class"]
+    by_class: dict = {}
+    for row in rows:
+        by_class.setdefault(row["payload"]["sound_class"], []).append(row)
+    assert set(by_class) == {"impact", "applause", "laughter", "music",
+                             "environmental"}
+    assert sorted({r["payload"]["state"]
+                   for r in by_class["applause"]}) == ["present", "uncertain"]
+    assert sorted({r["payload"]["state"]
+                   for r in by_class["laughter"]}) == ["absent", "uncertain"]
+    measured = [r for r in by_class["laughter"]
+                if r["payload"]["state"] == "absent"][0]
+    assert measured["payload"]["evidence_contract"]["coverage"] == "complete"
+    uncertain = [r for r in by_class["laughter"]
+                 if r["payload"]["state"] == "uncertain"][0]
+    assert uncertain["payload"]["evidence_contract"]["coverage"] == \
+        "unavailable"
+
+
 def test_unmeasured_identity_stays_absent(fixture_project):
     # Cross-source voice identity only activates for tracks with the
     # measured minimum speech duration. These same-embedding tracks are

@@ -198,6 +198,19 @@ def test_soundevents_view_carries_spans_and_names_the_unmeasured():
     assert build_view("soundevents", {}) == {}
 
 
+def test_soundevents_view_carries_what_the_clip_measured_of_every_class():
+    """A class nobody found is ABSENT, which is a finding; a class the
+    clip never measured is UNCERTAIN, which is not."""
+    data = _view_data([_block()], [_summary()])
+    view = build_view("soundevents", data)["soundevents"]
+    classes = view["blocks"][0]["classes"]
+    assert classes["music"]["state"] == "present"
+    assert classes["environmental"]["state"] == "present"
+    assert classes["applause"]["state"] == "absent"
+    assert classes["laughter"]["state"] == "absent"
+    assert classes["impact"]["state"] == "absent"
+
+
 # ── the producer ─────────────────────────────────────────────────────
 
 def test_runs_merge_gaps_and_drop_blips():

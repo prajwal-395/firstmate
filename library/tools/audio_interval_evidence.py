@@ -2,6 +2,10 @@
 
 These records preserve the producer's method, temporal uncertainty, and
 coverage without turning model confidence into a certainty category.
+
+Music, environmental audio AND the measured non-speech events all reach
+the Project Model through this shape, so a consumer reads an interval
+the same way whichever producer measured it.
 """
 
 from __future__ import annotations
@@ -109,4 +113,63 @@ def music_interval_evidence(analysis: dict) -> tuple[list[dict], dict]:
             coverage, value={"source": section_source},
             confidence=float(confidence) if isinstance(confidence, (int, float)) else None))
     rows.sort(key=lambda row: (row["start_seconds"], row["end_seconds"], row["kind"]))
+    return rows, coverage
+
+
+def sound_interval_evidence(summary: dict) -> tuple[list[dict], dict]:
+    """The measured non-speech events as typed interval evidence.
+
+    One row per measured event, on the clip's own clock, with the
+    boundary uncertainty the producer actually has: a gap under
+    `MERGE_GAP_SECONDS` was closed into one event, so the reported
+    extent may overstate the burst that produced it by that much, and
+    the boundary itself is located to the detector's frame grid.
+
+    A clip whose sound events were never measured produces NO rows and
+    an unavailable coverage: an empty list here means "no event was
+    measured", never "no event happened".
+
+    `summary` is the per-clip index row (`sound_events` beside
+    `sound_event_method`), the shape `library/tools/sound_events.py`
+    reads.
+    """
+    from library.tools import sound_class, sound_events
+    from library.tools.analysis import sound_event_pipeline
+
+    duration = sound_class.clip_duration(summary)
+    measured = sound_events.measured(summary)
+    method = (summary or {}).get("sound_event_method")
+    coverage = {
+        "kind": ("complete" if measured and duration
+                 else "unavailable"),
+        "start_seconds": 0.0,
+        "end_seconds": duration or 0.0,
+        "duration_seconds": duration or 0.0,
+    }
+    if not measured:
+        return [], coverage
+
+    rows: list[dict] = []
+    for event in sound_events.events(summary):
+        start = event["start_seconds"]
+        end = event["end_seconds"]
+        span_coverage = {
+            "kind": "sampled",
+            "start_seconds": start,
+            "end_seconds": end,
+            "duration_seconds": round(end - start, 3),
+            "sample_rate_hz": sound_event_pipeline.FRAME_RATE_HZ,
+        }
+        rows.append(_interval(
+            "sound_event", event["label"], start, end, str(method),
+            span_coverage,
+            value={"sound_class": sound_class.class_of(event["label"])},
+            uncertainty={
+                "kind": "resolution_bound",
+                "boundary_seconds": sound_event_pipeline.MERGE_GAP_SECONDS,
+            },
+            confidence=event.get("confidence"),
+            source="sound"))
+    rows.sort(key=lambda row: (row["start_seconds"], row["end_seconds"],
+                                row["label"]))
     return rows, coverage
