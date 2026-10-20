@@ -1,12 +1,9 @@
-"""multicam.select_angle: show the marked speaker's camera for their turn.
+"""multicam.select_angle: show the marked speaker's assigned camera.
 
-Defect: the ordinary request "Show the camera assigned to the marked
-speaker for their speaking turn, preserving the edit points." had no
-production path - multicam.select_angle was absent from the edit
-algebra (first live run of the AXI execution consolidation punch
-list). These contracts pin the operation's canonical shape, its
-independent read-back, its acceptance evidence, and its fail-closed
-posture until the live-requests lane records qualifying evidence.
+Defect: live request ``right_speaker_camera`` was refused by design
+because preparation did not carry an assigned camera's synced source
+range to an executable replacement. These contracts cover the resolved
+range, preservation checks, and the still-unqualified production route.
 """
 
 from types import SimpleNamespace
@@ -21,10 +18,10 @@ from library.tools import (
 )
 
 
-def _snapshot():
+def _snapshot(unique_id="turn-1"):
     return {"reported_fps": 30.0, "tracks": [{
         "type": "video", "index": 1, "name": "V1", "clips": [{
-            "unique_id": "turn-1", "record_in": 20, "record_out": 80,
+            "unique_id": unique_id, "record_in": 20, "record_out": 80,
             "source_in_frame": 5, "source_out_frame": 64,
             "duration": 60, "source_file": "/media/camera_b.mov",
         }],
@@ -48,7 +45,9 @@ def test_multicam_select_angle_is_a_canonical_algebra_operation():
     spec = edit_algebra.get("multicam.select_angle")
     assert spec is not None
     assert spec.domain == "picture_transform"
-    assert spec.required == ("unique_id", "angle_index")
+    assert spec.required == (
+        "unique_id", "speaker_id", "assignment_basis", "source_file",
+        "source_in_frame", "source_out_frame", "sync_evidence_id")
     assert spec.item is True
     assert spec.merge == "replace"
     assert callable(spec.span)
@@ -64,92 +63,107 @@ def test_multicam_select_angle_is_a_canonical_algebra_operation():
 
 def test_multicam_select_angle_verifier_detects_the_absent_write():
     """Defect: a verifier that passes on a timeline the op did not change
-    would commit a lie. Presence alone never claims the camera: without
-    an angle in the inventory the read-back fails, naming what is
-    missing."""
+    would commit a lie. Presence alone never claims the camera source:
+    the read-back must name the requested source and synced range."""
     spec = edit_algebra.get("multicam.select_angle")
-    missing = spec.verify(
-        {"unique_id": "no-such-clip", "angle_index": 1},
-        {"tracks": []})
+    operation = {"unique_id": "no-such-clip", "source_file": "/media/camera_b.mov",
+                 "source_in_frame": 5, "source_out_frame": 64}
+    missing = spec.verify(operation, {"tracks": []})
     assert isinstance(missing, str) and missing
     unproven = spec.verify(
-        {"unique_id": "turn-1", "angle_index": 1}, _snapshot())
+        {**operation, "unique_id": "turn-1"}, _snapshot())
     assert isinstance(unproven, str) and unproven
-    assert "angle" in unproven
+    assert "camera" in unproven
 
 
-def test_multicam_select_angle_acceptance_needs_independent_angle_evidence():
+def test_multicam_select_angle_acceptance_needs_camera_source_evidence():
     """Defect: claiming the camera without measuring it. The contract
-    needs the angle read-back, the preserved record span, and an empty
-    collateral diff - a missing angle is missing evidence, never a
-    pass."""
+    needs camera source read-back, the preserved record span, and an
+    empty collateral diff - missing source evidence never passes."""
     contract = operation_acceptance.contract_for("multicam.select_angle")
     assert contract["checks"] == [
-        "target_identity", "requested_angle_selected",
+        "target_identity", "requested_camera_source_selected",
         "record_span_preserved", "unrelated_items_unchanged",
     ]
     assert contract["structural_source"] == "timeline_readback"
     operation = {"op": "multicam.select_angle", "unique_id": "turn-1",
-                 "angle_index": 1}
+                 "speaker_id": "speaker-1",
+                 "assignment_basis": "diarized_speaker_identity",
+                 "source_file": "/media/camera_b.mov",
+                 "source_in_frame": 5, "source_out_frame": 64,
+                 "sync_evidence_id": "sync:camera-b:turn-1"}
     unmeasured = operation_acceptance.evaluate(
         operation, readback_passed=True,
         evidence={"target_identity": True,
                   "record_span_preserved": True,
                   "unrelated_items_unchanged": True})
     assert not unmeasured["passed"]
-    assert "requested_angle_selected" in unmeasured["missing"]
+    assert "requested_camera_source_selected" in unmeasured["missing"]
     contradicted = operation_acceptance.evaluate(
         operation, readback_passed=True,
         evidence={"target_identity": True,
-                  "requested_angle_selected": False,
+                  "requested_camera_source_selected": False,
                   "record_span_preserved": True,
                   "unrelated_items_unchanged": True})
     assert not contradicted["passed"]
-    assert "requested_angle_selected" in contradicted["failed"]
+    assert "requested_camera_source_selected" in contradicted["failed"]
     proven = operation_acceptance.evaluate(
         operation, readback_passed=True,
         evidence={"target_identity": True,
-                  "requested_angle_selected": True,
+                  "requested_camera_source_selected": True,
                   "record_span_preserved": True,
                   "unrelated_items_unchanged": True})
     assert proven["passed"]
 
 
-def test_multicam_select_angle_adapter_is_registered_but_refuses_before_mutation(
+def test_right_speaker_camera_uses_the_assigned_synced_source_range(
         monkeypatch):
-    """Defect: no production path for the request. The pair is
-    registered so routing resolves it, and the executor refuses before
-    any Resolve contact - there is no guarded set-angle verb and no
-    angle in the inventory to verify against."""
+    """Defect: live right_speaker_camera was refused by design despite a
+    known speaker assignment and synced camera range."""
     adapters.register_builtin_edit_executors()
     assert ("multicam.select_angle", "resolve_axi") in set(
         resolve_axi_core.registered_edit_executors())
 
-    def _explodes(*_args, **_kwargs):
-        raise AssertionError("Resolve was contacted")
+    from library.tools.resolve_axi_core import AxiResult
 
-    monkeypatch.setattr(resolve_axi_core, "execute", _explodes)
-    monkeypatch.setattr(resolve_axi_core, "read_live_timeline", _explodes)
-    with pytest.raises(RuntimeError, match="refused before mutation"):
-        adapters._multicam_select_angle(_context({
-            "op": "multicam.select_angle", "unique_id": "turn-1",
-            "angle_index": 1,
-        }))
+    def execute(command):
+        assert command[:2] == ["edit", "switch-camera"]
+        assert "--camera-source-file" in command
+        assert "/media/camera_b.mov" in command
+        return AxiResult(exit_code=0, stdout="camera selected", stderr="")
+
+    monkeypatch.setattr(resolve_axi_core, "execute", execute)
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: _snapshot("replacement-1"))
+    receipt = adapters._multicam_select_angle(_context({
+        "op": "multicam.select_angle", "unique_id": "turn-1",
+        "speaker_id": "speaker-1",
+        "assignment_basis": "diarized_speaker_identity",
+        "source_file": "/media/camera_b.mov",
+        "source_in_frame": 5, "source_out_frame": 64,
+        "sync_evidence_id": "sync:camera-b:turn-1",
+    }))
+    assert receipt["status"] == "committed"
+    assert receipt["acceptance_contracts"][0]["passed"]
 
 
 def test_multicam_select_angle_revalidates_target_identity_first():
-    """Defect: switching the wrong turn. A stale or ambiguous target,
-    or a non-integer angle, refuses as a ValueError before the
-    production refusal is even reached."""
+    """Defect: a stale target or unknown speaker assignment must refuse."""
+    resolved = {
+        "speaker_id": "speaker-1",
+        "assignment_basis": "diarized_speaker_identity",
+        "source_file": "/media/camera_b.mov",
+        "source_in_frame": 5, "source_out_frame": 64,
+        "sync_evidence_id": "sync:camera-b:turn-1",
+    }
     with pytest.raises(ValueError, match="resolved to 0 timeline items"):
         adapters._multicam_select_angle(_context({
             "op": "multicam.select_angle", "unique_id": "no-such-clip",
-            "angle_index": 1,
+            **resolved,
         }))
-    with pytest.raises(ValueError, match="integer angle_index"):
+    with pytest.raises(ValueError, match="resolved speaker assignment"):
         adapters._multicam_select_angle(_context({
             "op": "multicam.select_angle", "unique_id": "turn-1",
-            "angle_index": "camera-b",
         }))
 
 

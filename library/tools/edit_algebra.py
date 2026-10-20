@@ -2449,18 +2449,18 @@ ALGEBRA: dict[str, AlgebraOp] = {
         note="A multicam angle change; the angle list re-read verifies."),
     "multicam.select_angle": AlgebraOp(
         id="multicam.select_angle", domain="picture_transform",
-        required=("unique_id", "angle_index"),
+        required=("unique_id", "speaker_id", "assignment_basis",
+                  "source_file", "source_in_frame", "source_out_frame",
+                  "sync_evidence_id"),
         span=_item_span, item=True,
         verify=lambda op, after: _verify_multicam_select_angle(op, after),
         key=lambda op: ("clip", op["unique_id"], "angle"),
         merge="replace",
         inverse=_self("the inverse carries the previous angle"),
-        note="Show the camera assigned to the marked speaker for their "
-             "speaking turn, preserving the edit points: native angle "
-             "switching where the API exposes it, else the assigned "
-             "camera's synced source range. The timeline inventory "
-             "exposes no angle list, so the read-back refuses until "
-             "it does."),
+        note="Show the camera assigned to the identified speaker for "
+             "their speaking turn, replacing its source with the "
+             "explicitly synced source range while preserving record "
+             "edit points."),
 
     # ── compound (domain: timeline_structure) ────────────────────────
     "compound.create": AlgebraOp(
@@ -3025,20 +3025,18 @@ def _verify_replace(op, after):
 
 
 def _verify_multicam_select_angle(op, after):
-    """The turn shows the assigned camera; the edit points hold.
-
-    The timeline inventory exposes no per-item angle list, so a switch
-    the shadow cannot see is a failure, never a pass: the read-back
-    refuses until the inventory carries the angle. Presence alone never
-    claims the camera.
-    """
+    """The assigned camera and synchronized range replace the turn."""
     clip = _clip(after, op["unique_id"])
     if clip is None:
         return f"clip {op['unique_id']!r} is not on the timeline"
-    if not _same_value(clip.get("angle"), op["angle_index"]):
-        return (f"clip {op['unique_id']!r} carries no readable angle "
-                f"{op['angle_index']!r}; the timeline inventory exposes "
-                f"no angle list, so the switch cannot be verified")
+    if clip.get("source_file") != op["source_file"]:
+        return (f"clip {op['unique_id']!r} reads source "
+                f"{clip.get('source_file')!r}, not assigned camera "
+                f"{op['source_file']!r}")
+    for key in ("source_in_frame", "source_out_frame"):
+        if not _same_value(clip.get(key), op[key]):
+            return (f"clip {op['unique_id']!r} reads {key}="
+                    f"{clip.get(key)!r}, not synced range {op[key]!r}")
     return None
 
 
@@ -3442,9 +3440,8 @@ _IMPLEMENTATION_EVIDENCE = {
     ),
     ("multicam.select_angle", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_multicam_select_angle",
-        "library/tools/resolve_axi_core_commands.py:cmd_sense_switch",
-        "library/tools/resolve_axi_core_commands.py:cmd_multicam_build",
-        "library/tools/resolve_axi_core_commands.py:cmd_multicam_sync",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_switch_camera",
+        "library/tools/resolve_axi_core_commands.py:_replace_item",
     ),
     ("caption.style", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_caption_style",
@@ -3522,9 +3519,9 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("caption_fix", "resolve_axi"):
         ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
     ("multicam.select_angle", "resolve_axi"):
-        (("no guarded set-angle verb: only the sense-switch auto-cut and the pool build/sync verbs exist; "
-          "the timeline inventory exposes no per-item angle, so the switch cannot be verified; "
-          "the staged replacement needs the assigned camera's synced source range, which preparation does not supply"),),
+        ("requires a resolved speaker id, assignment basis, unique camera media-pool source, "
+         "explicit synced source frames, and a source range matching the existing record duration; "
+         "live Resolve qualification remains deferred",),
     ("caption.style", "resolve_axi"):
         ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
     ("reel.opening", "resolve_axi"):

@@ -100,7 +100,7 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
         checks = ["target_identity", "requested_source_identity",
                   "record_span_preserved", "unrelated_items_unchanged"]
     elif op_id == "multicam.select_angle":
-        checks = ["target_identity", "requested_angle_selected",
+        checks = ["target_identity", "requested_camera_source_selected",
                   "record_span_preserved", "unrelated_items_unchanged"]
     elif op_id == "caption.style":
         checks = ["target_identity", "requested_record_span",

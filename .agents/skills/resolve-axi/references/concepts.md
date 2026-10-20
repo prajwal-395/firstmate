@@ -63,7 +63,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
 | `motion_graphic` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `multicam.angle` | no_executor | `unique_id`, `angle_index` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `multicam.select_angle` | implemented_unqualified | `unique_id`, `angle_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `multicam.select_angle` | implemented_unqualified | `unique_id`, `speaker_id`, `assignment_basis`, `source_file`, `source_in_frame`, `source_out_frame`, `sync_evidence_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `music_selection` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

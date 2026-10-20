@@ -1,6 +1,6 @@
 """Live adapter for the ten ordinary editorial requests (AXI-11, 9.2).
 
-Each task's verbatim instruction is executed through a production Resolve
+Each task's verbatim instruction is executed through a Resolve
 AXI entry point on the private qualification timeline and judged from
 live read-back: a committed receipt, operation-specific checks, an empty
 collateral diff, and one-attempt evidence.
@@ -83,7 +83,12 @@ _DISCOVERY_PARAMS = {
                      "track_index": 2, "record_in": 100, "record_out": 140,
                      "source_in": 0, "source_out": 39, "clip": "qual_c.mp4"},
     "caption.style": {"unique_id": "axc-discovery", "style": "axc-qual"},
-    "multicam.select_angle": {"unique_id": "axc-discovery", "angle_index": 1},
+    "multicam.select_angle": {
+        "unique_id": "axc-discovery", "speaker_id": "speaker-qual",
+        "assignment_basis": "project_declaration",
+        "source_file": "/media/qual-camera-b.mp4",
+        "source_in_frame": 144, "source_out_frame": 167,
+        "sync_evidence_id": "sync:qual-camera-b"},
     "reel.opening": {"unique_id": "axc-discovery", "brief": "axc-qual",
                      "edits": []},
 }
@@ -700,8 +705,8 @@ def _run_store() -> str:
     return _RUN_STORE
 
 
-#: Tasks that refuse by design. Each names the category and the exact
-#: blocker, so a refusal never reads as a content problem alone.
+#: Tasks whose fixture does not carry the required evidence. Each names
+#: the category and exact blocker, so a refusal stays explicit.
 _REFUSAL_NOTES = {
     "restyle_captions":
         ("missing_fixture_content",
@@ -709,12 +714,10 @@ _REFUSAL_NOTES = {
           "the fixture carries PNG caption overlays, not writeable text "
           "cards, so the executor would refuse for lack of props.")),
     "right_speaker_camera":
-        ("unexecutable_operation",
-         ("multicam.select_angle has no executor: Resolve exposes no "
-          "guarded set-angle verb and the staged replacement needs the "
-          "assigned camera's synced source range, which preparation "
-          "does not supply. The adapter refuses by design; nothing "
-          "was written.")),
+        ("missing_assignment_evidence",
+         "the fixture does not declare which camera belongs to the marked "
+         "speaker or carry a measured sync range for that camera; the "
+         "camera switch refuses until both are known."),
     "improve_opening":
         ("missing_brief",
          ("reel.opening carries the supplied brief and the model's "

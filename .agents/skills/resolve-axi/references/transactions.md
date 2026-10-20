@@ -44,7 +44,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `mask.delete` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_delete |
 | `mask.edit` | implemented_unqualified | `unique_id`, `matte`, `geometry` | yes | yes | no | no | post-write snapshot checked by _verify_mask_edit |
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
-| `multicam.select_angle` | implemented_unqualified | `unique_id`, `angle_index` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `multicam.select_angle` | implemented_unqualified | `unique_id`, `speaker_id`, `assignment_basis`, `source_file`, `source_in_frame`, `source_out_frame`, `sync_evidence_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.add` | implemented_unqualified | `row`, `record_frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.entry_motion` | implemented_unqualified | `unique_id`, `frames` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `overlay.position` | implemented_unqualified | `unique_id`, `dx`, `dy` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

@@ -26,7 +26,7 @@ _POSITION_INVALIDATING_OPERATIONS = frozenset({
     "clip.delete", "clip.remove", "clip.trim", "clip.move", "clip.split",
     "clip.slide", "clip.roll",
     "clip.ripple", "clip.insert", "broll.insert", "track.add", "overlay.add",
-    "overlay.remove",
+    "overlay.remove", "multicam.select_angle",
     # A planning-level opening tighten executes its carried trim/remove
     # edits against live state; a later positional write in the same
     # batch must not reuse the addresses it was prepared against.
@@ -221,12 +221,12 @@ def _verified_command(context, command: list[str], operation: dict,
 
 
 def _unrelated_changes(before: Mapping, after: Mapping, target_id: str,
-                       *, affected_spans=()) -> list:
+                       *, affected_spans=(), id_map=None) -> list:
     from library.tools.transaction_orchestration import unrelated_clip_changes
 
     return unrelated_clip_changes(
         operations=([{"unique_id": target_id}] if target_id else ()),
-        affected_spans=affected_spans, id_map=None, before=before,
+        affected_spans=affected_spans, id_map=id_map, before=before,
         after=after)
 
 
@@ -915,30 +915,150 @@ def _audio_gain(context) -> dict:
 
 
 def _multicam_select_angle(context) -> dict:
+    from library.tools import operation_acceptance, resolve_axi_core
+
     operation = context.operation
     unique_id = str(operation.get("unique_id") or "")
     if not unique_id:
         raise ValueError("multicam.select_angle needs a target unique_id")
-    try:
-        angle_index = int(operation["angle_index"])
-    except (KeyError, TypeError, ValueError) as exc:
+    required = ("speaker_id", "assignment_basis", "source_file",
+                "source_in_frame", "source_out_frame", "sync_evidence_id")
+    missing = [key for key in required if operation.get(key) is None]
+    if missing:
         raise ValueError(
-            "multicam.select_angle needs an integer angle_index "
-            f"({exc}) - nothing was written.") from exc
-    # Target identity revalidation before anything else: the prepared
-    # position must still resolve exactly once, and the prepared media
-    # identity must be complete. A stale or ambiguous target refuses
-    # here, before any Resolve contact.
-    _target_position_for_context(context, unique_id)
-    _target_identity_args(context, unique_id)
-    raise RuntimeError(
-        "multicam.select_angle is refused before mutation: the timeline "
-        f"inventory exposes no per-item angle, so angle {angle_index} on "
-        f"target {unique_id!r} could never be verified; the AXI dispatch "
-        "exposes no guarded set-angle verb (only the sense-switch "
-        "auto-cut and the pool multicam build/sync verbs); and the staged "
-        "replacement needs the assigned camera's synced source range, "
-            "which preparation does not supply. Nothing was written.")
+            "multicam.select_angle needs a resolved speaker assignment and "
+            f"synced camera source range; missing {missing} - nothing was "
+            "written")
+    empty_identity = [key for key in ("speaker_id", "sync_evidence_id")
+                      if not str(operation[key]).strip()]
+    if empty_identity:
+        raise ValueError(
+            "multicam.select_angle needs non-empty speaker and sync "
+            f"evidence identities, got empty {empty_identity} - nothing "
+            "was written")
+    if operation["assignment_basis"] not in {
+            "project_declaration", "diarized_speaker_identity"}:
+        raise ValueError(
+            "multicam.select_angle assignment_basis must name a project "
+            "declaration or diarized speaker identity - nothing was written")
+    try:
+        source_in = int(operation["source_in_frame"])
+        source_out = int(operation["source_out_frame"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "multicam.select_angle synced source range must use integer "
+            f"frames ({exc}) - nothing was written") from exc
+    source_file = str(operation["source_file"] or "")
+    if not source_file or source_in < 0 or source_out < source_in:
+        raise ValueError(
+            "multicam.select_angle needs a valid assigned camera source "
+            "range - nothing was written")
+
+    # Revalidate the exact target before dispatch. The command performs a
+    # journaled, place-then-delete replacement and restores the prior
+    # timeline snapshot if the new placement cannot be verified.
+    track, index = _target_position_for_context(context, unique_id)
+    identity_args = _target_identity_args(context, unique_id)
+    command = [
+        "edit", "switch-camera", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+        "--track", track, "--index", str(index), *identity_args,
+        "--camera-source-file", source_file,
+        "--speaker-id", str(operation["speaker_id"]),
+        "--assignment-basis", str(operation["assignment_basis"]),
+        "--sync-evidence-id", str(operation["sync_evidence_id"]),
+        "--source-in", str(source_in), "--source-out", str(source_out),
+        "--project-folder", _project_folder(context), "--require-recovery",
+        "--apply",
+    ]
+    result = resolve_axi_core.execute(command)
+    if not result.ok:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip()
+                           or "multicam.select_angle camera switch failed")
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    before_matches = [(row, clip) for row in context.snapshot["tracks"]
+                      for clip in row["clips"]
+                      if str(clip["unique_id"]) == unique_id]
+    if len(before_matches) != 1:
+        raise ValueError(
+            f"multicam.select_angle target {unique_id!r} no longer resolves "
+            "uniquely in the prepared snapshot")
+    before_track, before_clip = before_matches[0]
+    after_hits = [clip for row in after["tracks"]
+                  if row["type"] == before_track["type"]
+                  and int(row["index"]) == int(before_track["index"])
+                  for clip in row["clips"]
+                  if (str(clip["source_file"]) == source_file
+                      and int(clip["source_in_frame"]) == source_in
+                      and int(clip["source_out_frame"]) == source_out
+                      and int(clip["record_in"]) == int(before_clip["record_in"])
+                      and int(clip["record_out"]) == int(before_clip["record_out"]))]
+    after_clip = after_hits[0] if len(after_hits) == 1 else None
+    evidence = {
+        "target_identity": (after_clip is not None
+                            and str(after_clip["unique_id"]) != unique_id),
+        "requested_camera_source_selected": (
+            after_clip is not None
+            and str(after_clip["source_file"]) == source_file
+            and int(after_clip["source_in_frame"]) == source_in
+            and int(after_clip["source_out_frame"]) == source_out),
+        "record_span_preserved": (
+            after_clip is not None
+            and int(after_clip["record_in"]) == int(before_clip["record_in"])
+            and int(after_clip["record_out"]) == int(before_clip["record_out"])),
+        "unrelated_items_unchanged": not _unrelated_changes(
+            context.snapshot, after, unique_id,
+            id_map=({unique_id: str(after_clip["unique_id"])}
+                    if after_clip is not None else None)),
+    }
+    acceptance = operation_acceptance.evaluate(
+        operation, readback_passed=all(evidence.values()), evidence=evidence)
+    if not acceptance["passed"]:
+        missing_checks = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            "AXI read-back acceptance failed for multicam.select_angle: "
+            f"missing evidence [{missing_checks}], failed checks [{failed}]")
+    journal_id = next((line.split(":", 1)[1].strip()
+                       for line in result.stdout.splitlines()
+                       if line.strip().startswith("entry:")), "")
+    if not journal_id:
+        raise RuntimeError(
+            "multicam.select_angle verified without an undo journal "
+            "reference")
+    receipt = {
+        "status": "committed", "backend": "resolve_axi", "mutated": True,
+        "operation_id": "multicam.select_angle",
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {"unique_id": unique_id,
+                            "replacement_unique_id": (
+                                str(after_clip["unique_id"])
+                                if after_clip is not None else ""),
+                            "speaker_id": str(operation["speaker_id"]),
+                            "source_file": source_file},
+        "readback": {"snapshot": after},
+        "acceptance_contracts": [acceptance],
+        "recovery": {"action": "ren undo the journaled camera switch",
+                     "reference": {"kind": "undo_journal_entry",
+                                   "project_folder": _project_folder(context),
+                                   "entry_id": journal_id}},
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "multicam.select_angle",
+                            "passed": True},),
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline"}},
+            "recovery": {"status": "available",
+                         "action": "ren undo the journaled camera switch",
+                         "reference": {"kind": "undo_journal_entry",
+                                       "project_folder": _project_folder(context),
+                                       "entry_id": journal_id}},
+        },
+    }
+    return receipt
 
 
 def _reel_opening_decided(operation: Mapping) -> tuple[str, list[dict]]:

@@ -5174,6 +5174,151 @@ def cmd_edit_trim(args) -> int:
         return 0
 
 
+def cmd_edit_switch_camera(args) -> int:
+    """Replace one speaker turn with an assigned camera's synced range.
+
+    This is an exact-range replacement: the record span and track stay
+    fixed, while the source pool item and source frames change together.
+    """
+    import os
+
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    camera_file = os.path.abspath(args.camera_source_file)
+    camera_path = os.path.realpath(camera_file)
+    if not os.path.isfile(camera_path):
+        return fail(f"assigned camera file does not exist: {camera_path}",
+                    f"{TOOL} edit switch-camera --help")
+    if not args.speaker_id.strip() or not args.sync_evidence_id.strip():
+        return fail("speaker and sync evidence ids must be non-empty",
+                    f"{TOOL} edit switch-camera --help")
+    if args.assignment_basis not in {
+            "project_declaration", "diarized_speaker_identity"}:
+        return fail("assignment basis must name a project declaration or "
+                    "diarized speaker identity",
+                    f"{TOOL} edit switch-camera --help")
+    if args.source_in < 0 or args.source_out < args.source_in:
+        return fail("synced source frames must be a non-negative inclusive range",
+                    f"{TOOL} edit switch-camera --help")
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+            item, track_type, track_index, uid = _edit_item_by_identity(
+                timeline, args)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if track_type != "video":
+            return fail("multicam camera selection requires a video item",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        span = _item_span(item)
+        record_in, record_out = int(span["record_in"]), int(span["record_out"])
+        duration = record_out - record_in
+        if args.source_out - args.source_in + 1 != duration:
+            return fail(
+                "synced camera source range does not match the turn's "
+                "record duration; preserving edit points would be impossible",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if not args.apply:
+            emit([kv_block("switch_camera_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "target": uid, "camera_source": camera_path,
+                      "source_frames": f"{args.source_in}..{args.source_out}",
+                      "record_frames": f"{record_in}..{record_out}",
+                      "track": f"video{track_index}",
+                  }), note,
+                  "dry run - pass --apply to replace under the Resolve lease",
+                  help_block([f"{TOOL} items --timeline \"{timeline.GetName()}\""])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+            pool = project.GetMediaPool()
+            matches, scanned, unreadable = _relink_candidates(
+                pool, camera_file, getattr(args, "timeout", None))
+        except Exception as exc:
+            return fail(f"camera source lookup failed ({exc})",
+                        f"{TOOL} pool")
+        if len(matches) != 1 or unreadable:
+            return fail(
+                f"assigned camera source resolves to {len(matches)} media-pool "
+                f"items (scanned {scanned}, unreadable {unreadable}); refusing "
+                "an ambiguous or absent source",
+                f"{TOOL} pool")
+        camera_pool_item = matches[0][0]
+        try:
+            before = _timeline_trim_snapshot(timeline)
+        except AxiError as exc:
+            return fail(f"camera switch refused before writing: {exc}",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        refusal = _preflight_replace_delete(uid)
+        if refusal:
+            return fail(f"camera switch refused before writing: {refusal}",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "multicam_select_angle",
+                      "timeline": timeline.GetName(), "target": uid,
+                      "speaker_id": args.speaker_id,
+                      "assignment_basis": args.assignment_basis,
+                      "sync_evidence_id": args.sync_evidence_id,
+                      "camera_source": camera_path,
+                      "source_in": args.source_in,
+                      "source_out": args.source_out,
+                      "record_in": record_in, "record_out": record_out},
+                gate_class="multicam_select_angle") as (journal, journal_state):
+            drop_error = _drop_original(project, timeline, uid)
+            if drop_error:
+                return fail(drop_error, f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            replacement, error = _replace_item(
+                timeline, pool, None, args.source_in, args.source_out,
+                record_in, track_index, 1, pool_item=camera_pool_item)
+            if error:
+                restored, restore_error = _restore_trim_snapshot(
+                    timeline, pool, before, uid)
+                suffix = (f"; original timeline restored ({restored is not None})"
+                          if not restore_error else
+                          f"; restoration could not be proven ({restore_error})")
+                return fail(f"camera switch failed ({error}){suffix}",
+                            f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            new_span = _item_span(replacement)
+            try:
+                placed_pool_item = replacement.GetMediaPoolItem()
+                placed_path = placed_pool_item.GetClipProperty("File Path")
+                source_range_matches = (
+                    int(new_span["source_in"]) == args.source_in
+                    and _inclusive_source_end(
+                        int(new_span["source_in"]),
+                        int(new_span["source_out"]), duration)
+                    == args.source_out)
+                verified = (
+                    int(new_span["record_in"]) == record_in
+                    and int(new_span["record_out"]) - record_in == duration
+                    and source_range_matches
+                    and os.path.realpath(str(placed_path)) == camera_path)
+            except Exception:
+                verified = False
+            if not verified:
+                restored, restore_error = _restore_trim_snapshot(
+                    timeline, pool, before, uid)
+                return fail(
+                    "camera replacement failed source or record-span "
+                    f"read-back (restored={restored is not None}, "
+                    f"restore_error={restore_error})",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            journal_state["success"] = True
+        emit([kv_block("camera_selected", {
+                  "timeline": timeline.GetName(), "source": camera_path,
+                  "source_frames": f"{args.source_in}..{args.source_out}",
+                  "record_frames": f"{record_in}..{record_out}",
+                  "verified": "yes (source range and edit points re-read)"}),
+              note, _journal_block(journal)])
+        return 0
+
+
 def _title_current(item) -> str:
     for key in _TITLE_KEYS:
         try:
@@ -8603,6 +8748,23 @@ def build_parser() -> Parser:
     q.add_argument("--source-out", default=None, type=int,
                    help="new source end frame (within the handles)")
     q.set_defaults(func=cmd_edit_trim)
+
+    q = esubs.add_parser("switch-camera", help="replace a speaker turn with an assigned, synced camera range; --apply writes")
+    _edit_scope(q, "switch-camera")
+    q.add_argument("--camera-source-file", required=True,
+                   help="exact media file for the assigned camera")
+    q.add_argument("--speaker-id", required=True,
+                   help="resolved diarized or project-declared speaker")
+    q.add_argument("--assignment-basis", required=True,
+                   choices=("project_declaration",
+                            "diarized_speaker_identity"))
+    q.add_argument("--sync-evidence-id", required=True,
+                   help="evidence record that supplied the synced range")
+    q.add_argument("--source-in", required=True, type=int,
+                   help="synced camera source start frame")
+    q.add_argument("--source-out", required=True, type=int,
+                   help="synced camera source end frame, inclusive")
+    q.set_defaults(func=cmd_edit_switch_camera)
 
     q = esubs.add_parser("move", help="move an item to a new record "
                                        "frame; --apply writes")

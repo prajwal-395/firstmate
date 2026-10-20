@@ -544,9 +544,12 @@ def _effect_multicam_angle(op, state):
     clip = _clip_state(state, uid)
     if clip is None:
         return (None, None)
-    before = {"angle": clip.get("angle")}
-    clip["angle"] = op["angle_index"]
-    after = {"angle": clip["angle"]}
+    keys = ("source_file", "source_in_frame", "source_out_frame")
+    before = {key: clip.get(key) for key in keys}
+    clip.update({"source_file": op["source_file"],
+                 "source_in_frame": op["source_in_frame"],
+                 "source_out_frame": op["source_out_frame"]})
+    after = {key: clip[key] for key in keys}
     return (before, after)
 
 
