@@ -301,6 +301,26 @@ def _proposed(project: str, record: dict, revisions: list[dict]) -> dict:
         if changes:
             source = "reel_proposal"
             note = "Proposed reels only. No timeline has been built."
+    workflow_evidence = {row["id"]: row for row in
+                         (record.get("evidence") or [])}
+    for workflow in (record.get("edit_workflows") or {}).values():
+        if workflow.get("status") in {"verified", "refused"}:
+            continue
+        request = workflow["request"]
+        for operation in request["operations"]:
+            changes.append({
+                "op": operation["op"],
+                "change": operation["expected_effect"],
+                "target": operation.get("target"),
+                "values": operation.get("params") or {},
+                "workflow_id": workflow["workflow_id"],
+            })
+        evidence.extend(workflow_evidence[item_id]
+                        for item_id in workflow["evidence_ids"]
+                        if item_id in workflow_evidence)
+        source = "assignment_edit_workflow"
+        note = (f"{workflow['workflow_id']} is {workflow['status']}; its "
+                "typed changes are scoped to one AXI transaction.")
     if not source:
         source = "none"
     return {"changes": changes, "evidence": evidence,
@@ -374,6 +394,19 @@ def _applied(record: dict, revisions: list[dict]) -> dict:
             in_flight.append(row)
         else:
             not_applied.append(row)
+    for workflow in (record.get("edit_workflows") or {}).values():
+        request = workflow["request"]
+        row = {
+            "id": workflow["request_id"], "kind": "edit_workflow",
+            "what": "; ".join(operation["expected_effect"]
+                               for operation in request["operations"]),
+            "status": workflow["status"], "at": "", "reel": "",
+            "workflow_id": workflow["workflow_id"],
+        }
+        bucket = {"verified": landed, "applying": in_flight,
+                  "planned": planned, "refused": not_applied}.get(
+                      workflow["status"], not_applied)
+        bucket.append(row)
     return {
         "landed": landed, "in_flight": in_flight, "planned": planned,
         "not_applied": not_applied,
@@ -516,6 +549,29 @@ def _verified(project: str, record: dict,
                           if failed else
                           "the delivery receipt is not complete")
             unverified.append(row)
+    for workflow in (record.get("edit_workflows") or {}).values():
+        receipt = workflow.get("receipt")
+        if workflow.get("status") == "verified" and receipt:
+            verified.append({
+                "id": workflow["request_id"], "kind": "edit_workflow",
+                "what": "; ".join(operation["expected_effect"]
+                                   for operation in
+                                   workflow["request"]["operations"]),
+                "evidence": {
+                    "workflow_id": workflow["workflow_id"],
+                    "receipt_status": receipt.get("status"),
+                    "generation": receipt.get("generation"),
+                    "preservation": receipt.get("preservation"),
+                    "verification": receipt.get("verification_evidence"),
+                },
+            })
+        elif workflow.get("status") in {"refused", "applying"}:
+            unverified.append({
+                "id": workflow["request_id"], "kind": "edit_workflow",
+                "what": workflow["workflow_id"],
+                "why": workflow.get("refusal") or
+                       "transaction has no verified receipt",
+            })
     return {"verified": verified, "unverified": unverified,
             "counts": {"verified": len(verified),
                        "unverified": len(unverified)}}
@@ -748,7 +804,7 @@ def render(view: dict) -> str:
         missing = ", ".join(
             str(entry.get("lane")) for entry in row.get("missing_evidence") or []
             if isinstance(entry, dict) and entry.get("lane"))
-        lines.append(f"  the request still needs evidence"
+        lines.append("  the request still needs evidence"
                      + (f" ({missing})" if missing else "")
                      + (f": {row.get('question')}" if row.get("question") else ""))
     verified = view["verified"]
@@ -812,8 +868,11 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:

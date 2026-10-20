@@ -39,6 +39,7 @@ TASK_SECTIONS = {
     "plan": {"operations": {}},
     "acceptance": {"criteria": [], "evidence": {}},
     "delivery": None,
+    "edit_workflows": {},
     "pause": None,
     "last_refusal": None,
 }

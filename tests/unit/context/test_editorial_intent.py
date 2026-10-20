@@ -178,10 +178,35 @@ def test_an_explicit_preference_marked_inferred_is_refused():
 
 # ── The request kinds (EDIT-005) ───────────────────────────────────────
 
-def test_the_six_named_requests_are_one_enumeration():
+def test_the_named_editorial_requests_are_one_enumeration():
     assert set(ei.REQUEST_KINDS) == {
         "improve_pacing", "strengthen_opening", "remove_repetition",
-        "improve_continuity", "choose_better_angle", "tighten_dialogue"}
+        "improve_continuity", "choose_better_angle", "tighten_dialogue",
+        "replace_broll", "correct_captions", "revise_graphics", "mixed_edit"}
+
+
+@pytest.mark.parametrize(
+    ("statement", "expected", "evidence_bar"),
+    [
+        ("Clean up dialogue retakes", "tighten_dialogue", ("m1",)),
+        ("Replace the B-roll shot", "replace_broll", ("m3", "m4")),
+        ("Correct captions", "correct_captions", ("m1", "ocr_extraction")),
+        ("Revise the logo", "revise_graphics", ("m3",)),
+        ("Make a mixed edit", "mixed_edit",
+         ("m1", "m3", "ocr_extraction", "m5", "m4")),
+    ],
+)
+def test_e2e_workflow_briefs_have_a_named_intent_and_evidence_bar(
+    statement, expected, evidence_bar
+):
+    intent = ei.build_intent(
+        intent_id="intent:e2e",
+        requests=[{"id": "request:e2e", "statement": statement}],
+    )
+
+    assert intent.requests[0].kind == expected
+    assert intent.requests[0].autonomy == ei.REQUEST_PROFILES[expected].autonomy
+    assert intent.requests[0].evidence_bar == evidence_bar
 
 
 def test_a_statement_naming_two_request_kinds_is_refused():

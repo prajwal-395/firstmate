@@ -12,7 +12,8 @@ does NOT exist anywhere is ONE record of the request itself that says:
     - which of those are objective (checkable) and which are subjective
     - WHICH EDITORIAL REQUEST each one is (improve pacing, strengthen an
       opening, remove repetition, improve continuity, choose a better
-      angle, tighten dialogue)
+      angle, tighten dialogue, replace B-roll, correct captions, revise
+      graphics, or combine edit domains)
     - what evidence must exist before Ren may act on that request
     - whether Ren may act alone, must ask, or must wait for approval
     - what evidence is MISSING and how uncertain the answer is
@@ -50,7 +51,7 @@ Rules for this module
 - **A requirement is objective.**  A statement that cannot be checked
   against a measurement is a goal wearing a requirement's name, and it
   is refused by name.
-- **A request names its kind.**  The six kinds are one enumeration
+- **A request names its kind.**  The kinds are one enumeration
   (`REQUEST_KINDS`); a statement matching two of them is refused, never
   resolved by keyword order.
 - **The evidence bar is per request and it is executable.**  A request
@@ -88,7 +89,7 @@ INTENT_VERSION = 1
 
 # ── The editorial request kinds (EDIT-005) ────────────────────────────
 #
-# One enumeration.  A request the commission names is one of these six,
+# One enumeration.  A request the commission names is one of these kinds,
 # and the kind decides the request's evidence bar and its default
 # autonomy.  The kind is a DECLARED policy, not a reading of prose: the
 # cue phrases below are how a statement is matched to a kind, and a
@@ -100,6 +101,10 @@ REMOVE_REPETITION = "remove_repetition"
 IMPROVE_CONTINUITY = "improve_continuity"
 CHOOSE_BETTER_ANGLE = "choose_better_angle"
 TIGHTEN_DIALOGUE = "tighten_dialogue"
+REPLACE_BROLL = "replace_broll"
+CORRECT_CAPTIONS = "correct_captions"
+REVISE_GRAPHICS = "revise_graphics"
+MIXED_EDIT = "mixed_edit"
 
 REQUEST_KINDS = (
     IMPROVE_PACING,
@@ -108,6 +113,10 @@ REQUEST_KINDS = (
     IMPROVE_CONTINUITY,
     CHOOSE_BETTER_ANGLE,
     TIGHTEN_DIALOGUE,
+    REPLACE_BROLL,
+    CORRECT_CAPTIONS,
+    REVISE_GRAPHICS,
+    MIXED_EDIT,
 )
 
 
@@ -239,9 +248,45 @@ REQUEST_PROFILES: dict[str, RequestProfile] = {
         objective=True,
         autonomy=AUTONOMOUS,
         evidence_bar=(SPEECH_LANE,),
-        cues=("tighten dialogue", "tighten the dialogue", "filler",
-              "disfluency", "false start", "long pause", "silence"),
+        cues=("tighten dialogue", "tighten the dialogue", "dialogue cleanup",
+              "clean up dialogue", "retake", "filler", "disfluency",
+              "false start", "long pause", "silence"),
         summary="the dialogue carries dead air and filler",
+    ),
+    REPLACE_BROLL: RequestProfile(
+        kind=REPLACE_BROLL,
+        objective=False,
+        autonomy=NEEDS_APPROVAL,
+        evidence_bar=(PICTURE_LANE, SCENE_LANE),
+        cues=("b-roll", "b roll", "broll", "cutaway", "replace the shot"),
+        summary="the supporting shot should better fit the spoken moment",
+    ),
+    CORRECT_CAPTIONS: RequestProfile(
+        kind=CORRECT_CAPTIONS,
+        objective=True,
+        autonomy=NEEDS_APPROVAL,
+        evidence_bar=(SPEECH_LANE, TEXT_LANE),
+        cues=("correct captions", "caption correction", "fix captions",
+              "caption typo", "caption timing", "caption style",
+              "subtitle correction"),
+        summary="the captions do not match the intended text and timing",
+    ),
+    REVISE_GRAPHICS: RequestProfile(
+        kind=REVISE_GRAPHICS,
+        objective=True,
+        autonomy=NEEDS_APPROVAL,
+        evidence_bar=(PICTURE_LANE,),
+        cues=("lower third", "lower-third", "logo", "overlay", "graphic"),
+        summary="a named graphic needs a precise revision",
+    ),
+    MIXED_EDIT: RequestProfile(
+        kind=MIXED_EDIT,
+        objective=False,
+        autonomy=NEEDS_APPROVAL,
+        evidence_bar=(SPEECH_LANE, PICTURE_LANE, TEXT_LANE, SOUND_LANE,
+                      SCENE_LANE),
+        cues=("mixed edit", "combined edit", "combine these edits"),
+        summary="one commission spans structural, visual, caption and audio work",
     ),
 }
 
@@ -467,7 +512,7 @@ def match_request_kinds(statement: str) -> tuple[str, ...]:
 
     More than one match is an AMBIGUITY, not a choice: the caller states
     the kind.  Zero matches is not a failure either - a request the
-    commission names in its own words may be none of these six.
+    commission names in its own words may be none of the declared kinds.
     """
     text = str(statement or "").lower()
     matched = []

@@ -404,8 +404,7 @@ def state(project: str, assignment_id: str | None = None) -> dict:
     records the assignment already owns, so a host reads the answers
     instead of deriving them from the machinery.
     """
-    from library.tools import assignment_spine
-    from library.tools import assignment_view
+    from library.tools import assignment_spine, assignment_view
     root = str(Path(project).expanduser().resolve())
     record = lifecycle.resolve(root, assignment_id)
     if record is None:
@@ -474,6 +473,16 @@ def main(argv=None) -> int:
     parser.add_argument("--reopen", action="store_true",
                         help="bring a cancelled assignment back as a new "
                              "request")
+    parser.add_argument(
+        "--edit-plan", metavar="JSON",
+        help="record a typed E2E-009..015 edit plan from a JSON file; it "
+             "does not contact Resolve")
+    parser.add_argument(
+        "--edit-apply", metavar="REQUEST_ID",
+        help="apply a previously recorded edit plan through Resolve AXI")
+    parser.add_argument(
+        "--authorization-source", choices=("creator_brief", "creator_approval"),
+        help="the creator authorization for --edit-apply")
     args = parser.parse_args(argv)
     root = Path(args.project).expanduser()
     if not root.is_dir():
@@ -489,8 +498,13 @@ def main(argv=None) -> int:
         ("--replan", args.replan),
         ("--cancel", args.cancel),
         ("--reopen", args.reopen)) if value]
+    acts.extend(name for name, value in (
+        ("--edit-plan", args.edit_plan), ("--edit-apply", args.edit_apply))
+                if value)
     if len(acts) > 1:
         parser.error("one act at a time: " + ", ".join(acts))
+    if args.authorization_source and not args.edit_apply:
+        parser.error("--authorization-source is only used with --edit-apply")
     try:
         envelope = _act(str(root), args)
     except FileNotFoundError as exc:
@@ -528,6 +542,28 @@ def _act(root: str, args) -> dict:
     if args.authorize_replacement:
         _require_id(args)
         return authorize(root, args.assignment_id)
+    if args.edit_plan:
+        _require_id(args)
+        try:
+            plan = json.loads(Path(args.edit_plan).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise FileNotFoundError(f"cannot read edit plan JSON: {exc}") from exc
+        from library.tools import assignment_edit_workflow
+        return assignment_edit_workflow.plan(
+            root, args.assignment_id,
+            workflow_id=plan["workflow_id"], intent_id=plan.get("intent_id", ""),
+            intent_request_id=plan["intent_request_id"], request=plan["request"],
+            evidence_ids=plan["evidence_ids"], decision_ids=plan["decision_ids"],
+            acceptance_criteria=plan["acceptance_criteria"])
+    if args.edit_apply:
+        _require_id(args)
+        if not args.authorization_source:
+            raise FileNotFoundError(
+                "--edit-apply requires --authorization-source")
+        from library.tools import assignment_edit_workflow
+        return assignment_edit_workflow.apply(
+            root, args.assignment_id, args.edit_apply,
+            authorization_source=args.authorization_source)
     return state(root, args.assignment_id)
 
 
@@ -542,8 +578,11 @@ if __name__ == "__main__":
     # shape as the front door. With `REN_OUTPUT=json` both a refusal
     # and an uncaught error end with one final `REN_RESULT` line (LE-03).
     from library.tools.ren_refusal import (
-        REFUSAL_EXIT_CODE, RenRefusal, emit_refusal_result,
-        report_unexpected)
+        REFUSAL_EXIT_CODE,
+        RenRefusal,
+        emit_refusal_result,
+        report_unexpected,
+    )
     try:
         raise SystemExit(main())
     except RenRefusal as refused:
