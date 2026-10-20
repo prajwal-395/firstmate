@@ -1079,6 +1079,48 @@ test_named_base_branch_starts_from_that_branch() {
   pass "--base-branch picks the copy's starting point and is recorded; a missing or local-only base refuses"
 }
 
+# Regression for a based spawn whose selected branch is behind the default
+# upstream. The launch must validate against the selected branch, while an
+# unrelated copy must still fail that same assertion.
+test_spawn_base_branch_behind_default_upstream_launches() {
+  local rec id out status base_sha default_sha unrelated_sha
+  id='pool-base-behind-default-r1'
+  rec=$(make_case base-behind-default "$id")
+  read_case_record "$rec"
+  git -C "$PROJECT_DIR" push --quiet origin "$INITIAL_SHA:refs/heads/fm/lb2-02-safe-fetch"
+  git -C "$PROJECT_DIR" fetch --quiet origin
+  base_sha=$(git -C "$PROJECT_DIR" rev-parse origin/fm/lb2-02-safe-fetch)
+  default_sha=$(git -C "$PROJECT_DIR" rev-parse origin/main)
+  [ "$base_sha" != "$default_sha" ] || fail "fixture: selected base is not behind origin/main"
+  if git -C "$PROJECT_DIR" merge-base --is-ancestor "$default_sha" "$base_sha"; then
+    fail "fixture: selected base unexpectedly descends from origin/main"
+  fi
+  brief_with_base "$id" fm/lb2-02-safe-fetch
+  out=$(run_spawn "$id" --mode direct-PR --yolo off --base-branch fm/lb2-02-safe-fetch)
+  status=$?
+  expect_code 0 "$status" "a ship based on a branch behind the default upstream should launch"$'\n'"$out"
+  assert_contains "$out" "spawned $id" "the based ship did not report success"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$base_sha" ] \
+    || fail "the pooled copy did not start from the selected behind-default base"
+
+  git -C "$POOL_DIR" checkout --quiet --orphan unrelated-base
+  printf 'unrelated\n' > "$POOL_DIR/unrelated.txt"
+  git -C "$POOL_DIR" add unrelated.txt
+  git -C "$POOL_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm unrelated
+  unrelated_sha=$(git -C "$POOL_DIR" rev-parse HEAD)
+  out=$(bash -c '
+    . "$0/bin/fm-ff-lib.sh"
+    eval "$(sed -n "/^assert_spawn_tracked_base() {/,/^}$/p" "$0/bin/fm-spawn.sh")"
+    assert_spawn_tracked_base "$1" fm/lb2-02-safe-fetch
+  ' "$ROOT" "$POOL_DIR" 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "an unrelated copy passed the explicit-base assertion"
+  assert_contains "$out" "not based on tracked upstream 'origin/fm/lb2-02-safe-fetch'" \
+    "the explicit-base refusal did not identify the selected base"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$unrelated_sha" ] \
+    || fail "the assertion changed the unrelated copy"
+  pass "ship spawn on a branch behind default launches, while an unrelated base refuses"
+}
+
 test_base_branch_must_agree_with_the_brief() {
   local rec id out status case_name
   for case_name in flag-only line-only task-decoy; do
@@ -1163,6 +1205,7 @@ test_wrong_base_assertion_refuses_and_preserves
 test_linked_spawning_home_rejects_primary_before_refresh
 test_stale_pool_base_refreshes_before_branching
 test_named_base_branch_starts_from_that_branch
+test_spawn_base_branch_behind_default_upstream_launches
 test_base_branch_must_agree_with_the_brief
 test_prose_base_branch_line_is_ignored
 test_scout_base_branch_refused_on_gerrit_forge
