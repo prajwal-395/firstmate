@@ -305,3 +305,61 @@ def test_typed_confidence_uses_the_contract():
         typed_confidence(float("nan"), "rank", "mfa")
     with pytest.raises(ValueError):
         typed_confidence(0.5, "rank", "")
+
+
+def test_an_artifact_that_does_not_read_the_model_is_not_stale_because_the_model_moved(
+        tmp_path):
+    """A search index is built from the media and the ingest output.
+
+    It does not read the Project Model, so a model revision moving must
+    not mark it stale: that would send a reader to rebuild an index
+    that is perfectly current.
+    """
+    project = _project(tmp_path)
+    register_artifact(project, name="footage_index", kind="search_index",
+                      source_digests=[], model_revision=None,
+                      rebuild="owners.search:build_index", owner="footage_query")
+    report = check_artifacts(project, FIXTURE, model_revision=99)
+    assert report["footage_index"]["status"] == "current"
+    assert report["footage_index"]["depends_on_model"] is False
+
+
+def test_the_report_names_the_sources_that_moved(tmp_path):
+    """Seven sources, one replaced: the report says which one.
+
+    "Something changed" sends a reader to re-measure the project. "This
+    source changed" sends them to re-measure one clip.
+    """
+    project = _project(tmp_path)
+    register_artifact(project, name="footage_index", kind="search_index",
+                      source_digests=["sha256:abc", "sha256:gone"],
+                      model_revision=None,
+                      rebuild="owners.search:build_index", owner="footage_query")
+    report = check_artifacts(project, FIXTURE, model_revision=1,
+                             live_source_digests=["sha256:abc", "sha256:new"])
+    row = report["footage_index"]
+    assert row["status"] == "stale_source"
+    assert row["stale_sources"] == ["sha256:gone"]
+    assert row["new_sources"] == ["sha256:new"]
+    assert "sha256:gone" in row["status_reason"]
+
+
+def test_derived_status_reports_nothing_derived_as_a_fact(tmp_path):
+    """A project that has derived nothing answers with an empty report."""
+    project = tmp_path / "bare"
+    report = evidence_lifecycle.derived_status(project)
+    assert report["artifacts"] == {}
+    assert report["stale"] == []
+    assert report["current"] == []
+    assert report["model_revision"] == 0
+
+
+def test_derived_status_names_the_stale_artifacts(tmp_path):
+    project = _project(tmp_path)
+    register_artifact(project, name="footage_index", kind="search_index",
+                      source_digests=["sha256:gone"], model_revision=None,
+                      rebuild="owners.search:build_index", owner="footage_query")
+    report = evidence_lifecycle.derived_status(project)
+    assert report["stale"] == ["footage_index"]
+    assert report["artifacts"]["footage_index"]["stale_sources"] == [
+        "sha256:gone"]

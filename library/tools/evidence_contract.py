@@ -198,6 +198,45 @@ _REGISTRY: dict[str, dict[str, Any]] = {
         "requires_resolution": True,
         "description": "Median Rec.709 luma over a named image region.",
     },
+    "image.motion.camera_translation": {
+        "unit": "normalized_displacement", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Mean global frame shift the camera model explains, "
+        "in normalised proxy-frame displacements. A separation hypothesis, "
+        "not a labelled cause.",
+    },
+    "image.motion.subject_energy": {
+        "unit": "normalized_displacement", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Mean residual flow the camera model does not "
+        "explain, in the same normalised units.",
+    },
+    "image.framing.subject_center_x": {
+        "unit": "normalized_0_1", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Median horizontal centre of the detected face as a "
+        "fraction of source width; 0.0 is the left edge.",
+    },
+    "image.framing.subject_width_fraction": {
+        "unit": "normalized_0_1", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "The subject's own face width as a fraction of "
+        "source width, read off the same track as the centre.",
+    },
+    "audio.snr_db": {
+        "unit": "db", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "Whole-source temporal contrast estimate: p95 minus "
+        "p10 of the non-silent 100 ms RMS levels. A source statistic, not a "
+        "measure of any one span.",
+    },
+    "audio.intelligibility.speech_band_energy_fraction": {
+        "unit": "fraction_0_1", "kind": EvidenceType.MEASUREMENT,
+        "requires_resolution": False,
+        "description": "The share of the 300-3400 Hz band carrying energy "
+        "over an interval. A frequency coverage proxy only: never "
+        "intelligibility, never word recognition.",
+    },
     "image.color.rgb_mean": {
         "unit": "rgb_0_255", "kind": EvidenceType.MEASUREMENT,
         "requires_resolution": True,

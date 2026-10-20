@@ -21,11 +21,13 @@ owner lane lands reads as ``unowned`` rather than silently current.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import tempfile
 import time
+import sys
 from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Any, Callable
@@ -107,7 +109,8 @@ def _read_registry(project: Path) -> dict[str, dict[str, Any]]:
 
 
 def register_artifact(project: Path, *, name: str, kind: str,
-                      source_digests: list[str], model_revision: int,
+                      source_digests: list[str],
+                      model_revision: int | None = None,
                       producer_versions: dict[str, str] | None = None,
                       rebuild: str | None = None,
                       owner: str | None = None) -> dict[str, Any]:
@@ -117,14 +120,23 @@ def register_artifact(project: Path, *, name: str, kind: str,
     without one the artifact stays ``unowned``. Re-registering after a
     rebuild refreshes the record; the previous record is not kept here,
     the model event log already carries the history.
+
+    ``model_revision`` is the Project Model revision the artifact was
+    built against, and ``None`` means it does not read the Project
+    Model at all - a search index built from the media and the step
+    output is not stale because the model moved. An artifact that
+    depends on the model is stale when the model moves; one that does
+    not is judged on its sources and its producers alone.
     """
     if not name or not kind:
         raise ValueError("derived artifacts need a name and kind")
-    if not isinstance(model_revision, int) or model_revision < 0:
+    if model_revision is not None and (
+            not isinstance(model_revision, int) or model_revision < 0):
         raise ValueError("model revision must be a non-negative integer")
     record = {"name": name, "kind": kind,
               "source_digests": sorted(set(source_digests)),
               "model_revision": model_revision,
+              "depends_on_model": model_revision is not None,
               "producer_versions": dict(producer_versions or {}),
               "rebuild": rebuild, "owner": owner,
               "recorded_at": int(time.time()),
@@ -166,7 +178,8 @@ def invalidate_artifact(project: Path, name: str, reason: str) -> dict[str, Any]
 
 def check_artifacts(project: Path, model: dict[str, Any], *,
                     model_revision: int,
-                    current_producers: dict[str, str] | None = None
+                    current_producers: dict[str, str] | None = None,
+                    live_source_digests: list[str] | None = None
                     ) -> dict[str, dict[str, Any]]:
     """Compare derived records against the live model (DATA-017).
 
@@ -176,16 +189,38 @@ def check_artifacts(project: Path, model: dict[str, Any], *,
     a named producer version changed. ``invalidated`` records stay
     invalidated until the owner re-registers; ``unowned`` records stay
     unowned. Nothing is rebuilt here.
+
+    **Only what moved.** Every report names the sources that moved:
+    ``stale_sources`` are the digests the artifact was built from that
+    are no longer live, and ``new_sources`` are the live digests it was
+    never built from. An artifact covering seven sources and one changed
+    file says which one, so a reader re-measures that one rather than
+    the project. An artifact that does not read the Project Model is
+    judged on its sources and producers alone: a search index is not
+    stale because the model moved.
+
+    ``live_source_digests`` names the media that exists now, for the
+    caller that knows it. It is unioned with the model's own asset
+    digests, so a media-derived artifact is judged against the footage
+    and a model-derived one against the model.
     """
     live_digests = set()
     for asset in model.get("assets", []):
         digest = asset.get("content_digest") if isinstance(asset, dict) else None
         if isinstance(digest, str) and digest:
             live_digests.add(digest)
+    for digest in live_source_digests or ():
+        if isinstance(digest, str) and digest:
+            live_digests.add(digest)
     current = dict(current_producers or {})
     report = {}
     for name, record in _read_registry(project).items():
         outcome = dict(record)
+        recorded_digests = set(record.get("source_digests", []))
+        moved = sorted(recorded_digests - live_digests) if recorded_digests else []
+        outcome["stale_sources"] = moved
+        outcome["new_sources"] = sorted(live_digests - recorded_digests) \
+            if recorded_digests else []
         if record.get("status") == "invalidated":
             report[name] = outcome
             continue
@@ -194,13 +229,16 @@ def check_artifacts(project: Path, model: dict[str, Any], *,
             outcome["status_reason"] = "no rebuild entrypoint registered"
             report[name] = outcome
             continue
-        recorded_digests = set(record.get("source_digests", []))
-        if recorded_digests and not recorded_digests <= live_digests:
+        depends_on_model = record.get("depends_on_model")
+        if depends_on_model is None:
+            # A record written before the field existed: a model revision
+            # was recorded, so it depended on the model.
+            depends_on_model = record.get("model_revision") is not None
+        if moved:
             outcome["status"] = "stale_source"
             outcome["status_reason"] = (
-                "sources changed: "
-                + ", ".join(sorted(recorded_digests - live_digests)))
-        elif model_revision != record.get("model_revision"):
+                "sources changed: " + ", ".join(moved))
+        elif depends_on_model and model_revision != record.get("model_revision"):
             outcome["status"] = "stale_model"
             outcome["status_reason"] = (
                 f"model at revision {model_revision}, "
@@ -218,6 +256,46 @@ def check_artifacts(project: Path, model: dict[str, Any], *,
                 outcome["status_reason"] = None
         report[name] = outcome
     return report
+
+
+def derived_status(project: Path, *, current_producers: dict[str, str] | None = None,
+                   live_source_digests: list[str] | None = None) -> dict[str, Any]:
+    """What this project has DERIVED, and what of it is stale.
+
+    The one place that answers it. The Project Model is the authority
+    for the model revision; the caller names the media that exists now,
+    because a media-derived artifact is judged against the footage and
+    not against the model.
+
+    A project that has derived nothing answers with an empty report and
+    says so, rather than an error: "nothing derived" is a fact.
+    """
+    project = Path(project)
+    model: dict[str, Any] = {}
+    model_revision = 0
+    try:
+        revision, model = project_model_store.load_project_model(project)
+        model_revision = int(revision)
+    except (FileNotFoundError, ValueError, KeyError):
+        model, model_revision = {}, 0
+    artifacts = check_artifacts(
+        project, model, model_revision=model_revision,
+        current_producers=current_producers,
+        live_source_digests=live_source_digests)
+    by_status: dict[str, list[str]] = {}
+    for name, record in artifacts.items():
+        by_status.setdefault(record.get("status") or "unknown", []).append(name)
+    return {
+        "project": str(project),
+        "model_revision": model_revision,
+        "artifacts": artifacts,
+        "stale": sorted(by_status.get("stale_source", [])
+                        + by_status.get("stale_model", [])
+                        + by_status.get("stale_producer", [])),
+        "current": sorted(by_status.get("current", [])),
+        "unowned": sorted(by_status.get("unowned", [])),
+        "invalidated": sorted(by_status.get("invalidated", [])),
+    }
 
 
 def _row_digest(row: dict[str, Any]) -> str:
@@ -642,3 +720,33 @@ def transform_drift_history(
                                  "drift_exceeds_tolerance")}
                             if isinstance(direct, dict) else None),
             "decomposition": decomposition, "stability": stability}
+
+
+def main(argv=None) -> int:
+    """``status <project>``: what this project derived, and what moved.
+
+    The report names the sources that moved, so a reader re-measures the
+    clip that changed instead of the project. A project that has derived
+    nothing answers with an empty report, which is a fact and not an
+    error.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    status = sub.add_parser(
+        "status", help="What this project derived, and what of it is stale")
+    status.add_argument("project")
+    args = parser.parse_args(argv)
+    if args.command == "status":
+        from library.tools.analysis.footage_segments import (
+            current_source_digests,
+        )
+        digests = sorted(set(current_source_digests(args.project).values()))
+        report = derived_status(Path(args.project),
+                                live_source_digests=digests)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

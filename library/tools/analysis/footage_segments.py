@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -57,6 +56,8 @@ from pathlib import Path
 # module, not a step: importing it here does not make search a pipeline
 # stage any more than importing footage_identity would.
 from library.tools import source_memory
+from library.tools import source_quality
+from library.tools import footage_model_link as model_link
 
 # Every kind this module emits.  A kind not in here does not exist, and
 # asking to filter by one raises rather than quietly matching nothing.
@@ -78,95 +79,19 @@ UNMEASURED_CHUNK_TEXT = "unmeasured footage"
 
 # Facets reduced off the step 1.04 curves, and the key each is read from.
 # The value stored is the MEAN over the segment's span.
+#
+# The framing facets are NOT here: the subject's position and width are
+# read by `library/tools/subject_framing.py`, which owns that measurement
+# and decides which samples count. `library/tools/source_quality.py` is
+# the one place both readings meet, so the index and the crop that
+# follows it cannot disagree about where the subject is.
 _CURVE_FACETS = {
     "speech_ratio": ("speech_activity", "values"),
     "motion": ("motion_energy", "values"),
     "face_presence": ("face_presence", "values"),
-    "subject_center_x": ("face_presence", "face_center_x"),
-    "subject_width_fraction": ("face_presence", "face_width"),
     "brightness": ("color_curves", "brightness_values"),
     "saturation": ("color_curves", "saturation_values"),
 }
-
-
-def _quality_summary(doc: dict, start: float, end: float) -> dict:
-    """Reduce VI-03's measured image signals over one half-open span.
-
-    Values remain numeric and explicitly named as proxies. The reduction
-    preserves missing coverage: a segment with no VI-03 record receives no
-    quality facet, rather than being treated as clean. Records written
-    before a signal existed (e.g. clipping fractions) simply lack that
-    facet; absence is skipped, never read as zero.
-    """
-    if not isinstance(doc, dict):
-        return {}
-    sampling = doc.get("sampling") or {}
-    rate = sampling.get("rate_hz")
-    signals = doc.get("signals") or {}
-    if not isinstance(rate, (int, float)) or rate <= 0:
-        return {}
-    lo = max(0, math.ceil(start * rate - 1e-9))
-    hi = max(lo, math.ceil(end * rate - 1e-9))
-    facets = {}
-    for name, signal_name in (
-            ("sharpness_laplacian_variance", "sharpness_proxy_laplacian_variance"),
-            ("compression_blockiness_proxy", "compression_blockiness"),
-            ("temporal_noise_residual", "temporal_noise"),
-            ("underexposed_fraction", "clipping_underexposed_fraction"),
-            ("overexposed_fraction", "clipping_overexposed_fraction")):
-        block = signals.get(signal_name)
-        values = block.get("values") if isinstance(block, dict) else block
-        if not isinstance(values, list):
-            continue
-        measured = [float(value) for value in values[lo:hi]
-                    if isinstance(value, (int, float))]
-        if measured:
-            facets[name] = round(sum(measured) / len(measured), 6)
-    return facets
-
-
-def _camera_motion_summary(temporal_doc: dict, start: float,
-                           end: float) -> dict:
-    """Reduce the 1.04 camera/subject decomposition over one span.
-
-    ``camera_translation_magnitude`` is the mean per-sample global
-    shift read as camera motion, in normalized proxy-frame
-    displacements; ``subject_energy`` is the mean residual flow the
-    camera model does not explain, in the same normalized units.
-    Both come from ``decompose_camera_motion`` off the optical-flow
-    field - no additional decode - and the decomposition is a
-    separation hypothesis, not a labelled cause. A span with no
-    decomposition record receives neither facet.
-    """
-    if not isinstance(temporal_doc, dict):
-        return {}
-    block = temporal_doc.get("camera_motion_decomposition")
-    if not isinstance(block, dict):
-        return {}
-    values = block.get("values")
-    rate = block.get("sample_rate_hz")
-    if not isinstance(values, list) or not isinstance(rate, (int, float)) \
-            or rate <= 0:
-        return {}
-    lo = max(0, math.ceil(start * rate - 1e-9))
-    hi = max(lo, math.ceil(end * rate - 1e-9))
-    translations, subjects = [], []
-    for entry in values[lo:hi]:
-        if not isinstance(entry, dict):
-            continue
-        tx, ty = entry.get("translation_x"), entry.get("translation_y")
-        if isinstance(tx, (int, float)) and isinstance(ty, (int, float)):
-            translations.append(math.hypot(float(tx), float(ty)))
-        energy = entry.get("subject_energy")
-        if isinstance(energy, (int, float)):
-            subjects.append(float(energy))
-    facets = {}
-    if translations:
-        facets["camera_translation_magnitude"] = round(
-            sum(translations) / len(translations), 6)
-    if subjects:
-        facets["subject_energy"] = round(sum(subjects) / len(subjects), 6)
-    return facets
 
 
 @dataclass
@@ -194,6 +119,11 @@ class Segment:
     start_tick: int | None = None
     end_tick: int | None = None
     obs_id: str | None = None
+    # The source-quality profile of this span: the one named aggregate
+    # over the measured quality evidence for it. `library/tools/
+    # source_quality.py` owns its shape and its dimensions; the flat
+    # `facets` above are published from it, so the two cannot disagree.
+    quality_profile: dict = field(default_factory=dict)
 
     @property
     def duration(self) -> float:
@@ -380,8 +310,6 @@ def _linkage(start: float, end: float,
     if digest is None:
         return {"asset_id": None, "clock_id": None,
                 "start_tick": None, "end_tick": None}
-    from library.tools import footage_model_link as model_link
-
     ticks = model_link.sec_to_ticks(start, end)
     return {"asset_id": model_link.asset_id_for_digest(digest),
             "clock_id": model_link.clock_id_for_digest(digest),
@@ -467,8 +395,6 @@ def _memory_speech_segments(clip, m1_doc, temporal_doc, base_facets,
             **_linkage(start, end, digest),
         )
         if digest is not None:
-            from library.tools import footage_model_link as model_link
-
             row.obs_id = model_link.utterance_obs_id(digest, i)
         out.append(row)
     return out
@@ -929,6 +855,8 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
             project_folder, clip, recorded)
         quality_doc = (source_memory.read_image_defects(digest)
                        if digest else None)
+        audio_doc = (source_memory.read_audio_quality(digest)
+                     if digest else None)
         first_segment = len(segments)
         cutters = {
             "speech": lambda c, v, t, b, digest=digest: _speech_segments(
@@ -959,11 +887,27 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
             else:
                 segments.extend(cutters[kind](clip, vision_doc, temporal_doc, base))
         for segment in segments[first_segment:]:
+            # The source-quality profile is the ONE reading of this
+            # clip's measured quality: VI-03's image signals, the 1.04
+            # camera/subject decomposition, the face track's framing and
+            # M11's intelligibility proxies, each with the lane and the
+            # interval it came from. The flat facets the index filters
+            # on are published from it, so a filter bound and the
+            # profile a reader inspects cannot disagree.
+            segment.quality_profile = source_quality.profile_over_span(
+                image_defects=quality_doc,
+                temporal_index=temporal_doc,
+                audio_quality=audio_doc,
+                start_seconds=segment.start,
+                end_seconds=segment.end,
+                asset_id=model_link.asset_id_for_digest(digest)
+                if digest else None,
+                content_digest=digest,
+                source_file=segment.source_file or None,
+                clock_id=model_link.clock_id_for_digest(digest)
+                if digest else None)
             segment.facets.update(
-                _quality_summary(quality_doc, segment.start, segment.end))
-            segment.facets.update(
-                _camera_motion_summary(
-                    temporal_doc, segment.start, segment.end))
+                source_quality.facets_of(segment.quality_profile))
     return segments
 
 
@@ -1068,6 +1012,78 @@ INGEST_SOURCES = (
 # as stale.  Only the subtree `load_catalog` reads is measured.
 STATE_FILE = "pipeline_data.json"
 STATE_INGEST_KEYS = ("catalog",)
+
+
+#: The files whose CONTENT decides what the segments in an index say.
+#: A change to any of them changes the cut, so an index built by the old
+#: code is serving rows the new code would not cut.
+#:
+#: The list is CURATED, not derived. Walking the AST closure of the cut
+#: reaches the whole engine - the cut reads the source memory, which
+#: reads the world - and an identity that takes minutes is not a
+#: staleness check. A curated list over-invalidates a little: a change
+#: to a source-memory reader that does not touch the cut still marks the
+#: index stale. That direction is the safe one, because the cost is a
+#: rebuild and the other direction is a silently wrong index.
+SEGMENT_CUT_SOURCES = (
+    "library/tools/analysis/footage_segments.py",
+    "library/tools/source_quality.py",
+    "library/tools/subject_framing.py",
+    "library/tools/camera_motion.py",
+    "library/tools/source_memory.py",
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def segment_method_digest() -> str | None:
+    """The identity of the code that CUTS the segments.
+
+    An index is analysis as much as it is data: the rows in it were cut
+    by a particular version of the code that cuts them, and a change to
+    that code changes what the index would say. Content, not mtime: a
+    file rewritten byte-for-byte identically has not changed.
+
+    None when the identity cannot be computed. An index that cannot
+    name its method is NOT declared stale on that ground, because
+    "unknown" is not "changed".
+    """
+    digest = hashlib.sha256()
+    for relative in SEGMENT_CUT_SOURCES:
+        path = REPO_ROOT / relative
+        try:
+            blob = path.read_bytes()
+        except OSError:
+            return None
+        digest.update(relative.encode("utf-8"))
+        digest.update(blob)
+    return digest.hexdigest()
+
+
+def current_source_digests(project_folder) -> dict:
+    """``{clip_id: content_digest}`` for the project's catalog, as it is now.
+
+    The per-source half of the ingest fingerprint. The whole-set digest
+    says THAT something moved; this says WHICH footage moved, and that
+    is the difference between "rebuild the index" and "re-measure this
+    clip".
+
+    A clip whose media is offline answers from the runner's recorded
+    fingerprint, so a project whose footage is not mounted still says
+    what it was built from. A clip with neither is ABSENT from the
+    answer, never given a placeholder digest.
+    """
+    recorded = source_memory.load_recorded_fingerprints(project_folder)
+    out = {}
+    for clip in load_catalog(project_folder):
+        clip_id = clip.get("clip_id")
+        if not clip_id:
+            continue
+        digest, _basis = source_memory.digest_for_clip(
+            project_folder, clip, recorded)
+        if digest:
+            out[clip_id] = digest
+    return out
 
 
 def ingest_fingerprint(project_folder) -> dict:

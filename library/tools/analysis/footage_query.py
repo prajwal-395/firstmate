@@ -88,10 +88,12 @@ from library.tools.analysis.footage_segments import (
     SEGMENT_KINDS,
     build_segments,
     coverage_report,
+    current_source_digests,
     cut_chunks,
     ingest_fingerprint,
     load_catalog,
 )
+from library.tools.analysis import footage_segments
 from library.tools import person_entity, source_memory
 
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -1107,6 +1109,15 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         # What this index was built FROM.  An index cannot notice that the
         # ingest moved under it unless it recorded the ingest it read.
         "ingest_fingerprint": ingest_fingerprint(project_folder),
+        # The per-source half of that record: which clip's footage the
+        # rows were cut from, by content digest. The whole-set digest
+        # says THAT something moved; this says WHICH footage moved, so a
+        # reader can re-measure one clip instead of the project.
+        "source_digests": current_source_digests(project_folder),
+        # The identity of the code that cut these segments. An index is
+        # analysis as much as data, and a change to the cutting code
+        # changes what the index would say.
+        "segment_method": footage_segments.segment_method_digest(),
         "coverage": coverage,
         "text_lane": text_lane,
         "segments": [s.to_dict() for s in segments],
@@ -2940,6 +2951,8 @@ class FootageIndex:
         max_subject_center_x: float | None = None,
         min_subject_width_fraction: float | None = None,
         min_motion: float | None = None,
+        min_snr_db: float | None = None,
+        min_speech_band_energy_fraction: float | None = None,
         contains: str | None = None,
         person: str | None = None,
         min_speech_level: float | None = None,
@@ -2999,6 +3012,16 @@ class FootageIndex:
                 at right. This does not claim identity or full-body framing.
             min_subject_width_fraction: detected face width divided by
                 display-frame width (0..1).
+            min_snr_db: minimum whole-source temporal contrast estimate
+                in dB, from M11's audio-quality measurement. A source
+                statistic: it does not describe the span, and it is the
+                same number for every span of that source. Missing
+                measurement fails the bound closed.
+            min_speech_band_energy_fraction: minimum share of the
+                300-3400 Hz band carrying energy over the span (0..1),
+                from M11. A frequency coverage proxy only - it is not
+                intelligibility and not word recognition. Missing
+                measurement fails the bound closed.
             contains: plain substring match against the segment text.
             person: a person_id ("person_001") or declared name
                 ("Craig") from the entity store (M3b). Keeps segments
@@ -3058,6 +3081,9 @@ class FootageIndex:
             ("subject_energy", min_subject_energy, max_subject_energy),
             ("subject_center_x", min_subject_center_x, max_subject_center_x),
             ("subject_width_fraction", min_subject_width_fraction, None),
+            ("snr_db", min_snr_db, None),
+            ("speech_band_energy_fraction",
+             min_speech_band_energy_fraction, None),
         )
 
         def _overlaps_person(segment: dict) -> bool:
@@ -3155,6 +3181,20 @@ class FootageIndex:
                 return segment
         return {"error": f"Segment '{segment_id}' not found"}
 
+    def quality_profile(self, segment_id: str) -> dict:
+        """The source-quality profile of one segment.
+
+        The named aggregate over the measured quality evidence for that
+        span: which dimensions were measured, which were not, and the
+        lane, method and interval each number came from. The flat
+        `facets` on the segment are published FROM this profile, so a
+        filter bound and this profile cannot disagree.
+        """
+        segment = self.get_detail(segment_id)
+        if "error" in segment:
+            return segment
+        return segment.get("quality_profile") or {}
+
     def transcript(self, clip_id: str) -> list:
         """Every spoken utterance of one clip, in time order, with timings.
 
@@ -3201,6 +3241,13 @@ class FootageIndex:
 
         An index written before this recorded a fingerprint cannot be
         judged, and says so rather than claiming to be current.
+
+        **Which sources moved.** The whole-ingest digest says THAT
+        something changed; the per-source digests say WHICH footage
+        changed, and that is the difference between "rebuild the index"
+        and "re-measure this clip".  ``changed_sources`` names the clips
+        whose content digest moved, and ``new_sources`` the clips that
+        were not in the index at all.
         """
         recorded = self.payload.get("ingest_fingerprint")
         now = ingest_fingerprint(self.project_folder)
@@ -3209,18 +3256,80 @@ class FootageIndex:
             "files_now": now["files"],
             "files_then": (recorded or {}).get("files"),
         }
+        out.update(self._source_movement())
+        out.update(self._analysis_version_drift())
+        moved_sources = out.get("changed_sources") or []
         if not recorded:
             out.update(stale=None,
                        reason="this index recorded no ingest fingerprint, so it cannot be checked")
             return out
-        if recorded.get("digest") == now["digest"]:
+        ingest_moved = recorded.get("digest") != now["digest"]
+        if not ingest_moved and not moved_sources \
+                and out.get("analysis_version") != "changed":
             out.update(stale=False, reason="the ingest is byte-for-byte what this index was built from")
             return out
-        moved = now["files"] - recorded.get("files", 0)
-        detail = (f"{abs(moved)} ingest file(s) {'appeared' if moved > 0 else 'went away'}"
-                  if moved else "an ingest file changed")
-        out.update(stale=True, reason=f"{detail} since this index was built")
+        reasons = []
+        if moved_sources:
+            reasons.append(
+                f"{len(moved_sources)} source(s) changed content: "
+                + ", ".join(moved_sources))
+        if ingest_moved:
+            moved = now["files"] - recorded.get("files", 0)
+            reasons.append(
+                f"{abs(moved)} ingest file(s) {'appeared' if moved > 0 else 'went away'}"
+                if moved else "an ingest file changed")
+        if out.get("analysis_version") == "changed":
+            reasons.append(out["analysis_version_reason"])
+        out.update(stale=True,
+                   reason="; ".join(reasons) + " since this index was built")
         return out
+
+    def _analysis_version_drift(self) -> dict:
+        """Whether the code that CUTS this index's segments has changed.
+
+        An index built by the old cutting code serves rows the new code
+        would not cut, and nothing about the media moving says so. An
+        index written before the method was recorded cannot be judged on
+        that ground, and says so.
+        """
+        recorded = self.payload.get("segment_method")
+        if not recorded:
+            return {"analysis_version": "not_recorded"}
+        now = footage_segments.segment_method_digest()
+        if now is None:
+            return {"analysis_version": "unknown"}
+        if now == recorded:
+            return {"analysis_version": "current"}
+        return {
+            "analysis_version": "changed",
+            "analysis_version_reason": (
+                "the code that cuts this index's segments changed since "
+                "the index was built"),
+        }
+
+    def _source_movement(self) -> dict:
+        """The clips whose content digest moved since the index was built.
+
+        An index written before the per-source digests were recorded
+        cannot say which footage moved, and says so rather than guessing.
+        """
+        recorded = self.payload.get("source_digests")
+        if not isinstance(recorded, dict) or not recorded:
+            return {"changed_sources": [], "new_sources": [],
+                    "source_movement": "not_recorded"}
+        current = current_source_digests(self.project_folder)
+        changed = sorted(clip_id for clip_id, digest in recorded.items()
+                         if clip_id in current and current[clip_id] != digest)
+        gone = sorted(clip_id for clip_id in recorded
+                      if clip_id not in current)
+        new = sorted(clip_id for clip_id in current
+                     if clip_id not in recorded)
+        return {
+            "changed_sources": changed,
+            "removed_sources": gone,
+            "new_sources": new,
+            "source_movement": "compared",
+        }
 
     def summary(self) -> dict:
         """What is in this index: clips, kinds, coverage, indexed seconds."""
@@ -3843,6 +3952,24 @@ def _print_transcript_evidence(report):
               f":: {resolve.get('text')!r}")
 
 
+def _attach_quality_profiles(idx, rows):
+    """Give each hit the source-quality profile its facets came from.
+
+    Opt-in, because a profile is EVIDENCE and a hit is an answer: a
+    caller that asked "where is she talking" does not need the measured
+    sharpness of every candidate, and a caller that asked "where is she
+    talking AND is it sharp enough" does.
+    """
+    for row in rows or []:
+        segment_id = row.get("segment_id")
+        if not segment_id:
+            continue
+        profile = idx.quality_profile(segment_id)
+        if profile:
+            row["quality_profile"] = profile
+    return rows
+
+
 def _print_report(report):
     """A search report as a person reads it, abstain included."""
     bits = [f"query: {report['query']!r}", f"mode={report['mode']}",
@@ -4100,7 +4227,7 @@ def _num(value):
 
 def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
               score, dense, band, text, region=None,
-              region_person=None) -> dict:
+              region_person=None, quality_profile=None) -> dict:
     """One stable hit row, whatever lane produced it."""
     row = {
         "source_digest": source_digest,
@@ -4118,6 +4245,8 @@ def _json_hit(*, source_digest, clip_id, file, start_s, end_s, kind,
         row["region"] = region
     if region_person is not None:
         row["region_person"] = region_person
+    if quality_profile:
+        row["quality_profile"] = quality_profile
     return row
 
 
@@ -4140,7 +4269,8 @@ def _text_json_hits(report, sources) -> list:
                 score=row.get("score"), dense=row.get("dense_score"),
                 band=band, text=row.get("text", ""),
                 region=row.get("region"),
-                region_person=row.get("region_person")))
+                region_person=row.get("region_person"),
+                quality_profile=row.get("quality_profile")))
     return hits
 
 
@@ -4264,7 +4394,7 @@ def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
 def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,
-                external_hits=None, filters=None) -> dict:
+                external_hits=None, filters=None, quality=False) -> dict:
     """One machine-readable answer for every `ren search` lane.
 
     `lane` is `text` (the default index), `sound`, `ocr`, `visual`
@@ -4333,6 +4463,9 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
         signal_merge=signal_merge,
         filters={"person": person} if filters is None else filters,
         external_hits=external_hits)
+    if quality:
+        _attach_quality_profiles(idx, report.get("results", []))
+        _attach_quality_profiles(idx, report.get("weak", []))
     answer = json_answer(
         query=query, mode=mode, floor=report["floor"],
         weak_floor=report["weak_floor"], abstained=report["abstained"],
@@ -4604,6 +4737,12 @@ def main(argv=None):
                                 "answer (what the Resolve-side collector "
                                 "wrote); never replaces Ren search")
     p_search.add_argument("--index-dir")
+    p_search.add_argument("--quality", action="store_true",
+                          help="attach each hit's SOURCE-QUALITY PROFILE: the "
+                               "measured focus, exposure, motion, framing, noise "
+                               "and intelligibility of that span, with the lane and "
+                               "interval each number came from. Off by default "
+                               "because it is evidence, not an answer")
 
     p_where = sub.add_parser("where", help="Where is this person in the footage")
     p_where.add_argument("project")
@@ -4666,6 +4805,16 @@ def main(argv=None):
                           help="music genre label (Gap 12), e.g. rock, jazz")
     p_filter.add_argument("--ambience-type",
                           help="ambience type (Gap 12): indoor, outdoor, urban, nature")
+    p_filter.add_argument("--min-snr-db", type=float,
+                          help="minimum whole-source temporal contrast estimate (dB)")
+    p_filter.add_argument("--min-speech-band-energy-fraction", type=float,
+                          help="minimum share of the 300-3400 Hz band carrying "
+                               "energy over the span (0..1); a frequency coverage "
+                               "proxy, not intelligibility")
+    p_filter.add_argument("--quality", action="store_true",
+                          help="print each match's SOURCE-QUALITY PROFILE beside "
+                               "it: the measured focus, exposure, motion, framing, "
+                               "noise and intelligibility of that span")
     p_filter.add_argument("--index-dir")
 
     p_hybrid = sub.add_parser("hybrid", help="Search restricted by filters")
@@ -4700,6 +4849,12 @@ def main(argv=None):
     p_hybrid.add_argument("--min-subject-center-x", type=float)
     p_hybrid.add_argument("--max-subject-center-x", type=float)
     p_hybrid.add_argument("--min-subject-width-fraction", type=float)
+    p_hybrid.add_argument("--min-snr-db", type=float)
+    p_hybrid.add_argument("--min-speech-band-energy-fraction", type=float)
+    p_hybrid.add_argument("--quality", action="store_true",
+                          help="attach each hit's SOURCE-QUALITY PROFILE: the "
+                               "measured focus, exposure, motion, framing, noise "
+                               "and intelligibility of that span")
     p_hybrid.add_argument("--person",
                           help="restrict to one person's measured face/voice "
                                "spans (person_id or declared name)")
@@ -4999,6 +5154,7 @@ def main(argv=None):
                 args.project, args.query, mode=args.mode, top_k=args.top_k,
                 floor=args.floor, signal_merge=args.signal_merge,
                 person=args.person, index_dir=args.index_dir, lane="text",
+                quality=getattr(args, "quality", False),
                 external_hits=_load_external_hits(args.external_hits)
                 if args.external_hits else None)
             print(json.dumps(answer, indent=2))
@@ -5009,6 +5165,8 @@ def main(argv=None):
                                    filters={"person": args.person},
                                    external_hits=_load_external_hits(args.external_hits)
                                    if args.external_hits else None)
+        if getattr(args, "quality", False):
+            _attach_quality_profiles(idx, report.get("results", []))
         elapsed = time.perf_counter() - started
         _print_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
@@ -5036,12 +5194,17 @@ def main(argv=None):
             min_subject_center_x=args.min_subject_center_x,
             max_subject_center_x=args.max_subject_center_x,
             min_subject_width_fraction=args.min_subject_width_fraction,
+            min_snr_db=args.min_snr_db,
+            min_speech_band_energy_fraction=(
+                args.min_speech_band_energy_fraction),
             person=args.person,
             min_speech_level=args.min_speech_level,
             max_speech_level=args.max_speech_level,
             music_genre=args.music_genre,
             ambience_type=args.ambience_type,
         )
+        if getattr(args, "quality", False):
+            _attach_quality_profiles(idx, results)
         print(f"{len(results)} matching segments:")
         for hit in results:
             print(f"  {hit['segment_id']:28s} {hit['timecode']:>22s} "
@@ -5054,6 +5217,7 @@ def main(argv=None):
                 args.project, args.query, mode=args.mode, top_k=args.top_k,
                 floor=args.floor, signal_merge=args.signal_merge,
                 index_dir=args.index_dir, lane="text",
+                quality=getattr(args, "quality", False),
                 filters={"kind": args.kind, "clip_id": args.clip_id,
                          "framing": args.framing,
                          "min_face_presence": args.min_face_presence,
@@ -5073,6 +5237,9 @@ def main(argv=None):
                          "min_subject_center_x": args.min_subject_center_x,
                          "max_subject_center_x": args.max_subject_center_x,
                          "min_subject_width_fraction": args.min_subject_width_fraction,
+                         "min_snr_db": args.min_snr_db,
+                         "min_speech_band_energy_fraction":
+                             args.min_speech_band_energy_fraction,
                          "person": args.person},
                 external_hits=_load_external_hits(args.external_hits)
                 if args.external_hits else None)
@@ -5100,10 +5267,15 @@ def main(argv=None):
                      "min_subject_center_x": args.min_subject_center_x,
                      "max_subject_center_x": args.max_subject_center_x,
                      "min_subject_width_fraction": args.min_subject_width_fraction,
+                     "min_snr_db": args.min_snr_db,
+                     "min_speech_band_energy_fraction":
+                         args.min_speech_band_energy_fraction,
                      "person": args.person},
             external_hits=_load_external_hits(args.external_hits)
             if args.external_hits else None,
         )
+        if getattr(args, "quality", False):
+            _attach_quality_profiles(idx, report.get("results", []))
         elapsed = time.perf_counter() - started
         _print_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")

@@ -697,65 +697,6 @@ def test_technical_quality_filters_require_measured_numeric_facets(offline_index
                for row in idx.filter(max_camera_translation=10.0))
 
 
-def test_interval_quality_facets_reduce_vi03_samples_with_units():
-    summary = footage_segments._quality_summary({
-        "sampling": {"rate_hz": 5},
-        "signals": {
-            "sharpness_proxy_laplacian_variance": [100.0, 200.0, 300.0],
-            "temporal_noise": {"values": [0.01, 0.03]},
-            "compression_blockiness": {"values": [0.02, 0.04, 0.06]},
-        },
-    }, 0.0, 0.4)
-    assert summary == {
-        "sharpness_laplacian_variance": 150.0,
-        "temporal_noise_residual": 0.02,
-        "compression_blockiness_proxy": 0.03,
-    }
-    # Samples are timestamped from zero. A sub-window between 0.2 and
-    # 0.4 seconds includes the 0.2 sample, not the preceding 0.0 sample.
-    assert footage_segments._quality_summary({
-        "sampling": {"rate_hz": 5},
-        "signals": {"sharpness_proxy_laplacian_variance": [100.0, 200.0, 300.0]},
-    }, 0.15, 0.35) == {"sharpness_laplacian_variance": 200.0}
-    assert footage_segments._quality_summary({}, 0.0, 0.4) == {}
-    # Clipping fractions reduce the same way, and a record written
-    # before clipping existed simply lacks those facets.
-    assert footage_segments._quality_summary({
-        "sampling": {"rate_hz": 5},
-        "signals": {
-            "clipping_underexposed_fraction": {"values": [0.0, 0.5]},
-            "clipping_overexposed_fraction": {"values": [0.01, 0.0]},
-        },
-    }, 0.0, 0.4) == {
-        "underexposed_fraction": 0.25,
-        "overexposed_fraction": 0.005,
-    }
-
-
-def test_interval_camera_motion_facets_separate_camera_from_subject():
-    doc = {
-        "sample_rate_hz": 5,
-        "values": [
-            {"translation_x": 0.3, "translation_y": 0.4,
-             "subject_energy": 0.1},
-            {"translation_x": 0.0, "translation_y": 0.0,
-             "subject_energy": 0.5},
-            {"translation_x": 0.0, "translation_y": 0.0,
-             "subject_energy": None},
-        ],
-    }
-    summary = footage_segments._camera_motion_summary(
-        {"camera_motion_decomposition": doc}, 0.0, 0.6)
-    # hypot(0.3, 0.4) is 0.5; the mean with two still samples is 0.5/3.
-    assert summary["camera_translation_magnitude"] == round(0.5 / 3, 6)
-    # The unmeasured subject sample is skipped, never read as zero.
-    assert summary["subject_energy"] == 0.3
-    assert footage_segments._camera_motion_summary({}, 0.0, 0.4) == {}
-    assert footage_segments._camera_motion_summary(
-        {"camera_motion_decomposition": {"values": [], "sample_rate_hz": 5}},
-        0.0, 0.4) == {}
-
-
 def test_person_filter_unknown_name_raises_rather_than_matching_nothing(
         offline_index_2, memory_root):
     idx, digest_1, digest_2 = offline_index_2
@@ -2760,3 +2701,50 @@ def test_visual_retrieval_benchmark_reports_uncertainty_and_operating_cost():
     assert report["macro_recall_ci95"]["n"] == 1
     assert report["baseline"]["status"] == "not measured"
     assert report["useful_interval_cost"]["seconds_per_useful_interval"] == 0.01
+
+
+def test_the_index_records_the_sources_it_was_cut_from(offline_index_2):
+    """An index that cannot say WHICH footage it was cut from cannot say
+    which footage changed."""
+    idx, digest_1, digest_2 = offline_index_2
+    recorded = idx.payload["source_digests"]
+    assert recorded["clip_001"] == digest_1
+    assert recorded["clip_002"] == digest_2
+    assert idx.payload["segment_method"]
+
+
+def test_staleness_names_the_source_that_moved(offline_index_2, tmp_path,
+                                               monkeypatch):
+    """Seven sources, one replaced: the verdict names the one.
+
+    "an ingest file changed" sends a reader to re-measure the project.
+    "clip_002 changed" sends them to re-measure one clip.
+    """
+    idx, digest_1, digest_2 = offline_index_2
+    assert idx.staleness()["stale"] in (False, None)
+
+    payload = idx.payload
+    payload["source_digests"] = dict(payload["source_digests"])
+    payload["source_digests"]["clip_002"] = "sha256:replaced"
+    idx._payload = payload
+    report = idx.staleness()
+    assert report["changed_sources"] == ["clip_002"]
+    assert "clip_002" in report["reason"]
+
+
+def test_staleness_notices_the_code_that_cuts_the_segments_changed(
+        offline_index_2, monkeypatch):
+    """An index is analysis as much as data.
+
+    The rows in it were cut by a particular version of the cutting code.
+    Nothing about the media moving says so, and an index serving rows
+    the new code would not cut is silently wrong.
+    """
+    idx, _, _ = offline_index_2
+    payload = idx.payload
+    payload["segment_method"] = "sha256:the-old-cut"
+    idx._payload = payload
+    report = idx.staleness()
+    assert report["analysis_version"] == "changed"
+    assert report["stale"] is True
+    assert "cut" in report["analysis_version_reason"]

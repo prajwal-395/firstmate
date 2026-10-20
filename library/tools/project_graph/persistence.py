@@ -174,4 +174,33 @@ def load_or_build(project_folder: str, root: Path | None = None) -> dict:
     }
     from library.tools.stable_json import write_stable
     write_stable(path, record)
+    _register_derived(project_folder, graph, fingerprint)
     return graph
+
+
+def _register_derived(project_folder: str, graph: dict, fingerprint: str) -> None:
+    """Declare the graph cache as a derived artifact of this project.
+
+    The registry is `library/tools/evidence_lifecycle.py`'s. A graph
+    built from media that has since changed is a derived artifact whose
+    sources moved, and a reader that cannot see that is a reader that
+    trusts a stale graph.
+
+    A registry that cannot be written is not fatal here: the graph was
+    built, and the graph is the answer. The graph's OWN fingerprint
+    already records what it was built from.
+    """
+    try:
+        from library.tools import evidence_lifecycle
+        from library.tools import source_memory
+        recorded = source_memory.load_recorded_fingerprints(project_folder)
+        digests = sorted({entry.get("content_digest") for entry in
+                          recorded.values() if entry.get("content_digest")})
+        evidence_lifecycle.register_artifact(
+            Path(project_folder), name="footage_graph_cache",
+            kind="graph_cache", source_digests=digests, model_revision=None,
+            producer_versions={"graph_input_fingerprint": fingerprint},
+            rebuild="library.tools.project_graph.persistence:load_or_build",
+            owner="project_graph")
+    except (OSError, ValueError):
+        return
