@@ -86,7 +86,7 @@
 # kill-switch so a bypass never looks like a decision.
 
 # The governed OpenCode models and final Codex Plus model.
-FM_OPENCODE_LADDER_FREE='opencode/muse-spark-1.3-contributor-free'
+FM_OPENCODE_LADDER_FREE='opencode-go/minimax-m3.1-flash-free'
 FM_OPENCODE_LADDER_GO='opencode-go/muse-spark-1.3-contributor'
 FM_OPENCODE_LADDER_PLUS_MODEL='gpt-6-luna'
 
@@ -546,8 +546,8 @@ fm_opencode_ladder_horizon_human() {  # <seconds>
 
 # fm_opencode_ladder_bare_model: <model> without its provider prefix.
 # The retry sidecar's model comes from OpenCode's own event stream (model.id),
-# which carries no provider prefix (`muse-spark-1.3-contributor-free`), while
-# the rung constants above carry one (`opencode/...`). Every evidence
+# which carries no provider prefix (`minimax-m3.1-flash-free`), while
+# the rung constants above carry one (`opencode-go/...`). Every evidence
 # comparison normalises both sides through here, so either form binds the
 # right rung. The suffix is what separates the tiers once the prefix is gone -
 # free stays `...-free` and Go stays bare - so stripping never collapses them.
@@ -571,6 +571,15 @@ fm_opencode_model_bills_go() {  # <model>
   bare=$(fm_opencode_ladder_bare_model "$model") || return 1
   go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO") || return 1
   [ -n "$bare" ] && [ "$bare" = "$go_bare" ]
+}
+
+# fm_opencode_model_requires_console_login <model>: 0 for the free Minimax
+# rung, whose opencode-go provider authenticates through the console database
+# even though it does not bill the paid Go rung.
+fm_opencode_model_requires_console_login() {  # <model>
+  local bare
+  bare=$(fm_opencode_ladder_bare_model "${1:-}") || return 1
+  [ -n "$bare" ] && [ "$bare" = "$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")" ]
 }
 
 # fm_opencode_ladder_free_capped: is the free tier proven exhausted on the

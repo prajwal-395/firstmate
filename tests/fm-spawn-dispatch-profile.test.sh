@@ -2639,10 +2639,10 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
   status=$?
   unset FM_FAKE_OPENCODE_DATA
   expect_code 0 "$status" "an unpinned free launch must succeed: $out"
-  assert_grep 'model=opencode/muse-spark-1.3-contributor-free' "$HOME_DIR/state/$id.meta" "the free model was not recorded"
+  assert_grep 'model=opencode-go/minimax-m3.1-flash-free' "$HOME_DIR/state/$id.meta" "the free model was not recorded"
   assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a free launch must record no workspace marker"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--model 'opencode/muse-spark-1.3-contributor-free'" \
+  assert_contains "$launch" "--model 'opencode-go/minimax-m3.1-flash-free'" \
     "the launch did not carry the free model id"
   assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
     "an unpinned OpenCode launch must use its per-task database, not the machine-wide default"
@@ -2657,7 +2657,7 @@ test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
   pass "the unpinned OpenCode launch seeds a private per-task database with the console account"
 }
 
-test_opencode_free_launch_ignores_an_inherited_main_org() {
+test_opencode_free_launch_requires_console_login_without_building_a_pin() {
   local rec id out status launch datadir
   id=profile-free-mainorg-z36
   rec=$(make_spawn_case profile-free-mainorg opencode "$id")
@@ -2671,13 +2671,12 @@ test_opencode_free_launch_ignores_an_inherited_main_org() {
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "a free launch must not touch an inherited main id without a login: $out"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
-    "a free launch with an inherited main org must still use its per-task database"
+  expect_code 1 "$status" "a free launch must refuse to run without a console login: $out"
+  assert_contains "$out" "requires a console login" \
+    "a free launch without an account must explain the missing console login"
   [ ! -e "$HOME_DIR/config/opencode-main.db" ] \
     || fail "a free launch must not build a main pin database"
-  pass "a free launch with an inherited main id and no login runs unpinned"
+  pass "a free launch requires console login without building a paid Go workspace pin"
 }
 
 # The shared-server experiment (bin/fm-opencode-server.sh). The fake server
@@ -2863,7 +2862,7 @@ test_opencode_shared_server_falls_back_to_standalone
 test_opencode_shared_server_session_failure_falls_back_to_standalone
 test_opencode_shared_servers_keep_each_workspace_on_its_own_database
 test_opencode_unpinned_launch_seeds_task_database_from_live_account
-test_opencode_free_launch_ignores_an_inherited_main_org
+test_opencode_free_launch_requires_console_login_without_building_a_pin
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths

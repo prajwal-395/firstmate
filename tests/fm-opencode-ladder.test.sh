@@ -83,14 +83,14 @@ FM_HOME="$FAKEHOME"
 export FM_HOME
 unset FM_CONFIG_OVERRIDE
 
-FREE='opencode/muse-spark-1.3-contributor-free'
+FREE='opencode-go/minimax-m3.1-flash-free'
 GO='opencode-go/muse-spark-1.3-contributor'
 # The plugin's own vocabulary: OpenCode's event stream reports model.id with
 # NO provider prefix, and recordRetry passes it straight through to the
 # sidecar. Production sidecars (2026-09-19) carry these bare forms, so the
 # regression below speaks them - a fixture in the gate's prefixed vocabulary
 # would be blind to a producer-side mismatch by construction.
-FREE_BARE='muse-spark-1.3-contributor-free'
+FREE_BARE='minimax-m3.1-flash-free'
 GO_BARE='muse-spark-1.3-contributor'
 
 now_s() { date +%s; }
@@ -159,14 +159,14 @@ write_lane_meta() {  # <state-dir> <id> <model>
 
 # --- 1. free is the default ---------------------------------------------------
 
-test_fresh_home_dispatches_free() {
+test_regression_fresh_uncapped_default_uses_minimax_free_model() {
   local state out
   state=$(fresh_state fresh)
   out=$(run_gate "$state" '') || fail "gate must never refuse a fresh home"
   split_gate "$out"
   [ "$GOT" = "$FREE" ] || fail "fresh home with no model must dispatch free, got '$GOT'"
   [ -z "$NOTE" ] || fail "clean free dispatch must stay silent, said: $NOTE"
-  pass "a fresh home dispatches free by default"
+  pass "a fresh uncapped default dispatch uses the Minimax free model"
 }
 
 test_explicit_free_stays_free_when_healthy() {
@@ -245,7 +245,7 @@ test_plugin_vocabulary_free_cap_falls_through_to_go() {
   local state out
   state=$(fresh_state barefree)
   # The plugin's own vocabulary, byte-shape as the 2026-09-19 production
-  # sidecars: `model=muse-spark-1.3-contributor-free` with no provider prefix,
+  # sidecars: `model=minimax-m3.1-flash-free` with no provider prefix,
   # and the 19h17m horizon (69412s) from that specimen, recomputed relative to
   # run time through the real record helper. The verdict is asserted through
   # the public gate, never against implementation bytes.
@@ -575,7 +575,8 @@ test_spawn_falls_through_on_proven_cap() {
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes the real launch to Codex Plus"
+  assert_contains "$launch" "codex --model" "a proven free cap routes the real launch to Codex Plus"
+  assert_contains "$launch" "gpt-6-luna" "a proven free cap keeps the Codex Plus model"
   assert_contains "$launch" "model_reasoning_effort=\"xhigh\"" "Codex Plus defaults to xhigh effort"
   assert_not_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus must not use max without that config declaration"
   assert_not_contains "$launch" "$FREE" "a proven free cap leaves no free model flag on the launch"
@@ -592,7 +593,8 @@ test_spawn_uses_configured_codex_plus_effort() {
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-effort spawn wrote no launch command"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "codex --model 'gpt-6-luna'" "a proven free cap routes to Codex Plus"
+  assert_contains "$launch" "codex --model" "a proven free cap routes to Codex Plus"
+  assert_contains "$launch" "gpt-6-luna" "a proven free cap keeps the Codex Plus model"
   assert_contains "$launch" 'model_reasoning_effort="high"' "Codex Plus uses the configured Codex profile effort"
   assert_not_contains "$launch" 'model_reasoning_effort="max"' "configured high effort must not be replaced with max"
   pass "a configured Codex Plus effort reaches the real spawn launch"
@@ -607,7 +609,8 @@ test_codex_dispatch_branch_uses_configured_max_effort() {
   log=${log_home%% *}
   [ -f "$log" ] || fail "configured-max spawn wrote no launch command"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "codex --model 'gpt-6-luna'" "the Codex dispatch branch routes the capped free rung to Plus"
+  assert_contains "$launch" "codex --model" "the Codex dispatch branch routes the capped free rung to Plus"
+  assert_contains "$launch" "gpt-6-luna" "the Codex dispatch branch keeps the Plus model"
   assert_contains "$launch" 'model_reasoning_effort="max"' "Codex Plus accepts max when the default profile declares it"
   pass "the Codex dispatch branch preserves a configured max effort"
 }
@@ -623,7 +626,8 @@ test_spawn_switches_to_codex_when_go_is_exhausted() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "opencode --model '$GO'" "capped Codex Plus must launch on Go"
+  assert_contains "$launch" "opencode --model" "capped Codex Plus must launch on Go"
+  assert_contains "$launch" "$GO" "capped Codex Plus must keep the Go model"
   assert_not_contains "$launch" "codex --model" "the Go rung stays on OpenCode"
   assert_contains "$(cat "$home/state/task-plus.meta")" "harness=opencode" "the task record must identify the Go harness"
   assert_contains "$(cat "$home/state/task-plus.meta")" "model=$GO" "the task record must identify the Go model"
@@ -693,8 +697,10 @@ test_explicit_dispatch_override_keeps_its_profile() {
   assert_absent "$herdr_calls" "the override launch must never reach Herdr"
   [ -f "$log" ] || fail "explicit override wrote no launch command: $(cat "$dir/spawn.log")"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "opencode --model 'opencode-go/longcat-2.5-preview-free'" \
+  assert_contains "$launch" "opencode --model" \
     "the authorized explicit model must not be replaced by the configured default ladder"
+  assert_contains "$launch" 'opencode-go/longcat-2.5-preview-free' \
+    "the authorized explicit model must keep its configured model"
   assert_contains "$(cat "$home/state/task-explicit-override.meta")" \
     'dispatch_override_reason=captain instruction: use LongCat as the exhausted-ladder alternative' \
     "metadata must preserve the override instruction"
@@ -709,7 +715,8 @@ test_default_resolver_codex_profile_still_enters_ladder_gate() {
   herdr_calls=${log_home%% *}; home=${log_home#* }
   assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   launch=$(read_launch "$log")
-  assert_contains "$launch" "opencode --model '$FREE'" "the resolver's Codex profile must pass through the shared gate"
+  assert_contains "$launch" "opencode --model" "the resolver's Codex profile must pass through the shared gate"
+  assert_contains "$launch" "$FREE" "the shared gate must preserve the configured free model"
   assert_contains "$(cat "$home/state/resolver-codex.meta")" "harness=opencode" "the routed task record must follow the free rung"
   pass "a default-array Codex profile is gated through the OpenCode ladder"
 }
@@ -1310,6 +1317,12 @@ test_bills_go_names_only_the_go_tier() {
     && fail "the free model must bill no Go workspace"
   fm_opencode_model_bills_go "$FREE_BARE" \
     && fail "the bare free model must bill no Go workspace"
+  fm_opencode_model_requires_console_login "$FREE" \
+    || fail "the Minimax free model must require console sign-in"
+  fm_opencode_model_requires_console_login "$FREE_BARE" \
+    || fail "the bare Minimax free model must require console sign-in"
+  fm_opencode_model_requires_console_login "$GO" \
+    && fail "the paid Go model must not use the free-model login gate"
   fm_opencode_model_bills_go "$FM_OPENCODE_LADDER_PLUS_MODEL" \
     && fail "the Codex Plus model must bill no Go workspace"
   fm_opencode_model_bills_go "anthropic/claude-opus-4-5" \
@@ -1510,14 +1523,15 @@ META
   log_home="$dir/launch.log"
   [ -f "$log_home" ] || fail "modelless relaunch wrote no launch command: $(cat "$dir/spawn.log")"
   launch=$(read_launch "$log_home")
-  assert_contains "$launch" "opencode --model '$GO'" "a modelless relaunch past capped free and Plus must launch on Go"
+  assert_contains "$launch" "opencode --model" "a modelless relaunch past capped free and Plus must launch on Go"
+  assert_contains "$launch" "$GO" "a modelless relaunch past capped free and Plus must keep the Go model"
   assert_not_contains "$launch" "codex --model" "a modelless relaunch must not stay on capped Codex Plus"
   assert_contains "$(cat "$home/state/task-relaunch.meta")" "harness=opencode" "the relaunched record must follow the Go rung"
   assert_contains "$(cat "$home/state/task-relaunch.meta")" "model=$GO" "the relaunched record must name the Go model"
   pass "a relaunch without an explicit model follows the ladder gate"
 }
 
-test_fresh_home_dispatches_free
+test_regression_fresh_uncapped_default_uses_minimax_free_model
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_codex
 test_go_exhaustion_routes_to_codex_plus

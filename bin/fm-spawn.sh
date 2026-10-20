@@ -2921,9 +2921,10 @@ fi
 # tokens above so the pin decision reads the final MODEL. A pin applies only
 # to a launch that actually bills a Go workspace: the free model and every
 # other non-Go model remain outside the workspace pin flow, so discovering or
-# requiring a workspace never blocks them - including on a host with no
-# console login. Unpinned standalone launches seed a private per-task database
-# from a verified main pin or a consistent machine-database backup. An explicit
+# requiring a workspace never blocks them. The free Minimax model separately
+# requires a console login in its task database. Unpinned standalone launches
+# seed a private per-task database from a verified main pin or a consistent
+# machine-database backup. An explicit
 # secondary workspace keeps its pin whatever the model. In a home with a
 # configured second workspace every Go
 # launch rides its own pin, main and secondary alike: an unpinned main launch
@@ -2957,6 +2958,14 @@ opencode_task_db() {
         || [ -e "$OPENCODE_TASK_DB" ] || return 1
     fi
     chmod 600 "$OPENCODE_TASK_DB" 2>/dev/null || return 1
+  fi
+  if [ "$HARNESS" = opencode ] && [ "$OPENCODE_SHARED_SERVER" -ne 1 ] \
+    && fm_opencode_model_requires_console_login "$MODEL" 2>/dev/null; then
+    local login_db=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
+    fm_opencode_db_has_console_login "$login_db" || {
+      echo "error: the OpenCode free Minimax model requires a console login in its task database" >&2
+      return 1
+    }
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
