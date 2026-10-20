@@ -1,0 +1,1589 @@
+{
+  "QA-001": {
+    "audio_items": 6,
+    "clip_count": 65,
+    "items": [
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 129,
+        "record_start_frame": 75,
+        "source_end_frame_inclusive": 44664,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 44610,
+        "track_index": 1,
+        "track_name": "Akshita",
+        "track_type": "video",
+        "transform": {
+          "Pan": -8.0,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 895,
+        "record_start_frame": 129,
+        "source_end_frame_inclusive": 47419,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 46653,
+        "track_index": 1,
+        "track_name": "Akshita",
+        "track_type": "video",
+        "transform": {
+          "Pan": -8.0,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 1503,
+        "record_start_frame": 1038,
+        "source_end_frame_inclusive": 48028,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 47563,
+        "track_index": 1,
+        "track_name": "Akshita",
+        "track_type": "video",
+        "transform": {
+          "Pan": -8.0,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 1815,
+        "record_start_frame": 1503,
+        "source_end_frame_inclusive": 12318,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 12006,
+        "track_index": 1,
+        "track_name": "Akshita",
+        "track_type": "video",
+        "transform": {
+          "Pan": -8.0,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "reel_freeze_a3760c83ba.mov",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 1815,
+        "source_end_frame_inclusive": 18,
+        "source_identity": "reel_freeze_a3760c83ba.mov",
+        "source_start_frame": 0,
+        "track_index": 1,
+        "track_name": "Akshita",
+        "track_type": "video",
+        "transform": {
+          "Pan": -8.0,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LCATL0013.MXF",
+        "record_end_frame_exclusive": 75,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 44518,
+        "source_identity": "LCATL0013.MXF",
+        "source_start_frame": 44444,
+        "track_index": 2,
+        "track_name": "Craig",
+        "track_type": "video",
+        "transform": {
+          "Pan": 38.339,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LCATL0013.MXF",
+        "record_end_frame_exclusive": 1038,
+        "record_start_frame": 895,
+        "source_end_frame_inclusive": 47470,
+        "source_identity": "LCATL0013.MXF",
+        "source_start_frame": 47328,
+        "track_index": 2,
+        "track_name": "Craig",
+        "track_type": "video",
+        "transform": {
+          "Pan": 9.468,
+          "Scaling": 0,
+          "Tilt": -696.041,
+          "ZoomX": 2.1385851851851854,
+          "ZoomY": 2.1385851851851854
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "tv_frame_d90b567817.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 567817,
+        "source_identity": "tv_frame_d90b567817.png",
+        "source_start_frame": 567817,
+        "track_index": 3,
+        "track_name": "Frame",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 0,
+          "Tilt": -220.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_7cdb0519.mov",
+        "record_end_frame_exclusive": 23,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 23,
+        "source_identity": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_7cdb0519.mov",
+        "source_start_frame": 0,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_d71d72d8.mov",
+        "record_end_frame_exclusive": 36,
+        "record_start_frame": 23,
+        "source_end_frame_inclusive": 25,
+        "source_identity": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_d71d72d8.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_de6b3f14.mov",
+        "record_end_frame_exclusive": 75,
+        "record_start_frame": 36,
+        "source_end_frame_inclusive": 51,
+        "source_identity": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_de6b3f14.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_c4330bb4-155f-42ce-8dec_1860682-1862852_91a15abc.mov",
+        "record_end_frame_exclusive": 101,
+        "record_start_frame": 77,
+        "source_end_frame_inclusive": 36,
+        "source_identity": "sub_akshita_c4330bb4-155f-42ce-8dec_1860682-1862852_91a15abc.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_c4330bb4-155f-42ce-8dec_1860682-1862852_092e8679.mov",
+        "record_end_frame_exclusive": 129,
+        "record_start_frame": 101,
+        "source_end_frame_inclusive": 40,
+        "source_identity": "sub_akshita_c4330bb4-155f-42ce-8dec_1860682-1862852_092e8679.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_4a267fcd.mov",
+        "record_end_frame_exclusive": 149,
+        "record_start_frame": 129,
+        "source_end_frame_inclusive": 32,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_4a267fcd.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_6849d641.mov",
+        "record_end_frame_exclusive": 194,
+        "record_start_frame": 149,
+        "source_end_frame_inclusive": 57,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_6849d641.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_ef62de76.mov",
+        "record_end_frame_exclusive": 248,
+        "record_start_frame": 194,
+        "source_end_frame_inclusive": 66,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_ef62de76.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_c0234244.mov",
+        "record_end_frame_exclusive": 296,
+        "record_start_frame": 249,
+        "source_end_frame_inclusive": 59,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_c0234244.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_6848da1a.mov",
+        "record_end_frame_exclusive": 341,
+        "record_start_frame": 296,
+        "source_end_frame_inclusive": 57,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_6848da1a.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_adeb935e.mov",
+        "record_end_frame_exclusive": 369,
+        "record_start_frame": 346,
+        "source_end_frame_inclusive": 35,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_adeb935e.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_281f0979.mov",
+        "record_end_frame_exclusive": 430,
+        "record_start_frame": 369,
+        "source_end_frame_inclusive": 73,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374_281f0979.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_7620f7b0.mov",
+        "record_end_frame_exclusive": 468,
+        "record_start_frame": 434,
+        "source_end_frame_inclusive": 46,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_7620f7b0.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_60b2c2d2.mov",
+        "record_end_frame_exclusive": 515,
+        "record_start_frame": 468,
+        "source_end_frame_inclusive": 59,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_60b2c2d2.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_b7035e73.mov",
+        "record_end_frame_exclusive": 555,
+        "record_start_frame": 515,
+        "source_end_frame_inclusive": 52,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_b7035e73.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_7a83593b.mov",
+        "record_end_frame_exclusive": 600,
+        "record_start_frame": 555,
+        "source_end_frame_inclusive": 57,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_7a83593b.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_90fddd23.mov",
+        "record_end_frame_exclusive": 657,
+        "record_start_frame": 600,
+        "source_end_frame_inclusive": 69,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_90fddd23.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_93b85e89.mov",
+        "record_end_frame_exclusive": 706,
+        "record_start_frame": 657,
+        "source_end_frame_inclusive": 61,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_93b85e89.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_c2b99d2b.mov",
+        "record_end_frame_exclusive": 744,
+        "record_start_frame": 706,
+        "source_end_frame_inclusive": 50,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1958554-1971474_c2b99d2b.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_652e0e78.mov",
+        "record_end_frame_exclusive": 779,
+        "record_start_frame": 749,
+        "source_end_frame_inclusive": 42,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_652e0e78.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_64281a64.mov",
+        "record_end_frame_exclusive": 813,
+        "record_start_frame": 779,
+        "source_end_frame_inclusive": 46,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_64281a64.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_3898c746.mov",
+        "record_end_frame_exclusive": 858,
+        "record_start_frame": 814,
+        "source_end_frame_inclusive": 56,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_3898c746.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_497f2132.mov",
+        "record_end_frame_exclusive": 888,
+        "record_start_frame": 859,
+        "source_end_frame_inclusive": 41,
+        "source_identity": "sub_akshita_91fa13b1-1ad3-4e25-b84b_1971674-1977484_497f2132.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808_e183977e.mov",
+        "record_end_frame_exclusive": 929,
+        "record_start_frame": 900,
+        "source_end_frame_inclusive": 41,
+        "source_identity": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808_e183977e.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808_6c1c99b9.mov",
+        "record_end_frame_exclusive": 987,
+        "record_start_frame": 929,
+        "source_end_frame_inclusive": 70,
+        "source_identity": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808_6c1c99b9.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1977808-1979798_ee04a239.mov",
+        "record_end_frame_exclusive": 1035,
+        "record_start_frame": 987,
+        "source_end_frame_inclusive": 60,
+        "source_identity": "sub_craig_4b8cf09f-9c15-4a8c-aa8b_1977808-1979798_ee04a239.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1983975-1985745_d6c65589.mov",
+        "record_end_frame_exclusive": 1091,
+        "record_start_frame": 1043,
+        "source_end_frame_inclusive": 60,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1983975-1985745_d6c65589.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_45cd4cb1.mov",
+        "record_end_frame_exclusive": 1143,
+        "record_start_frame": 1091,
+        "source_end_frame_inclusive": 69,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_45cd4cb1.mov",
+        "source_start_frame": 17,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_98742ea2.mov",
+        "record_end_frame_exclusive": 1185,
+        "record_start_frame": 1143,
+        "source_end_frame_inclusive": 59,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_98742ea2.mov",
+        "source_start_frame": 17,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_337d7047.mov",
+        "record_end_frame_exclusive": 1218,
+        "record_start_frame": 1185,
+        "source_end_frame_inclusive": 51,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1985785-1991005_337d7047.mov",
+        "source_start_frame": 18,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_591316d2.mov",
+        "record_end_frame_exclusive": 1247,
+        "record_start_frame": 1218,
+        "source_end_frame_inclusive": 47,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_591316d2.mov",
+        "source_start_frame": 18,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_8b7c5f9f.mov",
+        "record_end_frame_exclusive": 1308,
+        "record_start_frame": 1247,
+        "source_end_frame_inclusive": 76,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_8b7c5f9f.mov",
+        "source_start_frame": 15,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_fb109ecd.mov",
+        "record_end_frame_exclusive": 1360,
+        "record_start_frame": 1308,
+        "source_end_frame_inclusive": 70,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_fb109ecd.mov",
+        "source_start_frame": 18,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_297669cd.mov",
+        "record_end_frame_exclusive": 1404,
+        "record_start_frame": 1364,
+        "source_end_frame_inclusive": 52,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_297669cd.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_4d72aecd.mov",
+        "record_end_frame_exclusive": 1446,
+        "record_start_frame": 1404,
+        "source_end_frame_inclusive": 60,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_4d72aecd.mov",
+        "source_start_frame": 18,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_6483c66b.mov",
+        "record_end_frame_exclusive": 1498,
+        "record_start_frame": 1450,
+        "source_end_frame_inclusive": 60,
+        "source_identity": "sub_akshita_5d01801c-6efe-48c6-ae1b_1991035-2002935_6483c66b.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_f925abf7.mov",
+        "record_end_frame_exclusive": 1528,
+        "record_start_frame": 1504,
+        "source_end_frame_inclusive": 36,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_f925abf7.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_63783416.mov",
+        "record_end_frame_exclusive": 1565,
+        "record_start_frame": 1531,
+        "source_end_frame_inclusive": 46,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_63783416.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_0ab100d6.mov",
+        "record_end_frame_exclusive": 1621,
+        "record_start_frame": 1567,
+        "source_end_frame_inclusive": 66,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612_0ab100d6.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_505862-509292_f48bbf92.mov",
+        "record_end_frame_exclusive": 1667,
+        "record_start_frame": 1634,
+        "source_end_frame_inclusive": 45,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_505862-509292_f48bbf92.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_505862-509292_7f644476.mov",
+        "record_end_frame_exclusive": 1716,
+        "record_start_frame": 1667,
+        "source_end_frame_inclusive": 61,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_505862-509292_7f644476.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_eee22d08.mov",
+        "record_end_frame_exclusive": 1739,
+        "record_start_frame": 1718,
+        "source_end_frame_inclusive": 33,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_eee22d08.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_bbacf329.mov",
+        "record_end_frame_exclusive": 1771,
+        "record_start_frame": 1739,
+        "source_end_frame_inclusive": 44,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_bbacf329.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_9d6d16bb.mov",
+        "record_end_frame_exclusive": 1797,
+        "record_start_frame": 1776,
+        "source_end_frame_inclusive": 33,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_509382-512642_9d6d16bb.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "sub_akshita_5ae8f521-647e-49c6-bf3d_512712-513552_dedad2a3.mov",
+        "record_end_frame_exclusive": 1818,
+        "record_start_frame": 1798,
+        "source_end_frame_inclusive": 32,
+        "source_identity": "sub_akshita_5ae8f521-647e-49c6-bf3d_512712-513552_dedad2a3.mov",
+        "source_start_frame": 12,
+        "track_index": 4,
+        "track_name": "Subtitles",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": -1732.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "mg_geo-podcast_30e073e0.mov",
+        "record_end_frame_exclusive": 465,
+        "record_start_frame": 34,
+        "source_end_frame_inclusive": 430,
+        "source_identity": "mg_geo-podcast_30e073e0.mov",
+        "source_start_frame": 0,
+        "track_index": 5,
+        "track_name": "Semantic",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 1,
+          "Tilt": 170.6100795755968,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "mg_geo-podcast_6566dd9b.mov",
+        "record_end_frame_exclusive": 1015,
+        "record_start_frame": 859,
+        "source_end_frame_inclusive": 155,
+        "source_identity": "mg_geo-podcast_6566dd9b.mov",
+        "source_start_frame": 0,
+        "track_index": 5,
+        "track_name": "Semantic",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.29032258064516125,
+          "Scaling": 1,
+          "Tilt": -0.7999999999999545,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "b-soft-focus-craig.mov",
+        "record_end_frame_exclusive": 84,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 84,
+        "source_identity": "b-soft-focus-craig.mov",
+        "source_start_frame": 0,
+        "track_index": 6,
+        "track_name": "Motion Graphics",
+        "track_type": "video",
+        "transform": {
+          "Pan": -470.136186770428,
+          "Scaling": 1,
+          "Tilt": -847.0,
+          "ZoomX": 1.25,
+          "ZoomY": 1.25
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "logo_bulb_lines_safe_23976.mov",
+        "record_end_frame_exclusive": 1906,
+        "record_start_frame": 1834,
+        "source_end_frame_inclusive": 71,
+        "source_identity": "logo_bulb_lines_safe_23976.mov",
+        "source_start_frame": 0,
+        "track_index": 6,
+        "track_name": "Motion Graphics",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 0,
+          "Tilt": 0.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "ph_still.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 0,
+        "source_identity": "ph_still.png",
+        "source_start_frame": 0,
+        "track_index": 7,
+        "track_name": "Post Header",
+        "track_type": "video",
+        "transform": {
+          "Pan": -33.588516746411486,
+          "Scaling": 1,
+          "Tilt": 1836.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "Lucie Social Bug 2024 (NEW) - tight.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 2024,
+        "source_identity": "Lucie Social Bug 2024 (NEW) - tight.png",
+        "source_start_frame": 2024,
+        "track_index": 8,
+        "track_name": "Corner Logo",
+        "track_type": "video",
+        "transform": {
+          "Pan": 768.1074725274727,
+          "Scaling": 1,
+          "Tilt": 1395.4303184713376,
+          "ZoomX": 0.177,
+          "ZoomY": 0.177
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 129,
+        "record_start_frame": 75,
+        "source_end_frame_inclusive": 44664,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 44610,
+        "track_index": 1,
+        "track_name": "Akshita CH1",
+        "track_type": "audio",
+        "transform": null
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 895,
+        "record_start_frame": 129,
+        "source_end_frame_inclusive": 47419,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 46653,
+        "track_index": 1,
+        "track_name": "Akshita CH1",
+        "track_type": "audio",
+        "transform": null
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 1503,
+        "record_start_frame": 1038,
+        "source_end_frame_inclusive": 48028,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 47563,
+        "track_index": 1,
+        "track_name": "Akshita CH1",
+        "track_type": "audio",
+        "transform": null
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LC4932.MXF",
+        "record_end_frame_exclusive": 1815,
+        "record_start_frame": 1503,
+        "source_end_frame_inclusive": 12318,
+        "source_identity": "LC4932.MXF",
+        "source_start_frame": 12006,
+        "track_index": 1,
+        "track_name": "Akshita CH1",
+        "track_type": "audio",
+        "transform": null
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LCATL0013.MXF",
+        "record_end_frame_exclusive": 75,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 44518,
+        "source_identity": "LCATL0013.MXF",
+        "source_start_frame": 44444,
+        "track_index": 2,
+        "track_name": "Craig CH1",
+        "track_type": "audio",
+        "transform": null
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "LCATL0013.MXF",
+        "record_end_frame_exclusive": 1038,
+        "record_start_frame": 895,
+        "source_end_frame_inclusive": 47470,
+        "source_identity": "LCATL0013.MXF",
+        "source_start_frame": 47328,
+        "track_index": 2,
+        "track_name": "Craig CH1",
+        "track_type": "audio",
+        "transform": null
+      }
+    ],
+    "run_id": "20261020T230425390576Z-ce72dd872c3e",
+    "status": "live_read_captured",
+    "video_items": 7
+  },
+  "QA-002": {
+    "audio_sync_offset_reads": [
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LC4932.MXF",
+        "named_read_error": null,
+        "track": 1,
+        "track_name": "Akshita CH1"
+      },
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LC4932.MXF",
+        "named_read_error": null,
+        "track": 1,
+        "track_name": "Akshita CH1"
+      },
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LC4932.MXF",
+        "named_read_error": null,
+        "track": 1,
+        "track_name": "Akshita CH1"
+      },
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LC4932.MXF",
+        "named_read_error": null,
+        "track": 1,
+        "track_name": "Akshita CH1"
+      },
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LCATL0013.MXF",
+        "named_read_error": null,
+        "track": 2,
+        "track_name": "Craig CH1"
+      },
+      {
+        "AudioSyncOffset_from_full_property_map": null,
+        "AudioSyncOffset_named_read": false,
+        "full_property_map_read": true,
+        "media": "LCATL0013.MXF",
+        "named_read_error": null,
+        "track": 2,
+        "track_name": "Craig CH1"
+      }
+    ],
+    "finding": "Resolve returned a property map for each audio item, but AudioSyncOffset was absent from the map and the named read returned False, so no offset value is claimed.",
+    "range_convention": {
+      "record_end_frame_exclusive": true,
+      "source_end_frame_inclusive": true
+    },
+    "run_id": "20261020T230425390576Z-ce72dd872c3e",
+    "status": "live_ranges_captured_sync_offset_unavailable"
+  },
+  "QA-003": {
+    "audio_holes": [],
+    "finding": "The live conformance checker reported no internal picture or audio holes.",
+    "picture_holes": [],
+    "run_id": "20261020T230425390576Z-ce72dd872c3e",
+    "status": "live_hole_read_captured"
+  },
+  "QA-006": {
+    "overlay_items": [
+      {
+        "audio_sync_offset": null,
+        "name": "tv_frame_d90b567817.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 567817,
+        "source_identity": "tv_frame_d90b567817.png",
+        "source_start_frame": 567817,
+        "track_index": 3,
+        "track_name": "Frame",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 0,
+          "Tilt": -220.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "b-soft-focus-craig.mov",
+        "record_end_frame_exclusive": 84,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 84,
+        "source_identity": "b-soft-focus-craig.mov",
+        "source_start_frame": 0,
+        "track_index": 6,
+        "track_name": "Motion Graphics",
+        "track_type": "video",
+        "transform": {
+          "Pan": -470.136186770428,
+          "Scaling": 1,
+          "Tilt": -847.0,
+          "ZoomX": 1.25,
+          "ZoomY": 1.25
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "logo_bulb_lines_safe_23976.mov",
+        "record_end_frame_exclusive": 1906,
+        "record_start_frame": 1834,
+        "source_end_frame_inclusive": 71,
+        "source_identity": "logo_bulb_lines_safe_23976.mov",
+        "source_start_frame": 0,
+        "track_index": 6,
+        "track_name": "Motion Graphics",
+        "track_type": "video",
+        "transform": {
+          "Pan": 0.0,
+          "Scaling": 0,
+          "Tilt": 0.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "ph_still.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 0,
+        "source_identity": "ph_still.png",
+        "source_start_frame": 0,
+        "track_index": 7,
+        "track_name": "Post Header",
+        "track_type": "video",
+        "transform": {
+          "Pan": -33.588516746411486,
+          "Scaling": 1,
+          "Tilt": 1836.0,
+          "ZoomX": 1.0,
+          "ZoomY": 1.0
+        }
+      },
+      {
+        "audio_sync_offset": null,
+        "name": "Lucie Social Bug 2024 (NEW) - tight.png",
+        "record_end_frame_exclusive": 1834,
+        "record_start_frame": 0,
+        "source_end_frame_inclusive": 2024,
+        "source_identity": "Lucie Social Bug 2024 (NEW) - tight.png",
+        "source_start_frame": 2024,
+        "track_index": 8,
+        "track_name": "Corner Logo",
+        "track_type": "video",
+        "transform": {
+          "Pan": 768.1074725274727,
+          "Scaling": 1,
+          "Tilt": 1395.4303184713376,
+          "ZoomX": 0.177,
+          "ZoomY": 0.177
+        }
+      }
+    ],
+    "run_id": "20261020T230425390576Z-ce72dd872c3e",
+    "status": "live_transform_read_captured"
+  },
+  "QA-007_real_delivery": {
+    "status": "not_measured"
+  },
+  "captured_at": "2026-10-20T23:04:25.390670+00:00",
+  "delivery_scratch_reclamation_preserves_exports": {
+    "status": "not_measured_live"
+  },
+  "grouped_marker_restore": {
+    "status": "verified",
+    "method": "AXI recorded guarded run inside one exclusive resolve.qualification_session broker job; direct live qualification call to edit_patch.apply_live_patch on the Ren Scratch copy",
+    "project": "Ren Scratch - bench name-bar-fights-the-captions",
+    "timeline": "reel13 - grouped markers 20261020",
+    "timeline_id": "6b6f8ef1-d3d7-4a6f-be2b-9d287c2b4b4e",
+    "project_settings": {
+      "resolution": "1080x1920",
+      "frame_rate": "23.976"
+    },
+    "qualification_session_job_id": "00903b2c5c9aebca",
+    "recorded_run_id": "20261020T231701836790Z-5ec87949e155",
+    "baseline_marker_count": 2,
+    "add": {
+      "patch_id": "ren-6dbdd34e7dcf87cea5605c84063c042b6c048f2548b64366691a3c4da5e3f57b",
+      "status": "committed",
+      "operation_count": 2,
+      "frames": [
+        0,
+        1
+      ],
+      "readback": {
+        "0": {
+          "color": "Blue",
+          "name": "vep-live-evidence-a"
+        },
+        "1": {
+          "color": "Green",
+          "name": "vep-live-evidence-b"
+        }
+      }
+    },
+    "cleanup": {
+      "patch_id": "ren-1b7387034c1e5b48203bfc7bcbebd10ceb604df409f2f03391b2e597e974712d",
+      "status": "committed",
+      "operation_count": 2,
+      "operation": "marker.delete"
+    },
+    "final_marker_inventory_equals_baseline": true,
+    "timeline_inventory_guard": true,
+    "qualification_boundary": "The live scenario passed on this one dense portrait 23.976fps timeline. The evidence does not span the full state dimensions or preservation matrix required to qualify marker.add::edit_patch for production; no qualified status is claimed."
+  },
+  "preservation_invariant_untouched_graded_clip": {
+    "status": "not_measured_live"
+  },
+  "project_switch": {
+    "cursor_readback_after_restore_attempt": {
+      "project": "Ren Scratch - axc-product-qualification",
+      "timeline": "reel13"
+    },
+    "finding": "The open is verified. Other scratch lifecycle jobs interleaved before restore readback; the broker reported three origin records held by PID 60383. Do not claim this lane restored its own origin.",
+    "method": "resolve-axi project scratch open --apply / restore --apply",
+    "opened_fixture": "Ren Scratch - bench name-bar-fights-the-captions",
+    "origin_records_observed": [
+      {
+        "origin_project": "Ren Scratch - vep-bench-demo",
+        "owner_pid": 60383,
+        "scratch_project": "Ren Scratch - bench name-bar-fights-the-captions"
+      },
+      {
+        "origin_project": "Ren Scratch - bench name-bar-fights-the-captions",
+        "owner_pid": 60383,
+        "scratch_project": "Ren Scratch - workflows-e2e"
+      },
+      {
+        "origin_project": "Ren Scratch - workflows-e2e",
+        "owner_pid": 60383,
+        "scratch_project": "Ren Scratch - axc-product-qualification"
+      }
+    ],
+    "origin_reported_by_open": {
+      "page": "edit",
+      "project": "Ren Scratch - vep-bench-demo",
+      "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare"
+    },
+    "restore_attempt": {
+      "reported_project": "Ren Scratch - bench name-bar-fights-the-captions",
+      "reported_timeline": "reel13",
+      "verified": true
+    },
+    "status": "paired_broker_switch_verified",
+    "paired_broker_job": {
+      "job_id": "4f25468596a9bc32",
+      "kind": "resolve.qualification_session",
+      "mode": "exclusive",
+      "state": "done",
+      "hold_seconds": 12.418,
+      "steps": [
+        {
+          "argv": [
+            "project",
+            "scratch",
+            "open",
+            "Ren Scratch - bench name-bar-fights-the-captions",
+            "--apply"
+          ],
+          "exit_code": 0,
+          "opened_project": "Ren Scratch - bench name-bar-fights-the-captions",
+          "opened_timeline": "reel13 - grouped markers 20261020",
+          "recorded_origin": {
+            "project": "Ren Qualification",
+            "timeline": "Q Promotion Proof R5",
+            "page": "deliver"
+          }
+        },
+        {
+          "argv": [
+            "project",
+            "scratch",
+            "restore",
+            "--apply"
+          ],
+          "exit_code": 0,
+          "restored_project": "Ren Qualification",
+          "restored_timeline": "Q Promotion Proof R5",
+          "verified": true
+        }
+      ],
+      "borrowed_origin_readback": {
+        "project": "Ren Scratch - vep-bench-demo",
+        "timeline": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+        "timeline_id": "9f2b22d1-fe19-488e-b9f7-97155d4edd80",
+        "page": "deliver"
+      },
+      "finding": "Both scratch lifecycle halves ran inside one exclusive resolve.qualification_session broker job. The job receipt confirms the borrowed finally restored the exact preexisting Ren Scratch project and timeline by unique ID. A later read saw a different Ren Scratch project after the lease had ended, consistent with other lane activity.",
+      "post_job_cursor_readback": {
+        "project": "Ren Scratch - axc-product-qualification",
+        "timeline": "reel13",
+        "observed_after_job": "2026-10-20T23:13:55Z",
+        "note": "A later independent read saw another Ren Scratch project open after the exclusive job ended; this does not change the job receipt readback."
+      }
+    }
+  },
+  "repeated_source_profile_across_two_edits": {
+    "cache_hits": 0,
+    "edits": [],
+    "examined_project": "Ren Scratch - breaktest",
+    "note": "The observations came from one semantic_analysis run, not two edits of the same source.",
+    "observed_repeated_sources": 3,
+    "paid_repeats": 1093,
+    "runs": [
+      "run-20261020T064609Z-bb66b6"
+    ],
+    "status": "not_found"
+  },
+  "resolve_project": "Ren Scratch - bench name-bar-fights-the-captions",
+  "schema": "vep-live-evidence/1",
+  "successful_reels_build_profile": {
+    "status": "blocked",
+    "examined_project": "Ren Scratch - breaktest",
+    "attempts": [
+      {
+        "run_id": "run-20261020T231854Z-c22d37",
+        "outcome": "failed: FullFrameDeclarationError",
+        "wall_seconds": 87.985,
+        "detail": "A project full_frame_span had source windows entirely outside Reel 01 keep ranges. The planner now skips a wholly unrelated span; a regression test covers unrelated windows and still-refuses partial overlaps."
+      },
+      {
+        "run_id": "run-20261020T232232Z-83e7f3",
+        "outcome": "failed: TimelineIngestError",
+        "wall_seconds": 0.74,
+        "detail": "Resolve had switched to Ren Scratch - axc-product-qualification before the build opened its target; expected Ren Scratch - breaktest."
+      },
+      {
+        "run_id": "run-20261020T232337Z-ba74ad",
+        "outcome": "failed: ReelBuildError",
+        "wall_seconds": 34.699,
+        "detail": "Resolve returned no timeline count from the build project handle after the run waited 19.951 seconds for Resolve leases; the independent read after the run saw Ren Scratch - breaktest open."
+      }
+    ],
+    "successful_runs": 0,
+    "finding": "No successful real reels build is established. Repeated project-switch instability during separate Resolve calls prevents the build from retaining a valid project handle; do not claim a successful build profile."
+  },
+  "timeline": {
+    "end_frame_inclusive": 1906,
+    "fps": 23.976023976023978,
+    "frames": 1907,
+    "id": "6b6f8ef1-d3d7-4a6f-be2b-9d287c2b4b4e",
+    "name": "reel13 - grouped markers 20261020",
+    "start_frame": 0
+  },
+  "marker_add_edit_patch_qualification": {
+    "result": "failed",
+    "reason": "The focused live scenario committed and cleaned up successfully, but it measures only one timeline configuration and is insufficient to qualify the backend across the registry coverage dimensions.",
+    "qualification_registry_import": "imported via library.tools.axi_qualification; row remains unqualified"
+  },
+  "build_recovery": {
+    "status": "blocked_by_shared_resolve_interleaving",
+    "required": "A build session that owns its scratch project through the Resolve operations, or a stable exclusive slot with no other lane switching projects.",
+    "evidence_run_ids": [
+      "run-20261020T232232Z-83e7f3",
+      "run-20261020T232337Z-ba74ad"
+    ],
+    "last_run_profile": {
+      "total_wall_seconds": 34.699,
+      "resolve_lease_wait_seconds": 19.951,
+      "outcome": "failed: ReelBuildError"
+    }
+  }
+}

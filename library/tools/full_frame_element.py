@@ -2155,10 +2155,26 @@ def _span_windows(label: str, segments: Sequence[dict],
                 f"covers keep range {position - 1} by position - and the "
                 f"reel plays only {len(ranges)} keep range(s). Give it a "
                 f"`window` inside one keep range to subdivide it.")
+    hit_sets = [[k for k, (rs, re) in enumerate(ranges)
+                 if rs - WINDOW_EPS <= ws and we <= re + WINDOW_EPS]
+                for ws, we in windows]
+    if not any(hit_sets):
+        # Project declarations can carry source windows for one reel while
+        # the same project builds another. A span wholly outside this
+        # reel's kept source ranges has no segment to place here; it is
+        # inapplicable, not a malformed partial span. Still refuse a span
+        # that touches this reel's footage without fitting a keep range.
+        overlaps = [
+            (ws, we) for (ws, we), hits in zip(windows, hit_sets)
+            if not hits and any(ws < re - WINDOW_EPS
+                                and we > rs + WINDOW_EPS
+                                for rs, re in ranges)
+        ]
+        if not overlaps:
+            return [], []
     owners: list[int] = []
     for position, (ws, we) in enumerate(windows, start=1):
-        hits = [k for k, (rs, re) in enumerate(ranges)
-                if rs - WINDOW_EPS <= ws and we <= re + WINDOW_EPS]
+        hits = hit_sets[position - 1]
         if not hits:
             played = ", ".join(f"({rs:.3f}, {re:.3f})" for rs, re in ranges)
             raise FullFrameDeclarationError(

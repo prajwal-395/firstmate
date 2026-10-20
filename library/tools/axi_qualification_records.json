@@ -1766,6 +1766,10 @@
         "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
       ]
     },
+    "marker.add::edit_patch": {
+      "evidence": "tests/live/reports/vep-live-evidence-20261020.json:grouped_marker_restore - the two-marker live scenario committed and cleanup restored the baseline, but the single measured timeline is insufficient to qualify the operation across required state dimensions and preservation checks",
+      "result": "failed"
+    },
     "track.add::edit_patch": {
       "actual_state": {
         "track_counts": {

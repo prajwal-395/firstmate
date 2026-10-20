@@ -159,6 +159,28 @@ def _plan(declaration, project_folder, facts=None):
         ranges=RANGES, transcript=_transcript())
 
 
+def test_a_span_for_an_unrelated_master_window_is_not_applied_to_this_reel():
+    """A project can declare a span for one source passage and build a
+    different reel. The source window has no picture to replace here, so
+    it contributes no card to this reel."""
+    declaration = _span()
+    declaration["full_frame_elements"][0]["segments"][0]["window"] = [
+        890.02, 890.84]
+
+    assert _plan(declaration, None) == []
+
+
+def test_a_span_window_that_partly_touches_this_reel_still_refuses():
+    """Skipping an unrelated span must not hide a bad cut boundary."""
+    declaration = _span()
+    declaration["full_frame_elements"][0]["segments"][0]["window"] = [
+        10.5, 11.5]
+
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="no keep range contains"):
+        _plan(declaration, None)
+
+
 # ── The asset: a segment that carries the project's own picture ───────
 
 

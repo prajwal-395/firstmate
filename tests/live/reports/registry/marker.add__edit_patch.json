@@ -1,0 +1,7 @@
+{
+  "schema": "ren-axi-qualification-result/v2",
+  "operation_id": "marker.add",
+  "backend": "edit_patch",
+  "result": "failed",
+  "evidence": "tests/live/reports/vep-live-evidence-20261020.json:grouped_marker_restore - the two-marker live scenario committed and cleanup restored the baseline, but the single measured timeline is insufficient to qualify the operation across required state dimensions and preservation checks"
+}
