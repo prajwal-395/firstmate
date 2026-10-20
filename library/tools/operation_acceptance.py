@@ -46,7 +46,9 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
                 "visual_source": "independent_render"}
     if op_id == "clip.trim":
         checks = ["target_identity", "requested_source_in_out",
-                  "requested_record_span", "unrelated_items_unchanged"]
+                  "requested_record_span", "approved_edits_preserved",
+                  "linked_audio_preserved",
+                  "unrelated_items_unchanged"]
     elif op_id in {"clip.move", "clip.slide", "clip.roll", "clip.slip"}:
         checks = ["target_identity", "requested_record_or_source_position",
                   "duration_preserved", "unrelated_items_unchanged"]

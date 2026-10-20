@@ -17,6 +17,8 @@ def _context(operation):
                 "unique_id": "clip-17", "record_in": 20, "record_out": 80,
                 "source_in_frame": 5, "source_out_frame": 64,
                 "duration": 60, "source_file": "/media/music.wav",
+                "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
+                "enabled": True, "clip_color": "", "flags": [],
             }],
         }]},
         request=SimpleNamespace(id="request-1", project="project-1",
@@ -46,6 +48,8 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
             "unique_id": "clip-17", "record_in": 24, "record_out": 76,
             "source_in_frame": 9, "source_out_frame": 60,
             "duration": 52, "source_file": "/media/music.wav",
+            "transform": {"Pan": -24.0, "Tilt": 0.0, "ZoomX": 1.0},
+            "enabled": True, "clip_color": "", "flags": [],
         }],
     }]}
     monkeypatch.setattr(resolve_axi_core, "execute", lambda command: (
@@ -58,10 +62,18 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
     monkeypatch.setattr(adapters, "_project_folder",
                         lambda _context: "/tmp/project")
 
-    receipt = adapters._trim(_context({
+    context = _context({
         "op": "clip.trim", "unique_id": "clip-17",
         "in_frame": 24, "out_frame": 76,
-    }))
+    })
+    audio = {"type": "audio", "index": 1, "clips": [{
+        "unique_id": "audio-9", "record_in": 20, "record_out": 80,
+        "source_in_frame": 5, "source_out_frame": 64,
+        "source_file": "/media/music.wav",
+    }]}
+    context.snapshot["tracks"].append(audio)
+    after["tracks"].append(audio)
+    receipt = adapters._trim(context)
 
     assert calls == [[
         "edit", "trim", "--track", "V2", "--index", "0",
@@ -82,6 +94,50 @@ def test_trim_adapter_converts_record_edges_to_the_existing_source_trim(monkeypa
         "kind": "undo_journal_entry", "project_folder": "/tmp/project",
         "entry_id": "journal-17",
     }
+    assert receipt["acceptance_contracts"][0]["results"][-2] == {
+        "check": "linked_audio_preserved", "passed": True,
+        "status": "passed", "evidence": True,
+    }
+    approved = receipt["acceptance_contracts"][0]["results"][3]
+    assert approved["check"] == "approved_edits_preserved"
+    assert approved["passed"] is True
+
+
+def test_trim_refuses_if_linked_audio_record_or_source_span_changes(monkeypatch):
+    from library.tools import resolve_axi_core
+
+    context = _context({
+        "op": "clip.trim", "unique_id": "clip-17",
+        "in_frame": 24, "out_frame": 76,
+    })
+    audio_before = {"type": "audio", "index": 1, "clips": [{
+        "unique_id": "audio-9", "record_in": 20, "record_out": 80,
+        "source_in_frame": 5, "source_out_frame": 64,
+        "source_file": "/media/music.wav",
+    }]}
+    audio_after = {"type": "audio", "index": 1, "clips": [{
+        **audio_before["clips"][0], "record_in": 24,
+    }]}
+    context.snapshot["tracks"].append(audio_before)
+    after = {"reported_fps": 30.0, "tracks": [{
+        "type": "video", "index": 2, "clips": [{
+            "unique_id": "clip-17", "record_in": 24, "record_out": 76,
+            "source_in_frame": 9, "source_out_frame": 60,
+            "duration": 52, "source_file": "/media/music.wav",
+            "transform": {"Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0},
+            "enabled": True, "clip_color": "", "flags": [],
+        }],
+    }, audio_after]}
+    monkeypatch.setattr(resolve_axi_core, "execute", lambda _command: (
+        SimpleNamespace(ok=True, stdout="journal:\n  entry: journal-17",
+                        stderr="")))
+    monkeypatch.setattr(resolve_axi_core, "read_live_timeline",
+                        lambda *_args: after)
+    monkeypatch.setattr(adapters, "_project_folder",
+                        lambda _context: "/tmp/project")
+
+    with pytest.raises(RuntimeError, match="linked_audio_preserved"):
+        adapters._trim(context)
 
 
 def test_caption_fix_refuses_without_readable_title_text():

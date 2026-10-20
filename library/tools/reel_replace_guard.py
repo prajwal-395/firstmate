@@ -494,7 +494,7 @@ def _canonical(value):
 #: How far two numeric reads may differ and still be one value. Resolve
 #: hands some properties back as a float where they were read as an int
 #: (`AudioPitchSemiTones` 0 -> 0.0 on a re-placed item, measured
-#: 2026-10-02) and some one ulp off (`composed_edit.READBACK_TOLERANCE`).
+#: 2026-10-02) and some one ulp off (`edit_state_preservation` tolerance).
 VALUE_TOLERANCE = 1e-6
 
 #: How far two transform reads may differ and still be one value: half

@@ -353,6 +353,9 @@ class _Item:
         self._speed_set = None
         self._graph = None
         self._group = None
+        self._clip_enabled = True
+        self._clip_color = ""
+        self._grade_nodes = 1
 
     def GetName(self):
         return self._name
@@ -384,12 +387,35 @@ class _Item:
         return self._uid
 
     def GetClipColor(self):
-        return ""
+        return self._clip_color
+
+    def SetClipColor(self, color):
+        self._clip_color = color
+        return True
+
+    def ClearClipColor(self):
+        self._clip_color = ""
+        return True
+
+    def SetClipEnabled(self, enabled):
+        self._clip_enabled = bool(enabled)
+        return True
 
     def GetFlagList(self):
         return []
 
     def GetClipEnabled(self):
+        return self._clip_enabled
+
+    def GetLinkedItems(self):
+        return list(getattr(self, "_linked_items", []))
+
+    def GetNumNodes(self):
+        return self._grade_nodes
+
+    def CopyGrades(self, items):
+        for item in items:
+            item._grade_nodes = self._grade_nodes
         return True
 
     def GetProperty(self, key=None):
@@ -3030,12 +3056,14 @@ def test_replace_item_matches_live_resolve_endpoint_measurements(
 
 def test_replace_item_preserves_approved_pan_on_move_and_trim_replacement(
         edit_patched):
-    """A re-place must carry the manual Pan that G01/G03 lost live."""
+    """A re-place must carry approved transform and clip metadata state."""
     env = edit_patched
     timeline = env["timeline"]
     pool = env["project"].GetMediaPool()
     original = _items(env)[0]
     original.SetProperty("Pan", 37.25)
+    original.SetClipEnabled(False)
+    original.SetClipColor("Blue")
 
     replacement, error = resolve_axi._replace_item(
         timeline, pool, original, 1000, 1095, 300, 1, 1,
@@ -3050,6 +3078,8 @@ def test_replace_item_preserves_approved_pan_on_move_and_trim_replacement(
     assert error == ""
     assert replacement is not None
     assert replacement.GetProperty("Pan") == pytest.approx(37.25)
+    assert replacement.GetClipEnabled() is False
+    assert replacement.GetClipColor() == "Blue"
 
 
 def test_edit_trim_failed_verification_restores_exact_timeline(

@@ -2240,6 +2240,7 @@ def open_entry(project_folder, *, final: str, reel: int,
             "source_file": detail.get("source_file") or "",
             "name": detail.get("name") or "",
             "clip_color": detail.get("clip_color") or "",
+            "clip_metadata": dict(capture.clip_metadata),
             "properties": dict(capture.properties),
             "node_count": capture.node_count,
             "comps": [{"index": comp.index,
@@ -2879,8 +2880,9 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
         _ce.restore_item(item, _ce.ItemCapture(
             change=_identity_change(detail),
             properties=dict(capture.get("properties") or {}),
-            geometry={}, media_pool_item=mpi, restorable_comps=comps),
-            write_context=write_context)
+            geometry={}, media_pool_item=mpi, restorable_comps=comps,
+            clip_metadata=dict(capture.get("clip_metadata") or {})),
+            timeline=timeline, write_context=write_context)
     for _a, b in plan.restores:
         item = _at(rows, _row(b), b["record_in"])
         identity = {
@@ -2898,11 +2900,17 @@ def _write_inverse(timeline, media_pool, entry_root, plan, rows,
             raise UndoNotVerified(
                 f"{_row(b)}@{b['record_in']} did not take its prior "
                 f"transform back: {diff}.")
+    from library.tools import edit_state_preservation
     for detail in [b for _a, b in plan.restores] + list(plan.reinserts):
         colour = detail.get("clip_color") or ""
         item = _at(rows, _row(detail), detail["record_in"])
-        if colour and _ce._read(item, "GetClipColor", "") != colour:
-            item.SetClipColor(colour)
+        metadata_diff = edit_state_preservation.restore_clip_metadata(
+            item, {"enabled": detail.get("enabled"),
+                   "clip_color": colour})
+        if metadata_diff:
+            raise UndoNotVerified(
+                f"{_row(detail)}@{detail['record_in']} did not restore "
+                f"clip metadata: {metadata_diff}")
 
 
 def _revert_in_place(item, after: Mapping, before: Mapping, *,
@@ -2932,11 +2940,13 @@ def _revert_in_place(item, after: Mapping, before: Mapping, *,
                 f"prior transform back: {diff}.")
         out["transform"] = True
     if bool(after.get("enabled", True)) != bool(before.get("enabled", True)):
-        item.SetClipEnabled(bool(before.get("enabled", True)))
-        if bool(item.GetClipEnabled()) != bool(before.get("enabled", True)):
+        from library.tools import edit_state_preservation
+        diff = edit_state_preservation.restore_clip_metadata(
+            item, {"enabled": bool(before.get("enabled", True))})
+        if diff:
             raise UndoNotVerified(
                 f"{out['row']}@{out['record_frame']} did not switch back "
-                f"{'on' if before.get('enabled', True) else 'off'}.")
+                f"{'on' if before.get('enabled', True) else 'off'}: {diff}.")
         out["enabled"] = bool(before.get("enabled", True))
     had = int((before.get("fusion") or {}).get("comp_count") or 0)
     has = int(_ce._read(item, "GetFusionCompCount", 0) or 0)

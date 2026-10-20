@@ -4397,18 +4397,11 @@ def cmd_edit_place(args) -> int:
         return 0
 
 
-_REPLACED_PICTURE_PROPERTIES = (
-    "Pan", "Tilt", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
-    "AnchorPointX", "AnchorPointY", "CropLeft", "CropRight", "CropTop",
-    "CropBottom",
-)
-
-
 def _replace_item(timeline, pool, orig, source_in: int,
                   source_out: int, record_frame: int,
                   track_index: int | None, media_type: int,
-                  pool_item=None, approved_properties=None,
-                  grade_source=None, write_context=None):
+                  pool_item=None, preservation_state=None,
+                  write_context=None):
     """Re-place one item at a new source range/position.
 
     Returns `(new_item, error)`: the scripting API offers no move or
@@ -4425,30 +4418,20 @@ def _replace_item(timeline, pool, orig, source_in: int,
     if pool_item is None:
         return None, ("the item carries no pool clip (a generator or "
                       "title?) - nothing was changed.")
-    if approved_properties is None:
+    if preservation_state is None and orig is not None:
+        from library.tools import edit_state_preservation
         try:
-            original_properties = orig.GetProperty() if orig is not None else {}
-        except Exception as exc:
-            return None, (f"the item's approved picture properties could not "
-                          f"be read ({exc}) - nothing was changed.")
-        if not isinstance(original_properties, dict):
-            return None, ("the item's approved picture properties could not "
-                          "be read - nothing was changed.")
-        approved_properties = {
-            key: original_properties[key] for key in _REPLACED_PICTURE_PROPERTIES
-            if key in original_properties
-        }
-    else:
-        approved_properties = dict(approved_properties)
-    if orig is not None:
+            preservation_state = edit_state_preservation.capture(
+                orig, picture=media_type == 1)
+        except edit_state_preservation.StatePreservationError as exc:
+            return None, f"{exc} - nothing was changed."
+    if preservation_state is not None:
+        from library.tools import edit_state_preservation
         try:
-            comp_count = int(orig.GetFusionCompCount() or 0)
-        except Exception as exc:
-            return None, (f"the item's Fusion state could not be read ({exc}) "
-                          "- nothing was changed.")
-        if comp_count:
-            return None, ("the item has Fusion compositions that this re-place "
-                          "path cannot carry - nothing was changed.")
+            edit_state_preservation.preflight_source(
+                preservation_state, pool_item)
+        except edit_state_preservation.StatePreservationError as exc:
+            return None, f"{exc} - nothing was changed."
     # Measured against live Resolve 21.0.0b.28: AppendToTimeline's
     # endFrame is exclusive. For [4, 60] inclusive, endFrame=61 yields
     # 57 record frames; GetSourceEndFrame on that new item returns 61.
@@ -4480,46 +4463,21 @@ def _replace_item(timeline, pool, orig, source_in: int,
             reason += f" The unverified replacement could not be removed ({exc})."
         return None, reason
 
-    property_diff = {}
-    from library.tools.transform_write_log import set_property
-    for key, value in approved_properties.items():
+    state_diff = {}
+    if preservation_state is not None:
+        from library.tools import edit_state_preservation
         try:
-            set_property(replacement, key, value,
-                         item_identity={"uid": _item_span(replacement)["uid"],
-                                        "name": _item_span(replacement)["name"]},
-                         **(write_context or {}))
-            actual = replacement.GetProperty(key)
+            state_diff = edit_state_preservation.restore(
+                replacement, preservation_state,
+                source_in=source_in, source_out=source_out,
+                timeline=timeline,
+                write_context=write_context)
         except Exception as exc:
-            property_diff[key] = [value, f"read/write failed: {exc}"]
-            continue
-        if (isinstance(value, (int, float)) and not isinstance(value, bool)
-                and isinstance(actual, (int, float))
-                and not isinstance(actual, bool)):
-            matches = abs(float(actual) - float(value)) <= 1e-6
-        else:
-            matches = actual == value
-        if not matches:
-            property_diff[key] = [value, actual]
-    if property_diff:
+            state_diff = {"state": f"preservation read/write failed: {exc}"}
+    if state_diff:
         return discard_unverified(
-            "the re-place did not preserve approved picture "
-            f"properties: {property_diff}.")
-    grade_source = grade_source or orig
-    if grade_source is not None:
-        try:
-            copy_grades = getattr(grade_source, "CopyGrades", None)
-            if callable(copy_grades):
-                wanted_nodes = grade_source.GetNumNodes()
-                copy_grades([replacement])
-                actual_nodes = replacement.GetNumNodes()
-                if wanted_nodes is not None and actual_nodes != wanted_nodes:
-                    return discard_unverified(
-                        "the re-place did not preserve the item's "
-                        f"grade ({actual_nodes} nodes, wanted "
-                        f"{wanted_nodes}).")
-        except Exception as exc:
-            return discard_unverified(
-                f"the re-place could not preserve the item's grade ({exc}).")
+            "the re-place did not preserve supported editorial state: "
+            f"{state_diff}.")
     readback = _item_span(replacement)
     try:
         verified = (
@@ -4591,16 +4549,14 @@ def _timeline_trim_snapshot(timeline):
                                 if pool_item else "")
                 except Exception:
                     pool_uid = ""
+                from library.tools import edit_state_preservation
                 try:
-                    item_properties = item.GetProperty()
-                except Exception as exc:
+                    item_state = edit_state_preservation.capture(
+                        item, picture=track_type == "video")
+                except edit_state_preservation.StatePreservationError as exc:
                     raise AxiError(
-                        f"timeline snapshot could not read approved picture "
-                        f"properties for {span['name']!r}: {exc}") from exc
-                if not isinstance(item_properties, dict):
-                    raise AxiError(
-                        f"timeline snapshot could not read approved picture "
-                        f"properties for {span['name']!r}")
+                        f"timeline snapshot cannot preserve {span['name']!r}: "
+                        f"{exc}") from exc
                 rows.append({
                     "track_type": track_type,
                     "track_index": track_index,
@@ -4613,12 +4569,7 @@ def _timeline_trim_snapshot(timeline):
                     "source_end_exclusive": source_start + duration,
                     "pool_uid": pool_uid,
                     "pool_item": pool_item,
-                    "grade_source": item,
-                    "approved_properties": {
-                        key: item_properties[key]
-                        for key in _REPLACED_PICTURE_PROPERTIES
-                        if key in item_properties
-                    },
+                    "preservation_state": item_state,
                 })
     return rows
 
@@ -4692,8 +4643,7 @@ def _restore_trim_snapshot(timeline, pool, before, target_uid,
                 row["record_in"], row["track_index"],
                 1 if row["track_type"] == "video" else 2,
                 pool_item=source_pool,
-                approved_properties=row["approved_properties"],
-                grade_source=row["grade_source"],
+                preservation_state=row["preservation_state"],
                 write_context=write_context)
             if error:
                 return None, (f"could not restore {row['name']!r} from the "
@@ -5132,6 +5082,9 @@ def cmd_edit_trim(args) -> int:
             new_item, error = _replace_item(
                 timeline, pool, item, new_in, new_out,
                 new_rec, track_index, media_type, pool_item=pool_item,
+                preservation_state=next(
+                    row["preservation_state"] for row in before_snapshot
+                    if row["uid"] == uid),
                 write_context={
                     "project": project.GetName(),
                     "project_folder": args.project_folder or None,
@@ -5254,6 +5207,20 @@ def cmd_edit_switch_camera(args) -> int:
         except AxiError as exc:
             return fail(f"camera switch refused before writing: {exc}",
                         f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        try:
+            target_state = next(row["preservation_state"] for row in before
+                                if row["uid"] == uid)
+        except StopIteration:
+            return fail("camera switch refused: target is absent from the "
+                        "preservation snapshot",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        from library.tools import edit_state_preservation
+        try:
+            edit_state_preservation.preflight_source(
+                target_state, camera_pool_item)
+        except edit_state_preservation.StatePreservationError as exc:
+            return fail(f"camera switch refused before writing: {exc}",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         refusal = _preflight_replace_delete(uid)
         if refusal:
             return fail(f"camera switch refused before writing: {refusal}",
@@ -5275,7 +5242,8 @@ def cmd_edit_switch_camera(args) -> int:
                 return fail(drop_error, f"{TOOL} items --timeline \"{timeline.GetName()}\"")
             replacement, error = _replace_item(
                 timeline, pool, None, args.source_in, args.source_out,
-                record_in, track_index, 1, pool_item=camera_pool_item)
+                record_in, track_index, 1, pool_item=camera_pool_item,
+                preservation_state=target_state)
             if error:
                 restored, restore_error = _restore_trim_snapshot(
                     timeline, pool, before, uid)

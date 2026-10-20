@@ -88,7 +88,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
-from library.tools import comp_media_window, reel_read
+from library.tools import comp_media_window, edit_state_preservation, reel_read
+
+READ_ONLY_PROPERTIES = edit_state_preservation.READ_ONLY_PROPERTIES
 
 # ── Refusals ────────────────────────────────────────────────────────
 #
@@ -487,6 +489,8 @@ class Insertion:
     properties: Optional[Mapping[str, Any]] = None
     #: A live item to copy the colour grade from, or None for no grade.
     grade_from: Any = None
+    #: Existing item state to carry for a reconstructed continuation.
+    preservation_state: Optional[Mapping[str, Any]] = None
 
     @property
     def row(self) -> str:
@@ -1063,6 +1067,7 @@ class ItemCapture:
     #: went wrong can be diagnosed against the comp that was there.
     withheld_comps: tuple = ()
     node_count: Optional[int] = None
+    clip_metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if self.change.played_length_changes and self.restorable_comps:
@@ -1112,6 +1117,8 @@ def capture_item(item: Any, change: ItemChange, comp_dir: str,
     properties = item.GetProperty()
     if not isinstance(properties, dict):
         properties = {}
+    from library.tools import edit_state_preservation
+    clip_metadata = edit_state_preservation.capture_clip_metadata(item)
     return ItemCapture(
         change=change,
         properties={key: properties[key] for key in sorted(properties)},
@@ -1123,7 +1130,8 @@ def capture_item(item: Any, change: ItemChange, comp_dir: str,
         media_pool_item=item.GetMediaPoolItem(),
         restorable_comps=() if rederive else tuple(comps),
         withheld_comps=tuple(comps) if rederive else (),
-        node_count=_read(item, "GetNumNodes", None))
+        node_count=_read(item, "GetNumNodes", None),
+        clip_metadata=clip_metadata)
 
 
 def _read(obj, name, default):
@@ -1346,12 +1354,6 @@ def verify_placement(live_rows: Mapping[str, Sequence[Any]],
 
 # ── Step 7: restore, then re-derive ─────────────────────────────────
 
-#: Properties Resolve reports and will not take back. `GetProperty()`
-#: returns the whole dict including read-only members; setting one is
-#: not a failure to report, it is a key that was never ours to set.
-READ_ONLY_PROPERTIES = ("Frames", "FPS", "Resolution")
-
-
 def set_properties(item: Any, properties: Mapping[str, Any], *,
                    write_context: Mapping[str, Any] | None = None,
                    item_identity: Mapping[str, Any] | None = None,
@@ -1363,49 +1365,15 @@ def set_properties(item: Any, properties: Mapping[str, Any], *,
     the item and nothing else. Returns `{key: [wanted, got]}` for every
     key that did not take - empty when they all did.
     """
-    from library.tools.transform_write_log import set_property
+    from library.tools.edit_state_preservation import write_properties
 
-    for key, value in (properties or {}).items():
-        if key in READ_ONLY_PROPERTIES or value is None:
-            continue
-        if isinstance(value, str) and value.startswith("<"):
-            continue
-        write_args = dict(write_context or {})
-        if old_properties is not None and key in old_properties:
-            write_args["old_value"] = old_properties[key]
-        set_property(item, key, value, item_identity=item_identity,
-                     **write_args)
-    now = item.GetProperty()
-    if not isinstance(now, dict):
-        return {}
-    diff = {}
-    for key, value in (properties or {}).items():
-        if key in READ_ONLY_PROPERTIES or value is None:
-            continue
-        if isinstance(value, str) and value.startswith("<"):
-            continue
-        if key in now and not _same_value(now[key], value):
-            diff[key] = [value, now[key]]
-    return diff
-
-
-#: How far a numeric property may read back from what was written and
-#: still be the value written. Resolve stores doubles and hands some back
-#: one ulp off (2026-09-25: Pan -8.610478359908884 read back as
-#: ...885, refusing two correct post-header swaps); a millionth of a
-#: Pan/Tilt unit or a zoom is far below a drawn pixel.
-READBACK_TOLERANCE = 1e-6
-
-
-def _same_value(got: Any, wanted: Any) -> bool:
-    numbers = (int, float)
-    if (isinstance(got, numbers) and isinstance(wanted, numbers)
-            and not isinstance(got, bool) and not isinstance(wanted, bool)):
-        return abs(float(got) - float(wanted)) <= READBACK_TOLERANCE
-    return got == wanted
+    return write_properties(
+        item, properties or {}, write_context=write_context,
+        item_identity=item_identity, old_properties=old_properties)
 
 
 def treat_insertion(item: Any, insertion: Insertion, *,
+                    timeline: Any = None,
                     write_context: Mapping[str, Any] | None = None) -> dict:
     """Put the DECLARED treatment on a newly placed item, and read back.
 
@@ -1416,11 +1384,25 @@ def treat_insertion(item: Any, insertion: Insertion, *,
     receipt = {"row": insertion.row, "record_frame": insertion.record_frame,
                "name": insertion.name,
                "properties": dict(insertion.properties or {})}
-    diff = set_properties(
-        item, insertion.properties or {}, write_context=write_context,
-        item_identity={"row": insertion.row,
-                       "record_frame": insertion.record_frame,
-                       "name": insertion.name})
+    if insertion.preservation_state is not None:
+        from library.tools import edit_state_preservation
+
+        state = insertion.preservation_state
+        diff = edit_state_preservation.write_properties(
+            item, state["picture_properties"], write_context=write_context,
+            item_identity={"row": insertion.row,
+                           "record_frame": insertion.record_frame,
+                           "name": insertion.name}, require_reported=True)
+        diff.update(edit_state_preservation.restore_clip_metadata(
+            item, state, source_in=insertion.left_offset,
+            source_out=(insertion.left_offset + insertion.duration - 1),
+            timeline=timeline))
+    else:
+        diff = set_properties(
+            item, insertion.properties or {}, write_context=write_context,
+            item_identity={"row": insertion.row,
+                           "record_frame": insertion.record_frame,
+                           "name": insertion.name})
     receipt["property_readback_diff"] = diff
     if diff:
         raise RestoreNotVerified(
@@ -1428,7 +1410,20 @@ def treat_insertion(item: Any, insertion: Insertion, *,
             f"{insertion.record_frame} did not take its declared "
             f"treatment: {diff}. It would render at a framing nobody "
             f"chose.")
-    if insertion.grade_from is not None:
+    if insertion.preservation_state is not None:
+        grade_source = insertion.preservation_state.get("grade_source")
+        if grade_source is not None:
+            grade_source.CopyGrades([item])
+            wanted = insertion.preservation_state["grade_node_count"]
+            after = _read(item, "GetNumNodes", None)
+            receipt["grade"] = {"nodes_wanted": wanted,
+                                "nodes_after": after}
+            if after != wanted:
+                raise RestoreNotVerified(
+                    f"REFUSING: the new item on {insertion.row} at "
+                    f"{insertion.record_frame} carries {after} colour node(s) "
+                    f"and its reference carries {wanted}.")
+    elif insertion.grade_from is not None:
         insertion.grade_from.CopyGrades([item])
         wanted = _read(insertion.grade_from, "GetNumNodes", None)
         after = _read(item, "GetNumNodes", None)
@@ -1471,6 +1466,18 @@ def restore_item(item: Any, capture: ItemCapture, *,
                        "record_frame": capture.change.record_frame,
                        "item_index": capture.change.item_index,
                        "name": capture.change.name})
+
+    from library.tools import edit_state_preservation
+    metadata_diff = edit_state_preservation.restore_clip_metadata(
+        item, capture.clip_metadata,
+        source_in=capture.change.left_offset,
+        source_out=(capture.change.left_offset + capture.change.duration - 1),
+        timeline=timeline)
+    if metadata_diff:
+        raise RestoreNotVerified(
+            f"REFUSING: {capture.change.row}"
+            f"[{capture.change.item_index}] clip metadata did not read back: "
+            f"{metadata_diff}")
 
     for comp in capture.restorable_comps:
         if not comp.path or not os.path.exists(comp.path):
@@ -2034,7 +2041,8 @@ def apply_composed_edit(*, timeline, media_pool,
     for insertion in insertions:
         item = landed[(insertion.row, insertion.record_frame)]
         receipt.inserted.append(treat_insertion(
-            item, insertion, write_context=write_context))
+            item, insertion, timeline=timeline,
+            write_context=write_context))
 
     if receipt.rederivation_required.get("required"):
         pass_receipt = rederiver.rederive(changes)

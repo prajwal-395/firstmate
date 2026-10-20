@@ -1576,15 +1576,11 @@ def _require_simple_picture_clip(clip: Mapping, op: str, position: int,
             "candidate-local state carry needs a measured native transform",
             "re-read the target and retry")
     unsupported_state = []
-    for state_field in ("markers", "flags", "keyframes"):
+    for state_field in ("keyframes",):
         if clip.get(state_field) is None:
             unsupported_state.append(f"unreadable {state_field}")
         elif clip[state_field]:
             unsupported_state.append(state_field)
-    if clip.get("enabled") is not True:
-        unsupported_state.append("disabled or unreadable enabled state")
-    if clip.get("clip_color") not in ("", None):
-        unsupported_state.append("clip color")
     color = clip.get("color")
     if not isinstance(color, Mapping):
         unsupported_state.append("unreadable color state")
@@ -2293,6 +2289,7 @@ class _PendingSwap:
     left_offset: int = 0
     carry_from: tuple | None = None
     declared_properties: Mapping[str, Any] | None = None
+    preservation_state: Mapping[str, Any] | None = None
     name: str = ""
     position: int = 0
 
@@ -2617,6 +2614,7 @@ def _resolve_insertions(pool: Any, timeline: Any,
     resolved = []
     for item in pending:
         mpi = pool_item_for_path(pool, item.media)
+        preservation_state = None
         if item.carry_from is not None:
             row, index = item.carry_from
             live = _live_rows(timeline)
@@ -2631,26 +2629,25 @@ def _resolve_insertions(pool: Any, timeline: Any,
                     "re-read the reel and restate the swap against the "
                     "live timeline, then re-run `ren touch`")
             source = items[int(index)]
+            from library.tools import edit_state_preservation
             try:
-                properties = dict(source.GetProperty() or {})
-            except Exception:  # noqa: BLE001
-                properties = {}
+                preservation_state = edit_state_preservation.capture(source)
+                edit_state_preservation.preflight_source(
+                    preservation_state, mpi)
+                properties = dict(preservation_state["picture_properties"])
+            except edit_state_preservation.StatePreservationError as exc:
+                raise TouchupRefused(
+                    f"edit {item.position} cannot preserve state from "
+                    f"{row}[{index}]: {exc}",
+                    "the replacement cannot safely carry the source item state",
+                    "choose a replacement with compatible source state or "
+                    "rebuild the reel") from exc
             if not properties:
                 raise TouchupRefused(
                     f"edit {item.position} cannot read transform state from "
                     f"{row}[{index}]",
                     "the inserted half must inherit measurable native item state",
                     "re-read the source clip and retry")
-            nodes = _live_prop(source, "GetNumNodes", None)
-            if nodes is not None and int(nodes) > 1:
-                raise TouchupRefused(
-                    f"edit {item.position} swaps "
-                    f"{row}[{index}], which carries a colour grade "
-                    f"({nodes} nodes)",
-                    "an `Insertion` cannot take a grade from an item "
-                    "about to be deleted",
-                    "rebuild the reel (`ren build <project>`) - a graded "
-                    "swap needs a rebuild, not a touchup")
             grade_from = None
         else:
             properties = dict(item.declared_properties or {})
@@ -2662,7 +2659,8 @@ def _resolve_insertions(pool: Any, timeline: Any,
             media_pool_item=mpi, left_offset=int(item.left_offset),
             duration=int(item.duration),
             record_frame=int(item.record_frame), name=item.name,
-            properties=properties, grade_from=grade_from))
+            properties=properties, grade_from=grade_from,
+            preservation_state=preservation_state))
     return resolved
 
 

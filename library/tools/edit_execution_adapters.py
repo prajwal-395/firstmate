@@ -120,6 +120,12 @@ def _verified_command(context, command: list[str], operation: dict,
                 int(after_clip["record_in"]) == int(operation["in_frame"])
                 and int(after_clip["record_out"]) == int(operation["out_frame"])),
         })
+        evidence["linked_audio_preserved"] = (
+            _audio_rows_signature(before, exclude_id=target_id)
+            == _audio_rows_signature(after, exclude_id=target_id))
+        evidence["approved_edits_preserved"] = (
+            _approved_state_signature(before_clip)
+            == _approved_state_signature(after_clip))
         operation_matches = all(evidence.values())
     elif operation_id == "clip.delete":
         evidence["target_absent"] = after_clip is None
@@ -224,6 +230,32 @@ def _unrelated_changes(before: Mapping, after: Mapping, target_id: str,
         operations=[{"unique_id": unique_id} for unique_id in target_ids],
         affected_spans=affected_spans, id_map=id_map, before=before,
         after=after)
+
+
+def _audio_rows_signature(snapshot: Mapping, *, exclude_id: str = "") -> tuple:
+    """Identity and timing of every non-target audio item in a read-back."""
+    rows = []
+    for track in snapshot.get("tracks", []):
+        if str(track.get("type", "")) != "audio":
+            continue
+        for clip in track.get("clips", []):
+            if str(clip["unique_id"]) == exclude_id:
+                continue
+            rows.append((str(clip["unique_id"]), int(clip["record_in"]),
+                         int(clip["record_out"]),
+                         int(clip["source_in_frame"]),
+                         int(clip["source_out_frame"]),
+                         str(clip.get("source_file", ""))))
+    return tuple(sorted(rows))
+
+
+def _approved_state_signature(clip: Mapping) -> tuple:
+    """Stored transform, enabled, color, and flags of one timeline item."""
+    transform = clip["transform"]
+    if not isinstance(transform, Mapping):
+        raise ValueError("clip transform is unreadable after replacement")
+    return (tuple(sorted(transform.items())), clip["enabled"],
+            clip["clip_color"], tuple(sorted(clip["flags"])))
 
 
 def _remove_readback_evidence(before: Mapping, after: Mapping,

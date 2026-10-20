@@ -1370,14 +1370,6 @@ def plan_application(edits: list[dict], staged: dict, final: str) -> dict:
                     "the source window, so Ren cannot rebuild them safely")
                 continue
             unsupported = []
-            if item.get("enabled") is not True:
-                unsupported.append("the source item is not readable as enabled")
-            if item.get("markers"):
-                unsupported.append("the item has clip markers")
-            if item.get("clip_color"):
-                unsupported.append("the item has a clip color")
-            if item.get("flags"):
-                unsupported.append("the item has flags")
             if (item.get("fusion") or {}).get("comp_count", 0):
                 unsupported.append("the item carries a Fusion comp")
             if unsupported:
@@ -1891,21 +1883,6 @@ def _composed(project_folder: str, project, staged, tracks: list,
                                            project_folder=project_folder,
                                            run_id=f"editor-edit-carry:{phase}:{staged_name}",
                                            job_id=f"editor-edit-carry:{phase}:{staged_name}")
-        before = {(_ce.row_label(track["type"], int(track["index"])), index): clip
-                  for track in tracks
-                  for index, clip in enumerate(track.get("clips") or ())}
-        rows = _ce._rows_of(staged)
-        for change in changes:
-            clip = before[(change.row, change.item_index)]
-            landed = [handle for handle in rows.get(change.row) or ()
-                      if _ce._read(handle, "GetStart", None)
-                      == change.record_frame]
-            if len(landed) != 1:
-                continue
-            if clip.get("enabled") is False:
-                landed[0].SetClipEnabled(False)
-            if clip.get("clip_color"):
-                landed[0].SetClipColor(clip["clip_color"])
     return {"plan": receipt.plan, "verified": receipt.verified,
             "rederived": receipt.rederived}
 
