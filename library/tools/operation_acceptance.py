@@ -53,6 +53,17 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     elif op_id == "clip.insert":
         checks = ["target_identity", "source_identity", "requested_record_span",
                   "requested_track", "unrelated_items_unchanged"]
+    elif op_id == "broll.insert":
+        # The cover placement reads back like a clip.insert, and the
+        # instruction additionally promises the underlying speech
+        # survives: the A-roll rows and every audio row overlapping the
+        # covered span must read back identical. Both halves are
+        # structural timeline read-back, judged on the fresh live
+        # snapshot - never on command prose.
+        checks = ["target_identity", "source_identity",
+                  "requested_record_span", "requested_track",
+                  "underlying_speech_preserved",
+                  "unrelated_items_unchanged"]
     elif op_id in {"clip.delete", "overlay.remove"}:
         checks = ["target_absent", "unrelated_items_unchanged"]
     elif op_id == "clip.remove":

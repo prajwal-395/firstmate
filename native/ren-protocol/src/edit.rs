@@ -83,6 +83,20 @@ pub enum EditOp {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_unique_id: Option<String>,
     },
+    /// Covers a marked phrase with the supplied matching B-roll on a cover video track, leaving the A-roll and its audio untouched.
+    #[serde(rename = "broll.insert")]
+    BrollInsert {
+        unique_id: ClipId,
+        track_type: String,
+        track_index: i64,
+        record_in: i64,
+        record_out: i64,
+        source_in: i64,
+        source_out: i64,
+        clip: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bin: Option<String>,
+    },
     /// One clip into two at a source frame; join restores it.
     #[serde(rename = "clip.split")]
     ClipSplit { unique_id: ClipId, at_frame: i64 },
@@ -488,6 +502,7 @@ impl EditOp {
             EditOp::ClipDelete { .. } => "clip.delete",
             EditOp::ClipRemove { .. } => "clip.remove",
             EditOp::ClipInsert { .. } => "clip.insert",
+            EditOp::BrollInsert { .. } => "broll.insert",
             EditOp::ClipSplit { .. } => "clip.split",
             EditOp::ClipJoin { .. } => "clip.join",
             EditOp::ClipTrim { .. } => "clip.trim",

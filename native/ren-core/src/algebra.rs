@@ -174,6 +174,13 @@ pub(crate) fn algebra() -> &'static [OpDeclaration] {
         inverse: Inverse { op: Some(String::from("clip.delete")), self_inverse: false, reason: String::new() },
     },
     OpDeclaration {
+        id: "broll.insert", domain: "timeline_structure",
+        required: &["unique_id", "track_type", "track_index", "record_in", "record_out", "source_in", "source_out", "clip"],
+        merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
+        item: false, has_apply: false,
+        inverse: Inverse { op: Some(String::from("clip.delete")), self_inverse: false, reason: String::from("deletes the placed B-roll cover; the A-roll and its audio are untouched by the removal") },
+    },
+    OpDeclaration {
         id: "clip.split", domain: "timeline_structure",
         required: &["unique_id", "at_frame"],
         merge: MergeSemantics::Exclusive, temporal: TemporalEffect::Local,
@@ -817,6 +824,11 @@ pub fn span(op: &EditOp, base: &Snapshot) -> Option<(i64, i64)> {
             record_out,
             ..
         } => Some((*record_in, *record_out)),
+        EditOp::BrollInsert {
+            record_in,
+            record_out,
+            ..
+        } => Some((*record_in, *record_out)),
         EditOp::ClipSplit { unique_id, .. } => item_span(base, &unique_id.0),
         EditOp::ClipJoin {
             unique_id,
@@ -1013,6 +1025,12 @@ pub fn key(op: &EditOp) -> Vec<KeyPart> {
             ]
         }
         EditOp::ClipInsert { unique_id, .. } => {
+            vec![
+                KeyPart::Text("clip".to_string()),
+                KeyPart::Text(unique_id.0.clone()),
+            ]
+        }
+        EditOp::BrollInsert { unique_id, .. } => {
             vec![
                 KeyPart::Text("clip".to_string()),
                 KeyPart::Text(unique_id.0.clone()),
@@ -1467,6 +1485,7 @@ pub fn op_unique_id(op: &EditOp) -> Option<String> {
         EditOp::ClipDelete { unique_id } => Some(unique_id.0.clone()),
         EditOp::ClipRemove { unique_id } => Some(unique_id.0.clone()),
         EditOp::ClipInsert { unique_id, .. } => Some(unique_id.0.clone()),
+        EditOp::BrollInsert { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::ClipSplit { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::ClipJoin { unique_id, .. } => Some(unique_id.0.clone()),
         EditOp::ClipTrim { unique_id, .. } => Some(unique_id.0.clone()),
@@ -1556,6 +1575,7 @@ pub fn op_frame(op: &EditOp) -> Option<i64> {
         EditOp::ClipMarkerDelete { frame, .. } => Some(*frame),
         EditOp::ClipSplit { .. } => None,
         EditOp::ClipInsert { .. } => None,
+        EditOp::BrollInsert { .. } => None,
         EditOp::ClipDelete { .. } => None,
         EditOp::ClipRemove { .. } => None,
         EditOp::ClipJoin { .. } => None,

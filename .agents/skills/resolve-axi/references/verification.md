@@ -15,6 +15,7 @@ The contract names the operation's read-back verifier. A successful API return a
 | `audio.pan` | no_executor | `unique_id`, `pan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio_mix` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `broll.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `source_in`, `source_out`, `clip` | yes | yes | no | no | post-write snapshot checked by _verify_broll_insert |
 | `caption.style` | implemented_unqualified | `unique_id`, `style` | yes | yes | no | no | post-write snapshot checked by _verify_caption_style |
 | `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |

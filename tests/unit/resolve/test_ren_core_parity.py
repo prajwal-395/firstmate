@@ -344,6 +344,11 @@ def _op_cases():
               "record_in": 100, "record_out": 148,
               "media_pool_item": "pool-1", "source_in": 0,
               "source_out": 48}
+    broll_insert = {"op": "broll.insert", "unique_id": "cover:1",
+                    "track_type": "video", "track_index": 2,
+                    "record_in": 240, "record_out": 300,
+                    "source_in": 0, "source_out": 59,
+                    "clip": "broll.mp4"}
     trim = {"op": "clip.trim", "unique_id": "a", "in_frame": 10,
             "out_frame": 100}
     roll = {"op": "clip.roll", "unique_id": "a", "delta_frames": 10,
@@ -453,6 +458,11 @@ def _op_cases():
         ("clip.insert", insert,
          _with_clip(base, _clip("new:1", 100, 148, track_index=2))),
         ("clip.insert-missing", insert, base),
+        ("broll.insert", broll_insert,
+         _with_clip(base, _clip("cover:1", 240, 300, track_index=2,
+                                name="broll.mp4", source_in_frame=0,
+                                source_out_frame=59))),
+        ("broll.insert-missing", broll_insert, base),
         ("clip.split", {"op": "clip.split", "unique_id": "a",
                         "at_frame": 60},
          _with_clip(base, _clip("a", 0, 60))),

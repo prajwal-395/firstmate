@@ -457,6 +457,67 @@ fn verify_multicam_select_angle(op: &EditOp, after: &Snapshot) -> Option<String>
     ))
 }
 
+fn verify_broll_insert(op: &EditOp, after: &Snapshot) -> Option<String> {
+    let EditOp::BrollInsert {
+        unique_id,
+        track_type,
+        track_index,
+        record_in,
+        record_out,
+        source_in,
+        source_out,
+        clip,
+        ..
+    } = op
+    else {
+        return None;
+    };
+    let mut found = vec![];
+    for track in &after.tracks {
+        if track.track_type != *track_type || track.index != *track_index {
+            continue;
+        }
+        for item in &track.clips {
+            if item.unique_id == unique_id.0 {
+                found.push(item);
+            }
+        }
+    }
+    if found.is_empty() {
+        return Some(format!(
+            "no broll cover item {unique_id:?} reads back on {track_type}{track_index}: the placement did not land"
+        ));
+    }
+    if found.len() > 1 {
+        return Some(format!(
+            "broll cover item {unique_id:?} reads back {} times on {track_type}{track_index}: the placed identity is ambiguous",
+            found.len()
+        ));
+    }
+    let placed = found[0];
+    if placed.record_in != *record_in || placed.record_out != *record_out {
+        return Some(format!(
+            "broll cover item {unique_id:?} reads {}..{}, not {record_in}..{record_out}",
+            placed.record_in, placed.record_out
+        ));
+    }
+    let duration = *record_out - *record_in;
+    let start = placed.source_in_frame.unwrap_or(-1);
+    let end = placed.source_out_frame.unwrap_or(-1);
+    if start != *source_in || (duration != end - start + 1 && duration != end - start) {
+        return Some(format!(
+            "broll cover item {unique_id:?} reads source {start}..{end}, not {source_in}..{source_out}"
+        ));
+    }
+    if !clip.is_empty() && placed.name != *clip {
+        return Some(format!(
+            "broll cover item {unique_id:?} reads {:?}, not {clip:?}",
+            placed.name
+        ));
+    }
+    None
+}
+
 fn verify_retime(op: &EditOp, after: &Snapshot) -> Option<String> {
     let (unique_id, duration) = match op {
         EditOp::Retime {
@@ -863,6 +924,7 @@ pub fn verify(op: &EditOp, after: &Snapshot) -> Option<String> {
         EditOp::ClipDelete { .. } => verify_delete(op, after),
         EditOp::ClipRemove { .. } => verify_remove(op, after),
         EditOp::ClipInsert { .. } => verify_presence(op, after, true, "clip"),
+        EditOp::BrollInsert { .. } => verify_broll_insert(op, after),
         EditOp::ClipSplit { .. } => verify_split(op, after),
         EditOp::ClipJoin { .. } => verify_join(op, after),
         EditOp::ClipTrim { .. } => verify_trim(op, after),

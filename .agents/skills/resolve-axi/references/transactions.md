@@ -10,6 +10,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 |---|---|---|---:|---:|---:|---:|---|
 | `audio.fade` | implemented_unqualified | `unique_id`, `fade_in`, `fade_out` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `audio.gain` | implemented_unqualified | `unique_id`, `db` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `broll.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `source_in`, `source_out`, `clip` | yes | yes | no | no | post-write snapshot checked by _verify_broll_insert |
 | `caption.style` | implemented_unqualified | `unique_id`, `style` | yes | yes | no | no | post-write snapshot checked by _verify_caption_style |
 | `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |

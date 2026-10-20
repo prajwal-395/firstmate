@@ -1815,6 +1815,53 @@ def _verify_reel_opening(op, after):
                     f"read back ({type(exc).__name__}: {exc})")
         if failure is not None:
             return f"reel.opening edit {index} ({edit_id}): {failure}"
+def _verify_broll_insert(op, after):
+    """The cover item reads back on its cover track at the exact spans.
+
+    broll.insert places a NEW item, so the read-back addresses it by the
+    op's `unique_id` exactly once: zero matches is a missing placement,
+    more than one is an ambiguous identity. The cover track, the record
+    span, the marked source range and (when named) the B-roll clip name
+    must all read back. Resolve echoes fresh placements with the
+    exclusive source endpoint while existing clips report the inclusive
+    one, so both endpoint forms read as the requested range (measured,
+    `_inclusive_source_end` on the AXI trim path).
+    """
+    found = []
+    for track in after.get("tracks", []):
+        if (track.get("type") != op.get("track_type")
+                or int(track.get("index", -1)) != int(op["track_index"])):
+            continue
+        for clip in track.get("clips") or []:
+            if clip.get("unique_id") == op["unique_id"]:
+                found.append(clip)
+    if not found:
+        return (f"no broll cover item {op['unique_id']!r} reads back on "
+                f"{op.get('track_type')}{op.get('track_index')}: the "
+                f"placement did not land")
+    if len(found) > 1:
+        return (f"broll cover item {op['unique_id']!r} reads back "
+                f"{len(found)} times on "
+                f"{op.get('track_type')}{op.get('track_index')}: the "
+                f"placed identity is ambiguous")
+    clip = found[0]
+    if (int(clip["record_in"]) != int(op["record_in"])
+            or int(clip["record_out"]) != int(op["record_out"])):
+        return (f"broll cover item {op['unique_id']!r} reads "
+                f"{clip['record_in']}..{clip['record_out']}, not "
+                f"{op['record_in']}..{op['record_out']}")
+    duration = int(op["record_out"]) - int(op["record_in"])
+    source_in = int(clip["source_in_frame"])
+    source_out = int(clip["source_out_frame"])
+    if source_in != int(op["source_in"]) or (
+            duration != source_out - source_in + 1
+            and duration != source_out - source_in):
+        return (f"broll cover item {op['unique_id']!r} reads source "
+                f"{source_in}..{source_out}, not "
+                f"{op['source_in']}..{op['source_out']}")
+    if op.get("clip") and clip.get("name") != op["clip"]:
+        return (f"broll cover item {op['unique_id']!r} reads "
+                f"{clip.get('name')!r}, not {op['clip']!r}")
     return None
 
 
@@ -1919,6 +1966,23 @@ ALGEBRA: dict[str, AlgebraOp] = {
         key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
         inverse=_pair("clip.delete"),
         note="Places a pool clip at a stated span; the inverse deletes it."),
+    "broll.insert": AlgebraOp(
+        id="broll.insert", domain="timeline_structure",
+        required=("unique_id", "track_type", "track_index",
+                  "record_in", "record_out", "source_in", "source_out",
+                  "clip"),
+        span=lambda op, base: (int(op["record_in"]), int(op["record_out"])),
+        verify=_verify_broll_insert,
+        key=lambda op: ("clip", op["unique_id"]), merge="exclusive",
+        inverse=_pair("clip.delete",
+                      "deletes the placed B-roll cover; the A-roll and "
+                      "its audio are untouched by the removal"),
+        note="Covers a marked phrase with the supplied matching B-roll: a "
+             "pool clip placed onto a COVER video track at the exact "
+             "marked source range and record span, leaving the A-roll "
+             "and its audio untouched. `clip` is the pool clip's exact "
+             "name (`bin` scopes the search); the inverse deletes the "
+             "placed cover item."),
     "clip.split": AlgebraOp(
         id="clip.split", domain="timeline_structure",
         required=("unique_id", "at_frame"),
@@ -3313,6 +3377,13 @@ _ROUTE_EVALUATION = {
         "next": "Run the deferred live qualification with per-card rendered evidence, text/timing preservation and swap-back recovery before enabling normal routing.",
         "not_yet_evaluated": [],
     },
+    "broll.insert": {
+        "inspected": ["Resolve 21.1 AppendToTimeline with mediaPoolItem/startFrame/endFrame/mediaType/trackIndex/recordFrame", "AXI edit place read-back (item count delta, placed span inventory)", "timeline_shadow live snapshot inventory"],
+        "available": ["the registered resolve_axi adapter revalidates the cover track and the underlying speech rows against the prepared snapshot, places through the journaled edit place verb, and verifies the placed cover item plus unchanged A-roll/audio from a fresh live read-back"],
+        "gaps": ["live Resolve qualification remains deferred; normal production routing refuses until operation-specific qualification records land", "MCP run_script supplies no AXI transaction contract and is not a backend"],
+        "next": "Run the deferred live qualification on a disposable Resolve timeline (exact cover placement, A-roll/audio preservation, journal recovery) before enabling normal routing.",
+        "not_yet_evaluated": [],
+    },
 }
 _WORKFLOW_EVIDENCE = {
     "clip.ripple": (
@@ -3351,6 +3422,10 @@ _IMPLEMENTATION_EVIDENCE = {
     ("clip.trim", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
+    ),
+    ("broll.insert", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_broll_insert",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_place",
     ),
     ("clip.ripple", "reel_touchup"): (
         "library/tools/edit_execution_adapters.py:_touchup",
@@ -3433,6 +3508,8 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("one audio-only request; fade durations are frame-rounded at the timeline rate; every audio item's native fades must match on source/staging before write and all unrelated fade values must read unchanged afterward; no independent rendered-audio evidence is recorded yet",),
     ("clip.trim", "resolve_axi"):
         ("source-window narrowing only; requires readable source and record spans, and AXI re-place/delete read-back",),
+    ("broll.insert", "resolve_axi"):
+        ("cover video track only (V2+; V1 and audio rows are refused); exact marked source range and record span with matching record duration; the underlying A-roll and all audio must read back unchanged; a verified undo journal entry is required before the placement is claimed",),
     ("clip.delete", "resolve_axi"):
         ("local delete leaves a gap; ripple must be a separate explicitly requested staged operation",),
     ("clip.remove", "edit_patch"):
@@ -3508,7 +3585,7 @@ def _executor_coverage() -> dict[str, set[str]]:
             # Existing AXI commands now have semantic EditRequest adapters.
             # They remain implemented/unqualified until operation-specific
             # live qualification records are added.
-            "clip.trim", "caption_fix", "multicam.select_angle",
+            "clip.trim", "caption_fix", "broll.insert", "multicam.select_angle",
             "caption.style",
             # Planning-level: no command of its own, executed through the
             # trim/delete commands its carried edits name. Unqualified
@@ -3532,7 +3609,7 @@ def _executor_coverage() -> dict[str, set[str]]:
 
 
 def _resolve_capabilities(op: AlgebraOp) -> tuple[str, ...]:
-    if op.id == "clip.insert":
+    if op.id in {"clip.insert", "broll.insert"}:
         return ("media pool", "timeline placement")
     if op.id.startswith(("marker.", "clip_marker.")):
         return ("timeline markers",) if not op.id.startswith("clip_") else ("timeline item markers",)
@@ -3564,7 +3641,7 @@ def _media_types(op: AlgebraOp) -> tuple[str, ...]:
         return ("still", "video", "Fusion graphic")
     if op.domain in {"color", "picture_transform", "fusion"}:
         return ("video", "still")
-    if op.id in {"clip.insert", "clip.delete", "clip.remove",
+    if op.id in {"clip.insert", "broll.insert", "clip.delete", "clip.remove",
                  "clip.move", "clip.trim",
                  "clip.replace", "clip.split", "clip.join", "clip.roll",
                  "clip.slip", "clip.slide", "clip.ripple", "reel.opening"}:
@@ -4015,6 +4092,7 @@ OP_SAFETY_CLASS: dict[str, str] = {
     "clip.delete": SAFETY_STRUCTURAL,
     "clip.remove": SAFETY_STRUCTURAL,
     "clip.insert": SAFETY_STRUCTURAL,
+    "broll.insert": SAFETY_STRUCTURAL,
     "clip.split": SAFETY_STRUCTURAL,
     "clip.join": SAFETY_STRUCTURAL,
     "clip.trim": SAFETY_STRUCTURAL,
@@ -4056,6 +4134,7 @@ VC20_TARGET_STRATEGY = {
     "clip.move": "incremental staged edit",
     "clip.replace": "incremental staged edit with source/effect preservation",
     "clip.trim": "incremental staged edit with timing verification",
+    "broll.insert": "staged cover-track placement with speech preservation, once qualified",
     "caption_fix": "targeted caption regeneration",
     "caption.style": "targeted caption regeneration in the requested style",
     "clip.ripple": "dependency-aware structural transaction",
@@ -4099,8 +4178,8 @@ OP_STATUS = {
 #: half of a direct proof.
 _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "marker.add", "marker.delete", "clip_marker.add", "clip_marker.delete",
-    "clip.delete", "clip.remove", "clip.insert", "clip.split", "clip.join",
-    "clip.trim",
+    "clip.delete", "clip.remove", "clip.insert", "broll.insert", "clip.split",
+    "clip.join", "clip.trim",
     "clip.ripple", "clip.roll", "clip.slip", "clip.slide", "clip.move",
     "clip.replace", "clip.set_enabled",
     "clip.smart_reframe", "clip.set_property",

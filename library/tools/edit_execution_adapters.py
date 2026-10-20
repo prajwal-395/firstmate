@@ -24,7 +24,7 @@ def _project_folder(context) -> str:
 _POSITION_INVALIDATING_OPERATIONS = frozenset({
     "clip.delete", "clip.remove", "clip.trim", "clip.move", "clip.split",
     "clip.slide", "clip.roll",
-    "clip.ripple", "clip.insert", "track.add", "overlay.add",
+    "clip.ripple", "clip.insert", "broll.insert", "track.add", "overlay.add",
     "overlay.remove",
     # A planning-level opening tighten executes its carried trim/remove
     # edits against live state; a later positional write in the same
@@ -364,6 +364,219 @@ def _caption_fix(context) -> dict:
         "caption_fix is refused before mutation: fresh timeline inventory "
         "does not expose title text, so independent read-back evidence is "
         "missing")
+
+
+def _speech_row_signatures(snapshot: Mapping) -> list:
+    """The V1 plus every audio row as comparable identity tuples.
+
+    The speech broll.insert promises to preserve: the A-roll video row
+    and every audio row, with each clip's identity and spans. The cover
+    row itself is excluded - the placement lands there.
+    """
+    rows = []
+    for track in snapshot.get("tracks", []):
+        track_type = str(track.get("type", ""))
+        try:
+            track_index = int(track.get("index", 0))
+        except (TypeError, ValueError):
+            continue
+        if not (track_type == "audio"
+                or (track_type == "video" and track_index == 1)):
+            continue
+        for clip in track.get("clips") or []:
+            rows.append((track_type, track_index, str(clip.get("unique_id")),
+                         int(clip["record_in"]), int(clip["record_out"]),
+                         int(clip["source_in_frame"]),
+                         int(clip["source_out_frame"]),
+                         str(clip.get("source_file", ""))))
+    return sorted(rows)
+
+
+def _broll_insert(context) -> dict:
+    """Place supplied B-roll over a marked phrase without touching speech.
+
+    The physical write is the journaled AXI `edit place` verb (the same
+    AppendToTimeline placement clip.insert is built on), constrained to
+    a cover video track: V1 and every audio row are refused before any
+    write, so the A-roll and its audio cannot be overwritten. The
+    prepared speech rows are re-read live before the write and must
+    match preparation; afterwards the placed cover item and the
+    unchanged speech rows are judged from a fresh live snapshot, and
+    the placement is claimed only with a verified undo journal
+    reference.
+    """
+    from library.tools import edit_algebra, operation_acceptance, resolve_axi_core
+
+    operation = dict(context.operation)
+    track_type = str(operation.get("track_type", "video"))
+    try:
+        track_index = int(operation["track_index"])
+        record_in = int(operation["record_in"])
+        record_out = int(operation["record_out"])
+        source_in = int(operation["source_in"])
+        source_out = int(operation["source_out"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"broll.insert needs integer track/record/source spans ({exc})")
+    clip_name = str(operation.get("clip") or "")
+    if track_type != "video":
+        raise ValueError(
+            f"broll.insert refuses {track_type!r}: a cover is video "
+            "over the A-roll, never an audio write")
+    if track_index < 2:
+        raise ValueError(
+            f"broll.insert refuses video track {track_index}: the cover "
+            "lands on a cover track (V2+), never on the V1 A-roll")
+    if not clip_name:
+        raise ValueError(
+            "broll.insert needs the pool clip name ('clip') of the "
+            "supplied matching B-roll")
+    if record_out <= record_in or source_out <= source_in:
+        raise ValueError(
+            "broll.insert needs positive record and source spans")
+    if record_out - record_in != source_out - source_in + 1:
+        raise ValueError(
+            f"broll.insert record span {record_in}..{record_out} does not "
+            f"match the marked source range {source_in}..{source_out} "
+            "(inclusive): the cover plays the whole marked range exactly")
+    before = context.snapshot
+    live_before = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    cover_tracks = [track for track in live_before.get("tracks", [])
+                    if str(track.get("type")) == "video"
+                    and int(track.get("index", -1)) == track_index]
+    if len(cover_tracks) != 1:
+        raise ValueError(
+            f"broll.insert cover track V{track_index} is absent from "
+            "the live timeline - create the row before covering it")
+    for clip in cover_tracks[0].get("clips") or []:
+        if int(clip["record_in"]) < record_out \
+                and record_in < int(clip["record_out"]):
+            raise ValueError(
+                f"broll.insert cover span {record_in}..{record_out} is "
+                f"occupied on V{track_index} by "
+                f"{clip.get('unique_id')!r} - refusing rather than "
+                "stacking a second cover")
+    if (_speech_row_signatures(live_before)
+            != _speech_row_signatures(before)):
+        raise ValueError(
+            "broll.insert speech rows changed since preparation: the "
+            "A-roll or audio underneath no longer reads as prepared - "
+            "re-prepare before covering it")
+    command = [
+        "edit", "place",
+        "--clip", clip_name,
+    ]
+    if str(operation.get("bin") or ""):
+        command += ["--bin", str(operation["bin"])]
+    command += [
+        "--source-in", str(source_in), "--source-out", str(source_out),
+        "--media", "video",
+        "--track", str(track_index), "--record", str(record_in),
+        "--project-folder", _project_folder(context), "--require-recovery",
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ]
+    result = resolve_axi_core.execute(command)
+    if not result.ok:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip()
+                           or "AXI edit place for broll.insert failed")
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    before_uids = {str(clip.get("unique_id")) for track in before.get("tracks", [])
+                   for clip in track.get("clips") or []}
+    spec = edit_algebra.get("broll.insert")
+    placed = [str(clip["unique_id"])
+              for track in after.get("tracks", [])
+              for clip in track.get("clips") or []
+              if str(clip.get("unique_id")) not in before_uids
+              and spec.verify({**operation,
+                               "unique_id": str(clip.get("unique_id"))},
+                              after) is None]
+    if len(placed) != 1:
+        raise RuntimeError(
+            f"broll.insert placed {len(placed)} verifiable cover items, "
+            "not exactly one - verify by hand before retrying")
+    placed_uid = placed[0]
+    placed_clip = next(clip for track in after.get("tracks", [])
+                       for clip in track.get("clips") or []
+                       if str(clip.get("unique_id")) == placed_uid)
+    speech_preserved = (_speech_row_signatures(after)
+                        == _speech_row_signatures(before))
+    evidence = {
+        "target_identity": True,
+        "source_identity": True,
+        "requested_record_span": True,
+        "requested_track": True,
+        "underlying_speech_preserved": speech_preserved,
+    }
+    from library.tools.transaction_orchestration import unrelated_clip_changes
+
+    collateral = unrelated_clip_changes(
+        operations=[{"unique_id": placed_uid,
+                     "client_unique_id": str(operation.get("unique_id") or "")}],
+        affected_spans=[(record_in, record_out)], id_map=None,
+        before=before, after=after)
+    evidence["unrelated_items_unchanged"] = not collateral
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": "broll.insert"},
+        readback_passed=all((evidence["target_identity"],
+                             evidence["source_identity"],
+                             evidence["requested_record_span"],
+                             evidence["requested_track"],
+                             evidence["underlying_speech_preserved"])),
+        evidence=evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            "AXI read-back acceptance failed for broll.insert: "
+            f"missing evidence [{missing}], failed checks [{failed}]")
+    import re
+
+    journal_match = re.search(r"(?m)^\s*entry:\s*(\S+)\s*$",
+                              result.stdout)
+    if not journal_match:
+        raise RuntimeError(
+            "broll.insert verified without a recovery journal reference")
+    recovery_reference = {
+        "kind": "undo_journal_entry",
+        "project_folder": _project_folder(context),
+        "entry_id": journal_match.group(1),
+    }
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": "broll.insert",
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            "unique_id": placed_uid,
+            "client_unique_id": str(operation.get("unique_id") or ""),
+            "source_file": str(placed_clip.get("source_file", "")),
+            "source_in_frame": int(placed_clip["source_in_frame"]),
+            "source_out_frame": int(placed_clip["source_out_frame"]),
+            "record_in": int(placed_clip["record_in"]),
+            "record_out": int(placed_clip["record_out"]),
+        },
+        "readback": {"snapshot": after, "command_output": result.stdout},
+        "acceptance_contracts": [acceptance],
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "broll.insert", "passed": True},),
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline"},
+            },
+            "recovery": {
+                "status": "available",
+                "action": ("AXI undo journal; delete the placed cover item "
+                           "to restore the timeline"),
+                "reference": recovery_reference,
+            },
+        },
+    }
 
 
 def _caption_style_props(source_file: str) -> dict:
@@ -1206,6 +1419,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.remove", "resolve_axi"): _remove,
         ("reel.opening", "resolve_axi"): _reel_opening,
         ("caption_fix", "resolve_axi"): _caption_fix,
+        ("broll.insert", "resolve_axi"): _broll_insert,
         ("multicam.select_angle", "resolve_axi"): _multicam_select_angle,
         ("caption.style", "resolve_axi"): _caption_style,
         ("clip.move", "reel_touchup"): _touchup,

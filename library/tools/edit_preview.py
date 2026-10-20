@@ -186,6 +186,18 @@ def _effect_clip_insert(op, state):
     return (None, dict(after) if after else None)
 
 
+def _effect_broll_insert(op, state):
+    # The cover is a clip.insert-shaped placement: translate this op's
+    # marked-range keys onto the placement effect's, then reuse it.
+    return _effect_clip_insert({
+        "unique_id": op["unique_id"], "track_type": op["track_type"],
+        "track_index": op["track_index"], "record_in": op["record_in"],
+        "record_out": op["record_out"], "name": op.get("clip", ""),
+        "source_in_frame": op.get("source_in", 0),
+        "source_out_frame": op.get("source_out", 0),
+    }, state)
+
+
 def _effect_clip_split(op, state):
     uid, at = op["unique_id"], int(op["at_frame"])
     before = _clip_state(state, uid)
@@ -730,6 +742,7 @@ _EFFECTS = {
     "clip_marker.delete": _effect_clip_marker_delete,
     "clip.delete": _effect_clip_delete,
     "clip.insert": _effect_clip_insert,
+    "broll.insert": _effect_broll_insert,
     "clip.split": _effect_clip_split,
     "clip.join": _effect_clip_join,
     "clip.trim": _effect_clip_trim,

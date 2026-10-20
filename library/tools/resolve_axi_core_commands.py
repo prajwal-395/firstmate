@@ -8463,6 +8463,13 @@ def build_parser() -> Parser:
                    help="destination track index")
     q.add_argument("--record", default=None, type=int,
                    help="record frame position")
+    q.add_argument("--project-folder", default="",
+                   help="pipeline project folder: with --apply, "
+                        "journal the write through the undo journal "
+                        "so `ren undo` can reverse it (without this "
+                        "the write acts but is not undone)")
+    q.add_argument("--require-recovery", action="store_true",
+                   help="refuse before writing unless the undo journal opens")
     q.add_argument("--apply", action="store_true",
                    help="append under the Resolve lease with the "
                         "cursor asserted (default is a dry-run plan)")

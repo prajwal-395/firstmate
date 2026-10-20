@@ -13,6 +13,7 @@ Inverse metadata is descriptive. Follow the transaction receipt and recovery pol
 | `audio.pan` | `none` | True | the inverse carries the previous pan |
 | `audio_mix` | `none` | False | a planner re-run has no timeline inverse (C-04) |
 | `brand_asset` | `none` | False | a planner re-run has no timeline inverse (C-04) |
+| `broll.insert` | `clip.delete` | False | deletes the placed B-roll cover; the A-roll and its audio are untouched by the removal |
 | `caption.style` | `none` | True | the inverse carries the previous style |
 | `caption_fix` | `none` | True | the inverse carries the previous text |
 | `clip.delete` | `clip.insert` | False | re-inserts the deleted source range |
