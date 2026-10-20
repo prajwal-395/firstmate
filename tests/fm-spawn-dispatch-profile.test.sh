@@ -2584,6 +2584,8 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
   read_case_record "$rec"
   printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  mkdir -p "$HOME_DIR/pinned-pi"
+  printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
   record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
   record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
   datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "main fixture login could not be built"
@@ -2600,9 +2602,11 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
   assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_MAIN_ORG_ID'" "main workspace id did not reach Pi"
   assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "main Pi worker has no task-scoped session"
   assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "main Pi worker did not receive its task-private db"
-  assert_contains "$launch" "env -u PI_CODING_AGENT_DIR" "an unpinned Pi worker must use the default agent directory"
-  assert_contains "$(cat "$HOME_DIR/user-home/.pi/agent/models.json")" "muse-spark-1.3-contributor" "the default Pi directory lacks the Go models"
-  pass "the main paid Go rung keeps its model and workspace when routed through Pi"
+  assert_contains "$launch" "PI_CODING_AGENT_DIR='$HOME_DIR/pinned-pi'" "the pinned Pi agent directory did not reach the launch"
+  assert_not_contains "$launch" "env -u PI_CODING_AGENT_DIR" "the pinned Pi agent directory was unset before Pi started"
+  assert_not_contains "$launch" "__PIAPPROVE__" "main Pi worker retained a launch-template placeholder"
+  assert_contains "$(cat "$HOME_DIR/pinned-pi/models.json")" "muse-spark-1.3-contributor" "the pinned Pi directory lacks the Go models"
+  pass "the main paid Go rung keeps its model and workspace in the pinned Pi directory"
 
   id=pi-go-secondary-z36
   rec=$(make_spawn_case pi-go-secondary opencode "$id")
@@ -2625,7 +2629,10 @@ test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
   assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_SECOND_ORG_ID'" "secondary workspace id did not reach Pi"
   assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "secondary Pi worker has no task-scoped session"
   assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "secondary Pi worker did not receive its task-private db"
-  pass "the second paid Go rung keeps its model and workspace when routed through Pi"
+  assert_contains "$launch" "env -u PI_CODING_AGENT_DIR" "an unpinned Pi worker must use the default agent directory"
+  assert_not_contains "$launch" "__PIAPPROVE__" "secondary Pi worker retained a launch-template placeholder"
+  assert_contains "$(cat "$HOME_DIR/user-home/.pi/agent/models.json")" "muse-spark-1.3-contributor" "the default Pi directory lacks the Go models"
+  pass "the second paid Go rung keeps its model and workspace in Pi's default directory"
 }
 
 test_pi_opencode_go_config_refuses_malformed_values() {

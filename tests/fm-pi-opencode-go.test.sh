@@ -42,7 +42,7 @@ cat > "$AGENT/models.json" <<'JSON'
 {"$schema":"https://pi.dev/schemas/models.schema.json","providers":{"local":{"baseUrl":"http://localhost:11434/v1","api":"openai-completions","apiKey":"local","models":[{"id":"qwen"}]}}}
 JSON
 "$HELPER" install "$AGENT" || fail "provider installation failed"
-jq -e '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith("!bash ")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["minimax-m3.1-flash-free", "muse-spark-1.3-contributor"])' "$AGENT/models.json" >/dev/null \
+jq -e '.providers.local.models[0].id == "qwen" and .providers["opencode-go"].baseUrl == "https://opencode.ai/inference/go/openai/v1" and .providers["opencode-go"].api == "openai-completions" and (.providers["opencode-go"].apiKey | startswith("!bash ")) and .providers["opencode-go"].headers["x-opencode-org-id"] == "${FM_OPENCODE_ORG_ID}" and .providers["opencode-go"].headers["x-opencode-session"] == "${FM_OPENCODE_SESSION}" and ([.providers["opencode-go"].models[].id] == ["minimax-m3.1-flash-free", "muse-spark-1.3-contributor"]) and .providers["opencode-go"].models[1].api == "openai-responses"' "$AGENT/models.json" >/dev/null \
   || fail "provider install did not preserve Pi settings and configure both ladder models"
 pass "Pi provider install preserves other providers and adds both OpenCode Go models with per-task headers"
 

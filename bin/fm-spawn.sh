@@ -2874,6 +2874,10 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   PI_TUI_MODE=
   if pi_supports_tui_mode "$PI_BIN"; then PI_TUI_MODE=' --tui-mode regular'; fi
   LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
+  # This route is only used for ordinary ship/scout workers, so the seeded
+  # secondmate approval option is always empty. Still resolve the template
+  # placeholder before the launch reaches Pi.
+  LAUNCH=${LAUNCH//__PIAPPROVE__/}
   PI_EXCLUDE=
   EXCLUDE_TOOLS=$(fm_exclude_tools_check pi "$RAW_LAUNCH" "$CONFIG") || exit 1
   [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
@@ -3077,7 +3081,7 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
       *" $PI_MODEL_PROVIDER "*) ;;
       *) echo "error: config/pi-account does not authorize provider '$PI_MODEL_PROVIDER' for this OpenCode Go worker" >&2; exit 1 ;;
     esac
-    WORKER_ACCOUNT="$WORKER_ACCOUNT_DECLARED$'\t'$WORKER_ACCOUNT_ROOT$'\t'$PI_MODEL_PROVIDER"
+    WORKER_ACCOUNT="${WORKER_ACCOUNT_DECLARED}"$'\t'"${WORKER_ACCOUNT_ROOT}"$'\t'"${PI_MODEL_PROVIDER}"
   else
     WORKER_ACCOUNT=
   fi
@@ -3093,7 +3097,8 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR" || exit 1
   PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
   [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
-  LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") env -u PI_CODING_AGENT_DIR $LAUNCH"
+  LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") $LAUNCH"
+  [ -n "$WORKER_ACCOUNT_ROOT" ] || LAUNCH="env -u PI_CODING_AGENT_DIR $LAUNCH"
 fi
 if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   if [ -n "$WORKER_ACCOUNT_ROOT" ]; then

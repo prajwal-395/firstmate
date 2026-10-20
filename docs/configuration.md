@@ -1232,6 +1232,7 @@ Secondmates and tasks that do not resolve to one of those two OpenCode-backed ru
 
 Firstmate installs or merges its OpenCode Go provider into the Pi agent directory the worker actually uses: the pinned Pi account directory when a worker account is selected, or Pi's default agent directory otherwise.
 The provider uses the OpenCode Go inference endpoint and the same model ids as the OpenCode ladder.
+MiniMax M3.1 Flash Free uses OpenAI Chat Completions; Muse Spark 1.3 Contributor selects OpenAI Responses for its model-specific protocol.
 Firstmate supplies each task's selected workspace id and stable `x-opencode-session` value through that launch's environment, and uses the existing workspace pin database to create the task's private credential database.
 
 Pi does not refresh OpenCode console credentials itself.

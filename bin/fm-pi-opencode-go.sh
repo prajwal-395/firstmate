@@ -59,7 +59,7 @@ install_unlocked() {
       },
       "models":[
         {"id":"minimax-m3.1-flash-free","name":"MiniMax M3.1 Flash Free","reasoning":true,"input":["text","image"],"contextWindow":1000000,"maxTokens":512000,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}},
-        {"id":"muse-spark-1.3-contributor","name":"Muse Spark 1.3 Contributor","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0.002,"cacheWrite":0}}
+        {"id":"muse-spark-1.3-contributor","name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0.002,"cacheWrite":0}}
       ]
     }
   ' "$models" > "$tmp" || { echo "error: could not update Pi's OpenCode Go provider" >&2; return 1; }
