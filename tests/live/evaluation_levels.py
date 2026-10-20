@@ -1,32 +1,12 @@
-"""Shared evaluation taxonomy; reports must name the level they establish."""
+"""The evaluation taxonomy, now owned by the engine.
 
-LEVELS = {
-    1: {
-        "name": "primitive_qualification",
-        "question": "Can the backend perform a specified operation?",
-    },
-    2: {
-        "name": "semantic_execution",
-        "question": "Can AXI safely execute a typed request?",
-    },
-    3: {
-        "name": "autonomous_orchestration",
-        "question": "Can Ren infer operations and targets from an instruction?",
-    },
-    4: {
-        "name": "editorial_acceptance",
-        "question": "Does the completed video satisfy the creative brief?",
-    },
-}
+The definition lives in `library/tools/evaluation_levels.py` because the
+acceptance runner that reads it ships in the engine, and a packaged
+engine carries `library/` but not `tests/`. This module keeps the old
+import path working, so the live harness and its contract tests are
+unaffected.
+"""
 
+from library.tools.evaluation_levels import LEVELS, catalog
 
-def catalog() -> list[dict[str, object]]:
-    coverage = {
-        1: "live_backend_qualification_suites",
-        2: "evaluator_directed_semantic_acceptance",
-        3: "blind_runner_implemented_live_agent_run_pending",
-        4: "scorer_implemented_judgment_run_pending",
-    }
-    return [{"level": number, **definition,
-             "evidence_status": coverage[number]}
-            for number, definition in LEVELS.items()]
+__all__ = ["LEVELS", "catalog"]
