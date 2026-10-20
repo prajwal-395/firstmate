@@ -23,6 +23,64 @@ def test_sdk_and_core_use_same_dispatch_and_version_output():
     )
 
 
+# ── The CLI's own answers reach the caller (break-test finding D6) ─────
+#
+# `execute()` captures stdout and stderr into StringIOs, and argparse
+# answers `--help` and a usage error by raising SystemExit - which
+# discarded the buffers with the exception. `bin/resolve-axi --help`
+# printed nothing, and the resolve-axi skill tells every agent to start
+# there.
+
+
+def test_the_help_reaches_the_caller_on_stdout():
+    """Catches: `resolve-axi --help` printing nothing at all."""
+    result = execute(["--help"])
+    assert result.exit_code == 0
+    assert result.ok
+    assert "usage: resolve-axi" in result.stdout
+    assert result.stderr == ""
+
+
+def test_a_subcommand_help_reaches_the_caller_on_stdout():
+    """Catches: `resolve-axi capabilities --help` printing nothing."""
+    result = execute(["capabilities", "--help"])
+    assert result.exit_code == 0
+    assert "usage: resolve-axi capabilities" in result.stdout
+    assert result.stderr == ""
+
+
+def test_a_usage_error_reaches_the_caller_on_stderr():
+    """Catches: an unknown flag answering with silence, because the
+    parser's message went into the captured stdout and was dropped with
+    the SystemExit that carried the exit code."""
+    result = execute(["--json"])
+    assert result.exit_code == 2
+    assert not result.ok
+    assert result.stdout == ""
+    assert "unrecognized arguments: --json" in result.stderr
+
+
+def test_the_cli_door_writes_the_help_to_stdout(capsys):
+    """Catches: the CLI entry rendering the captured help nowhere."""
+    assert resolve_axi.main(["--help"]) == 0
+    captured = capsys.readouterr()
+    assert "usage: resolve-axi" in captured.out
+    assert captured.err == ""
+
+
+def test_the_adopt_verb_delivers_its_help():
+    """Catches: `ren adopt --help` printing nothing - the same defect
+    through another door, because the verb execs the AXI CLI."""
+    from ren.commands import VERBS
+
+    verb = next(item for item in VERBS if item.name == "adopt")
+    assert verb.module_argv == ("library.tools.resolve_axi", "ownership")
+    result = execute([*verb.module_argv[1:], "--help"])
+    assert result.exit_code == 0
+    assert "usage: resolve-axi ownership" in result.stdout
+    assert result.stderr == ""
+
+
 def test_typed_transaction_keeps_one_editpatch_receipt_shape():
     transaction = AxiTransaction(
         id="stable-key",

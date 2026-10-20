@@ -106,10 +106,14 @@ Output contract (axi.md principles 1-6, 9-10):
   CSV rows - the same quote character `toon_serializer` uses, because
   prose here holds apostrophes and embedded JSON holds double quotes)
   followed by `help[]` next-step hints.
-- Errors go to stdout as `error: ...` plus a `help: ...` fix line.
-  Exit 0 is success (including no-ops), 1 is an error, 2 is a usage
-  error such as an unknown flag - which is always rejected loudly,
-  never ignored.
+- A command's own refusals go to stdout as `error: ...` plus a
+  `help: ...` fix line. Exit 0 is success (including no-ops), 1 is an
+  error, 2 is a usage error such as an unknown flag - which is always
+  rejected loudly, never ignored.
+- A USAGE error is a misuse of the command line, so it goes to stderr
+  with exit 2 - the way argparse's own usage errors do and the way
+  `ren` answers an unknown verb. `--help` is not an error: it prints
+  on stdout and exits 0.
 - Large text (marker notes) is truncated with a size hint and a
   `--full` escape hatch.
 - `-v` / `-V` / `--version` answer from this leaf module before any
@@ -243,6 +247,12 @@ def emit(parts: list) -> None:
     sys.stdout.write("\n".join(p for p in parts if p) + "\n")
 
 
+def emit_usage_error(parts: list) -> None:
+    """The same shape as `emit`, on stderr: a usage error is a misuse of
+    the command line, not one of the command's own refusals."""
+    sys.stderr.write("\n".join(p for p in parts if p) + "\n")
+
+
 def preview(text: str, full: bool) -> str:
     text = text or ""
     if full or len(text) <= NOTE_PREVIEW_CHARS:
@@ -290,13 +300,20 @@ def _read_notes(timeline, fix: str):
 
 
 class Parser(argparse.ArgumentParser):
-    """argparse that fails loud onto stdout with exit 2 (axi principle 6).
+    """argparse that fails loud onto stderr with exit 2 (axi principle 6).
 
     The error TEACHES the working invocation (axi principle 9),
     because the predictable wrong guess is known: timelines are
     addressed with `--timeline` (or a bare name), and an agent
     guessing `--reel` should land on the right flag in one turn,
     not after a `--help` round trip.
+
+    A usage error is a misuse of the COMMAND LINE, not one of the
+    command's own refusals: it goes to stderr with exit 2, the way
+    argparse's own usage errors do and the way `ren` answers an
+    unknown verb. A command's own refusals stay on stdout with exit
+    1, and `--help` is not an error at all - it prints on stdout and
+    exits 0.
     """
 
     def error(self, message):
@@ -318,7 +335,7 @@ class Parser(argparse.ArgumentParser):
                 f"--project-folder <project>")
         else:
             lines.append(f"help: {self.prog} --help lists the valid flags")
-        emit(lines)
+        emit_usage_error(lines)
         raise SystemExit(2)
 
 

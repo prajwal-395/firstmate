@@ -1113,7 +1113,16 @@ def _registered_recovery_reference_is_actionable(recovery: Mapping) -> bool:
 
 
 def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
-    """Execute a command in-process through the canonical AXI dispatcher."""
+    """Execute a command in-process through the canonical AXI dispatcher.
+
+    Every invocation answers with a result, including the ones argparse
+    answers by raising `SystemExit`: `--help` prints the help on stdout
+    and exits 0, a usage error prints the error on stderr and exits 2.
+    Those answers are written into the buffers captured below, so they
+    are RETURNED rather than dropped with the exception - dropping them
+    is what made `resolve-axi --help` print nothing while the
+    resolve-axi skill tells every agent to start there (finding D6).
+    """
     if isinstance(operation, AxiOperation):
         argv = list(operation.argv())
     else:
@@ -1128,8 +1137,26 @@ def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
     with _EXECUTION_LOCK:
         stdout, stderr = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            code = resolve_axi._main_impl(argv)
+            try:
+                code = resolve_axi._main_impl(argv)
+            except SystemExit as raised:
+                code = _exit_code(raised, stderr)
     return AxiResult(int(code), stdout.getvalue(), stderr.getvalue())
+
+
+def _exit_code(raised: SystemExit, stderr: io.StringIO) -> int:
+    """The exit code a `SystemExit` carries, and where its text belongs.
+
+    `sys.exit()` with no argument means success; `sys.exit("text")` means
+    the text IS the error, so it is written to stderr and the exit is 1.
+    """
+    code = raised.code
+    if code is None:
+        return 0
+    if isinstance(code, int):
+        return int(code)
+    stderr.write(f"{code}\n")
+    return 1
 
 
 def read_live_timeline(project: str, timeline: str) -> dict:

@@ -2780,16 +2780,14 @@ def test_every_refusal_names_its_cause_and_claims_nothing(
     _run_rows(_REFUSALS, monkeypatch, tmp_path, capsys)
 
 
-def test_writes_keep_explicit_flags():
+def test_writes_keep_explicit_flags(capsys):
     """The positional rule stops at reads: a destructive path with a
     bare primary argument is one typo from the wrong reel, so `edit`
     owns no positional - missing flags fail loud at argparse."""
-    with pytest.raises(SystemExit) as exc:
-        resolve_axi.main(["edit", "delete"])
-    assert exc.value.code == 2
-    with pytest.raises(SystemExit) as exc:
-        resolve_axi.main(["edit", "delete", "--timeline", "Reel 29"])
-    assert exc.value.code == 2
+    assert resolve_axi.main(["edit", "delete"]) == 2
+    assert "--track" in capsys.readouterr().err
+    assert resolve_axi.main(["edit", "delete", "--timeline", "Reel 29"]) == 2
+    assert "--index" in capsys.readouterr().err
 
 
 def test_render_start_apply_waits_for_completion(edit_patched, monkeypatch,
