@@ -1213,6 +1213,7 @@ def verify_execution(patch: EditPatch, *, base: dict, head_generation: int,
     judged_receipt = _orch.verify_readback(
         list(patch.operations), ran, after, base=base, id_map=id_map,
         affected_spans=patch.affected_spans,
+        conflict_domains=patch.conflict_domains,
         postconditions=list(patch.postconditions),
         acceptance_evidence=acceptance_evidence, stopped=stopped,
         hold_seconds=hold_seconds, head_generation=head_generation,

@@ -222,10 +222,34 @@ def unrelated_clip_changes(*, operations: Sequence[Mapping],
     return changed
 
 
+def _preservation_verdict(*, operations: Sequence[Mapping],
+                          before: Mapping, after: Mapping,
+                          affected_spans: Sequence[Sequence[int]],
+                          conflict_domains: Sequence[str]) -> dict:
+    """Judge the preservation invariant over the SAME two snapshots.
+
+    One pass, off the snapshots the caller already read: the authorized
+    scope, the expected delta computed from the operations, the actual
+    delta read off the post-write snapshot, and the comparison. A change
+    the scope did not authorize is collateral, and a transaction that
+    produced collateral is not committed - the edit landed, but it landed
+    on more than it was told to touch.
+    """
+    from library.tools import preservation_invariant
+
+    scope = preservation_invariant.scope_for(
+        operations, conflict_domains=conflict_domains,
+        affected_spans=affected_spans)
+    verdict = preservation_invariant.invariant(
+        scope=scope, before=before, operations=operations, after=after)
+    return verdict.as_dict()
+
+
 def verify_readback(patch_operations: Sequence[Mapping],
                     ran: Sequence[Mapping], after: Mapping, *,
                     base: Mapping, id_map: Mapping | None = None,
                     affected_spans: Sequence[Sequence[int]] = (),
+                    conflict_domains: Sequence[str] = (),
                     postconditions: Sequence[Mapping] = (),
                     acceptance_evidence: Mapping | None = None,
                     stopped: Mapping | None = None,
@@ -275,9 +299,13 @@ def verify_readback(patch_operations: Sequence[Mapping],
             verify_op, readback_passed=(result["failure"] is None),
             evidence=evidence))
     post_failures = _judge_conditions(postconditions, after, base)
+    preservation = _preservation_verdict(
+        operations=judged_ops, before=base, after=after,
+        affected_spans=affected_spans, conflict_domains=conflict_domains)
     ok = (stopped is None and not post_failures
           and all(contract["passed"] for contract in acceptance_contracts)
-          and not any(row["failure"] for row in judged))
+          and not any(row["failure"] for row in judged)
+          and preservation["status"] == "preserved")
     return {
         "patch_id": patch_id,
         "status": "committed" if ok else "verification_failed",
@@ -294,6 +322,7 @@ def verify_readback(patch_operations: Sequence[Mapping],
         "operations": judged,
         "unrelated_changes": unrelated_changes,
         "acceptance_contracts": acceptance_contracts,
+        "preservation": preservation,
         "stopped": stopped,
         "recovery_result": {"status": "not_attempted",
                             "reason": ("transaction verified" if ok else

@@ -85,6 +85,63 @@ def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
     return hits[0]
 
 
+def _preservation_verdict(context, operations, before: Mapping,
+                          after: Mapping, *, conflict_domains=(),
+                          affected_spans=()) -> dict:
+    """Judge the preservation invariant over the adapter's two snapshots.
+
+    The adapter read the timeline before its write and again after it.
+    Those two reads are the evidence the preservation guarantee is made
+    of: the authorized scope says what the edit was told to touch, and
+    the difference between the reads says what it actually touched. A
+    change the scope did not authorize is collateral - a grade that
+    moved, a row that was renamed, a timeline marker that changed - and
+    the adapter refuses it rather than reporting it as a success.
+    """
+    from library.tools import preservation_invariant
+
+    compiled = getattr(context, "compiled", None)
+    if not conflict_domains:
+        conflict_domains = tuple(
+            getattr(compiled, "conflict_domains", ()) or ())
+    spans = [tuple(span) for span in affected_spans]
+    if not spans:
+        spans = [tuple(span) for span in
+                 (getattr(compiled, "affected_spans", ()) or ())]
+    from library.tools import edit_algebra
+
+    op_spans = []
+    try:
+        with edit_algebra.indexed_snapshot(before):
+            op_spans = [span for span
+                        in edit_algebra.spans(list(operations), before)
+                        if span is not None]
+    except Exception:  # noqa: BLE001 - a span is a refinement, not a gate
+        op_spans = []
+    for span in op_spans:
+        spans.append((int(span[0]), int(span[1])))
+    scope = preservation_invariant.scope_for(
+        operations, conflict_domains=conflict_domains,
+        affected_spans=spans)
+    verdict = preservation_invariant.invariant(
+        scope=scope, before=before, operations=operations, after=after)
+    return verdict.as_dict()
+
+
+def _refuse_collateral(operation_id: str, preservation: Mapping) -> None:
+    """Refuse a write that changed something it was not told to change."""
+    if preservation.get("status") != "violated":
+        return
+    unrelated = preservation.get("unrelated_changes") or []
+    named = ", ".join(
+        f"{row.get('target')}.{row.get('field')} ({row.get('domain')})"
+        for row in unrelated[:5])
+    raise RuntimeError(
+        f"AXI read-back for {operation_id} changed state the edit was not "
+        f"authorized to change: {named}. The edit is refused rather than "
+        "committed over approved content.")
+
+
 def _verified_command(context, command: list[str], operation: dict,
                       recovery_action: str) -> dict:
     from library.tools import operation_acceptance, resolve_axi_core
@@ -148,6 +205,9 @@ def _verified_command(context, command: list[str], operation: dict,
     else:
         evidence["unrelated_items_unchanged"] = not _unrelated_changes(
             before, after, target_id)
+    preservation = _preservation_verdict(
+        context, [operation], before, after)
+    _refuse_collateral(operation_id, preservation)
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},
         readback_passed=operation_matches, evidence=evidence)
@@ -201,11 +261,13 @@ def _verified_command(context, command: list[str], operation: dict,
         },
         "readback": {"snapshot": after, "command_output": result.stdout},
         "acceptance_contracts": [acceptance],
+        "preservation": preservation,
         "execution_contract": {
             "verification": {
                 "status": "verified",
                 "checks": ({"operation": operation_id, "passed": True},),
                 "evidence": {"acceptance": acceptance,
+                             "preservation": preservation,
                              "snapshot_source": "fresh_live_timeline"},
             },
             "recovery": {
@@ -635,6 +697,10 @@ def _broll_insert(context) -> dict:
         affected_spans=[(record_in, record_out)], id_map=None,
         before=before, after=after)
     evidence["unrelated_items_unchanged"] = not collateral
+    preservation = _preservation_verdict(
+        context, [operation], before, after,
+        affected_spans=[(record_in, record_out)])
+    _refuse_collateral("broll.insert", preservation)
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": "broll.insert"},
         readback_passed=all((evidence["target_identity"],
@@ -679,6 +745,7 @@ def _broll_insert(context) -> dict:
         },
         "readback": {"snapshot": after, "command_output": result.stdout},
         "acceptance_contracts": [acceptance],
+        "preservation": preservation,
         "execution_contract": {
             "verification": {
                 "status": "verified",
@@ -1430,6 +1497,10 @@ def _reel_opening(context) -> dict:
                                 for span in compiled.affected_spans],
                 id_map=None, before=before, after=live),
         }
+        preservation = _preservation_verdict(
+            context, ordered, before, live,
+            affected_spans=[tuple(span) for span in compiled.affected_spans])
+        _refuse_collateral("reel.opening", preservation)
         acceptance = operation_acceptance.evaluate(
             {**operation, "op": "reel.opening"},
             readback_passed=opening_ok, evidence=evidence)

@@ -151,6 +151,7 @@ def _verify_registered_full_request(*, operations: Sequence[Mapping],
                                     before: Mapping,
                                     after: Mapping,
                                     affected_spans: Sequence[Sequence[int]],
+                                    conflict_domains: Sequence[str] = (),
                                     receipts: Sequence[Mapping]
                                     ) -> dict:
     """Judge the whole request against one fresh post-write snapshot."""
@@ -177,15 +178,24 @@ def _verify_registered_full_request(*, operations: Sequence[Mapping],
     collateral = unrelated_clip_changes(
         operations=operations, affected_spans=affected_spans,
         id_map=None, before=before, after=after)
+    from library.tools.transaction_orchestration import (
+        _preservation_verdict,
+    )
+
+    preservation = _preservation_verdict(
+        operations=operations, before=before, after=after,
+        affected_spans=affected_spans, conflict_domains=conflict_domains)
     return {
         "status": ("verified" if all(row["passed"] for row in checks)
                    and len(acceptance_checks) == len(operations)
                    and all(row["passed"] for row in acceptance_checks)
-                   and not collateral else "failed"),
+                   and not collateral
+                   and preservation["status"] == "preserved" else "failed"),
         "checks": checks,
         "operation_acceptance": acceptance_checks,
         "unrelated_items_unchanged": not collateral,
         "collateral_changes": collateral,
+        "preservation": preservation,
         "snapshot_source": "fresh_live_timeline",
     }
 
@@ -965,6 +975,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 full_request_verification = _verify_registered_full_request(
                     operations=operations, before=snapshot, after=after,
                     affected_spans=compiled.affected_spans,
+                    conflict_domains=compiled.conflict_domains,
                     receipts=receipts)
                 if full_request_verification["status"] != "verified":
                     refusal = refused(
