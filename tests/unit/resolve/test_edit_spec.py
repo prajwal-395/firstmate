@@ -42,6 +42,25 @@ def _spec():
     }
 
 
+def _opening_spec(**params):
+    return {
+        "format": edit_spec.FORMAT,
+        "request": "Tighten the opening for the supplied brief.",
+        "program": {
+            "kind": "edit_program", "reel": "Reel 01 - a",
+            "base_generation": "3", "idempotency_key": "opening-1",
+            "ops": [{"op": "reel.opening", "text": "Tighten the hook",
+                     "params": {
+                         "unique_id": "clip-a",
+                         "brief": "Open for first-time viewers on the claim.",
+                         "edits": [{"op": "clip.trim", "unique_id": "clip-a",
+                                    "in_frame": 36, "out_frame": 240}],
+                         **params,
+                     }}],
+        },
+    }
+
+
 def test_proposal_is_read_only_and_names_typed_change_and_untouched_categories(tmp_path):
     from library.tools import llm_handshake
 
@@ -58,6 +77,90 @@ def test_proposal_is_read_only_and_names_typed_change_and_untouched_categories(t
     assert proposal["planned_changes"][0]["category"] == "audio"
     assert "captions" in proposal["untouched_categories"]
     assert edit_ledger.load_rows(str(project)) == []
+
+
+def test_opening_request_asks_for_grounded_editorial_decisions(tmp_path,
+                                                               monkeypatch):
+    """An opening improvement is decided from frozen project context.
+
+    Catches: reel.opening being exposed as an executor while the normal
+    edit-spec handshake still asks the host only to translate operation
+    names and parameters supplied by someone else.
+    """
+    from library.tools import llm_handshake
+
+    project = _project(tmp_path)
+    context = {
+        "creative_brief": {"audience": "first-time viewers",
+                           "opening_goal": "lead with the core claim",
+                           "required_content": ["the pricing promise"]},
+        "transcript_context": {"transcripts_toon": "We cut the cost in half."},
+        "footage_observations": [{"clip_id": "clip-a",
+                                  "scene": "speaker at desk"}],
+        "reel_timeline": {"generation": 3, "items": [{
+            "unique_id": "clip-a", "source_in_frame": 0,
+            "source_out_frame": 480, "record_in": 0,
+            "record_out": 480}]},
+    }
+    monkeypatch.setattr(edit_spec, "_project_context",
+                        lambda *_args: dict(context))
+    request_id, path, _note_id = edit_spec.prepare_request(
+        str(project), "Improve the opening while preserving the price line.",
+        reel="Reel 01 - a")
+    request = llm_handshake.read_request(path)
+    frozen = json.loads(request["context"])
+    assert frozen["creative_brief"] == context["creative_brief"]
+    assert frozen["transcript_context"] == context["transcript_context"]
+    assert frozen["footage_observations"] == context["footage_observations"]
+    assert frozen["reel_timeline"] == context["reel_timeline"]
+    for direction in ("intended audience", "required spoken content",
+                      "reel_timeline", "reel.opening", "clip.trim",
+                      "clip.remove", "materially different subjective",
+                      "opening_alternatives"):
+        assert direction in request["prompt"]
+    assert request_id in request["step_id"]
+
+
+def test_opening_edit_program_requires_decided_grounded_structural_edits():
+    """Malformed or pre-decided opening programs do not reach AXI.
+
+    Catches: an empty, unsupported or incomplete nested opening edit
+    surviving edit-spec validation and failing only after execution starts.
+    """
+    valid = _opening_spec()
+    assert edit_spec.validate_spec(valid) == valid
+
+    missing_brief = _opening_spec()
+    missing_brief["program"]["ops"][0]["params"]["brief"] = " "
+    with pytest.raises(edit_spec.EditSpecError, match="written editorial brief"):
+        edit_spec.validate_spec(missing_brief)
+
+    unsupported = _opening_spec()
+    unsupported["program"]["ops"][0]["params"]["edits"][0]["op"] = \
+        "clip.delete"
+    with pytest.raises(edit_spec.EditSpecError, match="allowed"):
+        edit_spec.validate_spec(unsupported)
+
+    combined = _opening_spec()
+    combined["program"]["ops"].append({
+        "op": "clip.remove", "text": "remove separately",
+        "params": {"unique_id": "clip-b"}})
+    with pytest.raises(edit_spec.EditSpecError, match="sole operation"):
+        edit_spec.validate_spec(combined)
+
+    alternatives = _opening_spec()
+    alt_program = alternatives.pop("program")
+    alternatives["opening_alternatives"] = [{
+        "name": "Claim first", "rationale": "Directly states the promise.",
+        "program": alt_program,
+    }, {
+        "name": "Question first", "rationale": "Opens with a question.",
+        "program": alt_program,
+    }]
+    assert edit_spec.validate_spec(alternatives)[
+        "opening_alternatives"][0]["name"] == "Claim first"
+    assert edit_spec.questions_for_spec(alternatives)[0][
+        "missing_referent"] == "which opening alternative to use"
 
 
 def test_every_edit_operation_reaches_a_prompt_or_declared_replayer():
@@ -983,8 +1086,12 @@ def test_a_note_the_current_edit_answers_is_released_only_while_it_holds(
     frame would release a note nobody answered.
     """
     from library.processes.edit_video.run_pipeline import run_pipeline
-    from library.tools import (capability_outputs, marker_feedback,
-                               marker_resolution, marker_routing)
+    from library.tools import (
+        capability_outputs,
+        marker_feedback,
+        marker_resolution,
+        marker_routing,
+    )
     from library.tools.project_layout import Area
 
     project = _project(tmp_path)

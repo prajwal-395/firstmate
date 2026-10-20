@@ -250,6 +250,41 @@ def _validate_program(program) -> None:
                 raise EditSpecError(
                     f"{label} ({op_id}) is missing required params: "
                     f"{', '.join(missing)}.")
+    opening_ops = [op for op in ops if op.get("op") == "reel.opening"]
+    if opening_ops:
+        if kind != "edit_program" or len(ops) != 1:
+            raise EditSpecError(
+                "reel.opening must be the sole operation in a direct "
+                "edit_program; its nested structural edits are one "
+                "verified opening change")
+        params = opening_ops[0].get("params") or {}
+        if not isinstance(params, dict):
+            raise EditSpecError(
+                "reel.opening params must carry its brief and edits")
+        brief = params.get("brief")
+        if not isinstance(brief, str) or not brief.strip():
+            raise EditSpecError(
+                "reel.opening needs the written editorial brief")
+        edits = params.get("edits")
+        allowed = set(edit_algebra.REEL_OPENING_STRUCTURAL_OPS)
+        if not isinstance(edits, list) or not edits:
+            raise EditSpecError(
+                "reel.opening needs at least one decided structural edit")
+        for index, edit in enumerate(edits):
+            if not isinstance(edit, dict):
+                raise EditSpecError(
+                    f"reel.opening edits[{index}] must be an object")
+            edit_id = edit.get("op")
+            if edit_id not in allowed:
+                raise EditSpecError(
+                    f"reel.opening edits[{index}] names {edit_id!r}; "
+                    f"allowed: {sorted(allowed)}")
+            missing = [key for key in edit_algebra.get(edit_id).required
+                       if key not in edit]
+            if missing:
+                raise EditSpecError(
+                    f"reel.opening edits[{index}] ({edit_id}) is missing "
+                    f"required params: {', '.join(missing)}")
     if kind == "edit_program":
         _nonempty_string(program.get("base_generation"),
                          "program.base_generation")
@@ -291,14 +326,42 @@ def validate_spec(value: dict) -> dict:
         raise EditSpecError("source_note_id must be a marker note id string")
     if isinstance(source_note_id, str) and source_note_id.strip() != source_note_id:
         raise EditSpecError("source_note_id cannot have leading/trailing spaces")
+    alternatives = value.get("opening_alternatives", [])
+    if not isinstance(alternatives, list):
+        raise EditSpecError("opening_alternatives must be a list")
+    if alternatives and len(alternatives) < 2:
+        raise EditSpecError(
+            "opening_alternatives must preserve at least two candidates")
+    for index, alternative in enumerate(alternatives):
+        label = f"opening_alternatives[{index}]"
+        if not isinstance(alternative, dict):
+            raise EditSpecError(f"{label} must be an object")
+        _nonempty_string(alternative.get("name"), f"{label}.name")
+        _nonempty_string(alternative.get("rationale"),
+                         f"{label}.rationale")
+        _validate_program(alternative.get("program"))
+        program = alternative["program"]
+        if (program.get("kind") != "edit_program"
+                or len(program.get("ops") or []) != 1
+                or program["ops"][0].get("op") != "reel.opening"):
+            raise EditSpecError(
+                f"{label}.program must contain exactly one reel.opening "
+                "edit_program")
     program = value.get("program")
     clauses = value.get("clauses")
-    if program is None and (not isinstance(clauses, list) or not clauses):
+    if alternatives and program is not None:
+        raise EditSpecError(
+            "opening alternatives require an editor choice; do not include "
+            "an executable program")
+    if (program is None and not alternatives
+            and (not isinstance(clauses, list) or not clauses)):
         raise EditSpecError(
             "clauses must be a non-empty list with one operation per "
-            "clause, or a program must be present")
+            "clause, a program, or at least two opening alternatives")
     if program is not None:
         _validate_program(program)
+        return copy.deepcopy(value)
+    if alternatives and clauses is None:
         return copy.deepcopy(value)
     if not isinstance(clauses, list) or not clauses:
         raise EditSpecError(
@@ -345,8 +408,16 @@ def questions_for_spec(spec: dict) -> list[dict]:
     questions = []
     if validated.get("program") is not None:
         return questions
+    alternatives = validated.get("opening_alternatives") or []
+    if alternatives:
+        questions.append({
+            "clause_id": "opening-choice",
+            "missing_referent": "which opening alternative to use",
+            "question": ("Which opening alternative should Ren execute? "
+                         + "; ".join(row["name"] for row in alternatives)),
+        })
     available_reels = validated.get("available_reels", [])
-    for clause in validated["clauses"]:
+    for clause in validated.get("clauses") or []:
         if clause["status"] == "needs_clarification":
             questions.append({"clause_id": clause["id"],
                               "missing_referent": clause[
@@ -1048,6 +1119,17 @@ def _expected_schema() -> str:
             "request": {"type": "string", "minLength": 1},
             "source_note_id": {"type": "string"},
             "program": program,
+            "opening_alternatives": {"type": "array", "minItems": 2,
+                "items": {
+                "type": "object",
+                "required": ["name", "rationale", "program"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "rationale": {"type": "string", "minLength": 1},
+                    "program": program,
+                },
+                "additionalProperties": False,
+            }},
             "clauses": {"type": "array", "minItems": 1,
                          "items": clause},
             "implicated": {"type": "array", "items": {
@@ -1056,7 +1138,8 @@ def _expected_schema() -> str:
                                "why": {"type": "string", "minLength": 1}}}},
         },
         "anyOf": [{"required": ["program"]},
-                   {"required": ["clauses"]}],
+                   {"required": ["clauses"]},
+                   {"required": ["opening_alternatives"]}],
         "additionalProperties": True,
     }, ensure_ascii=False)
 
@@ -1215,7 +1298,9 @@ def _reel_timeline(project_folder: str, reel: str) -> dict:
             "row": f"V{int(track['index'])}",
             "name": track.get("name") or "",
             "items": [{key: clip.get(key) for key in (
-                "unique_id", "name", "record_in", "record_out", "enabled",
+                "unique_id", "name", "source_file", "source_in_frame",
+                "source_out_frame", "record_in", "record_out",
+                "track_type", "track_index", "speed", "enabled",
                 "transform")} for clip in track.get("clips") or []],
         })
     return {"available": True, "reel": reel,
@@ -1399,6 +1484,33 @@ def prepare_request(project_folder: str, request: str, reel: str = "",
         "position the editor did not state is the model's decision: say "
         "so in the op's `text`. If `reel_timeline` lists no items, ask "
         "which reel. "
+        "For a request to improve, tighten or otherwise change a reel's "
+        "opening, make the editorial decision from the written "
+        "`creative_brief`, `transcript_context`, `footage_observations` and "
+        "`reel_timeline` together. Identify the intended audience, opening "
+        "goal and required spoken content from the brief; use transcript "
+        "wording and measured timeline frames to find a self-contained "
+        "opening, and use footage observations only to choose among shots "
+        "already in that timeline. Preserve required dialogue and the "
+        "context that makes it intelligible. Do not invent frame values, "
+        "clip identities, spoken lines or footage. Return one "
+        "`edit_program` containing exactly one `reel.opening` op. Its "
+        "`params` must contain `unique_id` for the opening anchor clip, "
+        "`brief` with the applicable written brief and opening goal, and "
+        "`edits` with the selected structural edits in order. Each nested "
+        "edit is a complete `clip.trim` or `clip.remove` algebra operation "
+        "using the exact `unique_id` and measured frame parameters from "
+        "`reel_timeline`; use ripple removal only when the whole clip "
+        "should leave the sequence. If the evidence does not establish a "
+        "safe boundary, required dialogue, audience or opening goal, return "
+        "a direct `needs_clarification` clause instead of guessing. If the "
+        "brief supports materially different subjective openings, "
+        "preserve each complete candidate as an `opening_alternatives` "
+        "entry with a name, rationale and its own complete `reel.opening` "
+        "edit_program and return only those alternatives, with no "
+        "executable primary program; the proposal will ask the editor "
+        "which one to use. The operation is prepared and executed through "
+        "AXI as a narrow structural edit; never substitute a full rebuild. "
         "When `decision_candidates` is present, also return `implicated`: "
         "a list of {node_id, why} naming each candidate decision this note "
         "is about, and an empty list when it is about none. "
@@ -1503,6 +1615,8 @@ def proposal_for_spec(project_folder: str, spec_id: str) -> dict:
             "request": spec.get("request") or "",
             "reel": spec.get("reel") or program.get("reel") or "",
             "planned_changes": planned, "questions": questions,
+            "opening_alternatives": copy.deepcopy(
+                spec.get("opening_alternatives") or []),
             "untouched_categories": [c for c in all_categories if c not in changed]
                 if complete else [],
             "note": "Proposed edits only. No timeline changes have been made."}
