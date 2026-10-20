@@ -582,39 +582,27 @@ def verify_deliverable(video_path: str, expected_seconds: float,
 def _verify_file_codec(video_path: str, expected_codec: str) -> dict:
     """The file's measured codec against the spec's, as a verdict record.
 
-    Read through `pool_stream_meta.disk_stream` - the one comparison
-    the reel build's staleness check uses too, so the two cannot
-    disagree about what the file carries. Empty expectation means
-    unchecked (passes); an unmeasurable file is skipped rather than
-    flagged.
+    Read through `render_qa.verify_encoding` - the one place the
+    delivered file's encoding is graded, which reads the codec through
+    `pool_stream_meta.disk_stream`, the same comparison the reel build's
+    staleness check uses, so the two cannot disagree about what the file
+    carries. Empty expectation means unchecked (passes); an unmeasurable
+    file is skipped rather than flagged.
     """
-    record = {
+    from library.tools import render_qa
+
+    result = render_qa.verify_encoding(
+        video_path, expected_codec=expected_codec)
+    measured = (result.value or {}).get("codec") if isinstance(
+        result.value, dict) else None
+    return {
         "metric": "codec",
-        "passed": True,
-        "value": None,
+        "passed": bool(result.passed),
+        "value": measured or None,
         "threshold": expected_codec or None,
-        "severity": "info",
-        "detail": "no codec expected - not checked",
+        "severity": result.severity,
+        "detail": result.detail,
     }
-    if not (expected_codec or "").strip():
-        return record
-    from library.tools import pool_stream_meta
-    measured = (pool_stream_meta.disk_stream(video_path).get("codec")
-                or "")
-    record["value"] = measured or None
-    if not measured.strip():
-        record["detail"] = (
-            "no video stream to compare - skipped rather than flagged")
-        return record
-    if measured.strip().lower() != expected_codec.strip().lower():
-        record["passed"] = False
-        record["severity"] = "error"
-        record["detail"] = (
-            f"file carries {measured!r}, spec expects "
-            f"{expected_codec.strip()!r}")
-    else:
-        record["detail"] = f"file carries {measured.strip()!r} as expected"
-    return record
 
 
 def _result_record(result) -> dict:

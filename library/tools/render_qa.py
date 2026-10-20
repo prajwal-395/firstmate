@@ -4178,6 +4178,384 @@ def verify_audio_streams(video_path: str, min_streams: int = 1) -> RenderQAResul
     except Exception as e:
         return RenderQAResult("audio_streams", False, str(e), None, "error", f"Error: {e}")
 
+
+# ── The encoding of the delivered file ──
+#
+# `verify_resolution`, `verify_framerate` and `verify_duration` say what
+# the frame IS.  They say nothing about how it was WRITTEN: a file can
+# carry the right pixels at the right rate for the right length and still
+# be the wrong codec, the wrong pixel format, or the wrong container -
+# and a platform that refuses it does not read the picture first.
+#
+# The codec is read with `pool_stream_meta.disk_stream`, the ONE place
+# that compares a codec name with ffprobe's vocabulary, so this check and
+# the reel build's staleness sweep cannot disagree about what a file
+# carries.
+
+#: The container is measured from the FILE'S OWN BYTES, never from its
+#: name.  ffprobe's `format_name` cannot answer it: an .mp4 and a .mov
+#: both report "mov,mp4,m4a,3gp,3g2,mj2", because both are ISO base
+#: media files and the demuxer names the family, not the brand.  The
+#: brand in the `ftyp` box is what separates them.
+CONTAINER_MAGIC = {
+    b"ftyp": "mp4",
+    b"\x1a\x45\xdf\xa3": "matroska",
+    b"RIFF": "avi",
+}
+
+
+def measure_container(path: str) -> Optional[str]:
+    """The container the file's own bytes declare, or None.
+
+    "mp4" for an ISO base media file whose major brand is not QuickTime,
+    "quicktime" for one whose brand is "qt  ", "matroska" for an EBML
+    file, "avi" for a RIFF file.  None when the file carries no header
+    this knows, or cannot be read at all.
+
+    MEASURED, never inferred from the extension: an .mp4 named file that
+    carries QuickTime bytes is a QuickTime file, and that is exactly the
+    mismatch a platform rejects.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return None
+    if len(head) < 8:
+        return None
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        if brand.startswith(b"qt"):
+            return "quicktime"
+        return "mp4"
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return "matroska"
+    if head[:4] == b"RIFF":
+        return "avi"
+    return None
+
+
+def verify_encoding(video_path: str, expected_codec: str = "",
+                    expected_pixel_format: str = "",
+                    expected_container: str = "") -> RenderQAResult:
+    """Grade the delivered file's ENCODING against the declared one.
+
+    Codec, pixel format and container are three separate declarations
+    and three separate measurements; each is judged only when it is
+    declared.  Nothing is defaulted: an undeclared expectation is
+    reported as "not checked", never as a pass on a value nobody named.
+
+    The codec is compared case-insensitively (`h264` and `H264` name the
+    same bytes) and the container case-insensitively too ("mp4" and
+    "MP4").  The container is read from the file's own bytes
+    (`measure_container`), because ffprobe cannot tell an .mp4 from a
+    .mov.
+
+    A file with no video stream to read is SKIPPED, not flagged:
+    `verify_resolution` is the check that refuses a file with no
+    picture, and two checks refusing the same file for the same reason
+    is how a correct delivery starts failing twice.
+    """
+    from library.tools import pool_stream_meta
+
+    expected_codec = (expected_codec or "").strip()
+    expected_pixel_format = (expected_pixel_format or "").strip()
+    expected_container = (expected_container or "").strip()
+    measured_codec = (pool_stream_meta.disk_stream(video_path).get("codec")
+                      or "")
+    pixel_format = _probe_pixel_format(video_path)
+    container = measure_container(video_path)
+    measured = {
+        "codec": measured_codec or None,
+        "pixel_format": pixel_format,
+        "container": container,
+    }
+    threshold = {
+        "codec": expected_codec or None,
+        "pixel_format": expected_pixel_format or None,
+        "container": expected_container or None,
+    }
+    if not measured_codec and not pixel_format:
+        return RenderQAResult(
+            "encoding", True, measured, threshold, "info",
+            "no video stream to read - the encoding was not checked "
+            "(verify_resolution is the check that refuses a file with no "
+            "picture)")
+    problems = []
+    if expected_codec and measured_codec.lower() != expected_codec.lower():
+        problems.append(
+            f"the file carries codec {measured_codec!r}, the declaration "
+            f"names {expected_codec!r}")
+    if (expected_pixel_format and pixel_format
+            and pixel_format.lower() != expected_pixel_format.lower()):
+        problems.append(
+            f"the file carries pixel format {pixel_format!r}, the "
+            f"declaration names {expected_pixel_format!r}")
+    if (expected_container and container
+            and container.lower() != expected_container.lower()):
+        problems.append(
+            f"the file's own bytes declare container {container!r}, the "
+            f"declaration names {expected_container!r}")
+    checked = [
+        name for name, declared in (
+            ("codec", expected_codec),
+            ("pixel_format", expected_pixel_format),
+            ("container", expected_container)) if declared]
+    unchecked = [
+        name for name, declared in (
+            ("codec", expected_codec),
+            ("pixel_format", expected_pixel_format),
+            ("container", expected_container)) if not declared]
+    if problems:
+        return RenderQAResult(
+            "encoding", False, measured, threshold, "error",
+            "; ".join(problems))
+    detail = (f"codec {measured_codec or '?'}, pixel format "
+              f"{pixel_format or '?'}, container {container or '?'}")
+    if unchecked:
+        detail += f" - {', '.join(unchecked)} not declared, so not checked"
+    return RenderQAResult("encoding", True, measured, threshold, "info",
+                           detail)
+
+
+def _probe_pixel_format(video_path: str) -> Optional[str]:
+    """The video stream's `pix_fmt`, or None."""
+    cmd = ['ffprobe', '-v', 'quiet', '-select_streams', 'v:0',
+           '-show_entries', 'stream=pix_fmt', '-of', 'json', video_path]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=15)
+        streams = json.loads(res.stdout or "{}").get("streams", [])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    if not streams:
+        return None
+    value = str(streams[0].get("pix_fmt") or "").strip()
+    return value or None
+
+
+# ── The audio the delivered file carries ──
+#
+# Loudness and the true peak are `measure_lufs`'s halves.  Two more
+# technical facts about the audio travel with them and had no check:
+#
+# - CHANNEL CONFIGURATION: how many audio streams the file carries, how
+#   many channels each one has, and what layout it declares.  A file
+#   whose audio is a six-channel bed is not a program mix, and a platform
+#   that receives one either flattens it or refuses it.
+# - CLIPPING: samples that reached full scale and STAYED there.  A peak
+#   that touches full scale once is a loud signal; a run of identical
+#   full-scale samples is a flat top, which is what a clipped waveform
+#   is and what no amount of downstream gain can undo.
+
+#: The most channels a delivered program mix may carry.  A MECHANICAL
+#: value, not a taste one (AGENTS.md 10.5): a program mix is mono or
+#: stereo, and a file carrying more is carrying stems the platform was
+#: never given a way to play.  A caller that declares its own count
+#: overrides it.
+PROGRAM_MAX_CHANNELS = 2
+
+#: The layout names a channel configuration may be reported under.  A
+#: layout this table has not learned is reported as the channel COUNT,
+#: never as a guess at a name.
+CHANNEL_LAYOUTS = {
+    1: "mono",
+    2: "stereo",
+}
+
+
+def verify_channel_configuration(video_path: str,
+                                 expected_channels: Optional[int] = None,
+                                 max_channels: int = PROGRAM_MAX_CHANNELS
+                                 ) -> RenderQAResult:
+    """Grade the delivered file's audio CHANNEL CONFIGURATION.
+
+    Measures every audio stream's channel count and declared layout.  A
+    declared `expected_channels` is matched exactly; without one, the
+    count is held to `max_channels` (a program mix is mono or stereo)
+    and the result says which bound it applied.
+
+    A file with no audio stream is SKIPPED, not flagged:
+    `verify_audio_streams` is the check that refuses a file with no
+    audio, and this one says what the audio IS, not whether there is
+    any.
+    """
+    streams = _probe_audio_streams(video_path)
+    measured = [
+        {"index": index, "channels": channels,
+         "layout": CHANNEL_LAYOUTS.get(channels, f"{channels} channels")}
+        for index, channels in streams]
+    if not measured:
+        return RenderQAResult(
+            "channel_configuration", True, [], None, "info",
+            "no audio stream to read - the channel configuration was not "
+            "checked (verify_audio_streams is the check that refuses a "
+            "file with no audio)")
+    total = sum(entry["channels"] for entry in measured)
+    counts = sorted({entry["channels"] for entry in measured})
+    if expected_channels is not None:
+        wanted = int(expected_channels)
+        passed = all(entry["channels"] == wanted for entry in measured)
+        return RenderQAResult(
+            "channel_configuration", passed, measured,
+            {"channels": wanted}, "error" if not passed else "info",
+            (f"the file carries {total} channel(s) in {len(measured)} "
+             f"stream(s) ({', '.join(str(c) for c in counts)}); the "
+             f"declaration names {wanted}")
+            if not passed else
+            (f"the file carries {total} channel(s) in {len(measured)} "
+             f"stream(s), as declared"))
+    over = [entry for entry in measured
+            if entry["channels"] > int(max_channels)]
+    if over:
+        names = ", ".join(
+            f"stream {entry['index']} carries {entry['channels']}"
+            for entry in over)
+        return RenderQAResult(
+            "channel_configuration", False, measured,
+            {"max_channels": int(max_channels)}, "error",
+            f"{names} - a delivered program mix is mono or stereo")
+    return RenderQAResult(
+        "channel_configuration", True, measured,
+        {"max_channels": int(max_channels)}, "info",
+        f"the file carries {total} channel(s) in {len(measured)} stream(s)"
+        f" - no channel count was declared, so the program-mix bound "
+        f"({max_channels}) was applied")
+
+
+def _probe_audio_streams(video_path: str) -> List[tuple]:
+    """`[(stream_index, channels)]` for every audio stream in the file."""
+    cmd = ['ffprobe', '-v', 'quiet', '-select_streams', 'a',
+           '-show_entries', 'stream=channels', '-of', 'json', video_path]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=15)
+        streams = json.loads(res.stdout or "{}").get("streams", [])
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    found = []
+    for index, stream in enumerate(streams):
+        try:
+            channels = int(stream.get("channels"))
+        except (TypeError, ValueError):
+            continue
+        found.append((index, channels))
+    return found
+
+
+#: Full scale in the delivery quantisation.  A 16-bit sample is at the
+#: ceiling at 32767 in magnitude (-32768 is the negative one).
+CLIP_CEILING = 32767
+
+#: How many samples AT the ceiling make a flat top.  Three is the
+#: shortest run a clipped waveform produces and the shortest a loud but
+#: unclipped one does not: a sine at full scale touches the ceiling once
+#: per cycle and never twice in a row.
+CLIP_RUN_SAMPLES = 3
+
+
+def detect_clipping(video_path: str, sample_rate: int = 48000) -> RenderQAResult:
+    """Whether the delivered file's audio carries CLIPPED samples.
+
+    A clipped sample is one that reached full scale and STAYED there:
+    a run of `CLIP_RUN_SAMPLES` or more identical samples at the
+    ceiling.  A signal that merely approaches full scale does not make a
+    flat top, so the true-peak half of `measure_lufs` and this check
+    answer two different questions - one is "too loud", this one is
+    "damaged".
+
+    A file with no audio to decode is SKIPPED, not flagged:
+    `verify_audio_streams` is the check that refuses a file with no
+    audio.
+    """
+    samples, channels = _decode_pcm16_channels(video_path, sample_rate)
+    if samples is None or samples.size == 0:
+        return RenderQAResult(
+            "clipping", True, {"runs": [], "clipped_samples": 0}, None,
+            "info",
+            "no audio to decode - clipping was not checked "
+            "(verify_audio_streams is the check that refuses a file with "
+            "no audio)")
+    runs = _flat_top_runs(samples, channels, sample_rate)
+    clipped = sum(int(entry["samples"]) for entry in runs)
+    return RenderQAResult(
+        "clipping", not runs,
+        {"runs": runs, "clipped_samples": clipped,
+         "channels": channels, "sample_rate": sample_rate},
+        {"run_samples": CLIP_RUN_SAMPLES}, "error" if runs else "info",
+        (f"{len(runs)} clipped run(s), {clipped} sample(s) at full scale")
+        if runs else "no clipped samples: no flat top at full scale")
+
+
+def _decode_pcm16_channels(path: str, sample_rate: int = 48000):
+    """The file's audio as interleaved 16-bit PCM, and its channel count.
+
+    `(samples, channels)`; `(None, 0)` when there is no audio to decode.
+    The channels are kept apart - a clip on one channel of a stereo pair
+    is a clip, and summing the channels would hide it.
+    """
+    import numpy as np
+
+    probe = ['ffprobe', '-v', 'quiet', '-select_streams', 'a:0',
+             '-show_entries', 'stream=channels', '-of', 'json', path]
+    try:
+        res = subprocess.run(probe, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=15)
+        streams = json.loads(res.stdout or "{}").get("streams", [])
+        channels = int(streams[0].get("channels") or 0) if streams else 0
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return None, 0
+    if channels <= 0:
+        return None, 0
+    cmd = ['ffmpeg', '-nostdin', '-v', 'error', '-i', path,
+           '-map', '0:a:0', '-ar', str(sample_rate),
+           '-f', 's16le', '-acodec', 'pcm_s16le', '-']
+    try:
+        decoded = subprocess.run(cmd, capture_output=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired):
+        return None, 0
+    samples = np.frombuffer(decoded.stdout or b"", dtype='<i2')
+    if samples.size == 0:
+        return None, channels
+    return samples, channels
+
+
+def _flat_top_runs(samples, channels: int, sample_rate: int) -> List[dict]:
+    """Runs of identical full-scale samples, per channel.
+
+    A run is a stretch of `CLIP_RUN_SAMPLES` or more consecutive samples
+    at the ceiling in ONE channel.  Each run is reported with the
+    second it starts at, so a reader can hear where the damage is.
+    """
+    import numpy as np
+
+    frames = samples.reshape(-1, channels)
+    magnitude = np.abs(frames.astype(np.int32))
+    at_ceiling = magnitude >= CLIP_CEILING
+    runs: List[dict] = []
+    for channel in range(channels):
+        column = at_ceiling[:, channel]
+        if not column.any():
+            continue
+        edges = np.flatnonzero(np.diff(np.concatenate(
+            ([0], column.astype(np.int8), [0]))))
+        for start, end in zip(edges[0::2], edges[1::2]):
+            length = int(end - start)
+            if length < CLIP_RUN_SAMPLES:
+                continue
+            runs.append({
+                "channel": channel,
+                # Microsecond precision: a clip that starts at 6ms into
+                # the file rounds to 0.0 at millisecond precision, and a
+                # run reported at the wrong second cannot be heard.
+                "start": round(start / sample_rate, 6),
+                "end": round(end / sample_rate, 6),
+                "samples": length,
+            })
+    runs.sort(key=lambda entry: entry["start"])
+    return runs
+
+
 def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] = None) -> List[str]:
     """Extract frames at key moments for visual review."""
     if timestamps is None:

@@ -30,6 +30,12 @@ import traceback
 # Import new QA modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.qa_spans import (
+    OVERLAY_MANIFEST_KEYS,
+    graphics_spans,
+    transition_spans,
+    vfx_spans,
+)
 from library.tools.render_qa import (
     RenderQAResult,
     run_full_render_qa,
@@ -209,13 +215,10 @@ def _grade_spans(assembly_manifest: dict):
 
 
 # The manifest keys carrying a rendered overlay, and the fps each track
-# declares its `source_in_frame` in. Kept in step with
-# `step_5_04_compile_manifest.OVERLAY_TRACKS`, which is the enumeration
-# of what the manifest may carry: an overlay track this list forgets is
-# an overlay whose ink reads as picture, which is the defect
-# `measure_frame_occupancy` reopened three times.
-OVERLAY_MANIFEST_KEYS = ("subtitle_overlay", "motion_graphics_overlay",
-                         "timed_text_overlay")
+# declares its `source_in_frame` in, live in `library/tools/qa_spans.py`
+# with the span builders that use them: the export verification grades
+# the same windows this step does, and two enumerations of "the
+# graphical element" would be two verdicts on one file.
 
 
 def _overlay_segments(assembly_manifest: dict):
@@ -350,172 +353,6 @@ def _music_bed(assembly_manifest: dict):
     offset = (float(clips[0].get("source_in", 0.0) or 0.0)
               - float(clips[0].get("timeline_in", 0.0) or 0.0))
     return music_path, automation, offset
-
-
-def _clip_at(assembly_manifest: dict, timeline_time: float):
-    """The picture clip playing at `timeline_time`, or None.
-
-    V1 is asked first, which keeps every existing placement exactly
-    where it was: where a cutaway covers a speech block both tracks
-    carry a clip, and the effect still lands on the V1 clip underneath.
-    """
-    for track in ("V1", "V2"):
-        for clip in assembly_manifest.get("tracks", {}).get(track, {}).get("clips", []):
-            tin = float(clip.get("timeline_in", 0.0) or 0.0)
-            tout = float(clip.get("timeline_out", 0.0) or 0.0)
-            if tin <= timeline_time < tout:
-                return clip
-    return None
-
-
-def _source_range_for(clip: dict, tl_start: float, tl_end: float):
-    """(source_start, source_end) inside `clip`'s source for a timeline window.
-
-    Linear interpolation within the clip's own timeline range, so a
-    VFX window that covers part of a clip maps to the part of the
-    source that plays there.  None bounds when the clip carries no
-    readable source range.
-    """
-    tin = clip.get("timeline_in")
-    tout = clip.get("timeline_out")
-    sin = clip.get("source_in")
-    sout = clip.get("source_out")
-    if tin is None or tout is None or sin is None or sout is None:
-        return None, None
-    try:
-        tin, tout, sin, sout = float(tin), float(tout), float(sin), float(sout)
-    except (TypeError, ValueError):
-        return None, None
-    if tout <= tin:
-        return sin, sout
-    span = tout - tin
-    src_start = sin + (tl_start - tin) / span * (sout - sin)
-    src_end = sin + (tl_end - tin) / span * (sout - sin)
-    return src_start, src_end
-
-
-def _transition_spans(assembly_manifest: dict):
-    """One `render_qa.TransitionSpan` per drawn native transition.
-
-    The manifest's `native_transitions` rows carry the cut point and
-    the duration in frames; the duration is converted to seconds at
-    the project's own rate.  Only drawn transitions are included - a
-    cut (`duration_frames` 0) draws nothing and has no blend to verify.
-    """
-    from library.tools.render_qa import TransitionSpan
-
-    fps = float((assembly_manifest.get("project") or {}).get("frame_rate") or 30.0)
-    spans = []
-    for t in assembly_manifest.get("native_transitions", []) or []:
-        cut = t.get("cut_point_timeline")
-        dur_frames = t.get("duration_frames")
-        if cut is None or dur_frames is None:
-            continue
-        try:
-            cut = float(cut)
-            dur_frames = float(dur_frames)
-        except (TypeError, ValueError):
-            continue
-        if dur_frames <= 0:
-            continue
-        spans.append(TransitionSpan(
-            transition_type=t.get("transition_type", "?"),
-            cut_point_timeline=cut,
-            duration_seconds=dur_frames / fps,
-        ))
-    return spans
-
-
-def _vfx_spans(assembly_manifest: dict):
-    """One `render_qa.VfxSpan` per planned VFX effect.
-
-    Each VFX entry carries its timeline window; the picture clip
-    playing at that window provides the untreated source the effect
-    was drawn over.  A VFX whose clip or source cannot be found is
-    skipped - the check reports it as unmeasured, never as passed.
-    """
-    from library.tools.render_qa import VfxSpan
-
-    spans = []
-    for v in assembly_manifest.get("vfx", []) or []:
-        ts = v.get("timeline_start")
-        te = v.get("timeline_end")
-        if ts is None or te is None:
-            continue
-        try:
-            ts, te = float(ts), float(te)
-        except (TypeError, ValueError):
-            continue
-        if te <= ts:
-            continue
-        clip = _clip_at(assembly_manifest, ts)
-        if clip is None:
-            continue
-        src = clip.get("source_file")
-        if not src:
-            continue
-        src_start, src_end = _source_range_for(clip, ts, te)
-        if src_start is None:
-            continue
-        spans.append(VfxSpan(
-            label=clip.get("label") or "?",
-            effect_type=v.get("effect_type", "?"),
-            timeline_start=ts, timeline_end=te,
-            source_path=src,
-            source_start=src_start, source_end=src_end,
-        ))
-    return spans
-
-
-def _graphics_spans(assembly_manifest: dict):
-    """One `render_qa.GraphicsSpan` per placed overlay segment.
-
-    Each overlay segment carries its timeline window and the overlay
-    file; the picture clip playing at that window provides the
-    untreated picture the overlay was composited over.  Only non-caption
-    overlays are included - captions are judged by the caption-quality
-    checks (E4), not here.
-    """
-    from library.tools.render_qa import GraphicsSpan
-
-    spans = []
-    for key in OVERLAY_MANIFEST_KEYS:
-        if key == "subtitle_overlay":
-            continue
-        track = assembly_manifest.get(key) or {}
-        fps = float(track.get("fps") or 0.0) or float(
-            (assembly_manifest.get("project") or {}).get("frame_rate") or 30.0)
-        for seg in track.get("segments") or []:
-            path = seg.get("overlay_path")
-            start = seg.get("timeline_start")
-            end = seg.get("timeline_end")
-            if not path or start is None or end is None:
-                continue
-            try:
-                start, end = float(start), float(end)
-            except (TypeError, ValueError):
-                continue
-            if end <= start:
-                continue
-            clip = _clip_at(assembly_manifest, start)
-            if clip is None:
-                continue
-            src = clip.get("source_file")
-            if not src:
-                continue
-            src_start, src_end = _source_range_for(clip, start, end)
-            if src_start is None:
-                continue
-            spans.append(GraphicsSpan(
-                label=seg.get("label") or "?",
-                kind=key,
-                timeline_start=start, timeline_end=end,
-                source_path=src,
-                source_start=src_start, source_end=src_end,
-                overlay_path=str(path),
-                source_in=float(seg.get("source_in_frame") or 0.0) / fps,
-            ))
-    return spans
 
 
 def _plan_geometry_checks(assembly_manifest: dict) -> dict:
@@ -846,9 +683,9 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             # The pixel-level rendering checks (gap E9): drawn
             # transitions, VFX windows, and overlay segments, each with
             # the untreated source they cover.
-            transition_spans=_transition_spans(assembly_manifest),
-            vfx_spans=_vfx_spans(assembly_manifest),
-            graphics_spans=_graphics_spans(assembly_manifest),
+            transition_spans=transition_spans(assembly_manifest),
+            vfx_spans=vfx_spans(assembly_manifest),
+            graphics_spans=graphics_spans(assembly_manifest),
             # The captain's named spans where the bed is deliberately over
             # the voice, so the speech-above-bed gate records them in its
             # receipt rather than failing them.  Parsed by step 5.02 from

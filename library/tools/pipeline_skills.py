@@ -287,6 +287,30 @@ SKILLS: Dict[str, Skill] = {
                  "it measured, and do not approve the timeline."),
         pipeline_args=None,
     ),
+    "verify_export": Skill(
+        name="verify_export",
+        kind=GATE,
+        module="library.skills.verify_export",
+        when=("You are judging a DELIVERED export, or about to approve, "
+              "sign off or ship one. Run this FIRST, before writing any "
+              "judgement of your own. Never to judge a plan on paper and "
+              "never for a render that has not been delivered - that is "
+              "verify_render - and never on a file: with no file it "
+              "refuses rather than passes."),
+        cost=("Free. No model, no Resolve, no GPU, no render - seconds of "
+              "ffmpeg on the file, plus the arithmetic that compares the "
+              "accepted plan, the build's own committed record and the "
+              "delivery's identity record, all of which are on disk."),
+        returns=("A verdict that GATES: `passed` plus one row per "
+                 "acceptance criterion, each with its verdict, its "
+                 "detail, its evidence and its reader. `passed: false` "
+                 "means the export is wrong or could not be checked - "
+                 "say which criterion and what it measured, and do not "
+                 "ship it. A criterion that comes back UNKNOWN is NOT a "
+                 "pass: an export nobody could check is an unchecked "
+                 "export."),
+        pipeline_args=None,
+    ),
     "hear_the_reel": Skill(
         name="hear_the_reel",
         kind=REPORT,
