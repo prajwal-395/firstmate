@@ -2720,3 +2720,18 @@ def test_concurrent_scoped_conformance_writes_preserve_sibling_reports(
         3, 21, 25}
     assert report["motion_graphics_tightness"] == {
         "measured": "project-wide"}
+
+
+def test_the_promotion_inventory_refuses_a_missing_project_handle():
+    """Catches: `None.GetTimelineCount()` - a TypeError that says nothing -
+    where Resolve hands back no project handle because it is mid-switch.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project: the
+    build died with "'NoneType' object is not callable" and the reason
+    was nowhere in the message.
+    """
+    from library.tools import reel_build
+
+    with pytest.raises(reel_build.ReelBuildError) as raised:
+        reel_build._promotion_timeline_inventory(None)
+    assert "no project handle" in str(raised.value)

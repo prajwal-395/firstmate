@@ -380,3 +380,64 @@ def test_no_switch_manager_refuses_import_at_runtime():
     view = resolve_axi._NoProjectSwitchManager(manager)
     with pytest.raises(AxiError, match="cannot call ProjectManager.ImportProject"):
         view.ImportProject("/tmp/source.drp", "Ren Scratch - x")
+
+
+def test_a_recorded_origin_can_be_recovered_when_resolve_reopened_the_captains_project(
+        monkeypatch, tmp_path):
+    """Catches: the scratch origin deadlocking.
+
+    `open_project` refuses while an origin is recorded, and
+    `restore_recorded` refuses unless the SCRATCH project is open. After
+    Resolve reopened the captain's project - a broker restart does
+    exactly that - the pair could not move: the machine was already
+    where the record wanted it, and neither command would say so.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project: the
+    origin record had to be removed by hand before the scratch project
+    could be opened again.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    scratch_project = Project("Ren Scratch - recover-test", [Timeline("T", "t")])
+    manager.projects[scratch_project.name] = scratch_project
+
+    scratch.open_project(resolve, manager, scratch_project.name)
+    assert origin.exists()
+
+    # Resolve reopened the captain's project: the scratch project is no
+    # longer open, and the machine is already where the record wanted it.
+    manager.current = manager.projects["Podcast (field test)"]
+
+    restored = scratch.restore_recorded(resolve, manager)
+    assert restored["verified"] is True
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+    assert not origin.exists()
+
+
+def test_an_empty_untitled_project_does_not_block_the_scratch_lifecycle(
+        monkeypatch, tmp_path):
+    """Catches: the scratch lifecycle refusing to leave the untitled
+    project a relaunch of Resolve leaves behind.
+
+    Measured 2026-10-20 on the Ren Scratch - breaktest project, after
+    Resolve had crashed and come back on an empty untitled project:
+    `project scratch open` refused with "cannot switch from 'Untitled
+    Project': Resolve would not save it", and the AXI CLI refused the
+    way out with "Resolve project 'Untitled Project' has no timeline
+    open". Nothing but a person in Resolve's UI could move.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    untitled = Project("Untitled Project", [])
+    manager.projects["Untitled Project"] = untitled
+    manager.current = untitled
+    monkeypatch.setattr(manager, "SaveProject", lambda: False)
+
+    scratch_project = Project("Ren Scratch - untitled-test", [Timeline("T", "t")])
+    manager.projects[scratch_project.name] = scratch_project
+
+    result = scratch.open_project(resolve, manager, scratch_project.name)
+    assert result["opened"] is True
+    assert manager.GetCurrentProject().GetName() == scratch_project.name

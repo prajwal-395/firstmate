@@ -101,9 +101,19 @@ def _starting_state(resolve, manager) -> dict:
         raise ScratchProjectError("Resolve has no current project to restore")
     name = project.GetName()
     if not manager.SaveProject():
-        raise ScratchProjectError(
-            f"cannot switch from {name!r}: Resolve would not save it; "
-            "not borrowing an unsavable project")
+        # An untitled project holds no work - it is what a relaunch of
+        # Resolve leaves behind, and it cannot be saved because it has
+        # no name. Refusing to leave it would leave EVERY scratch
+        # operation stuck, with no way out that does not need a person
+        # in Resolve's UI. An empty one is not borrowed work, so it is
+        # left as it is.
+        if (str(name) == "Untitled Project"
+                and not int(project.GetTimelineCount() or 0)):
+            pass
+        else:
+            raise ScratchProjectError(
+                f"cannot switch from {name!r}: Resolve would not save it; "
+                "not borrowing an unsavable project")
     timeline = project.GetCurrentTimeline()
     return {
         "project": name,
@@ -137,6 +147,18 @@ def restore_recorded(resolve, manager) -> dict:
     if current is None:
         raise ScratchProjectError("Resolve has no current project to restore from")
     if current.GetName() != state.get("scratch_project"):
+        if current.GetName() == state.get("project"):
+            # Resolve reopened the ORIGIN's project - a broker restart
+            # does exactly that - so the machine is already where the
+            # record wanted it and the record has nothing left to
+            # restore. `open_project` refuses while a record exists and
+            # `restore_recorded` used to refuse unless the SCRATCH
+            # project was open, so after a restart neither could move
+            # and the record had to be removed by hand. The record is
+            # completed here instead.
+            result = restore(resolve, manager, state)
+            path.unlink(missing_ok=True)
+            return result
         raise ScratchProjectError(
             f"cannot restore recorded origin: expected {state.get('scratch_project')!r} open, "
             f"found {current.GetName()!r}")

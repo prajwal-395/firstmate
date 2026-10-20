@@ -11730,6 +11730,14 @@ def _write_promotion_journal(project_folder: str, record: dict) -> str:
 
 def _promotion_timeline_inventory(project) -> dict:
     """Resolve timeline handles by stable id, refusing duplicate ids."""
+    if project is None:
+        # Resolve hands back no project handle while it is switching, and
+        # `None.GetTimelineCount()` is a TypeError that says nothing.
+        # Measured 2026-10-20: the build died on it with
+        # "'NoneType' object is not callable".
+        raise ReelBuildError(
+            "Resolve returned no project handle (it is mid-switch); the "
+            "promotion inventory cannot be read")
     found = {}
     for index in range(1, int(project.GetTimelineCount() or 0) + 1):
         timeline = project.GetTimelineByIndex(index)
