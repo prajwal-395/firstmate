@@ -790,7 +790,10 @@ def native_freshness_checks() -> list:
     checks = []
     try:
         broker_state, broker_detail = native_refresh.status(root, "ren-resolved")
-        broker_binary = root / "native" / "target" / "release" / "ren-resolved"
+        # The binary that SERVES, not the build output: the shipped
+        # prebuilt is what a machine without a toolchain runs, and the
+        # doctor must not call a broker missing while it is in service.
+        broker_binary = native_refresh.serving_binary(root, "ren-resolved")
         serving_fallback = os.environ.get("REN_RESOLVED_DAEMON", "").lower() == "python"
         from library.tools.resolved.client import ping
         serving = ping()
@@ -803,7 +806,7 @@ def native_freshness_checks() -> list:
             serving_binary = command or "broker process no longer listed"
         if broker_state == "fresh":
             detail = f"{serving_binary}; Rust broker is built from this tree"
-        elif broker_binary.is_file() or serving_fallback:
+        elif (broker_binary is not None and broker_binary.is_file()) or serving_fallback:
             detail = (f"{serving_binary}; rebuild pending ({broker_state}: "
                       f"{broker_detail}); current binary remains in service")
         else:

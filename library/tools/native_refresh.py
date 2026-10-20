@@ -9,14 +9,20 @@ existing `scripts/build_*.sh`, reporting what it rebuilt. A failed
 build keeps the previous binary and says so.
 
 Each part names the sources it is built from; the fingerprint of those
-sources is recorded beside the build output (never beside tracked
-files) whenever a build succeeds - by this module after a module-driven
-build, and by the build scripts themselves for manual runs. Freshness
-is the recorded fingerprint matching the tree: hashing a few dozen
-sources is milliseconds, so safe points check freely and take the
-heavy-work lock only to rebuild, rechecking first in case another lane
-already did. Renders hold that same lock while they draw, so a rebuild
-never lands mid-render.
+sources is recorded beside the binary it describes - the build output
+after a build, and a shipped copy when one is recorded for it - by this
+module after a module-driven build, and by the build scripts themselves
+for manual runs. Freshness is the recorded fingerprint matching the
+tree: hashing a few dozen sources is milliseconds, so safe points check
+freely and take the heavy-work lock only to rebuild, rechecking first in
+case another lane already did. Renders hold that same lock while they
+draw, so a rebuild never lands mid-render.
+
+WHICH BINARY SERVES is this module's answer too: the one built from
+this tree. A shipped copy that predates the tree must never shadow a
+fresh build beside it (measured 2026-10-20: the broker served the older
+prebuilt while the checkout's own build sat next to it, and the broker
+ran code the tree had already replaced).
 
 `ren_native` is the exception to "beside the build output": the
 extension is loaded from a machine-wide content-addressed cache keyed
@@ -208,6 +214,23 @@ def current_fingerprint(root: str | Path, part: str,
     return digest.hexdigest()
 
 
+def _sidecar_for(binary: Path | None, root: Path, part: str) -> Path:
+    """Where a binary's own recorded fingerprint lives.
+
+    Beside the binary it describes: a build output's record sits in
+    the target dir's own `.ren-fingerprints/`, a packaged or shipped
+    copy's beside that copy. One rule, so a record can never describe
+    a binary other than the one it sits next to.
+    """
+    if binary is None:
+        base = root / "native" / "target"
+    elif binary.parent.name in {"release", "debug"}:
+        base = binary.parent.parent
+    else:
+        base = binary.parent
+    return base / ".ren-fingerprints" / part
+
+
 def sidecar_path(root: str | Path, part: str,
                  parts: dict | None = None) -> Path:
     """Where `part`'s recorded fingerprint lives beside its selected binary.
@@ -231,31 +254,37 @@ def sidecar_path(root: str | Path, part: str,
             ren_native_cache.entry_dir(current))
     binary = _binary_path(repo, part, parts)
     if binary is None or not binary.is_file():
-        base = repo / "native" / "target"
-    elif binary.parent.name in {"release", "debug"}:
-        base = binary.parent.parent
-    else:
-        base = binary.parent
-    return base / ".ren-fingerprints" / part
+        return _sidecar_for(None, repo, part)
+    return _sidecar_for(binary, repo, part)
 
 
 def recorded_fingerprint(root: str | Path, part: str,
                          parts: dict | None = None) -> str | None:
-    """The fingerprint recorded at the last successful build, if any."""
+    """The fingerprint recorded beside the binary that serves, if any."""
+    binary = serving_binary(root, part, parts)
+    if binary is None:
+        return None
     try:
-        return sidecar_path(root, part, parts).read_text(
+        return _sidecar_for(binary, Path(root), part).read_text(
             encoding="utf-8").strip() or None
     except OSError:
         return None
 
 
-def record(root: str | Path, part: str, parts: dict | None = None) -> str | None:
+def record(root: str | Path, part: str, parts: dict | None = None,
+           binary: str | Path | None = None) -> str | None:
     """Record the current tree's fingerprint for `part` (a build just
-    succeeded); return it."""
+    succeeded); return it.
+
+    The record lands beside the binary it describes: `binary` names
+    that binary, and where the caller does not, the part's build
+    output is the one recorded.
+    """
     hex_hash = current_fingerprint(root, part, parts)
     if hex_hash is None:
         return None
-    sidecar = sidecar_path(root, part, parts)
+    sidecar = (sidecar_path(root, part, parts) if binary is None
+               else _sidecar_for(Path(binary), Path(root), part))
     sidecar.parent.mkdir(parents=True, exist_ok=True)
     sidecar.write_text(hex_hash + "\n", encoding="utf-8")
     return hex_hash
@@ -275,6 +304,79 @@ def _binary_path(root: str | Path, part: str, parts: dict | None = None) -> Path
     return prebuilt
 
 
+def candidate_binaries(root: str | Path, part: str,
+                       parts: dict | None = None) -> list[Path]:
+    """Every place this part's binary may live, in the order the engine
+    prefers them.
+
+    The packaged copy a released engine runs, then this checkout's
+    release and debug builds, then the shipped prebuilt - the one a
+    machine with no Rust toolchain runs.
+    """
+    spec = (parts or PARTS)[part]
+    if spec["binary"] is None:
+        return []
+    name = Path(spec["binary"][-1])
+    return [
+        Path(root) / "native" / "bin" / name,
+        Path(root) / "native" / "target" / "release" / name,
+        Path(root) / "native" / "target" / "debug" / name,
+        Path(root) / "native" / "prebuilt" / name,
+    ]
+
+
+def serving_binaries(root: str | Path, part: str,
+                     parts: dict | None = None) -> list[Path]:
+    """The candidates this part could run from, the ones built from THIS
+    tree first.
+
+    A shipped prebuilt that predates the tree must never shadow a fresh
+    build. Measured 2026-10-20: the checkout had built `ren-resolved`
+    from the tree - the fingerprint beside it matched - and the broker
+    still served the older `native/prebuilt/ren-resolved` beside it, so
+    the broker ran code the tree had already replaced: `ren resolved
+    stop` left its worker running (ppid 1, alive 3h10m), and every
+    later writer timed out waiting for the one Resolve.
+
+    Each candidate carries the fingerprint of the sources it was built
+    from, beside it; the candidates whose record matches this tree come
+    first. Where the tree holds no sources for the part - a packaged
+    engine - there is nothing to compare, and the engine's own order
+    decides.
+    """
+    repo = Path(root)
+    specs = parts or PARTS
+    existing = [path for path in candidate_binaries(repo, part, specs)
+                if path.is_file()]
+    if not existing:
+        return []
+    current = current_fingerprint(repo, part, specs)
+    if current is None:
+        return existing
+    fresh = []
+    for candidate in existing:
+        try:
+            recorded = _sidecar_for(candidate, repo, part).read_text(
+                encoding="utf-8").strip()
+        except OSError:
+            continue
+        if recorded == current:
+            fresh.append(candidate)
+    return fresh + [path for path in existing if path not in fresh]
+
+
+def serving_binary(root: str | Path, part: str,
+                   parts: dict | None = None) -> Path | None:
+    """The binary this part runs from: the one built from THIS tree.
+
+    Where several candidates exist, this is the one whose recorded
+    fingerprint matches the tree - see `serving_binaries` for why a
+    stale prebuilt must not win.
+    """
+    candidates = serving_binaries(root, part, parts)
+    return candidates[0] if candidates else None
+
+
 def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str, str]:
     """`("fresh" | "stale" | "missing", detail)` for one part.
 
@@ -286,9 +388,13 @@ def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str,
     never consulted, so a venv copy built from an unrelated checkout
     neither reads as fresh nor provokes a rebuild here - only the
     absence of THIS tree's own entry builds, from THIS tree's sources.
-    """
-    import importlib.util
 
+    A file part is answered about the binary that SERVES: the one
+    built from this tree. A freshness report about some other binary
+    is a claim the engine cannot keep - it said "the Rust broker is
+    built from this tree" while the broker serving ran a prebuilt the
+    tree had already replaced (measured 2026-10-20).
+    """
     specs = parts or PARTS
     current = current_fingerprint(root, part, specs)
     if current is None:
@@ -310,12 +416,9 @@ def status(root: str | Path, part: str, parts: dict | None = None) -> tuple[str,
                 f"({ren_native_cache.this_interpreter_tag()}) in {entry}"
             )
         return "stale", "the entry holds no recorded build for this tree"
-    binary = _binary_path(root, part, specs)
-    if binary is not None:
-        if not binary.is_file():
-            return "missing", f"no build at {binary}"
-    elif importlib.util.find_spec("ren_native") is None:
-        return "missing", "the ren_native extension is not installed"
+    binary = serving_binary(root, part, specs)
+    if binary is None:
+        return "missing", f"no build at {_binary_path(root, part, specs)}"
     recorded = recorded_fingerprint(root, part, specs)
     if recorded is None:
         return "stale", "built, but no fingerprint was recorded for this tree"
@@ -460,12 +563,15 @@ def main(argv=None) -> int:
     rec = sub.add_parser("record", help="record a part's fingerprint")
     rec.add_argument("part")
     rec.add_argument("--root", required=True)
+    rec.add_argument("--binary", default=None,
+                     help="the binary the record describes; the part's "
+                          "build output where the caller does not name one")
     status_cmd = sub.add_parser("status", help="report each part's freshness")
     status_cmd.add_argument("--root", required=True)
     args = parser.parse_args(argv)
     root = args.root
     if args.command == "record":
-        hex_hash = record(root, args.part)
+        hex_hash = record(root, args.part, binary=args.binary)
         print(hex_hash or "no sources")
         return 0 if hex_hash else 1
     for name in PARTS:

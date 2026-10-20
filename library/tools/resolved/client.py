@@ -320,21 +320,25 @@ def _rust_daemon() -> Optional[Path]:
     """The Rust ren-resolved binary, where it is built.
 
     The Rust broker binary, selected by default unless
-    `REN_RESOLVED_DAEMON=python` is set. It lives in the crate's target
-    dir, release first, then debug.
+    `REN_RESOLVED_DAEMON=python` is set. The choice is the native-part
+    owner's: the binary built from THIS tree, so a stale shipped
+    prebuilt cannot shadow a fresh build. Measured 2026-10-20: the
+    checkout had built `ren-resolved` from the tree and the broker
+    still served the older `native/prebuilt/ren-resolved` beside it,
+    so the broker ran code the tree had already replaced - `ren
+    resolved stop` left its worker running, and every later writer
+    timed out waiting for the one Resolve.
     """
     root = _engine_root()
     if root is None:
         return None
-    packaged = root / "native" / "bin" / "ren-resolved"
-    if packaged.is_file() and os.access(packaged, os.X_OK):
-        return packaged
-    prebuilt = root / "native" / "prebuilt" / "ren-resolved"
-    if prebuilt.is_file() and os.access(prebuilt, os.X_OK):
-        return prebuilt
-    for profile in ("release", "debug"):
-        candidate = root / "native" / "target" / profile / "ren-resolved"
-        if candidate.is_file() and os.access(candidate, os.X_OK):
+    try:
+        from library.tools import native_refresh
+        candidates = native_refresh.serving_binaries(root, "ren-resolved")
+    except Exception:  # noqa: BLE001 - finding must never refuse
+        candidates = []
+    for candidate in candidates:
+        if os.access(candidate, os.X_OK):
             return candidate
     return None
 

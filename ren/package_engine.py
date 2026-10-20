@@ -431,7 +431,7 @@ def _install_native_runtime(src: Path, dest: Path) -> None:
             raise RuntimeError(
                 f"refusing to package native {part}: {state} ({detail}); "
                 "build it from this checkout before packaging")
-        binary = native_refresh._binary_path(src, part)
+        binary = native_refresh.serving_binary(src, part)
         if binary is None or not binary.is_file():
             raise RuntimeError(f"refusing to package native {part}: binary absent")
         destination.mkdir(parents=True, exist_ok=True)

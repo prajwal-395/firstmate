@@ -36,3 +36,11 @@ def packageable_native_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         native_refresh, "_binary_path",
         lambda _root, part, _parts=None: binaries / part)
+    # The packager ships the binary that SERVES, and the broker starter
+    # runs it: both are the owner's answer, so both are stubbed here.
+    monkeypatch.setattr(
+        native_refresh, "serving_binary",
+        lambda _root, part, _parts=None: binaries / part)
+    monkeypatch.setattr(
+        native_refresh, "serving_binaries",
+        lambda _root, part, _parts=None: [binaries / part])

@@ -309,6 +309,87 @@ def test_the_status_reports_a_held_instance_as_busy(lock_dir, capsys):
 
 # ── the daemon's own half: the broker's stop ends its worker ─────────
 
+def _serving_binary() -> Path | None:
+    """The binary the broker starter would serve: the one this tree built.
+
+    The defect was in the SERVING path. The starter picked its binary
+    from a list of its own, in which the shipped prebuilt came before
+    the checkout's build, so the broker served code the tree had
+    already replaced - the prebuilt carried no broker pid for its
+    worker to watch, and no stop of its own. A test that starts the
+    build output instead of the SERVING binary never sees that.
+    """
+    from library.tools import native_refresh
+
+    return native_refresh.serving_binary(REPO, "ren-resolved")
+
+
+def _worker_environment(pid: int) -> str:
+    """The worker's environment, as the machine reports it."""
+    try:
+        return subprocess.run(
+            ["ps", "eww", "-p", str(pid)],
+            capture_output=True, encoding="utf-8", check=False).stdout
+    except OSError:
+        return ""
+
+
+@pytest.mark.resolve_live
+def test_the_serving_broker_names_itself_to_its_worker(tmp_path):
+    """The worker must know which broker it belongs to.
+
+    The break test's orphan: `ren resolved stop` stopped the broker and
+    the worker survived it (parent pid 1, alive 3h10m), holding the
+    instance flock - so every later writer timed out with "ren-resolved
+    did not grant 'build reels connect': timed out waiting for
+    Resolve". The worker ends when its broker is gone, and it can only
+    know that if the broker named itself in the worker's environment.
+
+    The broker that serves is the one this tree built. The prebuilt
+    that served on 2026-10-20 named nothing, so the watch could never
+    fire - measured on the machine: the worker it started carried no
+    `REN_RESOLVED_BROKER_PID` at all.
+    """
+    binary = _serving_binary()
+    if binary is None:
+        pytest.skip("no ren-resolved binary to serve")
+
+    from library.tools.resolved.server import SOCKET_NAME
+
+    lock_dir = Path(tempfile.mkdtemp(prefix="ren-orphan-", dir="/tmp"))
+    socket_path = lock_dir / SOCKET_NAME
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO), env.get("PYTHONPATH", "")] if env.get("PYTHONPATH") else
+        [str(REPO)])
+    env["REN_SHADOW_WATCHER"] = "0"
+    env[resolve_lock.LOCK_DIR_ENV] = str(lock_dir)
+    log = open(lock_dir / "ren-resolved.log", "ab", buffering=0)
+    daemon = subprocess.Popen(
+        [str(binary), "serve", str(socket_path)],
+        env=env, stdin=subprocess.DEVNULL, stdout=log,
+        stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        deadline = time.time() + 30
+        worker_pids: list[int] = []
+        while time.time() < deadline and not worker_pids:
+            worker_pids = _worker_pids(daemon.pid)
+            time.sleep(0.1)
+        assert worker_pids, "the daemon started no worker"
+
+        environment = _worker_environment(worker_pids[0])
+        assert f"{worker.BROKER_PID_ENV}={daemon.pid}" in environment, (
+            f"the worker does not know its broker: it carries no "
+            f"{worker.BROKER_PID_ENV}, so it can never learn the broker "
+            f"is gone - and it outlives it, holding the one Resolve")
+    finally:
+        if daemon.poll() is None:
+            daemon.kill()
+            daemon.wait(timeout=5)
+        log.close()
+        shutil.rmtree(lock_dir, ignore_errors=True)
+
+
 @pytest.mark.resolve_live
 def test_the_daemon_stops_its_worker_when_the_broker_stops(tmp_path):
     """`ren resolved stop` must not leave the worker behind.
@@ -318,18 +399,14 @@ def test_the_daemon_stops_its_worker_when_the_broker_stops(tmp_path):
     worker that outlives its broker holds the one Resolve against every
     later writer.
 
-    This one needs the built Rust daemon, so it runs only in a granted
-    borrow-resolve window with the binary built (the same conditions as
-    `test_rust_daemon_lease.py`).
+    It runs against the binary that SERVES - the one the starter picks
+    - because that is where the defect was: the shipped prebuilt served
+    while the tree's own build sat beside it, and the prebuilt left its
+    worker running (measured 2026-10-20).
     """
-    binary = None
-    for profile in ("release", "debug"):
-        candidate = REPO / "native" / "target" / profile / "ren-resolved"
-        if candidate.is_file():
-            binary = candidate
-            break
+    binary = _serving_binary()
     if binary is None:
-        pytest.skip("the ren-resolved binary is not built")
+        pytest.skip("no ren-resolved binary to serve")
 
     from library.tools.resolved import client
     from library.tools.resolved.server import SOCKET_NAME
