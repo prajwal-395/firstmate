@@ -233,16 +233,31 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             recovery={"status": "required" if receipts else "not_required",
                       "completed_operations": len(receipts)},
         ).as_dict()
-        return {
+        failure_receipt = {
             "status": ("partial_failure" if receipts
                        or (evidence or {}).get("mutated") else "failed"),
+            "resolve_write_status": "failed",
+            "patch_id": request.id,
             "request_id": request.id, "backend": backend,
+            "transaction_id": request.id,
+            "idempotency_key": request.idempotency_key,
+            "project": request.project, "timeline": request.timeline,
+            "base_generation": generation.generation,
             "atomic": False, "atomicity": "sequential_non_atomic",
             "mutated": bool(receipts or (evidence or {}).get("mutated")),
             "completion_claimed": False,
             "partial_result_preserved": bool(
                 receipts or (evidence or {}).get("mutated")),
             "completed_operations": receipts,
+            "operations": receipts,
+            "requested_operation_count": len(operations),
+            "expected_changes": operations,
+            "actual_changes": receipts,
+            "affected_items": sorted({
+                str(op["unique_id"]) for op in operations if op.get("unique_id")}),
+            "verification_evidence": [row["receipt"].get(
+                "execution_contract", {}).get("verification", {})
+                for row in receipts],
             "refusal": refusal, "failed_operation_index": failed_index,
             "failed_operation": (operations[failed_index]
                                  if failed_index < len(operations) else None),
@@ -262,6 +277,8 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             },
             "execution_routing": decision,
         }
+        from library.tools.transaction_orchestration import standardize_receipt
+        return standardize_receipt(failure_receipt)
 
     for index, executor in executors:
         context = EditExecutionContext(
@@ -284,11 +301,14 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                    else standardize_receipt(result))
         verification = (receipt.get("execution_contract") or {}).get(
             "verification", {})
-        if verification.get("status") != "verified":
+        if (verification.get("status") != "verified"
+                or not verification.get("checks")
+                or not isinstance(verification.get("evidence"), Mapping)
+                or not verification.get("evidence")):
             return refused(
                 "verification_failed",
                 f"adapter for {operations[index]['op']} on {backend_id} "
-                "returned without verified read-back evidence",
+                "returned without operation-level verification evidence",
                 failed_index=index,
                 evidence={"adapter_receipt": receipt,
                           "mutated": receipt.get("mutated", True)},
@@ -301,14 +321,85 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                              if key in operations[index]},
                          "receipt": receipt})
 
-    return {
-        "status": "committed", "request_id": request.id,
+    from library.tools.timeline_shadow import ShadowStore
+    heads = [head for head, _snapshot in
+             ShadowStore().current_snapshots(request.project)
+             if head.timeline_name == request.timeline]
+    committed_generation = heads[0].generation if len(heads) == 1 else None
+    if (committed_generation is None
+            or committed_generation <= generation.generation):
+        return refused(
+            "verification_failed",
+            "backend operations were verified but no newer committed "
+            "timeline generation was recorded",
+            failed_index=len(operations),
+            evidence={"base_generation": generation.generation,
+                      "observed_generation": committed_generation,
+                      "mutated": True},
+        )
+    return _registered_execution_receipt(
+        backend=backend, plan=plan, request=request,
+        operations=operations, receipts=receipts,
+        base_generation=generation.generation,
+        committed_generation=committed_generation)
+
+
+def _registered_execution_receipt(*, backend: str, plan: Mapping,
+                                  request: Any, operations: Sequence[Mapping],
+                                  receipts: Sequence[Mapping],
+                                  base_generation: int,
+                                  committed_generation: int) -> dict:
+    """Normalize a registered-backend batch with operation evidence."""
+    from library.tools.transaction_orchestration import standardize_receipt
+
+    acceptance_contracts = []
+    for operation, result in zip(operations, receipts):
+        receipt = result.get("receipt", result)
+        verification = receipt["execution_contract"]["verification"]
+        checks = verification.get("checks") or []
+        evidence = verification.get("evidence")
+        passed = (verification.get("status") == "verified"
+                  and bool(checks) and isinstance(evidence, Mapping)
+                  and bool(evidence))
+        acceptance_contracts.append({
+            "operation": operation["op"], "passed": passed,
+            "checks": list(checks), "evidence": dict(evidence or {}),
+            "failures": [] if passed else [
+                "operation-level verification evidence is missing"],
+        })
+    verified = bool(acceptance_contracts) and all(
+        row["passed"] for row in acceptance_contracts)
+    aggregate = {
+        "status": "committed" if verified else "verification_failed",
+        "resolve_write_status": "committed" if verified else "verification_failed",
+        "patch_id": request.id, "request_id": request.id,
+        "transaction_id": request.id,
+        "idempotency_key": request.idempotency_key,
         "project": request.project, "timeline": request.timeline,
-        "backend": backend, "atomic": False,
-        "atomicity": "sequential_non_atomic", "mutated": True,
+        "backend": backend, "generation": committed_generation,
+        "base_generation": base_generation,
+        "atomic": False, "atomicity": "sequential_non_atomic",
+        "mutated": True,
+        "affected_items": sorted({
+            str(op["unique_id"]) for op in operations if op.get("unique_id")}),
+        "expected_state": {"operations": operations},
+        "expected_changes": operations,
+        "actual_state": {"operation_receipts": receipts},
+        "actual_changes": receipts,
+        "readback": [result.get("receipt", result).get("readback")
+                     for result in receipts],
+        "verification_evidence": acceptance_contracts,
         "operations": receipts,
-        "execution_routing": decision,
+        "requested_operation_count": len(operations),
+        "acceptance_contracts": acceptance_contracts,
+        "execution_routing": plan.get("routing") or {},
+        "recovery": {"status": "available", "operations": [
+            result.get("receipt", result).get("execution_contract", {}).get(
+                "recovery", {}) for result in receipts]},
+        "promotion": {"status": "awaiting_promotion"},
+        "delivered": {"status": "not_requested"},
     }
+    return standardize_receipt(aggregate)
 
 
 def execute(operation: AxiOperation | Sequence[str]) -> AxiResult:
@@ -554,10 +645,27 @@ def submit_edit_request_async(request, *, authorized: bool = False,
         _prepare_request_plan(request))
     if plan["backend"] == "no_op":
         from library.tools.transaction_receipt import lifecycle
-        receipt = {"status": "already_satisfied", "request_id": request.id,
+        receipt = {"status": "already_satisfied", "patch_id": request.id,
+                   "request_id": request.id, "transaction_id": request.id,
+                   "idempotency_key": request.idempotency_key,
                    "project": request.project, "timeline": request.timeline,
                    "backend": "no_op", "mutated": False,
-                   "execution_routing": plan["routing"]}
+                   "affected_items": [], "expected_changes": [],
+                   "actual_changes": [], "verification_evidence": {
+                       "outcome": "already_satisfied"},
+                   "generation": generation.generation,
+                   "promotion": {"status": "not_required"},
+                   "delivered": {"status": "not_requested"},
+                   "recovery": {"status": "not_required"},
+                   "execution_routing": plan["routing"],
+                   "execution_contract": {
+                       "status": "already_satisfied", "backend": "no_op",
+                       "verification": {"status": "verified", "checks": ({
+                           "operation": "request", "passed": True},),
+                           "missing": (),
+                           "evidence": {"resolve_contacted": False}},
+                       "recovery": {"status": "not_required",
+                                    "action": "none"}}}
         receipt["lifecycle"] = lifecycle(
             receipt, stage="VERIFIED", backend="no_op",
             expected_state={"satisfied": True},
@@ -613,7 +721,7 @@ def retrieve_edit_request(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
     if job is None:
         return {"id": job_id, "status": "unknown"}
     result = job.get("result")
-    if isinstance(result, Mapping) and "lifecycle" not in result:
+    if isinstance(result, Mapping) and "execution_contract" not in result:
         from library.tools.transaction_orchestration import standardize_receipt
         result = standardize_receipt(dict(result))
     return {"id": job_id, "status": job.get("state", job.get("status")),

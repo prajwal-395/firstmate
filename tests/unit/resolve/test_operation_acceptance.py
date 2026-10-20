@@ -100,6 +100,18 @@ def test_lifecycle_stops_at_applied_when_acceptance_fails():
     assert receipt["committed"]["status"] == "readback_persisted_unverified"
 
 
+def test_lifecycle_does_not_verify_a_receipt_with_no_operation_evidence():
+    receipt = transaction_receipt.standardize({
+        "status": "committed", "patch_id": "p-2",
+        "base_generation": 4, "generation": 5,
+        "operations": [{"returned": True}],
+    })
+
+    assert receipt["verified"]["status"] == "failed"
+    assert receipt["committed"]["status"] == "readback_persisted_unverified"
+    assert receipt["lifecycle"]["stage"] == "APPLIED"
+
+
 def test_acceptance_distinguishes_missing_evidence_from_failed_measurement():
     result = operation_acceptance.evaluate(
         {"op": "clip.move"}, readback_passed=True,

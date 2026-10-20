@@ -153,6 +153,71 @@ def test_semantic_submission_requires_authorization_before_preparation():
         submit_edit_request_async({}, authorized=False)
 
 
+def test_registered_execution_uses_canonical_verified_receipt():
+    from types import SimpleNamespace
+
+    from library.tools.resolve_axi_core import _registered_execution_receipt
+
+    operation = {"op": "clip.trim", "unique_id": "clip-1",
+                 "in_frame": 12, "out_frame": 20}
+    adapter_receipt = {
+        "status": "committed", "backend": "resolve_axi",
+        "readback": {"record_range": [12, 20]},
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "clip.trim", "passed": True},),
+                "evidence": {"readback": {"record_range": [12, 20]}},
+            },
+            "recovery": {"status": "recorded", "action": "restore"},
+        },
+    }
+    receipt = _registered_execution_receipt(
+        backend="incremental", plan={"routing": {"backend": "incremental"}},
+        request=SimpleNamespace(
+            id="request-1", idempotency_key="request-1",
+            project="Project", timeline="Timeline"),
+        operations=[operation], receipts=[adapter_receipt],
+        base_generation=4, committed_generation=5,
+    )
+
+    assert receipt["status"] == "committed"
+    assert receipt["request_id"] == "request-1"
+    assert receipt["transaction_id"] == "request-1"
+    assert receipt["backend"] == "incremental"
+    assert receipt["generation"] == 5
+    assert receipt["affected_items"] == ["clip-1"]
+    assert receipt["expected_changes"] == [operation]
+    assert receipt["actual_changes"] == [adapter_receipt]
+    assert receipt["lifecycle"]["stage"] == "COMMITTED"
+    assert receipt["execution_contract"]["verification"]["status"] == "verified"
+    assert receipt["promotion"]["status"] == "awaiting_promotion"
+    assert receipt["delivered"]["status"] == "not_requested"
+
+
+def test_registered_execution_missing_operation_evidence_is_not_verified():
+    from types import SimpleNamespace
+
+    from library.tools.resolve_axi_core import _registered_execution_receipt
+
+    receipt = _registered_execution_receipt(
+        backend="incremental", plan={},
+        request=SimpleNamespace(
+            id="request-2", idempotency_key="request-2",
+            project="Project", timeline="Timeline"),
+        operations=[{"op": "clip.trim"}],
+        receipts=[{"status": "committed", "execution_contract": {
+            "verification": {"status": "verified", "checks": [],
+                              "evidence": {}}}}],
+        base_generation=4, committed_generation=5,
+    )
+
+    assert receipt["status"] == "verification_failed"
+    assert receipt["lifecycle"]["stage"] == "APPLIED"
+    assert receipt["execution_contract"]["verification"]["status"] == "failed"
+    assert receipt["committed"]["status"] == "readback_persisted_unverified"
+
+
 def test_sdk_semantic_submit_uses_shared_request_pipeline(monkeypatch):
     from library.tools import resolve_axi_sdk
 

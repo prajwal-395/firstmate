@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 STAGES = ("PLANNED", "VALIDATED", "EXECUTING", "APPLIED", "VERIFIED",
           "COMMITTED", "DELIVERED")
 RECOVERY_ACTIONS = {
@@ -78,7 +77,8 @@ def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
                         if row.get("failure") is None)
     requested_count = int(out.get("requested_operation_count", len(operations)))
     contracts = out.get("acceptance_contracts") or []
-    contracts_ok = all(row.get("passed") is True for row in contracts)
+    contracts_ok = bool(contracts) and all(
+        row.get("passed") is True for row in contracts)
     verified = out.get("resolve_write_status", status) == "committed" and contracts_ok
     persisted = out.get("generation") is not None
     model_commit = out.get("project_model_commit", {"status": "not_required"})
