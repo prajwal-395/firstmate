@@ -104,6 +104,20 @@ def test_target_identity_must_resolve_exactly_once():
         adapters._target_position(snapshot, "duplicate")
 
 
+def test_clip_remove_refuses_primary_track_global_ripple_before_resolve_write():
+    """Defect: Resolve's timeline-wide ripple can delete stacked speech
+    and audio when a primary-track gap is closed."""
+    context = _context({
+        "op": "clip.remove", "unique_id": "clip-17", "close_gap": True,
+    })
+    context.snapshot["tracks"][0]["index"] = 1
+    context.snapshot["tracks"][0]["clips"][0]["track_type"] = "video"
+    context.snapshot["tracks"][0]["clips"][0]["track_index"] = 1
+
+    with pytest.raises(ValueError, match="timeline-wide"):
+        adapters._remove(context)
+
+
 def test_prepared_position_is_refused_after_prior_structural_mutation():
     context = _context({"op": "clip.trim", "unique_id": "clip-17"})
     context.compiled = SimpleNamespace(operations=(

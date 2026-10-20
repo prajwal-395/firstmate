@@ -601,8 +601,8 @@ results["replace_graphic"] = {
                      float(old_props.get("Tilt", 0.0))]}
 teardown()
 
-# remove_broll: ripple the V2 B-roll over speech away and close its gap.
-# A-roll video, linked audio and timing elsewhere hold exactly.
+# remove_broll: remove the V2 B-roll over speech without rippling.
+# A-roll video and linked audio hold exactly beneath the former cover.
 seed_base(media="both")
 placed = call(["edit", "place", "--clip", "qual_c.mp4",
                "--media", "video", "--track", "2", "--record", "100",
@@ -631,7 +631,6 @@ removed = call(["edit", "delete", "--track", "video2", "--index", "0",
                 "--expected-record-in-frame",
                 str(int(cover.GetStart())),
                 "--expected-record-out-frame", str(int(cover.GetEnd())),
-                "--ripple",
                 "--apply", "--project", PROJECT, "--timeline", TIMELINE,
                 "--project-folder", PROJECT_DIR, "--require-recovery"])
 remove_after = live_items()
@@ -706,22 +705,22 @@ def _run_store() -> str:
 _REFUSAL_NOTES = {
     "restyle_captions":
         ("missing_fixture_content",
-         "caption.style re-renders caption cards carrying render props; "
-         "the fixture carries PNG caption overlays, not writeable text "
-         "cards, so the executor would refuse for lack of props."),
+         ("caption.style re-renders caption cards carrying render props; "
+          "the fixture carries PNG caption overlays, not writeable text "
+          "cards, so the executor would refuse for lack of props.")),
     "right_speaker_camera":
         ("unexecutable_operation",
-         "multicam.select_angle has no executor: Resolve exposes no "
-         "guarded set-angle verb and the staged replacement needs the "
-         "assigned camera's synced source range, which preparation "
-         "does not supply. The adapter refuses by design; nothing "
-         "was written."),
+         ("multicam.select_angle has no executor: Resolve exposes no "
+          "guarded set-angle verb and the staged replacement needs the "
+          "assigned camera's synced source range, which preparation "
+          "does not supply. The adapter refuses by design; nothing "
+          "was written.")),
     "improve_opening":
         ("missing_brief",
-         "reel.opening carries the supplied brief and the model's "
-         "decided structural edits; no brief is attached to this "
-         "request and the lane invents no editorial judgement on the "
-         "model's behalf, so there is nothing decided to execute."),
+         ("reel.opening carries the supplied brief and the model's "
+          "decided structural edits; no brief is attached to this "
+          "request and the lane invents no editorial judgement on the "
+          "model's behalf, so there is nothing decided to execute.")),
 }
 
 
@@ -1080,7 +1079,7 @@ def _remove_broll_evidence(case: dict, started: float,
                            instruction: str, discovery: dict,
                            phases: dict) -> dict:
     if case["delete"]["exit_code"]:
-        raise RuntimeError("B-roll ripple remove refused: "
+        raise RuntimeError("B-roll local remove refused: "
                            + case["delete"]["stdout"]
                            + case["delete"]["stderr"])
     before = {(row["kind"], row["name"], tuple(row["record"])): row
@@ -1089,19 +1088,13 @@ def _remove_broll_evidence(case: dict, started: float,
     covers = [row for row in after
               if row["kind"] == "video" and row["name"] == "qual_c.mp4"
               and row["track"] == 2]
-    survivors_ok = True
-    for row in after:
-        if row["kind"] != "video" or row["name"] not in (
-                "qual_a.mp4", "qual_b.mp4", "qual_c.mp4"):
-            continue
-        if row["track"] == 2:
-            survivors_ok = False
-            continue
-        key = ("video", row["name"], tuple(row["record"]))
-        shifted = ("video", row["name"],
-                   (row["record"][0] + 40, row["record"][1] + 40))
-        if key not in before and shifted not in before:
-            survivors_ok = False
+    target_keys = {key for key, row in before.items()
+                   if row["kind"] == "video"
+                   and row["name"] == "qual_c.mp4" and row["track"] == 2}
+    after_keys = {(row["kind"], row["name"], tuple(row["record"]))
+                  for row in after}
+    survivors_ok = (set(before) - target_keys
+                    == after_keys - target_keys)
     sync_ok = all(
         _span(after, name, "audio") == _span(after, name, "video")
         for name in ("qual_a.mp4", "qual_b.mp4", "qual_c.mp4")
@@ -1111,7 +1104,7 @@ def _remove_broll_evidence(case: dict, started: float,
         "cover_track_emptied": not any(
             row["kind"] == "video" and row["track"] == 2
             for row in after),
-        "downstream_continuity": survivors_ok,
+        "underlying_speech_and_audio_unchanged": survivors_ok,
         "linked_audio_in_sync": sync_ok,
     }
     backend = _route_executing(
@@ -1120,7 +1113,7 @@ def _remove_broll_evidence(case: dict, started: float,
         basis=("router refuses clip.remove under production and selects "
                "edit_patch under the qualification-run policy; the live "
                "receipt above is that backend's commit and the read-back "
-               "verifies absence, gap close and sync"))
+               "verifies cover removal with A-roll and audio untouched"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend,
                             {"before_spans": sorted(
@@ -1140,9 +1133,6 @@ def _insert_broll_evidence(case: dict, started: float,
     before_video = sorted(
         [row["name"], list(row["record"])]
         for row in case["before"] if row["kind"] == "video")
-    after_video = sorted(
-        [row["name"], list(row["record"])]
-        for row in case["after"] if row["kind"] == "video")
     before_audio = sorted(
         [row["name"], list(row["record"])]
         for row in case["before"] if row["kind"] == "audio")
@@ -1318,6 +1308,7 @@ def _probe_callback(instruction: str, skill_text: str,
                     capability_catalog: str) -> dict:
     """Discover track.add from the catalog and prove it live."""
     import hashlib
+
     from library.tools import edit_algebra
     wanted = instruction.lower()
     if "track.add" in skill_text:

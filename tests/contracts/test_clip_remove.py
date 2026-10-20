@@ -113,6 +113,19 @@ def test_clip_remove_acceptance_names_gap_and_continuity_checks():
     assert complete["passed"] is True
 
 
+def test_clip_remove_cover_track_never_ripples_through_speech_or_audio():
+    """Defect: Resolve's native ripple delete on V2 deleted the stacked
+    A-roll speech and linked audio underneath the B-roll shot."""
+    from library.tools import operation_acceptance
+
+    contract = operation_acceptance.contract_for(
+        "clip.remove", {"close_gap": False})
+    assert contract["checks"] == [
+        "target_absent", "underlying_speech_preserved",
+        "unrelated_items_unchanged",
+    ]
+
+
 def test_clip_remove_has_a_registered_resolve_axi_backend():
     """Defect: an algebra op with no registered adapter is a name with
     no production path - the router can select it but nothing executes
