@@ -2618,20 +2618,27 @@ SH
   printf '%s\n' "$datadir"
 }
 
-test_opencode_free_launch_ignores_an_inherited_second_workspace() {
+test_opencode_unpinned_launch_seeds_task_database_from_live_account() {
   local rec id out status launch datadir
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "unpinned database backup needs sqlite3 (absent here)"
+    return 0
+  }
   id=profile-free-nologin-z35
   rec=$(make_spawn_case profile-free-nologin opencode "$id")
   read_case_record "$rec"
   printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
   datadir=$(make_nologin_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") \
-    || fail "the no-login fixture could not be built"
+    || fail "the OpenCode data fixture could not be built"
+  sqlite3 "$datadir/opencode.db" \
+    "CREATE TABLE account (id text PRIMARY KEY, access_token text NOT NULL, refresh_token text NOT NULL); CREATE TABLE account_state (id integer PRIMARY KEY, active_account_id text, active_org_id text); INSERT INTO account VALUES ('fixture', 'fixture-access-token', 'fixture-refresh-token'); INSERT INTO account_state VALUES (1, 'fixture', 'machine-org');" \
+    || fail "the machine database account fixture could not be created"
 
   export FM_FAKE_OPENCODE_DATA="$datadir"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   unset FM_FAKE_OPENCODE_DATA
-  expect_code 0 "$status" "a free launch on a host with no console login must succeed: $out"
+  expect_code 0 "$status" "an unpinned free launch must succeed: $out"
   assert_grep 'model=opencode/muse-spark-1.3-contributor-free' "$HOME_DIR/state/$id.meta" "the free model was not recorded"
   assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a free launch must record no workspace marker"
   launch=$(cat "$LAUNCH_LOG")
@@ -2641,11 +2648,13 @@ test_opencode_free_launch_ignores_an_inherited_second_workspace() {
     "an unpinned OpenCode launch must use its per-task database, not the machine-wide default"
   [ -f "$HOME_DIR/state/$id.opencode.db" ] \
     || fail "the unpinned launch did not create its per-task database"
-  [ ! -s "$HOME_DIR/state/$id.opencode.db" ] \
-    || fail "a new unpinned task database must be empty for OpenCode to initialize"
+  [ -s "$HOME_DIR/state/$id.opencode.db" ] \
+    || fail "the new unpinned task database must be seeded from the machine database"
+  [ "$(sqlite3 "$HOME_DIR/state/$id.opencode.db" 'SELECT access_token FROM account LIMIT 1;')" = fixture-access-token ] \
+    || fail "the unpinned task database did not carry the console account"
   [ "$(stat -f '%Lp' "$HOME_DIR/state/$id.opencode.db" 2>/dev/null || stat -c '%a' "$HOME_DIR/state/$id.opencode.db")" = 600 ] \
     || fail "the unpinned task database must have mode 600"
-  pass "the unpinned OpenCode launch regression uses a fresh private per-task database"
+  pass "the unpinned OpenCode launch seeds a private per-task database with the console account"
 }
 
 test_opencode_free_launch_ignores_an_inherited_main_org() {
@@ -2853,7 +2862,7 @@ test_opencode_shared_server_attaches_worker_to_its_own_session
 test_opencode_shared_server_falls_back_to_standalone
 test_opencode_shared_server_session_failure_falls_back_to_standalone
 test_opencode_shared_servers_keep_each_workspace_on_its_own_database
-test_opencode_free_launch_ignores_an_inherited_second_workspace
+test_opencode_unpinned_launch_seeds_task_database_from_live_account
 test_opencode_free_launch_ignores_an_inherited_main_org
 test_opencode_workspace_flag_refuses_fresh_spawn
 test_non_cursor_launch_clears_inherited_cursor_markers

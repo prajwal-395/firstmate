@@ -2922,8 +2922,8 @@ fi
 # to a launch that actually bills a Go workspace: the free model and every
 # other non-Go model remain outside the workspace pin flow, so discovering or
 # requiring a workspace never blocks them - including on a host with no
-# console login. Unpinned standalone launches use an empty per-task database
-# to keep their event data out of the machine-wide database. An explicit
+# console login. Unpinned standalone launches seed a private per-task database
+# from a verified main pin or a consistent machine-database backup. An explicit
 # secondary workspace keeps its pin whatever the model. In a home with a
 # configured second workspace every Go
 # launch rides its own pin, main and secondary alike: an unpinned main launch
@@ -2939,7 +2939,7 @@ elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/nul
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
 # opencode_task_db: the standalone launch's private workspace copy, or its
-# empty task-local database when no workspace pin applies. An attached worker
+# seeded task-local database when no workspace pin applies. An attached worker
 # needs none: its server runs on that server's own proven copy
 # (bin/fm-opencode-server.sh).
 opencode_task_db() {
@@ -2950,10 +2950,10 @@ opencode_task_db() {
   elif [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
     # Unpinned standalone workers still need a task-private database so
     # OpenCode cannot grow its machine-wide event log. Keep an existing file
-    # intact across relaunches; OpenCode initializes an empty file itself.
+    # intact across relaunches; seed new files with the console account.
     OPENCODE_TASK_DB="$STATE/$ID.opencode.db"
     if [ ! -e "$OPENCODE_TASK_DB" ]; then
-      (umask 077; set -C; : > "$OPENCODE_TASK_DB") 2>/dev/null \
+      (umask 077; fm_opencode_unpinned_seed "$OPENCODE_TASK_DB" "$(fm_opencode_second_config_dir)") 2>/dev/null \
         || [ -e "$OPENCODE_TASK_DB" ] || return 1
     fi
     chmod 600 "$OPENCODE_TASK_DB" 2>/dev/null || return 1
