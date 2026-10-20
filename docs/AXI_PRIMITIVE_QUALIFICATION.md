@@ -48,6 +48,23 @@ fixtures back.  A populated timeline - the scratch timeline the lane
 has already seeded, the proof fixtures - is left exactly as it is and
 reported, so an absent fixture is named rather than assumed present.
 
+WHICH `Ren Qualification` it works in is the one the live lane opens.
+Resolve resolves a project NAME inside the CURRENT Project Manager
+folder, and the lane opens the name from the folder it borrowed the
+captain's project from - so the ensure opens the name from the same
+folder.  Two projects can answer to one name (a stray rebuild filed
+at the Project Manager root, the live one filed beside the captain's
+project), and an ensure that opened the other one would read a pool the
+lane never reads: the fixtures would read as PRESENT while the lane
+still failed on the missing `qual_a.mp4`, and nothing would be
+imported.  So the current folder wins, and a name that several folders
+hold - none of them the current one - is REFUSED with the folders
+named rather than guessed at.
+
+Presence is the LIVE media pool of the project being ensured, read
+fresh and read back after the import.  A rendered clip the pool does
+not hold is missing, however present it is on disk.
+
 ## What a row means
 
 A qualification row is keyed on ONE operation and ONE backend - the

@@ -37,6 +37,20 @@ items, the `Q Spine` source and the empty scratch timeline the live
 lane seeds. Every fixture it declines to touch is REPORTED, so a
 missing one is named rather than assumed present.
 
+WHICH project `ensure` works in is decided the way the live lane
+decides it. Resolve resolves a project NAME inside the CURRENT Project
+Manager folder, and the live lane opens `Ren Qualification` by name
+from the folder it borrowed the captain's project from. Two projects
+can answer to one name, and an ensure that opened the other one would
+read a pool the lane never reads: the fixtures would read as PRESENT
+while the lane still fails on the missing clip. So the current folder
+wins, and an ambiguous name (several folders, none of them the
+current one) is REFUSED rather than guessed.
+
+Presence is decided by the LIVE media pool of the project being
+ensured, read fresh and read back after the import. A rendered clip
+that the pool does not hold is missing, however present it is on disk.
+
 `tests/unit/resolve/test_qualification_project.py`,
 `tests/unit/resolve/test_qualification_ensure.py`.
 
@@ -856,12 +870,25 @@ def _pool_items_by_stem(pool) -> dict:
     """Every media pool item's file stem -> the item, across folders.
 
     The pool is a TREE, and a qualification clip may sit in any bin:
-    the name alone says the item exists, wherever it was filed.
+    the name alone says the item exists, wherever it was filed. The
+    pool's CURRENT folder is walked as well - that is where an import
+    lands, and a read that could not see it would report a fixture
+    that is really there as missing.
     """
     items = {}
+    try:
+        current = pool.GetCurrentFolder()
+    except Exception:  # noqa: BLE001 - a pool that cannot say which
+        current = None    # folder is current is walked without it
     stack = [pool.GetRootFolder()]
+    if current is not None:
+        stack.append(current)
+    seen = set()
     while stack:
         folder = stack.pop()
+        if folder is None or id(folder) in seen:
+            continue
+        seen.add(id(folder))
         for item in (folder.GetClipList() or ()):
             items.setdefault(Path(str(item.GetName())).stem, item)
         stack.extend(folder.GetSubFolderList() or ())
@@ -883,35 +910,20 @@ def _timeline_clip_names(timeline) -> list:
     return names
 
 
-def _find_project_folder(manager, name: str, path: tuple = ()) -> list | None:
-    """The Project Manager folder path that HOLDS `name`, or None.
-
-    The project list is folder-scoped, so a qualification project filed
-    below the root is invisible from the root. This walks the folder
-    tree and names the folder that holds it.
-    """
-    projects = manager.GetProjectListInCurrentFolder() or []
-    if name in projects:
-        return list(path)
-    folders = manager.GetFoldersInCurrentFolder() or []
-    folders = (list(folders.values()) if isinstance(folders, dict)
-               else list(folders))
-    for folder in folders:
-        if not manager.OpenFolder(folder):
-            continue
-        found = _find_project_folder(manager, name, (*path, folder))
-        manager.GotoParentFolder()
-        if found is not None:
-            return found
-    return None
-
-
 def _ensure_pool_items(pool, media: dict) -> dict:
     """Import ONLY the qualification media the pool does not hold.
 
-    A pool item already named like a qualification clip is LEFT ALONE:
-    it may be the captain's own file, and this command never replaces
-    what exists.
+    Presence is decided by the LIVE media pool of the project being
+    ensured, read fresh here - never by a file on disk (a rendered
+    clip that the pool does not hold is missing from the lane's point
+    of view) and never by an inventory read earlier. A pool item
+    already named like a qualification clip is LEFT ALONE: it may be
+    the captain's own file, and this command never replaces what
+    exists.
+
+    The pool is READ BACK after the import: an import that did not
+    land is not a fixture, and a report of an intention is not a
+    report.
     """
     existing = _pool_items_by_stem(pool)
     present, imported = [], []
@@ -924,15 +936,15 @@ def _ensure_pool_items(pool, media: dict) -> dict:
             raise QualificationError(
                 f"Resolve did not import the missing qualification media "
                 f"{name!r}")
-        for item in items:
-            existing.setdefault(Path(str(item.GetName())).stem, item)
         imported.append(name)
-    missing = [name for name, *_ in MEDIA if name not in existing]
+    live = _pool_items_by_stem(pool)
+    missing = [name for name, *_ in MEDIA if name not in live]
     if missing:
         raise QualificationError(
             f"the qualification media {missing} is still absent from the "
             f"media pool after importing it")
-    return {"present": present, "imported": imported, "items": existing}
+    return {"present": present, "imported": imported, "items": live,
+            "readback": sorted(name for name, *_ in MEDIA if name in live)}
 
 
 def _find_timeline(project, name: str):
@@ -992,25 +1004,84 @@ def ensure_fixtures(project, media: dict) -> dict:
                          "clips": _timeline_clip_names(timeline)
                          if timeline is not None else None})
     return {"media": {"present": media_report["present"],
-                      "imported": media_report["imported"]},
+                      "imported": media_report["imported"],
+                      "readback": media_report["readback"]},
             "timelines": timelines, "readback": readback}
 
 
-def _open_qualification_project(manager):
-    """Open `QUALIFICATION_PROJECT` from wherever the manager holds it."""
-    if manager.GotoRootFolder() is False:
-        raise QualificationError(
-            "Resolve refused to navigate to the Project Manager root "
-            f"while opening {QUALIFICATION_PROJECT!r}")
-    path = _find_project_folder(manager, QUALIFICATION_PROJECT)
-    if path is None:
+def _project_locations(manager, name: str) -> list[tuple[str, ...]]:
+    """EVERY Project Manager folder path that HOLDS a project called `name`.
+
+    The project list is folder-scoped, so the same project name can live
+    in two folders at once - and Resolve resolves `LoadProject(name)`
+    inside the CURRENT folder, so the two are different projects that
+    answer to one name. The live lane opens the qualification project by
+    name from the folder it borrowed from; an ensure that picked the
+    first folder in the tree could work on the OTHER one, decide
+    presence against a pool the lane never reads, and report fixtures
+    present that the lane cannot find.
+    """
+    locations: list[tuple[str, ...]] = []
+    stack: list[tuple[str, ...]] = [()]
+    while stack:
+        path = stack.pop()
+        _open_project_folder_path(manager, path)
+        if name in (manager.GetProjectListInCurrentFolder() or []):
+            locations.append(path)
+        folders = manager.GetFoldersInCurrentFolder() or []
+        folders = (list(folders.values()) if isinstance(folders, dict)
+                   else list(folders))
+        stack.extend(path + (folder,) for folder in folders)
+    return sorted(locations)
+
+
+def _qualification_project_folder(manager) -> tuple[str, ...]:
+    """The folder the LIVE qualification project is filed in.
+
+    The live lane opens `Ren Qualification` by name from the folder it
+    borrowed the captain's project from, because that is how Resolve
+    resolves a project name. An ensure that opened a DIFFERENT project
+    of the same name would decide presence against a pool the lane
+    never reads - the fixtures would read as present while the lane
+    still fails on the missing clip.
+
+    So the CURRENT Project Manager folder wins: it is the folder the
+    live lane opens the name from. When the current folder does not
+    hold the name, exactly one folder elsewhere may - and more than one
+    is a REFUSAL, because the live one cannot be identified and
+    guessing is the defect this replaces.
+    """
+    current = tuple(_current_project_folder_path(manager))
+    locations = _project_locations(manager, QUALIFICATION_PROJECT)
+    if not locations:
         raise QualificationError(
             f"{QUALIFICATION_PROJECT!r} is not in the Project Manager - "
             f"there is nothing to ensure fixtures in. Restore it first "
             f"(`ren qualification reset` rebuilds it from scratch).")
-    if path:
-        _open_project_folder_path(manager, tuple(path))
-    return switch_project(manager, QUALIFICATION_PROJECT)
+    if current in locations:
+        return current
+    if len(locations) == 1:
+        return locations[0]
+    where = ", ".join("/".join(path) or "(the Project Manager root)"
+                      for path in locations)
+    raise QualificationError(
+        f"{QUALIFICATION_PROJECT!r} is filed in more than one Project "
+        f"Manager folder ({where}) and the current folder "
+        f"{'/'.join(current) or '(the root)'} does not hold it, so the "
+        f"live one cannot be identified - rename or remove the other "
+        f"copy before ensuring fixtures")
+
+
+def _open_qualification_project(manager) -> tuple:
+    """Open the LIVE `QUALIFICATION_PROJECT`; returns (project, folder)."""
+    folder = _qualification_project_folder(manager)
+    _open_project_folder_path(manager, folder)
+    project = switch_project(manager, QUALIFICATION_PROJECT)
+    if project is None or (project.GetName() or "") != QUALIFICATION_PROJECT:
+        raise QualificationError(
+            f"{QUALIFICATION_PROJECT!r} did not open from "
+            f"{'/'.join(folder) or '(the Project Manager root)'}")
+    return project, folder
 
 
 @under_lease("ren qualification ensure")
@@ -1037,15 +1108,17 @@ def ensure() -> dict:
             report = ensure_fixtures(project, media)
             _restore_cursor(project, before)
         _save_qualification(manager)
-        return {"project": QUALIFICATION_PROJECT, "restored": None,
-                **report}
+        return {"project": QUALIFICATION_PROJECT,
+                "project_folder": list(_current_project_folder_path(manager)),
+                "restored": None, **report}
     with borrowed(resolve) as found:
-        project = _open_qualification_project(manager)
+        project, folder = _open_qualification_project(manager)
         before = project.GetCurrentTimeline()
         report = ensure_fixtures(project, media)
         _restore_cursor(project, before)
         _save_qualification(manager)
-    return {"project": QUALIFICATION_PROJECT, "restored": found, **report}
+    return {"project": QUALIFICATION_PROJECT, "project_folder": list(folder),
+            "restored": found, **report}
 
 
 def _save_qualification(manager) -> None:

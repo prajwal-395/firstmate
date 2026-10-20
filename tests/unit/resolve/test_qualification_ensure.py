@@ -97,6 +97,9 @@ class _Pool:
     def GetRootFolder(self):
         return self.root
 
+    def GetCurrentFolder(self):
+        return self.root
+
     def ImportMedia(self, paths):
         items = [_Item(Path(str(path)).name) for path in paths]
         self.root.items.extend(items)
@@ -154,18 +157,31 @@ class _Project:
 
 
 class _Manager:
-    """The Project Manager: projects live in folders, and the project
-    list is scoped to the current folder."""
+    """The Project Manager: projects live in folders, the project list
+    is scoped to the current folder, and a project NAME resolves inside
+    the CURRENT folder - so two folders may hold two DIFFERENT projects
+    that answer to one name, exactly as Resolve behaves."""
 
     def __init__(self, *projects):
-        self.projects = {project.name: project for project in projects}
+        #: every project filed in the library: (folder path, name, project)
+        self.entries = []
+        for project in projects:
+            self.file(project, ())
         self.open = projects[0] if projects else None
-        self.project_folders = {project.name: () for project in projects}
         self.folder_tree = {(): ()}
         self.folder_path = ()
         self.saved = []
         self.deleted = []
         self.opened_pages = ["edit"]
+
+    def file(self, project, path):
+        """File `project` under the folder `path`."""
+        self.entries.append((tuple(path), project.name, project))
+        return project
+
+    def _in_current_folder(self):
+        return [entry for entry in self.entries
+                if entry[0] == self.folder_path]
 
     def GetCurrentProject(self):
         return self.open
@@ -182,31 +198,32 @@ class _Manager:
         return True
 
     def LoadProject(self, name):
-        project = self.projects.get(name)
-        if project is None:
-            return None
-        self.open = project
-        self.folder_path = self.project_folders[name]
-        if project.timelines:
-            project.current = project.timelines[0]
-        return project
+        """Load the project of that name IN THE CURRENT FOLDER."""
+        for path, project_name, project in self._in_current_folder():
+            if project_name != name:
+                continue
+            self.open = project
+            self.folder_path = path
+            if project.timelines:
+                project.current = project.timelines[0]
+            return project
+        return None
 
     def GetProjectListInCurrentFolder(self):
-        return [name for name, path in self.project_folders.items()
-                if path == self.folder_path and name in self.projects]
+        return [name for _path, name, _project in self._in_current_folder()]
 
     def DeleteProject(self, name):
         self.deleted.append(name)
         if name not in self.GetProjectListInCurrentFolder():
             return False
-        del self.projects[name]
-        del self.project_folders[name]
+        self.entries = [entry for entry in self.entries
+                        if not (entry[0] == self.folder_path
+                                and entry[1] == name)]
         return True
 
     def CreateProject(self, name):
         project = _Project(name)
-        self.projects[name] = project
-        self.project_folders[name] = self.folder_path
+        self.file(project, self.folder_path)
         self.open = project
         return project
 
@@ -281,6 +298,28 @@ def _run_ensure(monkeypatch, resolve):
     return qp.ensure()
 
 
+def _two_qualification_projects(captain_folder=("Podcast",)):
+    """Two DIFFERENT projects that answer to the name `Ren Qualification`.
+
+    One is filed in the `Podcast` folder - the one the live lane opens
+    by name, because Resolve resolves a project name inside the CURRENT
+    Project Manager folder. The other is a stray copy filed at the
+    root, holding fixtures the lane cannot see.
+    """
+    captain = _Project("Podcast (field test)", [_Timeline("Reel 07", "uid-7")])
+    stray = _qualification()
+    filed = _qualification()
+    manager = _Manager()
+    manager.folder_tree = {(): ("Podcast", "Elsewhere"),
+                           ("Podcast",): (), ("Elsewhere",): ()}
+    manager.file(captain, captain_folder)
+    manager.file(stray, ())
+    manager.file(filed, ("Podcast",))
+    manager.folder_path = captain_folder
+    manager.open = captain
+    return manager, captain, stray, filed
+
+
 # ── what it creates ───────────────────────────────────────────────────
 
 def test_ensure_creates_the_media_the_pool_is_missing():
@@ -318,6 +357,71 @@ def test_ensure_creates_the_scratch_timeline_empty():
     scratch = next(t for t in project.timelines
                    if t.GetName() == qp.SCRATCH_TIMELINE)
     assert scratch.video == []
+
+
+# ── WHICH qualification project, and WHOSE pool ───────────────────────
+
+def test_ensure_works_in_the_qualification_project_the_lane_opens(live):
+    """Defect: two projects answered to `Ren Qualification`, and the
+    ensure read the pool of the one the live lane never opens. It
+    reported `qual_a`/`qual_b`/`qual_c` PRESENT while the lane's own
+    project held only `qual_b.mp4`, so the lane's setup kept failing
+    on the missing `qual_a.mp4` and nothing was ever imported."""
+    manager, _captain, stray, filed = _two_qualification_projects()
+    report = _run_ensure(live, _Resolve(manager))
+    assert report["project_folder"] == ["Podcast"]
+    # the fixtures landed in the project the lane opens ...
+    assert sorted(item.GetName() for item in filed.pool.root.items) == [
+        "qual_a.mp4", "qual_b.mp4", "qual_c.mp4"]
+    assert report["media"]["imported"] == ["qual_a", "qual_b", "qual_c"]
+    # ... and the other project of the same name was NOT touched.
+    assert stray.pool.imported == []
+    assert stray.pool.root.items == []
+
+
+def test_ensure_refuses_when_the_qualification_project_is_ambiguous(live):
+    """Defect: picking one of two same-named projects by guess is the
+    defect itself - the ensure would work on a project the lane never
+    reads, so the ambiguous name is refused and both folders named."""
+    manager, _captain, stray, filed = _two_qualification_projects(
+        captain_folder=("Elsewhere",))
+    with pytest.raises(qp.QualificationError, match="more than one"):
+        _run_ensure(live, _Resolve(manager))
+    assert stray.pool.imported == []
+    assert filed.pool.imported == []
+
+
+def test_ensure_imports_a_clip_that_is_on_disk_but_not_in_the_pool(tmp_path):
+    """Defect: a rendered clip that the pool does not hold is missing
+    from the lane's point of view. A file on disk is not presence, and
+    an ensure that decided presence from the disk would report the
+    fixture present and import nothing."""
+    media = {}
+    for name, *_ in qp.MEDIA:
+        path = tmp_path / f"{name}.mp4"
+        path.write_bytes(b"not really a movie")
+        media[name] = path
+    project = _qualification()
+    report = qp.ensure_fixtures(project, media)
+    assert report["media"]["present"] == []
+    assert report["media"]["imported"] == ["qual_a", "qual_b", "qual_c"]
+    assert sorted(item.GetName() for item in project.pool.root.items) == [
+        "qual_a.mp4", "qual_b.mp4", "qual_c.mp4"]
+    assert report["media"]["readback"] == ["qual_a", "qual_b", "qual_c"]
+
+
+def test_ensure_refuses_an_import_that_did_not_land():
+    """Defect: an import that Resolve did not really make leaves the
+    pool without the clip. Reporting it present is a report of an
+    intention, so the ensure reads the pool back and refuses."""
+    class _LyingPool(_Pool):
+        def ImportMedia(self, paths):
+            return [_Item(Path(str(path)).name) for path in paths]
+
+    project = _qualification()
+    project.pool = _LyingPool(project)
+    with pytest.raises(qp.QualificationError, match="still absent"):
+        qp.ensure_fixtures(project, _media())
 
 
 # ── what it must NOT touch ────────────────────────────────────────────
