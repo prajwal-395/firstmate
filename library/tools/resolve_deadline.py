@@ -70,6 +70,10 @@ class ResolveCallTimeout(RenRefusal):
 
     CODE = "REN_RESOLVE_CALL_TIMEOUT"
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "insufficient_evidence"
+    """Resolve stopped answering, so what is on the record does not settle
+    whether the instance is healthy - a person has to look before the
+    step is run again."""
     USER_MESSAGE = ("Resolve stopped answering, so I changed nothing. "
                     "Restart Resolve and run the step again.")
 
@@ -92,6 +96,9 @@ class ResolutionNotApplied(RenRefusal):
 
     CODE = "REN_RESOLUTION_NOT_APPLIED"
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "missing_authorization"
+    """The write was refused and the size is the person's to set on the
+    timeline: nobody has said yes to a differently sized reel."""
     USER_MESSAGE = ("Resolve did not take the size this reel needs, so I "
                     "stopped rather than build on a wrongly sized "
                     "timeline. Read the values below and set them by hand.")

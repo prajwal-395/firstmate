@@ -554,12 +554,6 @@
   [
     "library/tools/axi_qualification_configurations.py",
     "build",
-    "SetCurrentTimeline",
-    1
-  ],
-  [
-    "library/tools/axi_qualification_configurations.py",
-    "build",
     "SetTrackName",
     1
   ],
@@ -1538,18 +1532,6 @@
   [
     "library/tools/qualification_project.py",
     "rebuild",
-    "DeleteProject",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
-    "rebuild",
-    "CreateProject",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
-    "rebuild",
     "SetSetting",
     1
   ],
@@ -1575,6 +1557,18 @@
     "library/tools/qualification_project.py",
     "rebuild",
     "AddMarker",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_create_qualification_project",
+    "CreateProject",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_create_qualification_project",
+    "DeleteProject",
     1
   ],
   [
@@ -2133,6 +2127,18 @@
     "library/tools/resolve_scratch_projects.py",
     "import_project",
     "ImportProject",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "import_project",
+    "CreateProject",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "import_project",
+    "ImportTimelineFromFile",
     1
   ],
   [
@@ -2757,6 +2763,18 @@
     "library/tools/resolve_scratch_projects.py",
     "retire_exact",
     "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "_import_qualification_drts",
+    "ImportTimelineFromFile",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "_import_qualification_drts",
+    "SetName",
     1
   ],
   [

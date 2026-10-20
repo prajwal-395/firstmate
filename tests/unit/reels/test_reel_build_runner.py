@@ -2774,7 +2774,7 @@ def test_the_timeline_count_waits_for_a_read_that_lost_a_race(monkeypatch):
             self.calls += 1
             return None if self.calls < 3 else 7
 
-    monkeypatch.setattr(reel_build.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(reel_build, "_build_sleep", lambda seconds: None)
     project = _Project()
     assert reel_build._timeline_count(project) == 7
     assert project.calls == 3

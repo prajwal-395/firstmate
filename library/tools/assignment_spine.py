@@ -385,7 +385,8 @@ def _refuse_paused(root: str, record: dict) -> None:
         why="a paused task accepts no act until it is resumed",
         fix=(f"resume it and repeat this command: "
              f"`{assignment_actions.resume_command(root, record['assignment_id'])}`"),
-        code="REN_ASSIGNMENT_PAUSED", recovery_class="needs_question")
+        code="REN_ASSIGNMENT_PAUSED", recovery_class="needs_question",
+        ask_reason="missing_authorization")
 
 
 def _finish_checkpoint(record: dict, key: str, status: str, detail: str):

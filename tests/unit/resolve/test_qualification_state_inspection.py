@@ -165,7 +165,10 @@ def test_the_axI_planner_measures_the_runtime_before_it_routes(monkeypatch):
     request = SimpleNamespace(
         project="Ren Qualification",
         timeline="fm-scratch qualify",
-        originator={"kind": "human", "name": "ren revise"})
+        originator={"kind": "human", "name": "ren revise"},
+        # The plan's own route constraints (VC-07/VC-08): a request may
+        # narrow the route, and the planner reads them from the request.
+        backend_constraints=())
 
     operations = _promoted_operation()
     context = resolve_axi_core._route_context(

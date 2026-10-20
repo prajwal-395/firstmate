@@ -779,6 +779,14 @@ def _planned(root, db):
     return {c.path for c in retention.plan_purge(root, [db]).candidates}
 
 
+def _proposal_record(path):
+    """A readable proposal record: the live document the sweep reads."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"format": "reel_proposal/1", "moments": []}, handle)
+    return path
+
+
 @pytest.mark.usefixtures("_lean")
 def test_a_file_a_live_timeline_places_is_never_removed(tmp_path):
     """No pipeline record names either file; only the timeline does. The
@@ -950,7 +958,12 @@ def test_live_records_and_the_newest_journal_are_never_named(tmp_path):
     live proposal record shares the family's prefix and must survive."""
     root = _project(tmp_path)
     review = os.path.join(root, "pipeline_output", "review")
-    live = _write(os.path.join(review, "reel_proposals_v2.json"))
+    # The live record is READ by the sweep: the approved decisions it
+    # carries protect evidence from the purge, so an unreadable one
+    # refuses the sweep by design. It is written as the document the
+    # pipeline publishes, not as a placeholder.
+    live = _proposal_record(
+        os.path.join(review, "reel_proposals_v2.json"))
     old = _write(os.path.join(review,
                               "reel_proposals_v2_20260920T143139Z.json"))
     new = _write(os.path.join(review,

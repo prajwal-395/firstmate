@@ -152,12 +152,25 @@ def test_an_implementation_no_axi_surface_reaches_is_reported():
     """Defect: the Color page window operations were implemented as UI
     recipes and were discoverable in the registry, and no AXI command
     reached them - so the only way to use them was to leave the request,
-    receipt and recovery contract behind."""
+    receipt and recovery contract behind.
+
+    They carry an AXI command surface now, so the map must NOT report
+    them: an operation with a way in is not an implementation outside the
+    AXI boundary, and reporting it would send a reader looking for a
+    missing command that is not missing."""
     reported = {row["operation"]
                 for row in operation_map.audit()["implemented_outside_axi"]}
-    assert "color.window.create" in reported
-    assert "color.window.modify" in reported
-    assert "color.window.track" in reported
+    for op_id in ("color.window.create", "color.window.modify",
+                  "color.window.track"):
+        assert op_id not in reported
+        entry = _map()["operations"][op_id]
+        assert entry["how_to_request"]["commands"], (
+            f"{op_id} has no AXI command, so it belongs in the audit")
+    # Every operation the audit DOES report really has no way in.
+    for op_id in reported:
+        entry = _map()["operations"][op_id]
+        assert not entry["how_to_request"]["commands"], op_id
+        assert not entry["how_to_request"]["edit_request_routable"], op_id
 
 
 def test_an_implementation_outside_the_operation_registry_is_reported():
@@ -233,8 +246,7 @@ def test_an_operation_with_no_axi_surface_is_reported_rather_than_hidden():
     """Defect: an operation with an implementation and neither a
     routable backend nor an AXI command has no way in - and an agent
     told only that it is 'implemented' would go looking in the tree for
-    a way to write it.  The map must name every one of them, and the
-    Color page window operations are three of them today."""
+    a way to write it.  The map must name every one of them."""
     surfaced = {
         op_id for op_id, entry in _map()["operations"].items()
         if entry["backend_capabilities"]
@@ -247,9 +259,10 @@ def test_an_operation_with_no_axi_surface_is_reported_rather_than_hidden():
     assert surfaced == reported, (
         "the map's audit does not cover every operation with no AXI "
         "surface")
-    assert "color.window.create" in reported
-    assert "color.window.modify" in reported
-    assert "color.window.track" in reported
+    for op_id in reported:
+        entry = _map()["operations"][op_id]
+        assert not entry["how_to_request"]["commands"], op_id
+        assert not entry["how_to_request"]["edit_request_routable"], op_id
 
 
 def test_the_map_is_served_through_resolve_axi_as_json():

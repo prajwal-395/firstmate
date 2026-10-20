@@ -721,6 +721,15 @@ pub struct EditPatch {
     pub preconditions: Vec<Condition>,
     #[serde(default)]
     pub postconditions: Vec<Condition>,
+    /// What this patch must NOT change, in the requester's words.
+    ///
+    /// Named preservation requirements (`preservation_invariant`), judged
+    /// on the read-back against the state the patch was authorized
+    /// against. They ride the patch as plain data, so the broker carries
+    /// them with the operations: a port that drops them drops the
+    /// promise.
+    #[serde(default)]
+    pub preservation: Vec<Value>,
     /// The plan's commit.
     #[serde(default)]
     pub base_git_sha: String,

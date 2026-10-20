@@ -77,6 +77,12 @@
         "$ref": "#/$defs/Condition"
       }
     },
+    "preservation": {
+      "description": "What this patch must NOT change, in the requester's words.\n\nNamed preservation requirements (`preservation_invariant`), judged\non the read-back against the state the patch was authorized\nagainst. They ride the patch as plain data, so the broker carries\nthem with the operations: a port that drops them drops the\npromise.",
+      "type": "array",
+      "default": [],
+      "items": true
+    },
     "project": {
       "description": "The Resolve project's EXACT name (the open one).",
       "type": "string"

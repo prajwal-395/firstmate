@@ -139,6 +139,11 @@ class StalePatch(PatchRefused):
     """The patch was planned on a generation that is no longer the head."""
 
     RECOVERY_CLASS = "needs_question"
+    ASK_REASON = "ambiguous_intent"
+    """The person decides whether this change lands on the updated cut -
+    the intent of the edit is not determinate from the timeline alone.
+    An unrecorded Resolve edit says more: what it meant is unknown, so
+    that case asks for EVIDENCE instead."""
 
     def __init__(self, patch: EditPatch, head: int, *, observed: bool,
                  rebase_possible: bool, reason: str,
@@ -182,7 +187,9 @@ class StalePatch(PatchRefused):
                  f"{patch.timeline!r}`)"),
             user_message=user_message,
             recovery_class="needs_question",
-            conflict_class=self.conflict.conflict_class)
+            conflict_class=self.conflict.conflict_class,
+            ask_reason=("insufficient_evidence" if manual_edit_recorded
+                        else "ambiguous_intent"))
 
 
 # ── The patch ──────────────────────────────────────────────────────────
@@ -966,7 +973,8 @@ def apply_patch(patch, *, resolve, project, timeline,
                             "so I left the timeline untouched. Please keep "
                             "the edit and repair its review history before "
                             "trying again."),
-                        recovery_class="needs_question") from exc
+                        recovery_class="needs_question",
+                        ask_reason="insufficient_evidence") from exc
             if project_folder:
                 from library.tools import event_log
 
@@ -1282,7 +1290,8 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
                 user_message=("The edit may have landed, and I could not "
                               "read the timeline to confirm it. Inspect the "
                               "timeline before continuing."),
-                recovery_class="needs_question") from retry_error
+                recovery_class="needs_question",
+                ask_reason="insufficient_evidence") from retry_error
         stopped = {
             "index": (ran[-1]["index"] if ran else -1),
             "op": (ran[-1]["op"] if ran else "read_back"),

@@ -659,6 +659,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/assignment_actions.py",
         "library/tools/assignment_task.py",
         "library/tools/assignment_plan.py",
+        # The shared readers the declared closure reaches in one hop: the
+        # approved-decision evidence (cache_lifecycle), the DRT archive
+        # reader (resolve_scratch_projects), the timeline state report
+        # (timeline_shadow) and the cross-project graph (source_memory).
+        # A fix to any of them changes what the cached rows say, so it
+        # must invalidate the cache.
+        "library/tools/decision_evidence.py",
+        "library/tools/drt_reader.py",
+        "library/tools/edit_state_report.py",
+        "library/tools/project_graph/cross_project.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1236,6 +1246,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/editorial_decisions.py",
         "library/tools/model_stamps.py",
         "library/tools/editorial_intent.py",
+        # The shared readers the declared closure reaches in one hop: the
+        # approved-decision evidence (cache_lifecycle), the DRT archive
+        # reader (resolve_scratch_projects), the timeline state report
+        # (timeline_shadow) and the cross-project graph (source_memory).
+        # A fix to any of them changes what the cached rows say, so it
+        # must invalidate the cache.
+        "library/tools/decision_evidence.py",
+        "library/tools/drt_reader.py",
+        "library/tools/edit_state_report.py",
+        "library/tools/project_graph/cross_project.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -1854,6 +1874,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/assignment_task.py",
         "library/tools/editorial_intent.py",
         "library/tools/assignment_plan.py",
+        # The shared readers the declared closure reaches in one hop: the
+        # approved-decision evidence (cache_lifecycle), the DRT archive
+        # reader (resolve_scratch_projects), the timeline state report
+        # (timeline_shadow) and the cross-project graph (source_memory).
+        # A fix to any of them changes what the cached rows say, so it
+        # must invalidate the cache.
+        "library/tools/decision_evidence.py",
+        "library/tools/drt_reader.py",
+        "library/tools/edit_state_report.py",
+        "library/tools/project_graph/cross_project.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2450,6 +2480,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/editorial_decisions.py",
         "library/tools/model_stamps.py",
         "library/tools/editorial_intent.py",
+        # The shared readers the declared closure reaches in one hop: the
+        # approved-decision evidence (cache_lifecycle), the DRT archive
+        # reader (resolve_scratch_projects), the timeline state report
+        # (timeline_shadow) and the cross-project graph (source_memory).
+        # A fix to any of them changes what the cached rows say, so it
+        # must invalidate the cache.
+        "library/tools/decision_evidence.py",
+        "library/tools/drt_reader.py",
+        "library/tools/edit_state_report.py",
+        "library/tools/project_graph/cross_project.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3080,6 +3120,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/editorial_decisions.py",
         "library/tools/model_stamps.py",
         "library/tools/editorial_intent.py",
+        # The shared readers the declared closure reaches in one hop: the
+        # approved-decision evidence (cache_lifecycle), the DRT archive
+        # reader (resolve_scratch_projects), the timeline state report
+        # (timeline_shadow) and the cross-project graph (source_memory).
+        # A fix to any of them changes what the cached rows say, so it
+        # must invalidate the cache.
+        "library/tools/decision_evidence.py",
+        "library/tools/drt_reader.py",
+        "library/tools/edit_state_report.py",
+        "library/tools/project_graph/cross_project.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

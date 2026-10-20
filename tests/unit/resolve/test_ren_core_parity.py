@@ -692,7 +692,7 @@ def _patch_dict(patch):
     data["affected_spans"] = [list(span)
                               for span in patch.affected_spans]
     for key in ("conflict_domains", "operations", "preconditions",
-                "postconditions"):
+                "postconditions", "preservation"):
         data[key] = list(data[key])
     return data
 

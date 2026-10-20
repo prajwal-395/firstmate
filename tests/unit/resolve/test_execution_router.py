@@ -112,8 +112,16 @@ def test_unknown_operation_does_not_guess_a_backend():
 def test_production_resolve_axi_adapter_is_selectable_by_semantic_routing(
         monkeypatch):
     """Defect: a qualified AXI adapter existed in the registry but the
-    semantic router could not select its backend."""
+    semantic router could not select its backend.
+
+    Production routing is closed unless the RUNTIME satisfies the
+    recorded qualification predicates (VC-04), so the fixture records
+    one predicate and the context answers it: an adapter with no
+    recorded predicate is refused, and so is one the runtime misses.
+    """
     original_status = edit_algebra.status
+    predicates = ({"field": "resolve_version", "operator": "equals",
+                   "value": "21.1.0.14"},)
 
     def qualified_status(op_id):
         status = original_status(op_id)
@@ -123,7 +131,7 @@ def test_production_resolve_axi_adapter_is_selectable_by_semantic_routing(
         assert row is not None
         qualified_row = replace(
             row, qualification_status="production_enabled",
-            qualification_predicates=(),
+            qualification_predicates=predicates,
             qualification_evidence=("disposable verified fixture",))
         return replace(status, qualification_status="production_enabled",
                        backends=tuple(
@@ -135,7 +143,8 @@ def test_production_resolve_axi_adapter_is_selectable_by_semantic_routing(
         "op": "clip.trim", "unique_id": "clip-1",
         "in_frame": 10, "out_frame": 42,
     }], context={
-        "qualification_state": {"inspected": True, "state": {}},
+        "qualification_state": {"inspected": True, "state": {
+            "resolve_version": "21.1.0.14"}},
     })
 
     assert decision.backend == "resolve_axi"

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 from library.tools import edit_algebra
@@ -127,9 +128,23 @@ def write_inventory(path: Path = DOC) -> None:
     rows = json.loads(registry.read_text(encoding="utf-8"))
     counts = {method: sum(row[2] == method for row in rows)
               for method in ("AppendToTimeline", "SetCurrentTimeline")}
-    text = text.replace(
-        "Current-tree counts: `0` `AppendToTimeline` sites and `0` `SetCurrentTimeline` sites.",
-        f"Current-tree counts from the static-call registry: `{counts['AppendToTimeline']}` `AppendToTimeline` sites and `{counts['SetCurrentTimeline']}` `SetCurrentTimeline` sites.")
+    # The sentence's NUMBERS move with the registry; the sentence itself
+    # is the document's, so it is matched and rewritten in place. The old
+    # spelling replaced a sentence the document no longer carried, so the
+    # counts never moved.
+    counts_sentence = re.compile(
+        r"(Current-tree counts from the static-call registry: )`\d+`"
+        r"( `AppendToTimeline` sites and )`\d+`( `SetCurrentTimeline` sites)")
+    text, replaced = counts_sentence.subn(
+        rf"\g<1>`{counts['AppendToTimeline']}`\g<2>"
+        rf"`{counts['SetCurrentTimeline']}`\g<3>", text)
+    if not replaced:
+        text = text.replace(
+            "Current-tree counts from the static-call registry:",
+            f"Current-tree counts from the static-call registry: "
+            f"`{counts['AppendToTimeline']}` `AppendToTimeline` sites and "
+            f"`{counts['SetCurrentTimeline']}` `SetCurrentTimeline` sites"
+            ".", 1)
     if START in text and END in text:
         before, rest = text.split(START, 1)
         _old, after = rest.split(END, 1)

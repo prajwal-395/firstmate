@@ -11410,6 +11410,18 @@ def timelines_to_replace(project, target_names) -> list:
     return found
 
 
+def _build_sleep(seconds: float) -> None:
+    """The wait the build performs between two reads of Resolve.
+
+    A module-level name so a test stubs THIS wait without patching the
+    GLOBAL `time.sleep` every other thread in the process calls: a
+    stray thread spinning on `time.sleep` would otherwise execute the
+    stub off-thread (the 2026-09-15 amplifier, PR 1154's chain). Patch
+    `reel_build._build_sleep`, never `time.sleep`.
+    """
+    time.sleep(seconds)
+
+
 def _timeline_count(project, attempts: int = 5) -> int:
     """How many timelines the project holds, or a refusal by name.
 
@@ -11426,7 +11438,7 @@ def _timeline_count(project, attempts: int = 5) -> int:
         if count is not None:
             return int(count)
         if attempt + 1 < attempts:
-            time.sleep(0.4 * (attempt + 1))
+            _build_sleep(0.4 * (attempt + 1))
     raise ReelBuildError(
         "Resolve returned no timeline count for this project; the "
         "enumeration cannot be read")
@@ -14689,7 +14701,7 @@ def _serialize_reel_build(function):
                             f"waited {timeout:g}s",
                             "staging names and sidecar updates are shared",
                             "wait for the running build to finish, then re-run")
-                    time.sleep(0.25)
+                    _build_sleep(0.25)
             return function(*args, **kwargs)
         finally:
             try:

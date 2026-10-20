@@ -549,6 +549,7 @@ fn property_patch_from_py(value: &Bound<'_, PyAny>) -> PyResult<Option<EditPatch
         operations: typed_ops,
         preconditions: Vec::new(),
         postconditions: Vec::new(),
+        preservation: Vec::new(),
         base_git_sha: String::new(),
         expected_model_revision: None,
     }))
