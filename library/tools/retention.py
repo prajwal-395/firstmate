@@ -90,8 +90,8 @@ fresh reachability plan. Recovery archives remain excluded by suffix.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -103,14 +103,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from library.tools import build_sweep, journal_naming
-from library.tools.resolve_lock import under_lease
 from library.tools import caption_asset_gc as gc
-from library.tools.ren_refusal import RenRefusal
 from library.tools.project_layout import (
     Area,
     ProjectLayout,
     ProjectLayoutViolation,
 )
+from library.tools.ren_refusal import RenRefusal
+from library.tools.resolve_lock import under_lease
 
 SETTING = "REN_RETENTION"
 LEAN = "lean"
@@ -270,8 +270,8 @@ def retention_mode(environ=None, project_folder: str = "") -> str:
     if raw not in MODES:
         raise RetentionSettingInvalid(
             f"{SETTING}={raw!r} is not a retention mode",
-            f"reading an unknown value as `lean` would delete what its "
-            f"owner may have asked to keep",
+            "reading an unknown value as `lean` would delete what its "
+            "owner may have asked to keep",
             f"set {SETTING} to one of {list(MODES)}, or unset it for "
             f"the default")
     return raw
@@ -634,9 +634,12 @@ def _trash_candidates(project_folder: str, plan: PurgePlan) -> list:
                  "why": "trash collection manifest: the record of what "
                         "the collector moved"})
             continue
-        found.append((path, TRASHED_ASSET,
-                      "moved aside by asset_gc; placed on no timeline "
-                      "and named by no pipeline record or manifest"))
+        found.append((
+            path,
+            TRASHED_ASSET,
+            ("moved aside by asset_gc; placed on no timeline "
+             "and named by no pipeline record or manifest"),
+        ))
     return found
 
 
@@ -651,7 +654,7 @@ def plan_purge(project_folder: str, db_paths, mode: str | None = None
         raise RetentionSettingInvalid(
             f"unknown retention mode {mode!r}",
             "a purge plans only under a declared mode",
-            f"pass mode {list(MODES)[0]!r} or {list(MODES)[1]!r}")
+            f"pass mode {next(iter(MODES))!r} or {MODES[1]!r}")
     plan = PurgePlan(project_folder=project_folder,
                      created_at=datetime.now(UTC).isoformat(),
                      mode=mode)
@@ -769,7 +772,7 @@ def _schedule_quarantine_expiry(plan: PurgePlan, progress: dict) -> None:
     not_before = min(expirations)
     project_id = Path(plan.project_folder).resolve().name
     job_id = "quarantine-expiry-" + hashlib.sha256(
-        f"{project_id}\0{not_before}".encode("utf-8")).hexdigest()[:16]
+        f"{project_id}\0{not_before}".encode()).hexdigest()[:16]
     artifact_lifecycle.schedule_cleanup_job(
         plan.project_folder,
         event_id=f"quarantine-expiry:{project_id}:{not_before}",
@@ -986,7 +989,7 @@ def apply_purge(manifest_path: str, db_paths,
                 "inspect and restore or remove the directory explicitly")
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         digest = hashlib.sha256(
-            f"{path}\0{candidate.identity}".encode("utf-8")).hexdigest()[:16]
+            f"{path}\0{candidate.identity}".encode()).hexdigest()[:16]
         destination_dir = (layout.write_path(
             Area.QUARANTINE, "recoverable", stamp))
         destination_dir.mkdir(parents=True, exist_ok=True)
@@ -1253,7 +1256,11 @@ def _process_cleanup_queue(project_folder: str, db_paths=None) -> None:
     """Drain durable sign-off jobs once project activity and leases clear."""
     from library.tools import artifact_lifecycle, run_control
     from library.tools.resource_leases import (
-        LeaseDeclaration, ResourceRef, ResourceLeaseBusy, resource_lease)
+        LeaseDeclaration,
+        ResourceLeaseBusy,
+        ResourceRef,
+        resource_lease,
+    )
 
     while True:
         artifact_lifecycle.recover_interrupted_cleanup_jobs(project_folder)
@@ -1280,6 +1287,16 @@ def _process_cleanup_queue(project_folder: str, db_paths=None) -> None:
                     artifact_lifecycle.transition_cleanup_job(
                         project_folder, job, "running")
                     try:
+                        from library.tools.storage_lifecycle import (
+                            cleanup_qualification,
+                        )
+
+                        if cleanup_qualification(project_folder) is None:
+                            raise PurgeRefused(
+                                "automatic cleanup requires a complete storage lifecycle qualification record",
+                                "no artifacts were retired",
+                                "record passing evidence for all storage cleanup scenarios, then retry",
+                            )
                         paths = db_paths or database_paths(project_folder)
                         plan = plan_purge(project_folder, paths, mode=LEAN)
                         manifest = write_plan(plan)
@@ -1330,6 +1347,14 @@ def after_signoff(project_folder: str, db_paths=None, *,
         mode = retention_mode(project_folder=project_folder)
         if mode == KEEP:
             return f"Retention is {KEEP!r}: nothing is purged."
+        from library.tools.storage_lifecycle import cleanup_qualification
+
+        if cleanup_qualification(project_folder) is None:
+            return (
+                "Retention cleanup not queued: automatic destructive retirement "
+                "requires a complete storage lifecycle qualification record. "
+                "Sign-off remains recorded."
+            )
         from library.tools import artifact_lifecycle
         project_id = Path(project_folder).resolve().name
         job_id = f"signoff-retention-{lifecycle_event_id}"

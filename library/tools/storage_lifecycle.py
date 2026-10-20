@@ -35,6 +35,144 @@ LEGACY_DELETED_CLIPS_RECORD = (
     "data/vep-resolve-stale-cleanup/q-workflow-exports-deleted.txt"
 )
 LEGACY_RETENTION = timedelta(hours=24)
+STORAGE_QUALIFICATION_EVENT = "storage_cleanup_qualification"
+STORAGE_QUALIFICATION_VERSION = 1
+STORAGE_QUALIFICATION_SCENARIOS = frozenset(
+    {
+        "owned_vs_external_media",
+        "pending_transactions",
+        "approved_versions",
+        "required_recovery_archives",
+        "shared_footage_intelligence",
+        "unpromoted_staging",
+        "resolve_ownership_before_retirement",
+        "dry_run_preview",
+        "reclaimed_space",
+        "future_rebuild_and_undo",
+    }
+)
+
+
+def record_cleanup_qualification(
+    project_folder: str, *, scenarios: list[dict], record_id: str
+) -> dict:
+    """Persist complete, evidence-backed cleanup qualification for a project.
+
+    A caller must provide one passing observation and at least one durable
+    evidence reference for every required lifecycle scenario. Tests and plans
+    alone are not qualification records.
+    """
+    if not record_id:
+        raise ValueError("storage cleanup qualification needs a record id")
+    by_id = {row.get("scenario_id"): dict(row) for row in scenarios}
+    if len(by_id) != len(scenarios) or set(by_id) != STORAGE_QUALIFICATION_SCENARIOS:
+        missing = sorted(STORAGE_QUALIFICATION_SCENARIOS - set(by_id))
+        extra = sorted(set(by_id) - STORAGE_QUALIFICATION_SCENARIOS)
+        raise ValueError(
+            f"qualification scenarios mismatch; missing={missing}, extra={extra}"
+        )
+    for scenario_id, row in by_id.items():
+        evidence = row.get("evidence")
+        if (
+            row.get("passed") is not True
+            or not isinstance(evidence, list)
+            or not evidence
+        ):
+            raise ValueError(
+                f"qualification scenario lacks passing evidence: {scenario_id}"
+            )
+        fingerprints = []
+        scenario_document_found = False
+        for item in evidence:
+            if not isinstance(item, str) or not item.strip():
+                raise TypeError(
+                    f"qualification evidence must name existing absolute files: {scenario_id}"
+                )
+            path = Path(item)
+            if not path.is_absolute() or path.is_symlink() or not path.is_file():
+                raise ValueError(
+                    f"qualification evidence must name existing absolute files: {scenario_id}"
+                )
+            payload = path.read_bytes()
+            try:
+                observation = json.loads(payload)
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise ValueError(
+                    f"qualification evidence is not a JSON observation: {item}"
+                ) from exc
+            if not isinstance(observation, dict):
+                raise TypeError(
+                    f"qualification evidence is not an observation object: {item}"
+                )
+            if (
+                observation.get("scenario_id") == scenario_id
+                and observation.get("passed") is True
+            ):
+                scenario_document_found = True
+            fingerprints.append(
+                {"path": str(path), "sha256": hashlib.sha256(payload).hexdigest()}
+            )
+        if not scenario_document_found:
+            raise ValueError(
+                f"qualification evidence does not prove scenario pass: {scenario_id}"
+            )
+        row["evidence"] = fingerprints
+    from library.tools import event_log
+
+    return event_log.emit(
+        project_folder,
+        STORAGE_QUALIFICATION_EVENT,
+        task="storage-qualification",
+        record_id=record_id,
+        schema_version=STORAGE_QUALIFICATION_VERSION,
+        scenarios=[by_id[key] for key in sorted(by_id)],
+        qualified=True,
+    )
+
+
+def cleanup_qualification(project_folder: str) -> dict | None:
+    """Return the latest complete qualification record, if one exists."""
+    from library.tools import event_log
+
+    records = [
+        event.get("fields", {})
+        for event in event_log.read_events(project_folder)
+        if event.get("type") == STORAGE_QUALIFICATION_EVENT
+    ]
+    if not records:
+        return None
+    record = records[-1]
+    scenario_rows = record.get("scenarios")
+    if not isinstance(scenario_rows, list) or any(
+        not isinstance(row, dict) for row in scenario_rows
+    ):
+        return None
+    scenarios = {row.get("scenario_id"): row for row in scenario_rows}
+    try:
+        evidence_intact = all(
+            isinstance(item, dict)
+            and isinstance(item.get("path"), str)
+            and Path(item["path"]).is_file()
+            and not Path(item["path"]).is_symlink()
+            and hashlib.sha256(Path(item["path"]).read_bytes()).hexdigest()
+            == item.get("sha256")
+            for row in scenarios.values()
+            for item in row.get("evidence", [])
+        )
+    except (OSError, TypeError, ValueError, KeyError, AttributeError):
+        evidence_intact = False
+    if (
+        record.get("schema_version") != STORAGE_QUALIFICATION_VERSION
+        or record.get("qualified") is not True
+        or set(scenarios) != STORAGE_QUALIFICATION_SCENARIOS
+        or any(
+            row.get("passed") is not True or not row.get("evidence")
+            for row in scenarios.values()
+        )
+        or not evidence_intact
+    ):
+        return None
+    return record
 
 
 def _legacy_roots() -> list[tuple[str, Path]]:
@@ -866,6 +1004,7 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
                 eligible_kind = kind not in PROTECTED_KINDS
                 eligible_path = (
                     Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES
+                    and not _protected_project_artifact(project, row["path"])
                 )
                 if eligible_kind and eligible_path and identity.get("link_count") == 1:
                     reclaimable += size
@@ -1099,6 +1238,25 @@ def plan_cache_evictions(
     return plans
 
 
+def _protected_project_artifact(project: str, path: str) -> bool:
+    """Protect durable editorial state even if it was misregistered disposable."""
+    root = Path(os.path.abspath(project))
+    candidate = Path(os.path.abspath(path))
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        return True
+    cursor = root
+    if cursor.is_symlink():
+        return True
+    for part in relative.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            return True
+    protected = {"versions", "recovery", "undo", "resolve"}
+    return any(part.casefold() in protected for part in relative.parts)
+
+
 def plan_document(projects: list[str]) -> dict:
     """Build an exact-identity manifest without writing it."""
     report = status(projects)
@@ -1109,8 +1267,10 @@ def plan_document(projects: list[str]) -> dict:
             and row["ownership_known"]
             and row.get("state") == lifecycle.DISPOSABLE
             and row.get("regenerable")
+            and row.get("retention_class") not in {"retained", "protected", "staging"}
             and not row.get("pinned")
             and not row.get("dependencies")
+            and not _protected_project_artifact(row["project"], row["path"])
             and int((row.get("identity") or {}).get("link_count", 0)) == 1
             and row.get("kind") not in PROTECTED_KINDS
             and Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES

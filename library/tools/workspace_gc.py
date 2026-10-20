@@ -15,6 +15,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -294,6 +295,20 @@ def write_plan(document: dict) -> Path:
     return path
 
 
+def _require_cleanup_qualification() -> None:
+    """Require every project in scope to carry intact lifecycle evidence."""
+    from library.tools.storage_lifecycle import cleanup_qualification
+
+    projects = _project_roots()
+    unqualified = [str(root) for root in projects
+                   if cleanup_qualification(str(root)) is None]
+    if unqualified:
+        raise WorkspaceGcRefused(
+            "automatic workspace retirement requires storage lifecycle "
+            f"qualification for every project in scope; missing or invalid: {unqualified}"
+        )
+
+
 @contextmanager
 def _manifest_lock(path: Path):
     lock_path = path.with_suffix(path.suffix + ".lock")
@@ -355,6 +370,7 @@ def apply_plan(manifest: str | Path) -> dict:
             return {"quarantined": [], "bytes": 0}
         if before.get("quarantined"):
             raise WorkspaceGcRefused("manifest has already been applied")
+        _require_cleanup_qualification()
         fresh = plan()
         expected = {row["path"]: row for row in before["candidates"]}
         current = {row["path"]: row for row in fresh["candidates"]}
@@ -466,6 +482,7 @@ def expire_plan(manifest: str | Path) -> dict:
         if home != vep_home().expanduser().resolve(strict=True):
             raise WorkspaceGcRefused(
                 "manifest Ren data home does not match this machine")
+        _require_cleanup_qualification()
         quarantine_root = Path(document["quarantine_root"]).resolve(strict=True)
         if quarantine_root != home / "quarantine" / "workspace-gc" / quarantine_root.name:
             raise WorkspaceGcRefused("manifest quarantine root is not owned by Ren")
@@ -506,8 +523,12 @@ def _expire_worker(manifest: str) -> int:
                 document = _read_manifest(path)
                 document["expiry_error"] = str(exc)
                 _write_manifest(path, document)
-        except Exception:
-            pass
+        except (OSError, WorkspaceGcRefused, ValueError, KeyError) as persist_error:
+            logging.getLogger(__name__).error(
+                "could not persist workspace GC expiry failure for %s: %s",
+                path,
+                persist_error,
+            )
         return 1
     return 0
 
