@@ -43,10 +43,15 @@ def test_not_yet_analysed_schedules_only_required_lane_and_interval():
 
     assert plan["action"] == "refine"
     assert plan["required_lanes"] == ["m7"]
-    assert plan["steps"] == [{"lane": "m7",
-                              "interval": {"start_s": 12.0, "end_s": 18.0},
-                              "cost_budget_seconds": 2.0,
-                              "order": ["cached", "targeted"]}]
+    step = plan["steps"][0]
+    assert {key: step[key] for key in (
+        "lane", "interval", "cost_budget_seconds", "order")} == {
+            "lane": "m7", "interval": {"start_s": 12.0, "end_s": 18.0},
+            "cost_budget_seconds": 2.0, "order": ["cached", "targeted"]}
+    assert step["unresolved_question"] == {
+        "lane": "m7", "interval": {"start_s": 12.0, "end_s": 18.0},
+        "answer_status": "not_yet_analysed",
+        "named_by": "the query's own scope", "ambiguity": None}
     assert plan["deferred_lanes"] == []
 
 
@@ -58,9 +63,12 @@ def test_windowed_producer_plan_expands_to_exact_model_window_and_cost():
         available_lanes=["m4"], producer_budgets={"m4": 90},
         window_seconds_by_lane={"m4": 10},
         producer_cost_per_window_seconds={"m4": 90}, max_cost_seconds=90)
-    assert plan["steps"] == [{
-        "lane": "m4", "interval": {"start_s": 10.0, "end_s": 20.0},
-        "cost_budget_seconds": 90.0, "order": ["cached", "targeted"]}]
+    step = plan["steps"][0]
+    assert {key: step[key] for key in (
+        "lane", "interval", "cost_budget_seconds", "order")} == {
+            "lane": "m4", "interval": {"start_s": 10.0, "end_s": 20.0},
+            "cost_budget_seconds": 90.0, "order": ["cached", "targeted"]}
+    assert step["unresolved_question"]["answer_status"] == "not_yet_analysed"
 
     query["scope"] = {"start_s": 5, "end_s": 25}
     plan = plan_query_acquisition(
@@ -195,9 +203,12 @@ def test_query_acquires_one_scoped_lane_refreshes_model_and_changes_answer(tmp_p
         available_lanes=["m7"], producer_budgets={"m7": 1})
 
     assert result["answer"]["status"] == evidence_query.NOT_YET_ANALYSED
-    assert result["acquisition_plan"]["steps"] == [{
-        "lane": "m7", "interval": {"start_s": 0.0, "end_s": 2.0},
-        "cost_budget_seconds": 1.0, "order": ["cached", "targeted"]}]
+    step = result["acquisition_plan"]["steps"][0]
+    assert {key: step[key] for key in (
+        "lane", "interval", "cost_budget_seconds", "order")} == {
+            "lane": "m7", "interval": {"start_s": 0.0, "end_s": 2.0},
+            "cost_budget_seconds": 1.0, "order": ["cached", "targeted"]}
+    assert step["unresolved_question"]["answer_status"] == "not_yet_analysed"
     assert calls == [("m7", 0.0, 2.0)]
     assert result["requery"]["status"] == evidence_query.PRESENT
     assert result["edit_ready"] is True
@@ -269,9 +280,12 @@ def test_production_m4_acquisition_merges_one_fixture_window_and_requeries(tmp_p
         window_analyzer=acquire_window)
 
     assert result["answer"]["status"] == "not_yet_analysed"
-    assert result["acquisition_plan"]["steps"] == [{
-        "lane": "m4", "interval": {"start_s": 0.0, "end_s": 2.0},
-        "cost_budget_seconds": 90.0, "order": ["cached", "targeted"]}]
+    step = result["acquisition_plan"]["steps"][0]
+    assert {key: step[key] for key in (
+        "lane", "interval", "cost_budget_seconds", "order")} == {
+            "lane": "m4", "interval": {"start_s": 0.0, "end_s": 2.0},
+            "cost_budget_seconds": 90.0, "order": ["cached", "targeted"]}
+    assert step["unresolved_question"]["answer_status"] == "not_yet_analysed"
     assert windows == [(0.0, 2.0)]
     memory = source_memory.read_scenes(digest, tmp_path / "memory")
     assert memory["window_coverage"] == [{

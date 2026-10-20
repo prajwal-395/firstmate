@@ -171,12 +171,11 @@ def test_the_decomposition_names_every_declared_modality_in_the_committed_sets()
 
 
 def test_a_declared_modality_the_decomposition_misses_is_reported():
-    payload = _load(EDITORIAL_SET)
     query = {"id": "X", "family": "editorial",
              "query": "the pricing rule",
              "requirements": ["textual", "acoustic"]}
     agreement = retrieval_eval._requirement_agreement(
-        query, payload["scoring"]["editorial"])
+        query)
     assert agreement["missing"], (
         "a declared modality the decomposition never names is a "
         "requirement the search will not look for")
@@ -185,12 +184,11 @@ def test_a_declared_modality_the_decomposition_misses_is_reported():
 
 
 def test_an_ambiguous_reading_is_not_counted_as_a_spurious_requirement():
-    payload = _load(EDITORIAL_SET)
     query = {"id": "Y", "family": "editorial",
              "query": "the laptop on the desk",
              "requirements": ["visual"]}
     agreement = retrieval_eval._requirement_agreement(
-        query, payload["scoring"]["editorial"])
+        query)
     assert agreement["ambiguous_requirements"], (
         "a bare noun with no framing word is ambiguous, and the plan says so")
     assert agreement["unambiguous_extra"] == []

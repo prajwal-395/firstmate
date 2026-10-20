@@ -192,6 +192,21 @@ def _rows(*specs: FindingReader) -> Dict[str, FindingReader]:
 FINDING_READERS: Dict[str, FindingReader] = _rows(
     # ── render_qa.py ──
     FindingReader(
+        "encoding", "render",
+        "The delivered file's codec and stream structure. The run summary "
+        "and rough-cut review surface the measured format so the export "
+        "can be checked against its delivery declaration."),
+    FindingReader(
+        "channel_configuration", "render",
+        "The delivered audio channel layout. The run summary and rough-cut "
+        "review expose the measured layout for comparison with the "
+        "project's delivery requirements."),
+    FindingReader(
+        "clipping", "render",
+        "Clipped samples in the delivered audio. The run summary and "
+        "rough-cut review surface the affected runs so the mix/export can "
+        "be corrected before delivery."),
+    FindingReader(
         "lufs", "audio_mix",
         "Integrated loudness and true peak of the delivered master. The "
         "mix sets the balance, not the level of the sum: the Sep-03 master "

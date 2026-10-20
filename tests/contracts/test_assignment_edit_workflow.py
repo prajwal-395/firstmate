@@ -112,10 +112,8 @@ def test_a_broll_replacement_cannot_be_linked_to_a_dialogue_intent(
     broll_request = EditRequest(
         id="replacement-request", project="Resolve Project", timeline="Interview",
         operations=(EditOperation(
-            op="broll.insert", target=EditTarget(unique_id="clip-1"),
-            params={"track_type": "video", "track_index": 2,
-                    "record_in": 12, "record_out": 80, "source_in": 0,
-                    "source_out": 68, "clip": "cover.mov"},
+            op="clip.replace", target=EditTarget(unique_id="clip-1"),
+            params={"source_file": "cover.mov"},
             expected_effect="replace the marked B-roll with matching coverage"),),
     )
 

@@ -272,8 +272,8 @@ def test_mixed_batch_still_addresses_just_placed_clips(tmp_path):
                                                              -100.0]
 
 
-def test_pinned_model_revision_skips_per_patch_reloads(tmp_path, monkeypatch):
-    """A caller placing many patches loads the model once, not per patch."""
+def test_pinned_model_revision_skips_preflight_reload(tmp_path, monkeypatch):
+    """A pin skips preflight loading; reconciliation reads the committed model."""
     import json as _json
     from pathlib import Path as _Path
 
@@ -320,7 +320,7 @@ def test_pinned_model_revision_skips_per_patch_reloads(tmp_path, monkeypatch):
             store=store, project_folder=str(tmp_path),
             model_revision=1)
         assert receipt["status"] == "committed", receipt
-        assert calls["loads"] == 0
+        assert calls["loads"] == 1
         before = calls["loads"]
         receipt = edit_patch.apply_live_patch(
             project=project, timeline=timeline, capability="reel.build",
@@ -330,9 +330,9 @@ def test_pinned_model_revision_skips_per_patch_reloads(tmp_path, monkeypatch):
             idempotency_key="unpinned:one",
             store=store, project_folder=str(tmp_path))
         assert receipt["status"] == "committed", receipt
-        # Both forms use the validated revision pointer, without loading
-        # unused model data. Actual readback commits remain separate.
-        assert calls["loads"] == before, calls
+        # The pinned write avoids its preflight load; the unpinned write
+        # performs one to validate its current model revision.
+        assert calls["loads"] == before + 1, calls
 
 
 def test_sweep_many_reports_unmatched_additions_without_deleting(tmp_path):
@@ -394,6 +394,8 @@ def test_batch_reads_the_revision_advanced_by_its_previous_readback(tmp_path, mo
             project_folder=str(tmp_path), model_revision=1)
     assert result["batches"] == 3
     revision, model = project_model_store.load_project_model(tmp_path)
-    assert revision == 4
+    # Each of the three Resolve readbacks is committed, then reconciled
+    # against the model head, advancing the model twice per batch.
+    assert revision == 7
     assert len(model["edits"]) == 4
     assert result["unverified"] == []

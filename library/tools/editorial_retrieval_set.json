@@ -148,7 +148,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S06"
+    "derived_from": "S06",
+    "basis": "Intervals copied unchanged from S06; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    },
    "note": "three separate moments; the editor wants whichever is usable"
   },
@@ -193,7 +194,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S14"
+    "derived_from": "S14",
+    "basis": "Intervals copied unchanged from S14; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    }
   },
   {
@@ -223,7 +225,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S11"
+    "derived_from": "S11",
+    "basis": "Intervals copied unchanged from S11; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    }
   },
   {
@@ -253,7 +256,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S07"
+    "derived_from": "S07",
+    "basis": "Intervals copied unchanged from S07; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    }
   },
   {
@@ -297,7 +301,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S03"
+    "derived_from": "S03",
+    "basis": "Intervals copied unchanged from S03; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    }
   },
   {
@@ -355,7 +360,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S13"
+    "derived_from": "S13",
+    "basis": "Intervals copied unchanged from S13; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    }
   },
   {
@@ -427,7 +433,8 @@
     }
    ],
    "provenance": {
-    "derived_from": "S15"
+    "derived_from": "S15",
+    "basis": "Intervals copied unchanged from S15; instances on the other camera are mapped using the set-level ground_truth_mapping basis."
    },
    "note": "four moments across two camera groups"
   },
