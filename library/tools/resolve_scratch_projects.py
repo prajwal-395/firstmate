@@ -18,12 +18,14 @@ import hashlib
 import json
 import math
 import os
+import socket
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 from library.tools import artifact_lifecycle, resolve_switch_guard
-from library.tools.qualification_project import switch_project
+from library.tools.qualification_project import QualificationError, switch_project
 from library.tools.resolve_lock import assert_current_timeline
 
 SCRATCH_PREFIX = "Ren Scratch - "
@@ -147,11 +149,100 @@ def _origin_path() -> Path:
 
 
 def _write_origin(state: dict) -> None:
+    """Write the receipt, with the process that owns it.
+
+    The owner is stamped on every write, so a receipt left behind by a
+    process that exited can be told from one a live writer still holds.
+    The stamp is the ONLY way to tell them apart: the receipt file is
+    machine-wide and outlives the process that wrote it.
+    """
     path = _origin_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    receipt = {**state,
+               "owner_pid": os.getpid(),
+               "owner_host": socket.gethostname(),
+               "owner": _owner_name(),
+               "recorded_at": time.time()}
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    temporary.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
     os.replace(temporary, path)
+
+
+def _owner_name() -> str:
+    """A name for the process holding a receipt, for a human reading it."""
+    from library.tools.resolve_lock import default_owner
+    return default_owner()
+
+
+def _read_origin(path: Path) -> dict:
+    """The recorded origin, read as written.
+
+    A receipt nobody can read is refused by name: it may be a
+    half-written file, and guessing at its contents is how a scratch
+    project gets left behind with no route back.
+    """
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise ScratchProjectError(
+            "the recorded scratch-project origin could not be read; "
+            "remove it by hand once you have checked what it says") from exc
+    if not isinstance(state, dict):
+        raise ScratchProjectError(
+            "the recorded scratch-project origin is not a receipt; "
+            "remove it by hand once you have checked what it says")
+    return state
+
+
+def _owner_alive(state: dict) -> bool:
+    """Whether the process that recorded this origin may still be working.
+
+    Fail-closed. A receipt that records no pid, or one recorded on
+    another machine, counts as ALIVE: "we could not prove the owner is
+    gone" must never be read as "the owner is gone", because clearing
+    such a receipt would take the route back from a live writer's
+    scratch project.
+    """
+    try:
+        pid = int(state.get("owner_pid") or 0)
+    except (TypeError, ValueError):
+        return True
+    if pid <= 0:
+        return True
+    host = str(state.get("owner_host") or "")
+    if host and host != socket.gethostname():
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # alive, owned by somebody else
+    except OSError:
+        return True
+    return True
+
+
+def _instance_lease_is_ours_or_free() -> bool:
+    """Whether the Resolve instance is free for THIS writer.
+
+    The flock is the truth: an exclusive instance lease means no other
+    writer is inside Resolve. The lease this process holds - or the one
+    it inherited from an ancestor that holds it for us - is this
+    writer's own.
+    """
+    from library.tools import resolve_lock
+
+    status = resolve_lock.lease_status()
+    active = status.active
+    if active is None:
+        return True
+    if active.pid == os.getpid():
+        return True
+    inherited = resolve_lock.inherited_holder()
+    return inherited is not None and inherited == active.pid
 
 
 def _return_to_recorded_scratch(resolve, manager, state: dict,
@@ -189,6 +280,69 @@ def _missing_recorded_timeline(error: ScratchProjectError) -> bool:
             or "cannot recover timeline" in message)
 
 
+def recover_stale_origin(resolve, manager, state: dict, path: Path) -> dict:
+    """Put the machine back on a receipt whose owner process has exited.
+
+    The receipt is the only route back from a scratch project, so it is
+    never cleared blindly: the machine goes back to the recorded origin
+    and READS BACK there before the receipt goes. A recorded origin
+    that is not Ren's own is refused BY NAME - a name the caller can
+    act on - because an agent must not move the captain's project on
+    its own judgement.
+    """
+    origin_name = str(state.get("project") or "")
+    if not _ren_owned_origin(origin_name):
+        raise ScratchProjectError(
+            f"the recorded scratch-project origin {origin_name!r} is not "
+            "Ren-owned; restore it by hand before opening another scratch "
+            "project")
+    current = manager.GetCurrentProject()
+    # The open project may hold work the dead owner never saved.
+    if (current is not None and current.GetName() != origin_name
+            and not manager.SaveProject()):
+        raise ScratchProjectError(
+            "cannot recover the recorded scratch-project origin: "
+            "Resolve would not save the open project")
+    try:
+        result = restore(resolve, manager, state)
+    except QualificationError as exc:
+        raise ScratchProjectError(
+            f"cannot recover the recorded scratch-project origin "
+            f"{origin_name!r}: {exc}") from exc
+    except ScratchProjectError as exc:
+        if not _missing_recorded_timeline(exc):
+            raise
+        # The ORIGIN is Ren's own, but the timeline it recorded is gone.
+        # The project is still where the receipt wants the machine, so
+        # the receipt completes with the reason rather than pretending
+        # the timeline came back.
+        try:
+            project = switch_project(manager, origin_name)
+        except QualificationError as switch_error:
+            raise ScratchProjectError(
+                f"cannot recover the recorded scratch-project origin "
+                f"{origin_name!r}: {switch_error}") from exc
+        if not project or project.GetName() != origin_name:
+            raise ScratchProjectError(
+                f"cannot recover the recorded scratch-project origin: "
+                f"could not reopen {origin_name!r}") from exc
+        page = state.get("page")
+        if (page is not None and resolve.GetCurrentPage() != page
+                and (not resolve.OpenPage(page)
+                     or resolve.GetCurrentPage() != page)):
+            raise ScratchProjectError(
+                "cannot recover the recorded scratch-project origin: "
+                f"could not return to page {page!r}") from exc
+        result = {"project": origin_name,
+                  "timeline": state.get("timeline"),
+                  "page": page,
+                  "verified": False,
+                  "timeline_restored": False,
+                  "reason": str(exc)}
+    path.unlink(missing_ok=True)
+    return result
+
+
 def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
     """Restore the origin recorded by `open`, then clear its receipt.
 
@@ -198,7 +352,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
     """
     path = _origin_path()
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
+        state = _read_origin(path)
     except FileNotFoundError as exc:
         raise ScratchProjectError("there is no recorded scratch-project origin to restore") from exc
     current = manager.GetCurrentProject()
@@ -796,15 +950,29 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
 
 def open_project(resolve, manager, name: str) -> dict:
     name = _name(name)
+    path = _origin_path()
+    recovered = None
+    if path.exists():
+        recorded = _read_origin(path)
+        if _owner_alive(recorded):
+            raise ScratchProjectError(
+                "a scratch-project origin is already recorded; restore it "
+                "before opening another scratch project")
+        if not _instance_lease_is_ours_or_free():
+            raise ScratchProjectError(
+                "the recorded scratch-project origin belongs to a process "
+                "that has exited, but the Resolve instance is held by "
+                "another writer; wait for it to finish")
+        # The writer that recorded this receipt has exited. Left alone,
+        # its receipt blocks every other writer until a person removes
+        # it by hand, so the next open puts the machine back on the
+        # recorded origin and clears the receipt the only safe way.
+        recovered = recover_stale_origin(resolve, manager, recorded, path)
     state = _starting_state(resolve, manager)
     if name == state["project"]:
         raise ScratchProjectError(f"scratch project {name!r} is already open")
     if not _listed(manager, name):
         raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
-    path = _origin_path()
-    if path.exists():
-        raise ScratchProjectError(
-            "a scratch-project origin is already recorded; restore it before opening another scratch project")
     _write_origin({**state, "scratch_project": name})
     try:
         project = switch_project(manager, name)
@@ -818,6 +986,7 @@ def open_project(resolve, manager, name: str) -> dict:
             "opened": True,
             "origin": {"project": state["project"], "timeline": state["timeline"],
                        "page": state["page"]},
+            "recovered_origin": recovered,
             "restore_with": "resolve-axi project scratch restore --apply"}
 
 

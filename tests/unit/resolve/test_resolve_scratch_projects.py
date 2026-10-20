@@ -1,12 +1,17 @@
 from contextlib import nullcontext
 import json
+import os
 from pathlib import Path
+import socket
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from library.tools import resolve_axi
 from library.tools import resolve_scratch_projects as scratch
+from library.tools.qualification_project import QualificationError
 
 
 @pytest.fixture(autouse=True)
@@ -719,3 +724,212 @@ def test_ren_owned_origin_without_current_timeline_returns_to_scratch(
     assert restored["timeline_restored"] is False
     assert manager.GetCurrentProject().GetName() == scratch_project.name
     assert not origin.exists()
+
+
+# ── A receipt whose owner exited ─────────────────────────────────────
+#
+# The scratch origin receipt is machine-wide and outlives the process
+# that wrote it. Measured 2026-10-20: the queued AXI scratch open for
+# "Ren Scratch - workflows-e2e" refused with "a scratch-project origin
+# is already recorded" because a receipt another lane's dead writer
+# (pid 45907) left behind was still on disk. Every other writer was
+# blocked until a person removed the file by hand.
+
+
+def _exited_pid() -> int:
+    """A pid that is provably not running: a child that has been reaped."""
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    return child.pid
+
+
+def _write_receipt(path, state):
+    path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+
+
+def test_the_origin_receipt_records_the_process_that_wrote_it(
+        monkeypatch, tmp_path):
+    """Catches: a receipt that names no owner.
+
+    Without an owner on the receipt, a dead writer's receipt and a live
+    writer's receipt are the same file, and only one of them may be
+    cleared by the next writer.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    scratch_project = Project("Ren Scratch - owner-test", [Timeline("T", "t")])
+    manager.projects[scratch_project.name] = scratch_project
+
+    scratch.open_project(resolve, manager, scratch_project.name)
+
+    recorded = json.loads(origin.read_text(encoding="utf-8"))
+    assert recorded["owner_pid"] == os.getpid()
+    assert recorded["owner_host"] == socket.gethostname()
+
+
+def test_a_receipt_whose_owner_exited_does_not_block_the_next_scratch_open(
+        monkeypatch, tmp_path):
+    """Catches: one dead writer's receipt blocking every other writer.
+
+    Measured 2026-10-20: the queued AXI scratch open for "Ren Scratch -
+    workflows-e2e" exited 1 with "a scratch-project origin is already
+    recorded; restore it before opening another scratch project",
+    because the receipt of an exited writer (pid 45907) was still on
+    disk. The next open now puts the machine back on the recorded
+    Ren-owned origin and clears the receipt the only safe way - by
+    restoring it, never by deleting it.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
+    dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
+    next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
+    for project in (breaktest, dead_scratch, next_scratch):
+        manager.projects[project.name] = project
+    _write_receipt(origin, {
+        "project": breaktest.name,
+        "timeline": "Reel 13",
+        "timeline_id": "t13",
+        "page": "edit",
+        "scratch_project": dead_scratch.name,
+        "owner_pid": _exited_pid(),
+        "owner_host": socket.gethostname(),
+    })
+    # The dead writer left its scratch project open in Resolve.
+    manager.current = dead_scratch
+
+    result = scratch.open_project(resolve, manager, next_scratch.name)
+
+    assert result["opened"] is True
+    assert result["recovered_origin"]["project"] == breaktest.name
+    assert manager.GetCurrentProject().GetName() == next_scratch.name
+    recorded = json.loads(origin.read_text(encoding="utf-8"))
+    assert recorded["project"] == breaktest.name
+    assert recorded["scratch_project"] == next_scratch.name
+    assert recorded["owner_pid"] == os.getpid()
+
+
+def test_a_receipt_whose_owner_is_alive_still_refuses_the_next_open(
+        monkeypatch, tmp_path):
+    """Catches: the stale-owner recovery clearing a LIVE writer's receipt.
+
+    The receipt is the only route back from a scratch project, so a
+    receipt a live process holds is never touched.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
+    next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
+    for project in (breaktest, next_scratch):
+        manager.projects[project.name] = project
+    _write_receipt(origin, {
+        "project": breaktest.name,
+        "timeline": "Reel 13",
+        "timeline_id": "t13",
+        "page": "edit",
+        "scratch_project": "Ren Scratch - live-owner",
+        "owner_pid": os.getpid(),
+        "owner_host": socket.gethostname(),
+    })
+
+    with pytest.raises(scratch.ScratchProjectError, match="already recorded"):
+        scratch.open_project(resolve, manager, next_scratch.name)
+    assert origin.exists()
+
+
+def test_a_dead_owner_receipt_refuses_by_name_when_the_origin_is_not_ren_owned(
+        monkeypatch, tmp_path):
+    """Catches: the recovery moving a project that is not Ren's own.
+
+    The captain's project is where the machine was, and an agent does
+    not put it back on a judgement of its own: the refusal NAMES the
+    origin, so the caller can act on it.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
+    manager.projects[next_scratch.name] = next_scratch
+    _write_receipt(origin, {
+        "project": "Podcast (field test)",
+        "timeline": "Alt",
+        "timeline_id": "captain-alt",
+        "page": "edit",
+        "scratch_project": "Ren Scratch - dead-owner",
+        "owner_pid": _exited_pid(),
+        "owner_host": socket.gethostname(),
+    })
+
+    with pytest.raises(scratch.ScratchProjectError,
+                       match="Podcast \\(field test\\)"):
+        scratch.open_project(resolve, manager, next_scratch.name)
+    # Never cleared blindly: the receipt is still there to be restored.
+    assert origin.exists()
+
+
+def test_a_dead_owner_receipt_is_kept_when_the_origin_cannot_be_reopened(
+        monkeypatch, tmp_path):
+    """Catches: the recovery clearing a receipt it could not restore.
+
+    A receipt that cannot be restored is still the only route back, so
+    it stays on disk and the refusal names the origin.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
+    manager.projects[next_scratch.name] = next_scratch
+    _write_receipt(origin, {
+        "project": "Ren Scratch - gone",
+        "timeline": "T",
+        "timeline_id": "t-gone",
+        "page": "edit",
+        "scratch_project": "Ren Scratch - dead-owner",
+        "owner_pid": _exited_pid(),
+        "owner_host": socket.gethostname(),
+    })
+
+    def refuse(current_manager, name):
+        raise QualificationError(f"{name!r} did not read back after the switch")
+
+    monkeypatch.setattr(scratch, "switch_project", refuse)
+
+    with pytest.raises(scratch.ScratchProjectError,
+                       match="Ren Scratch - gone"):
+        scratch.open_project(resolve, manager, next_scratch.name)
+    assert origin.exists()
+
+
+def test_a_dead_owner_receipt_waits_for_another_writer(
+        monkeypatch, tmp_path):
+    """Catches: the recovery moving Resolve while another writer holds it.
+
+    The instance lease is the fence between writers, so a receipt is
+    only recovered when nobody else is inside Resolve.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    origin = tmp_path / "scratch-origin.json"
+    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
+    next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
+    for project in (breaktest, next_scratch):
+        manager.projects[project.name] = project
+    _write_receipt(origin, {
+        "project": breaktest.name,
+        "timeline": "Reel 13",
+        "timeline_id": "t13",
+        "page": "edit",
+        "scratch_project": "Ren Scratch - dead-owner",
+        "owner_pid": _exited_pid(),
+        "owner_host": socket.gethostname(),
+    })
+    monkeypatch.setattr(scratch, "_instance_lease_is_ours_or_free",
+                        lambda: False)
+
+    with pytest.raises(scratch.ScratchProjectError,
+                       match="held by another writer"):
+        scratch.open_project(resolve, manager, next_scratch.name)
+    assert origin.exists()
