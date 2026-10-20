@@ -103,7 +103,12 @@ Work from the person's GOAL, not from the pipeline's step list:
 5. **Choose a capability** - the smallest `ren` verb or scoped run that
    does the job (section 4). For a Resolve edit, discover the current AXI
    operation and route through `resolve-axi`; do not rely on a remembered
-   command or backend list.
+   command or backend list. Capability references distinguish production
+   enabled operations from experimental, unqualified or unavailable ones.
+   Treat a listed operation as discoverable vocabulary, not proof it can
+   be used for this timeline. Use ordinary production routing; never
+   request protected experimental execution to get past a qualification
+   refusal.
 6. **Execute** - run it, answering any handshake it raises (section 5).
    AXI prepares the semantic edit, resolves an eligible route, and
    refuses safely when the target, authorization, support or preservation
@@ -479,3 +484,12 @@ the spec. This check uses the final export, never a preview.
   not expose the technical `why` and `fix` unless the editor asks; keep
   them available for that explanation. Structured refusal consumers
   read `user_message` and `recovery_class` from `RenRefusal.to_dict()`.
+- For AXI execution failures, inspect the receipt before retrying. A
+  `stale` refusal needs fresh timeline state and a newly prepared request;
+  `conflict` needs the current state preserved and the intent clarified;
+  `unsupported` means no eligible production route; and
+  `backend_failure` requires checking compensation evidence. If the
+  receipt says `recovery_required`, stop edits and follow its named
+  recovery path until read-back proves the state restored or explicitly
+  recoverable. Never treat a successful command or a retry as proof that
+  an edit completed.
