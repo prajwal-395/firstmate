@@ -2572,6 +2572,83 @@ test_opencode_main_workspace_pins_launch_when_second_configured() {
   pass "a two-workspace main launch rides its own pin, never the machine-wide active workspace"
 }
 
+test_pi_opencode_go_routes_main_and_secondary_ladder_rungs() {
+  local rec id out status launch datadir
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "Pi OpenCode Go spawn routing needs sqlite3 (live credential-flow tests cover the provider helper)"
+    return 0
+  }
+
+  id=pi-go-main-z35
+  rec=$(make_spawn_case pi-go-main opencode "$id")
+  read_case_record "$rec"
+  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  mkdir -p "$HOME_DIR/pinned-pi"
+  printf '%s\nopencode-go\n' "$HOME_DIR/pinned-pi" > "$HOME_DIR/config/pi-account"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "main fixture login could not be built"
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "the main Go rung should spawn through Pi: $out"
+  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "the main Go rung did not record Pi"
+  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the main Go model changed"
+  assert_grep 'dispatch_ladder=opencode' "$HOME_DIR/state/$id.meta" "the Pi worker lost its ladder provenance"
+  assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "main workspace must remain the implicit workspace"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_MAIN_ORG_ID'" "main workspace id did not reach Pi"
+  assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "main Pi worker has no task-scoped session"
+  assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "main Pi worker did not receive its task-private db"
+  assert_contains "$launch" "PI_CODING_AGENT_DIR='$HOME_DIR/pinned-pi'" "the pinned Pi agent directory did not reach the launch"
+  assert_not_contains "$launch" "env -u PI_CODING_AGENT_DIR" "the pinned Pi agent directory was unset before Pi started"
+  assert_not_contains "$launch" "__PIAPPROVE__" "main Pi worker retained a launch-template placeholder"
+  assert_contains "$(cat "$HOME_DIR/pinned-pi/models.json")" "muse-spark-1.3-contributor" "the pinned Pi directory lacks the Go models"
+  pass "the main paid Go rung keeps its model and workspace in the pinned Pi directory"
+
+  id=pi-go-secondary-z36
+  rec=$(make_spawn_case pi-go-secondary opencode "$id")
+  read_case_record "$rec"
+  printf '%s\n' on > "$HOME_DIR/config/pi-opencode-go"
+  printf '%s' "$DUAL_SECOND_ORG_ID" > "$HOME_DIR/config/opencode-second-org"
+  record_rung_cap "$HOME_DIR" free || fail "record refused free cap"
+  record_rung_cap "$HOME_DIR" plus || fail "record refused Plus cap"
+  record_rung_cap "$HOME_DIR" go || fail "record refused main Go cap"
+  datadir=$(make_dual_workspace_fixture "$CASE_DIR" "$FAKEBIN_DIR") || fail "secondary fixture login could not be built"
+  export FM_FAKE_OPENCODE_DATA="$datadir"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  unset FM_FAKE_OPENCODE_DATA
+  expect_code 0 "$status" "the secondary Go rung should spawn through Pi: $out"
+  assert_grep 'harness=pi' "$HOME_DIR/state/$id.meta" "the secondary Go rung did not record Pi"
+  assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the secondary Go model changed"
+  assert_grep 'opencode_workspace=secondary' "$HOME_DIR/state/$id.meta" "the second workspace marker was lost"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "FM_OPENCODE_ORG_ID='$DUAL_SECOND_ORG_ID'" "secondary workspace id did not reach Pi"
+  assert_contains "$launch" "FM_OPENCODE_SESSION='fm-$id'" "secondary Pi worker has no task-scoped session"
+  assert_contains "$launch" "FM_OPENCODE_TASK_DB='$HOME_DIR/state/$id.opencode.db'" "secondary Pi worker did not receive its task-private db"
+  assert_contains "$launch" "env -u PI_CODING_AGENT_DIR" "an unpinned Pi worker must use the default agent directory"
+  assert_not_contains "$launch" "__PIAPPROVE__" "secondary Pi worker retained a launch-template placeholder"
+  assert_contains "$(cat "$HOME_DIR/user-home/.pi/agent/models.json")" "muse-spark-1.3-contributor" "the default Pi directory lacks the Go models"
+  pass "the second paid Go rung keeps its model and workspace in Pi's default directory"
+}
+
+test_pi_opencode_go_config_refuses_malformed_values() {
+  local rec id out status
+  id=pi-go-invalid-z37
+  rec=$(make_spawn_case pi-go-invalid opencode "$id")
+  read_case_record "$rec"
+  printf '%s\n' 'maybe' > "$HOME_DIR/config/pi-opencode-go"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 2>&1)
+  status=$?
+  expect_code 1 "$status" "malformed Pi OpenCode switch should refuse"
+  assert_contains "$out" "must hold exactly one line, 'on' or 'off'" "malformed switch refusal was not clear"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "malformed switch left task metadata"
+  pass "a malformed Pi OpenCode Go switch refuses before task creation"
+}
+
 test_opencode_main_launch_refuses_when_pin_unprovable() {
   local rec id out status
   command -v sqlite3 >/dev/null 2>&1 || {
@@ -2856,6 +2933,8 @@ test_no_profile_keeps_claude_profile_defaults
 test_opencode_second_workspace_pins_launch
 test_opencode_main_workspace_launch_uses_task_db_without_second
 test_opencode_main_workspace_pins_launch_when_second_configured
+test_pi_opencode_go_routes_main_and_secondary_ladder_rungs
+test_pi_opencode_go_config_refuses_malformed_values
 test_opencode_main_launch_refuses_when_pin_unprovable
 test_opencode_shared_server_attaches_worker_to_its_own_session
 test_opencode_shared_server_falls_back_to_standalone

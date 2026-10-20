@@ -299,6 +299,25 @@ test_recorded_refusal_relaunches_to_go() {
   pass "the recorded free refusal relaunches the lane onto Codex Plus"
 }
 
+test_pi_ladder_lane_remains_in_descent_scope_when_opted_in() {
+  local state out
+  state=$(fresh_state pi-ladder)
+  stub_env "$state" 0 1
+  printf '%s\n' on > "$FAKEHOME/config/pi-opencode-go"
+  write_meta "$state" lane1 pi "$FREE" scout
+  printf 'dispatch_ladder=opencode\n' >> "$state/lane1.meta"
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused Pi fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused Pi free cap"
+  "$RETRY" record-cap "$state" plus "$(ms_from_now 78840)" || fail "record refused the Plus cap"
+  out=$(run_tick "$state") || fail "tick must never fail for an opted-in Pi ladder lane"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "an opted-in Pi ladder lane with a proven free cap must descend, said: ${out:-<silent>}" ;;
+  esac
+  case "$(stub_calls)" in *'--harness opencode'*"$GO"*) : ;; *) fail "descent did not request the Go rung through fm-spawn: $(stub_calls)" ;; esac
+  pass "an opted-in Pi ladder lane remains eligible for the existing cap descent"
+}
+
 test_descent_uses_configured_codex_plus_effort() {
   local state out config_dir
   state=$(fresh_state configured-effort)
@@ -721,6 +740,7 @@ test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
+test_pi_ladder_lane_remains_in_descent_scope_when_opted_in
 test_descent_uses_configured_codex_plus_effort
 test_capped_plus_lane_descends_to_go
 test_codex_human_reset_parses_incident_string

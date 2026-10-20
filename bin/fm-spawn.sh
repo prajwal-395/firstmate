@@ -595,6 +595,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 PROJECTS="${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+PI_OPENCODE_GO_ENABLED=0
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-exclude-tools-lib.sh
@@ -732,6 +733,12 @@ if ! declare -f fm_opencode_second_org >/dev/null 2>&1; then
   # shellcheck source=/dev/null
   . "$SCRIPT_DIR/fm-opencode-second-lib.sh"
 fi
+fm_opencode_pi_go_enabled "$CONFIG" && PI_OPENCODE_GO_ENABLED=1
+PI_OPENCODE_GO_STATUS=$?
+[ "$PI_OPENCODE_GO_STATUS" -ne 2 ] || {
+  echo "error: $CONFIG/pi-opencode-go must hold exactly one line, 'on' or 'off'" >&2
+  exit 1
+}
 # fm-pr-lib.sh is a canonical lint root in its own right. Keep it an analysis
 # boundary here: following its graph from this large runtime exceeds the
 # bounded CI lint worker while adding no uncovered file.
@@ -788,6 +795,9 @@ DISPATCH_ROUTE_EFFORT=
 DISPATCH_ROUTE_LADDER=
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
+PI_OPENCODE_GO=0
+PI_OPENCODE_ORG=
+PI_OPENCODE_SESSION=
 OPENCODE_WORKSPACE_ARG=
 OPENCODE_WORKSPACE_SET=0
 RELAUNCH=0
@@ -2730,6 +2740,16 @@ case "$HARNESS" in
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
       unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL _FM_OPENCODE_LADDER_REQUEST
     fi
+    if [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] \
+      && { [ "$MODEL" = "$FM_OPENCODE_LADDER_FREE" ] || [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ]; }; then
+      HARNESS=pi
+      PI_OPENCODE_GO=1
+      DISPATCH_LADDER=opencode
+      DISPATCH_ROUTE_LADDER=opencode
+      LAUNCH=$(launch_template "$HARNESS" "$KIND") || { echo "error: Pi launch template is unavailable for OpenCode Go" >&2; exit 1; }
+      printf 'notice: OpenCode ladder rung %s routed to Pi by config/pi-opencode-go\n' \
+        "$( [ "$MODEL" = "$FM_OPENCODE_LADDER_FREE" ] && printf free || printf Go )" >&2
+    fi
     unset _FM_OPENCODE_RELAUNCH_WS
     # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
     # the watcher is a long-lived process that predates the instruction - so
@@ -2844,6 +2864,27 @@ case "$HARNESS" in
     ;;
 esac
 
+# The OpenCode ladder case can resolve a model onto Pi after the ordinary Pi
+# setup branch above has already run; finish the same Pi launch preparation.
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_BIN=$(resolve_pi_executable pi) || {
+    echo "error: pi executable not found on PATH; install it or select a different verified harness" >&2
+    exit 1
+  }
+  PI_TUI_MODE=
+  if pi_supports_tui_mode "$PI_BIN"; then PI_TUI_MODE=' --tui-mode regular'; fi
+  LAUNCH=${LAUNCH//__PITUIMODE__/$PI_TUI_MODE}
+  # This route is only used for ordinary ship/scout workers, so the seeded
+  # secondmate approval option is always empty. Still resolve the template
+  # placeholder before the launch reaches Pi.
+  LAUNCH=${LAUNCH//__PIAPPROVE__/}
+  PI_EXCLUDE=
+  EXCLUDE_TOOLS=$(fm_exclude_tools_check pi "$RAW_LAUNCH" "$CONFIG") || exit 1
+  [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
+  LAUNCH=${LAUNCH//__PIEXCLUDE__/$PI_EXCLUDE}
+  LAUNCH="FM_PI_HARNESS=pi $LAUNCH"
+fi
+
 # The Go workspace lane (bin/fm-opencode-second-lib.sh owns the pins,
 # bin/fm-opencode-ladder-lib.sh fm_opencode_ladder_pick_go_workspace owns
 # the tier pick). A fresh ladder-routed Go launch rides the second workspace
@@ -2893,6 +2934,29 @@ if [ "$HARNESS" = opencode ]; then
     OPENCODE_WORKSPACE=secondary
   fi
 fi
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  if [ "$RELAUNCH" -eq 1 ]; then
+    if [ "$OPENCODE_WORKSPACE_SET" -eq 1 ]; then
+      OPENCODE_WORKSPACE=$OPENCODE_WORKSPACE_ARG
+    else
+      OPENCODE_WORKSPACE=$RELAUNCH_PRIOR_WORKSPACE
+    fi
+  elif [ "$MODEL" = "$FM_OPENCODE_LADDER_GO" ] \
+    && [ "$(fm_opencode_ladder_pick_go_workspace "$STATE" 2>/dev/null)" = "$FM_OPENCODE_WORKSPACE_SECOND" ]; then
+    OPENCODE_WORKSPACE=secondary
+  fi
+  if [ "$OPENCODE_WORKSPACE" = secondary ]; then
+    PI_OPENCODE_ORG=$(fm_opencode_workspace_org secondary) || {
+      echo "error: the selected second OpenCode workspace is not configured" >&2
+      exit 1
+    }
+    OPENCODE_SECOND_ORG=$PI_OPENCODE_ORG
+  else
+    PI_OPENCODE_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
+    OPENCODE_MAIN_ORG=$PI_OPENCODE_ORG
+  fi
+  PI_OPENCODE_SESSION="fm-$ID"
+fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
@@ -2935,7 +2999,8 @@ fi
 # workspace pin.
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
-elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
+elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } \
+  && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
@@ -2948,7 +3013,7 @@ opencode_task_db() {
     OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
-  elif [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
+  elif { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ "$KIND" != secondmate ]; then
     # Unpinned standalone workers still need a task-private database so
     # OpenCode cannot grow its machine-wide event log. Keep an existing file
     # intact across relaunches; seed new files with the console account.
@@ -2959,7 +3024,7 @@ opencode_task_db() {
     fi
     chmod 600 "$OPENCODE_TASK_DB" 2>/dev/null || return 1
   fi
-  if [ "$HARNESS" = opencode ] && [ "$OPENCODE_SHARED_SERVER" -ne 1 ] \
+  if { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; } && [ "$OPENCODE_SHARED_SERVER" -ne 1 ] \
     && fm_opencode_model_requires_console_login "$MODEL" 2>/dev/null; then
     local login_db=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
     fm_opencode_db_has_console_login "$login_db" || {
@@ -2969,6 +3034,13 @@ opencode_task_db() {
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
+  fm_opencode_db_has_console_login "$PI_OPENCODE_DB" || {
+    echo "error: Pi OpenCode Go requires a console login in its task database" >&2
+    exit 1
+  }
+fi
 # Ultra is an explicit native capability, never a Pi thinking-level alias.
 # Validate the fully resolved profile before worktree or endpoint provisioning.
 if [ "$EFFORT" = ultra ]; then
@@ -2990,11 +3062,44 @@ fi
 # trust registration below writes the store the worker will actually read.
 RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
-WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_ACCOUNT_PRE=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
+  PI_AGENT_DIR_PRE=${PI_ACCOUNT_PRE#*$'\t'}
+  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE%%$'\t'*}
+  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE:-${HOME:?}/.pi/agent}
+  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR_PRE" || exit 1
+fi
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
+  if [ -n "$PI_ACCOUNT_RESOLVED" ]; then
+    WORKER_ACCOUNT_DECLARED=${PI_ACCOUNT_RESOLVED%%$'\t'*}
+    PI_ACCOUNT_REST=${PI_ACCOUNT_RESOLVED#*$'\t'}
+    WORKER_ACCOUNT_ROOT=${PI_ACCOUNT_REST%%$'\t'*}
+    WORKER_ACCOUNT_PROVIDER=${PI_ACCOUNT_REST#*$'\t'}
+    PI_MODEL_PROVIDER=$(fm_worker_account_pi_provider "$MODEL") || exit 1
+    case " $WORKER_ACCOUNT_PROVIDER " in
+      *" $PI_MODEL_PROVIDER "*) ;;
+      *) echo "error: config/pi-account does not authorize provider '$PI_MODEL_PROVIDER' for this OpenCode Go worker" >&2; exit 1 ;;
+    esac
+    WORKER_ACCOUNT="${WORKER_ACCOUNT_DECLARED}"$'\t'"${WORKER_ACCOUNT_ROOT}"$'\t'"${PI_MODEL_PROVIDER}"
+  else
+    WORKER_ACCOUNT=
+  fi
+else
+  WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND") || exit 1
+fi
 WORKER_ACCOUNT_DECLARED=${WORKER_ACCOUNT%%$'\t'*}
 WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT#*$'\t'}
 WORKER_ACCOUNT_PROVIDER=${WORKER_ACCOUNT_ROOT#*$'\t'}
 WORKER_ACCOUNT_ROOT=${WORKER_ACCOUNT_ROOT%%$'\t'*}
+if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+  PI_AGENT_DIR=${WORKER_ACCOUNT_ROOT:-${HOME:?}/.pi/agent}
+  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR" || exit 1
+  PI_OPENCODE_DB=${OPENCODE_SECOND_DB:-${OPENCODE_MAIN_DB:-$OPENCODE_TASK_DB}}
+  [ -n "$PI_OPENCODE_DB" ] || { echo "error: Pi OpenCode Go task database was not prepared" >&2; exit 1; }
+  LAUNCH="FM_OPENCODE_TASK_DB=$(shell_quote "$PI_OPENCODE_DB") FM_OPENCODE_ORG_ID=$(shell_quote "$PI_OPENCODE_ORG") FM_OPENCODE_CONFIG_DIR=$(shell_quote "$CONFIG") FM_OPENCODE_SESSION=$(shell_quote "$PI_OPENCODE_SESSION") $LAUNCH"
+  [ -n "$WORKER_ACCOUNT_ROOT" ] || LAUNCH="env -u PI_CODING_AGENT_DIR $LAUNCH"
+fi
 if [ -n "$WORKER_ACCOUNT" ] && [ "$HARNESS" = claude ]; then
   if [ -n "$WORKER_ACCOUNT_ROOT" ]; then
     export CLAUDE_CONFIG_DIR=$WORKER_ACCOUNT_ROOT
@@ -6196,7 +6301,8 @@ preserve_relaunch_meta() {
   # The second-workspace pin, written only when it differs from the default:
   # absence means the main workspace, exactly as every record written before
   # markers existed reads.
-  if [ "$OPENCODE_WORKSPACE" = secondary ] && [ "$HARNESS" = opencode ]; then
+  if [ "$OPENCODE_WORKSPACE" = secondary ] \
+    && { [ "$HARNESS" = opencode ] || [ "$PI_OPENCODE_GO" -eq 1 ]; }; then
     echo "opencode_workspace=secondary"
   fi
   # An attached worker's server profile and session; absent for a standalone

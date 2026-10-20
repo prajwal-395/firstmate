@@ -520,7 +520,7 @@ fm_opencode_descent_skip_lane() {  # <state-dir> <id>
 # decision be exercised without the watcher's wake, lock, and recovery graph.
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
-  local meta id harness model model_bare kind cap horizon bound note ctl_out reason
+  local meta id harness model model_bare kind dispatch_ladder cap horizon bound note ctl_out reason
   local plus_bare target_model target_harness target_rung target_cap
   local target_workspace lane_ws recorded_ws expected_ws
   local recorded after next rest hold_reason when
@@ -545,9 +545,16 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     [ -e "$meta" ] || continue
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || harness=''
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
+    dispatch_ladder=$(fm_meta_get "$meta" dispatch_ladder 2>/dev/null) || dispatch_ladder=''
     case "$harness" in
       opencode*) harness=found; break ;;
       codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] && { harness=found; break; } ;;
+      pi)
+        [ "$dispatch_ladder" = opencode ] || continue
+        fm_opencode_pi_go_enabled || continue
+        harness=found
+        break
+        ;;
     esac
   done
   [ "$harness" = found ] || return 0
@@ -566,9 +573,14 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     harness=$(fm_meta_get "$meta" harness 2>/dev/null) || continue
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
+    dispatch_ladder=$(fm_meta_get "$meta" dispatch_ladder 2>/dev/null) || dispatch_ladder=''
     case "$harness" in
       opencode*) ;;
       codex) [ "$model" = "$FM_OPENCODE_LADDER_PLUS_MODEL" ] || continue ;;
+      pi)
+        [ "$dispatch_ladder" = opencode ] || continue
+        fm_opencode_pi_go_enabled || continue
+        ;;
       *) continue ;;
     esac
     kind=$(fm_meta_get "$meta" kind 2>/dev/null) || kind=''
