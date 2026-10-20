@@ -644,9 +644,15 @@ def _write_identity(root: Path, digest: str, speech_start: float, speech_end: fl
     })
 
 
+def _private_root(project) -> Path:
+    """Where a project-scoped reader looks for this project's source
+    measurements: they are private to the project that measured them."""
+    return source_memory.project_memory_root(str(project))
+
+
 def test_person_filter_keeps_only_that_person_s_clip(offline_index_2, memory_root):
     idx, digest_1, digest_2 = offline_index_2
-    _write_identity(memory_root, digest_1, 1.0, 3.0)
+    _write_identity(_private_root(idx.project_folder), digest_1, 1.0, 3.0)
 
     results = idx.filter(person="person_001")
     assert {r["segment_id"] for r in results} == {
@@ -658,7 +664,7 @@ def test_person_filter_keeps_only_that_person_s_clip(offline_index_2, memory_roo
     # it: 10.0-10.2s is nowhere near the 1.0-3.0s speech segment - but
     # the 8-16s chunk covering 10.0-10.2s still answers, which is the
     # coarse guarantee doing its job where no fine row was cut.
-    _write_identity(memory_root, digest_1, 10.0, 10.2)
+    _write_identity(_private_root(idx.project_folder), digest_1, 10.0, 10.2)
     results = idx.filter(person="person_001")
     assert [r["segment_id"] for r in results] == ["clip_001#chunk#001"]
 
@@ -700,7 +706,7 @@ def test_technical_quality_filters_require_measured_numeric_facets(offline_index
 def test_person_filter_unknown_name_raises_rather_than_matching_nothing(
         offline_index_2, memory_root):
     idx, digest_1, digest_2 = offline_index_2
-    _write_identity(memory_root, digest_1, 1.0, 3.0)
+    _write_identity(_private_root(idx.project_folder), digest_1, 1.0, 3.0)
 
     with pytest.raises(RenRefusal):
         idx.filter(person="nobody-by-this-name")
@@ -712,7 +718,7 @@ def test_search_report_with_person_filter_answers_who_says_okay(
     speaker-attributed text search, through the real `search_report`
     path (text match + person filter), not just `filter` alone."""
     idx, digest_1, digest_2 = offline_index_2
-    _write_identity(memory_root, digest_2, 2.0, 4.0)
+    _write_identity(_private_root(idx.project_folder), digest_2, 2.0, 4.0)
 
     report = idx.search_report("okay", mode="lexical",
                                filters={"person": "person_001"})
@@ -734,15 +740,16 @@ def test_search_report_with_person_filter_answers_who_says_okay(
 def sound_index(project_2, memory_root, tmp_path, monkeypatch):
     """An index over a project whose M5 sound lane has measured events."""
     root, digest_1, digest_2 = project_2
+    private = source_memory.project_memory_root(str(root))
     source_memory.write_sound(
         digest_1, str(root / "raw" / "IMG_0001.MOV"), "measured",
         [{"label": "Laughter", "start": 2.0, "end": 4.5, "confidence": 0.87},
          {"label": "Speech", "start": 6.0, "end": 8.0, "confidence": 0.92}],
-        "PANNs Cnn14")
+        "PANNs Cnn14", root=private)
     source_memory.write_sound(
         digest_2, str(root / "raw" / "IMG_0002.MOV"), "measured",
         [{"label": "Applause", "start": 1.0, "end": 3.0, "confidence": 0.78}],
-        "PANNs Cnn14")
+        "PANNs Cnn14", root=private)
 
     def fake_loader():
         def encode(texts):

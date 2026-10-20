@@ -92,14 +92,22 @@ def _write_memory(root, digest, *, second_person=False):
         "instrument": {"method": pr.M3D_METHOD}})
 
 
+def _project_folder(tmp_path):
+    """The project the reading is asked about.  A project's source
+    measurements are private to it, so the reading resolves them under
+    THIS project's memory root."""
+    return str(tmp_path / "proj")
+
+
 def _source(tmp_path, monkeypatch, *, second_person=False, memory=True):
     """A camera file outside the project, and the memory root the reading
-    uses (the env var, so the host's own memory is never read)."""
+    uses (the project's own private root, under an isolated base, so the
+    host's own memory is never read)."""
     source = tmp_path / "LCATL0013.MXF"
     source.write_bytes(b"camera A bytes" * 64)
     digest = footage_identity.fingerprint(str(source))["content_digest"]
-    root = tmp_path / "memory"
-    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV, str(root))
+    monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV, str(tmp_path / "memory"))
+    root = source_memory.project_memory_root(_project_folder(tmp_path))
     if memory:
         _write_memory(root, digest, second_person=second_person)
     return str(source), digest, root
@@ -123,7 +131,7 @@ def _row(record):
 def test_the_view_reports_a_subject_darker_than_the_set(tmp_path,
                                                         monkeypatch):
     source, _, _ = _source(tmp_path, monkeypatch)
-    record = region_stats.clip_region_stats("", _clip(source), PLAYED)
+    record = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)
     view = _row(record)
     [row] = view["rows"]
     assert row["basis_id"] == "clip_001/region_001"
@@ -208,7 +216,7 @@ def test_outside_is_the_set_never_another_person(tmp_path, monkeypatch):
     """A brighter second person (an unowned region) is not averaged into
     the speaker's surround."""
     source, _, _ = _source(tmp_path, monkeypatch, second_person=True)
-    record = region_stats.clip_region_stats("", _clip(source), PLAYED)
+    record = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)
     rows = {r["region_track"]: r for r in _row(record)["rows"]}
     assert rows["region_001"]["outside_luma_p50"] == pytest.approx(
         170.0, abs=0.5)
@@ -220,7 +228,7 @@ def test_outside_is_the_set_never_another_person(tmp_path, monkeypatch):
 def test_a_clip_without_m3d_is_one_line_with_the_reason(tmp_path,
                                                         monkeypatch):
     source, _, _ = _source(tmp_path, monkeypatch, memory=False)
-    record = region_stats.clip_region_stats("", _clip(source), PLAYED)
+    record = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)
     view = _row(record)
     assert view["rows"] == []
     assert view["not_read"] == [
@@ -231,7 +239,7 @@ def test_a_clip_without_m3d_is_one_line_with_the_reason(tmp_path,
 def test_a_span_between_samples_is_read_at_the_nearest_and_says_so(
         tmp_path, monkeypatch):
     source, _, _ = _source(tmp_path, monkeypatch)
-    record = region_stats.clip_region_stats("", _clip(source),
+    record = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source),
                                             [[10.1, 10.2]])
     assert record["samples_read"] == 1
     assert record["scope_notes"] == [
@@ -242,10 +250,10 @@ def test_a_span_between_samples_is_read_at_the_nearest_and_says_so(
 def test_the_lane_slot_and_the_in_memory_reading_agree(tmp_path,
                                                        monkeypatch):
     source, digest, root = _source(tmp_path, monkeypatch)
-    now = region_stats.clip_region_stats("", _clip(source), PLAYED)
+    now = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)
     assert now["served_from"] == "measured_now"
     region_stats.build_source_region_stats(source, digest, root)
-    slot = region_stats.clip_region_stats("", _clip(source), PLAYED)
+    slot = region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)
     assert slot["served_from"] == "m3f"
     assert slot["regions"] == now["regions"]
 
@@ -296,7 +304,7 @@ def _subject_grade(**extra):
 
 def test_a_subject_grade_must_cite_its_measured_row(tmp_path, monkeypatch):
     source, _, _ = _source(tmp_path, monkeypatch)
-    stats = [region_stats.clip_region_stats("", _clip(source), PLAYED)]
+    stats = [region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)]
     for bad in (None, "clip_002/region_001", "clip_001/region_009"):
         with pytest.raises(region_stats.UnsourcedSubjectGrade):
             region_stats.resolve_measured_basis(
@@ -309,7 +317,7 @@ def test_a_subject_grade_must_cite_its_measured_row(tmp_path, monkeypatch):
 def test_a_clip_with_no_reading_cites_nothing_and_says_why(tmp_path,
                                                            monkeypatch):
     source, _, _ = _source(tmp_path, monkeypatch, memory=False)
-    stats = [region_stats.clip_region_stats("", _clip(source), PLAYED)]
+    stats = [region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)]
     with pytest.raises(region_stats.UnsourcedSubjectGrade):
         region_stats.resolve_measured_basis(
             [_subject_grade(measured_basis="clip_001/region_001")], stats)
@@ -325,7 +333,7 @@ def test_the_spec_records_what_the_subject_grade_was_sourced_from(
     )
 
     source, _, _ = _source(tmp_path, monkeypatch)
-    stats = [region_stats.clip_region_stats("", _clip(source), PLAYED)]
+    stats = [region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)]
     spec = resolve_color_grade({
         "a_roll_assignments": [{"timeline_start": 0.0, "video_segments": [
             {"clip_id": "clip_001", "source_file": source,
@@ -406,7 +414,7 @@ def test_a_replay_of_color_grade_sources_the_subject_reading(tmp_path,
     assert "clip_001/region_001" in context
     assert "measured_basis" in result["expected_schema"]
 
-    stats = [region_stats.clip_region_stats("", _clip(source), PLAYED)]
+    stats = [region_stats.clip_region_stats(_project_folder(tmp_path), _clip(source), PLAYED)]
     [entry] = region_stats.resolve_measured_basis(
         [_subject_grade(measured_basis="clip_001/region_001")], stats)
     basis = entry["measured_basis"]

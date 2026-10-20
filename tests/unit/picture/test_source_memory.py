@@ -339,8 +339,11 @@ def test_memory_transcript_supersedes_without_doubling(tmp_path,
     project, fingerprints = _project_with_temporal_index(
         tmp_path, with_media=False)
     digest = fingerprints["clip_001"]["content_digest"]
+    # A project's measurements are private to it, so the reader finds
+    # the transcript in THIS project's memory root.
     source_memory.write_json(
-        memory_root / digest / source_memory.SLOT_TRANSCRIPT,
+        source_memory.project_memory_root(str(project)) / digest
+        / source_memory.SLOT_TRANSCRIPT,
         _m1_doc(digest, words=("memory", "words", "here")))
 
     segments = footage_segments.build_segments(str(project))
@@ -388,7 +391,8 @@ def test_coverage_counts_what_search_can_hear(tmp_path, memory_root):
 
     digest = fingerprints["clip_002"]["content_digest"]
     source_memory.write_json(
-        memory_root / digest / source_memory.SLOT_TRANSCRIPT,
+        source_memory.project_memory_root(str(project)) / digest
+        / source_memory.SLOT_TRANSCRIPT,
         _m1_doc(digest, words=("a", "b", "c")))
     report = footage_segments.coverage_report(str(project))
     assert report["memory_transcribed_clips"] == 1
@@ -1588,6 +1592,12 @@ def _write_identity(root: Path, digest: str, record: dict):
                              record)
 
 
+def _private_root(project) -> Path:
+    """Where a project-scoped reader looks for this project's source
+    measurements: they are private to the project that measured them."""
+    return source_memory.project_memory_root(str(project))
+
+
 def test_resolve_person_tracks_merges_same_person_across_sources(
         tmp_path, memory_root_2):
     """The same face embedding appearing in two different source digests
@@ -1602,14 +1612,14 @@ def test_resolve_person_tracks_merges_same_person_across_sources(
         tmp_path, [("clip_001", media_a, digest_a),
                   ("clip_002", media_b, digest_b)])
 
-    _write_identity(memory_root_2, digest_a, {
+    _write_identity(_private_root(project), digest_a, {
         "content_digest": digest_a, "status": "measured",
         "faces": [{"track_id": "face_001",
                   "embedding": list(_jitter(base, seed=1)),
                   "spans": [{"start": 1.0, "end": 1.2, "box": [0, 0, 1, 1],
                             "det_score": 0.9}]}],
         "voices": [], "speech_face_links": []})
-    _write_identity(memory_root_2, digest_b, {
+    _write_identity(_private_root(project), digest_b, {
         "content_digest": digest_b, "status": "measured",
         "faces": [{"track_id": "face_001",
                   "embedding": list(_jitter(base, seed=2)),
@@ -1644,7 +1654,7 @@ def test_resolve_person_tracks_never_merges_on_voice_alone(
                   ("clip_002", media_b, digest_b)])
 
     for digest, base in ((digest_a, base_a), (digest_b, base_b)):
-        _write_identity(memory_root_2, digest, {
+        _write_identity(_private_root(project), digest, {
             "content_digest": digest, "status": "measured",
             "faces": [{"track_id": "face_001", "embedding": list(base),
                       "spans": [{"start": 1.0, "end": 1.2,
@@ -1661,7 +1671,7 @@ def test_resolve_person_tracks_never_merges_on_voice_alone(
     assert len(roster["persons"]) == 2
 
 
-def _two_speaker_sources(tmp_path, memory_root, voices_b):
+def _two_speaker_sources(tmp_path, voices_b):
     """Source A: two faces, each linked to its own voice. Source B: no
     face found, only `voices_b`. Returns the project folder."""
     face_c, face_a = _embedding(512, 1), _embedding(512, 2)
@@ -1673,7 +1683,7 @@ def _two_speaker_sources(tmp_path, memory_root, voices_b):
         tmp_path, [("clip_001", media_a, digest_a),
                   ("clip_002", media_b, digest_b)])
     link = "co-occurrence: voice span + face span overlap"
-    _write_identity(memory_root, digest_a, {
+    _write_identity(_private_root(project), digest_a, {
         "content_digest": digest_a, "status": "measured",
         "faces": [{"track_id": "face_001", "embedding": list(face_c),
                   "spans": [{"start": 1.0, "end": 1.2}]},
@@ -1688,7 +1698,7 @@ def _two_speaker_sources(tmp_path, memory_root, voices_b):
              "basis": link},
             {"t": 40.1, "face_track": "face_002", "voice_track": "voice_002",
              "basis": link}]})
-    _write_identity(memory_root, digest_b, {
+    _write_identity(_private_root(project), digest_b, {
         "content_digest": digest_b, "status": "no-faces-detected",
         "faces": [], "voices": voices_b, "speech_face_links": []})
     return project, digest_b
@@ -1705,7 +1715,7 @@ def test_roster_joins_the_same_voice_across_sources_and_keeps_others_apart(
     Akshita's speech on the second camera was missing from both persons.
     At the measured `VOICE_MATCH_THRESHOLD` each joins the person whose
     voice it is - and only that person."""
-    project, digest_b = _two_speaker_sources(tmp_path, memory_root_2, [
+    project, digest_b = _two_speaker_sources(tmp_path, [
         {"track_id": "voice_001", "embedding": list(_jitter(VOICE_AKSHITA, 3)),
          "spans": [[100.0, 130.0]]},
         {"track_id": "voice_002", "embedding": list(_jitter(VOICE_CRAIG, 4)),
@@ -1734,7 +1744,7 @@ def test_roster_voice_match_never_joins_a_stranger_or_bridges_two_persons(
     silently corrupts a person's whole speech history."""
     stranger = _embedding(192, 9)
     between = _unit(np.asarray(VOICE_CRAIG) + np.asarray(VOICE_AKSHITA))
-    project, digest_b = _two_speaker_sources(tmp_path, memory_root_2, [
+    project, digest_b = _two_speaker_sources(tmp_path, [
         {"track_id": "voice_001", "embedding": list(stranger),
          "spans": [[100.0, 130.0]]},
         {"track_id": "voice_002", "embedding": list(_jitter(VOICE_CRAIG, 4)),
@@ -1762,7 +1772,7 @@ def test_find_person_resolves_declared_name_and_reports_none_unmatched(
         tmp_path, [("clip_001", media, digest)],
         extra_source={"person_names": "{person_001: SpeakerTwo}"})
 
-    _write_identity(memory_root_2, digest, {
+    _write_identity(_private_root(project), digest, {
         "content_digest": digest, "status": "measured",
         "faces": [{"track_id": "face_001", "embedding": list(base),
                   "spans": [{"start": 1.0, "end": 1.2, "box": [0, 0, 1, 1],

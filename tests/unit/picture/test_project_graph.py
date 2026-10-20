@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from library.tools import project_graph
+from library.tools import project_graph, source_memory
 
 
 def _person(person_id, name=None, face_spans=None, voice_spans=None,
@@ -469,7 +469,7 @@ def test_build_graph_produces_nodes_and_edges_from_a_small_project(
     (project / "pipeline_data.json").write_text(
         json.dumps(state), encoding="utf-8")
 
-    _write_world_model(memory_root, digest_a, {
+    _write_world_model(_private_root(project), digest_a, {
         "timeline": [
             {"t": 0, "speech": {"words": [
                 {"word": "hello", "start": 0.1, "end": 0.5},
@@ -482,7 +482,7 @@ def test_build_graph_produces_nodes_and_edges_from_a_small_project(
         "entities": {"face_tracks": [], "voice_tracks": []},
         "multicam": None,
     })
-    _write_world_model(memory_root, digest_b, {
+    _write_world_model(_private_root(project), digest_b, {
         "timeline": [
             {"t": 0, "speech": {"words": [], "speaker": None},
              "faces": [{"t": 0.0, "track_id": "face_002", "box": [0, 0, 100, 100]}],
@@ -494,13 +494,15 @@ def test_build_graph_produces_nodes_and_edges_from_a_small_project(
         "multicam": None,
     })
 
-    _write_identity(memory_root, digest_a, {
+    # The roster is private to the project that measured it, so the
+    # identity lands in THIS project's memory root.
+    _write_identity(_private_root(project), digest_a, {
         "faces": [{"track_id": "face_001", "spans": [{"start": 0.0, "end": 5.0}],
                    "embedding": [0.1] * 512}],
         "voices": [{"track_id": "voice_001", "spans": [[0.0, 5.0]]}],
         "speech_face_links": [{"face_track": "face_001", "voice_track": "voice_001"}],
     })
-    _write_identity(memory_root, digest_b, {
+    _write_identity(_private_root(project), digest_b, {
         "faces": [{"track_id": "face_002", "spans": [{"start": 0.0, "end": 5.0}],
                    "embedding": [0.9] * 512}],
         "voices": [],
@@ -1122,6 +1124,12 @@ def _write_identity(memory_root: Path, digest: str, identity: dict):
     path.write_text(json.dumps(identity), encoding="utf-8")
 
 
+def _private_root(project) -> Path:
+    """Where a project-scoped reader looks for this project's source
+    measurements: a project's roster is private to that project."""
+    return source_memory.project_memory_root(str(project))
+
+
 # ── Editorial finding nodes ───────────────────────────────────────
 #
 # The compile reports dead sections, trim proposals, J/L placements
@@ -1176,15 +1184,15 @@ def _editorial_project(tmp_path, monkeypatch, manifest):
         json.dumps(state), encoding="utf-8")
 
     for digest in (digest_a, digest_b):
-        _write_world_model(memory_root, digest, {
+        _write_world_model(_private_root(project), digest, {
             "timeline": [],
             "entities": {"face_tracks": [], "voice_tracks": []},
             "multicam": None,
         })
-    _write_identity(memory_root, digest_a, {
+    _write_identity(_private_root(project), digest_a, {
         "faces": [], "voices": [], "speech_face_links": [],
     })
-    _write_identity(memory_root, digest_b, {
+    _write_identity(_private_root(project), digest_b, {
         "faces": [{"track_id": "face_002",
                    "spans": [{"start": 0.0, "end": 5.0}],
                    "embedding": [0.9] * 512}],

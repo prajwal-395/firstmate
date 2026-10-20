@@ -261,6 +261,12 @@ def memory_root() -> Path:
     project_folder = _active_project_folder()
     if project_folder:
         return project_memory_root(project_folder)
+    return machine_memory_root()
+
+
+def machine_memory_root() -> Path:
+    """The machine-wide store, where source measurements lived before
+    projects scoped their own."""
     explicit = os.environ.get(MEMORY_ROOT_ENV)
     if explicit:
         return Path(explicit).expanduser()
@@ -281,14 +287,33 @@ def _active_project_folder() -> Path | None:
         return None
 
 
+def project_scope_key(project_folder: str | os.PathLike) -> str:
+    """The key one project's measurements are filed under.
+
+    The project's own path, hashed: two runs of one project read the same
+    measurements, and two projects never share a scope.
+    """
+    project = Path(project_folder).expanduser().resolve()
+    return hashlib.sha256(os.fsencode(project)).hexdigest()
+
+
 def project_memory_root(project_folder: str | os.PathLike) -> Path:
     """Stable private root for one project's source measurements."""
-    base = (Path(os.environ[MEMORY_ROOT_ENV]).expanduser()
-            if os.environ.get(MEMORY_ROOT_ENV)
-            else vep_home() / MEMORY_DIRNAME)
-    project = Path(project_folder).expanduser().resolve()
-    scope = hashlib.sha256(os.fsencode(project)).hexdigest()
-    return base / "projects" / scope
+    return (machine_memory_root() / "projects"
+            / project_scope_key(project_folder))
+
+
+def project_read_root(project_folder: str | os.PathLike) -> Path:
+    """Where one project's source measurements are READ from.
+
+    The project's own scope when it has one, and the machine-wide store
+    when it does not: measurements taken before projects scoped their own
+    still live there, and nothing has moved them yet.
+    """
+    private = project_memory_root(project_folder)
+    if private.is_dir():
+        return private
+    return machine_memory_root()
 
 
 def _project_scoped(function):

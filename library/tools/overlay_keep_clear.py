@@ -61,6 +61,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+from library.tools import source_memory
 
 
 def _area(box: Sequence[float]) -> float:
@@ -443,6 +444,9 @@ def keep_clear_from_reads(reads: dict, *, project_folder: str,
         if not reads.get("pictures_read"):
             return {"unavailable": reads.get("pictures_unavailable")
                     or "the picture rows were not read"}
+        # One project's measurements, read from that project's own scope.
+        root = (root if root is not None
+                else source_memory.project_read_root(project_folder))
         overlays, skipped = overlays_from_reads(
             reads["placed"], reads["stored"], reads["spans"], full_wh,
             draw_gain)

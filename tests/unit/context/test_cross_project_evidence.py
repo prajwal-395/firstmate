@@ -275,8 +275,10 @@ def test_explicit_mutual_grant_imports_only_deterministic_source_slots(
     report = cross_project_evidence.share_evidence(
         source, target, digest=digest, registry=registry)
     target_dir = source_memory.project_memory_root(target) / digest
+    # The frame index and the thumbnails it names travel together: an
+    # index whose samples are missing reads as a source with no frames.
     assert report["measurements_shared"] == {
-        digest: [source_memory.SLOT_FRAMES_INDEX]}
+        digest: [source_memory.SLOT_FRAMES_INDEX, source_memory.SLOT_FRAMES_DIR]}
     assert (target_dir / source_memory.SLOT_FRAMES_INDEX).is_file()
     assert (target_dir / source_memory.SLOT_FRAMES_DIR /
             "frame_000001.jpg").read_bytes() == b"thumbnail"

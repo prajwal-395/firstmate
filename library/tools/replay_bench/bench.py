@@ -53,6 +53,31 @@ from . import snapshot as snapshot_mod
 WORKER = Path(__file__).resolve().parent / "reconstruct.py"
 
 
+def _memory_env(tmp: str, project_dir: Path, snap) -> dict:
+    """Point the replay at the SOURCE project's source measurements.
+
+    A project's measurements are private to it and filed under that
+    project's own path - and a replay runs in a throwaway CLONE of the
+    project, whose path names a scope that has never held anything.  The
+    clone is a copy of one project, so its scope points at THAT project's
+    measurements: a replay reads what the run read, instead of silently
+    answering that nothing was ever measured.
+    """
+    from library.tools import source_memory
+
+    declared = snap.declared_project_folder
+    if not declared:
+        return {}
+    original = source_memory.project_memory_root(declared)
+    if not original.is_dir():
+        return {}
+    base = Path(tmp) / "memory"
+    scope = base / "projects" / source_memory.project_scope_key(project_dir)
+    scope.parent.mkdir(parents=True, exist_ok=True)
+    scope.symlink_to(original)
+    return {source_memory.MEMORY_ROOT_ENV: str(base)}
+
+
 def _run_worker(tree: Path, snap: snapshot_mod.Snapshot, step: str,
                 llm_authored=None, qa_feedback: str = "") -> dict:
     """Always a subprocess, even for this tree.
@@ -82,6 +107,7 @@ def _run_worker(tree: Path, snap: snapshot_mod.Snapshot, step: str,
         if qa_feedback:
             cmd += ["--qa-feedback", qa_feedback]
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        env.update(_memory_env(tmp, project_dir, snap))
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               encoding="utf-8", cwd=str(tree), env=env,
                               check=False)

@@ -81,7 +81,10 @@ def _project(tmp_path, monkeypatch, *, catalog=True, saliency=True):
         "capability_outputs": {"footage.catalog": {"clip_catalog": clips}}}))
     root = tmp_path / "memory"
     monkeypatch.setenv(source_memory.MEMORY_ROOT_ENV, str(root))
-    _write_memory(root, digest, saliency=saliency)
+    # A project's measurements are private to it, so the roster the
+    # keep-clear report reads lives under THIS project's scope.
+    _write_memory(source_memory.project_memory_root(str(project)), digest,
+                  saliency=saliency)
     return str(project), str(source)
 
 

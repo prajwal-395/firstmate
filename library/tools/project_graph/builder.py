@@ -59,6 +59,9 @@ def build_graph(project_folder: str, root: Path | None = None) -> dict:
     graph = new_graph()
     catalog = source_memory.load_catalog(project_folder)
     recorded = source_memory.load_recorded_fingerprints(project_folder)
+    # One project's measurements, read from that project's own scope.
+    root = (root if root is not None
+            else source_memory.project_read_root(project_folder))
 
     persons = _build_persons(project_folder, root)
     shots = _build_shots(catalog)
