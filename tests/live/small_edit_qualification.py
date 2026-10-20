@@ -148,7 +148,8 @@ TIGHT_CAPTION = Path("/tmp/fm-qual-tight-caption-480x120.png")
 FULL_FRAME_CAPTION = Path("/tmp/fm-qual-full-frame-caption-1920x1080.png")
 
 
-def _qualification_batch(script: str) -> dict:
+def _qualification_batch(script: str, *, wait_seconds: int = 180,
+                         timeout_seconds: int = 240) -> dict:
     """Run all production edits in one switching qualification borrow."""
     if not REN.is_file():
         raise RuntimeError(f"Ren CLI not found: {REN}")
@@ -157,7 +158,10 @@ def _qualification_batch(script: str) -> dict:
         (root_path / "project.yaml").write_text(
             "project_name: small_edit_qualification\n", encoding="utf-8")
         _initialize_run_store(root_path)
+        from tests.live import disposable_project
+        disposable = disposable_project.materialize(root_path)
         script = script.replace("@FM_QUAL_PROJECT_DIR@", str(root_path))
+        script = script.replace("@AXC_DISPOSABLE_PROJECT@", str(disposable))
         with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", suffix=".py",
                 prefix="fm-small-edit-batch-", dir="/tmp",
@@ -182,9 +186,9 @@ def _qualification_batch(script: str) -> dict:
                 [str(REN), "resolved", "submit",
                  "resolve.qualification_session",
                  json.dumps({"project": PROJECT, "steps": steps}),
-                 "--qualification", "--wait", "180"],
+                 "--qualification", "--wait", str(wait_seconds)],
                 cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
-                timeout=240, check=False)
+                timeout=timeout_seconds, check=False)
         finally:
             script_path.unlink(missing_ok=True)
         if proc.returncode:
@@ -374,6 +378,8 @@ from library.tools import resolve_axi
 PROJECT = {PROJECT!r}
 TIMELINE = {TIMELINE!r}
 PROJECT_DIR = "@FM_QUAL_PROJECT_DIR@"
+DISPOSABLE = "@AXC_DISPOSABLE_PROJECT@"
+DISPOSABLE_STEM = "Reel 01 - axc-disposable"
 only = {only!r}
 CASES = {cases!r}
 
@@ -467,6 +473,34 @@ def select_qualification_timeline():
     if project.GetCurrentTimeline().GetUniqueId() != matches[0].GetUniqueId():
         raise RuntimeError("private timeline identity changed after rebuild")
     return project.GetCurrentTimeline().GetUniqueId()
+
+def timeline_names():
+    project = manager.GetCurrentProject()
+    return [project.GetTimelineByIndex(index).GetName()
+            for index in range(1, int(project.GetTimelineCount() or 0) + 1)
+            if project.GetTimelineByIndex(index)]
+
+def drop_disposable_timelines(before):
+    """Remove exactly the rebuild's own timelines, or name what remains.
+
+    Only names carrying the disposable stem that did not exist before
+    the build are touched; anything else - including the shared
+    qualification timeline - is never a candidate. Leftovers are
+    reported, not hidden, so a failed cleanup reads as failed evidence.
+    """
+    project = manager.GetCurrentProject()
+    doomed = [project.GetTimelineByIndex(index)
+              for index in range(1, int(project.GetTimelineCount() or 0) + 1)
+              if project.GetTimelineByIndex(index)
+              and project.GetTimelineByIndex(index).GetName().startswith(
+                  DISPOSABLE_STEM)
+              and project.GetTimelineByIndex(index).GetName() not in before]
+    if doomed and not bool(project.GetMediaPool().DeleteTimelines(doomed)):
+        names = sorted({{timeline.GetName() for timeline in doomed}})
+        raise RuntimeError("could not remove disposable timelines: "
+                           + ",".join(names))
+    return [name for name in timeline_names()
+            if name.startswith(DISPOSABLE_STEM) and name not in before]
 
 def render_rgb_at(record_frame):
     """Render the exact record frame through the production Deliver API."""
@@ -769,16 +803,24 @@ for name, commands in CASES.items():
         if not scaling["exit_code"]:
             operation_after = live_state()
             render_after = render_rgb_at(96)
+    disposable_leftovers = []
     if name == "add_logo" and not any(row["exit_code"] for row in receipts):
         render_after = render_rgb_at(96)
+        timeline_before = timeline_names()
         try:
             from library.tools.reel_build import rebuild_reels_in_project
             rebuild_reels_in_project(
-                PROJECT, verify=True, only=[1], reuse_unchanged=True)
+                DISPOSABLE, verify=True, only=[1], reuse_unchanged=True)
             select_qualification_timeline()
             post_rebuild = live_state()
         except Exception as exc:
             receipts.append({{"argv": ["reel_build.rebuild_reels_in_project"],
+                             "exit_code": 1, "stdout": "",
+                             "stderr": type(exc).__name__ + ": " + str(exc)}})
+        try:
+            disposable_leftovers = drop_disposable_timelines(timeline_before)
+        except Exception as exc:
+            receipts.append({{"argv": ["drop_disposable_timelines"],
                              "exit_code": 1, "stdout": "",
                              "stderr": type(exc).__name__ + ": " + str(exc)}})
     after = live_state()
@@ -786,10 +828,11 @@ for name, commands in CASES.items():
         receipt["argv"][:2] == ["edit", "place"] for receipt in receipts)
     cleaned = cleanup(expected_items)
     results.append({{"id": name, "commands": receipts, "before": before,
-                    "operation_before": operation_before,
-                    "operation_after": operation_after,
-                    "after": after, "post_rebuild": post_rebuild,
-                    "cleanup": cleaned,
+                     "operation_before": operation_before,
+                     "operation_after": operation_after,
+                     "after": after, "post_rebuild": post_rebuild,
+                     "disposable_leftovers": disposable_leftovers,
+                     "cleanup": cleaned,
                     "rendered_delta": (pixel_delta(
                         render_before, render_after,
                         allowed_visual_boxes(name, before, after,
@@ -831,10 +874,13 @@ for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict")
                 raise RuntimeError("could not apply the pre-rebuild edit: "
                                    + edited["stderr"])
             before = live_state()
+            timeline_before = timeline_names()
             operation["result"] = rebuild_reels_in_project(
-                PROJECT, verify=True, only=[1], reuse_unchanged=True)
+                DISPOSABLE, verify=True, only=[1], reuse_unchanged=True)
             operation["status"] = "returned"
             operation["timeline_after_rebuild"] = select_qualification_timeline()
+            operation["disposable_leftovers"] = drop_disposable_timelines(
+                timeline_before)
         elif name == "verification_failure":
             # Capture the production build's fail-closed verification payload
             # used to prevent promotion when verification does not pass.
@@ -882,7 +928,11 @@ _BATCH_CACHE: dict | None = None
 def _batch_case(case_id: str) -> dict:
     global _BATCH_CACHE
     if _BATCH_CACHE is None:
-        _BATCH_CACHE = _qualification_batch(_live_batch_script())
+        # The rebuild rows stage and verify a real production build, so
+        # the single borrow allows room for it; scenario rows are
+        # unaffected apart from the shared ceiling.
+        _BATCH_CACHE = _qualification_batch(
+            _live_batch_script(), wait_seconds=600, timeout_seconds=660)
     steps = (_BATCH_CACHE.get("result") or {}).get("steps", [])
     if not steps:
         raise RuntimeError(f"qualification batch returned no steps: {_BATCH_CACHE}")
@@ -959,6 +1009,7 @@ def _case_observation(result: dict) -> str:
         "rendered_delta": result.get("rendered_delta"),
         "operation": result.get("operation", {}),
         "post_rebuild": result.get("post_rebuild"),
+        "disposable_leftovers": result.get("disposable_leftovers", []),
         "unexpected_items": unexpected_items,
         "missing_items": missing_items,
         "cleanup": result["cleanup"]["clean"],
@@ -1076,6 +1127,8 @@ def _add_logo_action() -> dict:
                              and not observation["missing_items"]
                              and delta.get("outside_changed_pixels") == 0),
         "survives_rebuild": rebuild_observation["preserved"],
+        "disposable_project_removed": (
+            result.get("disposable_leftovers") == []),
     }
     return {"receipt": {"status": "committed" if succeeded else "refused"},
             "collateral_changes": result["collateral_changes"],
@@ -1240,12 +1293,14 @@ def _rebuild_after_edit_action() -> dict:
     before, after = result.get("before", {}), result.get("after", {})
     unchanged = before.get("items") == after.get("items")
     succeeded = operation.get("status") == "returned"
+    leftovers = operation.get("disposable_leftovers")
     return {
         "receipt": {"status": "verified" if succeeded and unchanged
                     else "refused", "rebuild": operation},
         "collateral_changes": result["collateral_changes"],
         "checks": {"production_rebuild_returned": succeeded,
-                   "timeline_state_preserved": unchanged},
+                   "timeline_state_preserved": unchanged,
+                   "disposable_project_removed": leftovers == []},
         "attempts": 1, "elapsed_seconds": result["elapsed_seconds"],
         "observed": observed,
     }

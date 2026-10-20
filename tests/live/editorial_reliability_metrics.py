@@ -28,6 +28,16 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
     latency = [float(row["elapsed_seconds"]) for row in rows
                if isinstance(row.get("elapsed_seconds"), (int, float))]
+    per_request = {
+        str(row.get("id", "unknown")): (
+            float(row["instruction_to_verified_seconds"])
+            if isinstance(row.get("instruction_to_verified_seconds"),
+                          (int, float))
+            else (float(row["elapsed_seconds"])
+                  if isinstance(row.get("elapsed_seconds"), (int, float))
+                  else None))
+        for row in rows
+    }
     ordered = sorted(latency)
     median = (None if not ordered else
               ordered[len(ordered) // 2] if len(ordered) % 2 else
@@ -71,6 +81,7 @@ def summarize(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             "mean": mean(latency) if latency else None,
             "median": median,
             "values": latency,
+            "per_request_instruction_to_verified": per_request,
         },
         "missing_evidence": missing,
     }

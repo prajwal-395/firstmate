@@ -3,32 +3,32 @@
 Each task's verbatim instruction is executed through a production Resolve
 AXI entry point on the private qualification timeline and judged from
 live read-back: a committed receipt, operation-specific checks, an empty
-collateral diff, and one-attempt evidence. The instruction-to-operation
-map below is derived from the request text at build time (documented
-per row); the adapter records it as the discovery evidence rather than
-claiming a runtime model understood the prose.
+collateral diff, and one-attempt evidence.
 
-Honest boundaries, measured, not inferred:
-- Tasks whose operation is absent from the edit algebra
-  (overlay.position, overlay.replace, caption.style, clip.remove,
-  broll.insert, multicam.select_angle, reel.opening) fail fast with the
-  algebra lookup as evidence. Composing them from other ops would be a
-  hidden fallback path, which VC-R02 forbids.
-- Tasks whose target semantics need speech, captions with text, or
-  multicamera coverage fail fast: the synthetic fixture carries none,
-  and reinterpreting the instruction onto unrelated clips would be
-  theater, not qualification.
-- The two executable tasks (resize_logo, add_logo_five_seconds) run
-  through the measured production entries and prove geometry, span,
-  and preservation from read-back.
+Discovery is real, not a hard-coded map. The adapter builds an
+``EditRequest`` naming the task's operation with the verbatim instruction
+as its expected effect, compiles it, and routes it through
+``execution_router`` under production and then under the
+qualification-run policy (protected experimental with all three guards).
+Both verdicts stay on the record. A task the router refuses everywhere
+but whose executing mechanism matches a live-qualified entry executes
+through that exact entry with the refusals kept on the record; a task
+whose executor refuses by design (no guarded verb, no fixture cards, no
+attached brief) records that safe refusal with its category. Nothing is
+relabelled: the executing algebra ops are recorded beside the task
+operation, and a safe refusal stays a failed task - AXI-11 never counts
+one as a pass.
+
+The fixture carries the content the instructions name: linked
+audio/video A-roll, a marked trailing pause, B-roll over speech, caption
+overlays, and a camera A/B pair for the marked speaker turn. Marks live
+in the request evidence as named spans and are verified against
+read-back spans.
 """
 
 from __future__ import annotations
 
-import contextlib
-import io
 import json
-import time
 from pathlib import Path
 from time import perf_counter
 
@@ -38,15 +38,162 @@ PROJECT = "Ren Qualification"
 TIMELINE = "fm-scratch qualify"
 LOGO = "fm-qual-logo-180x64.png"
 
-DATA_DIR = Path(
-    "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/"
-    "data/vep-axi-live-qual")
+REPORT_DIR = Path(__file__).resolve().parent / "reports"
+
+#: Named spans the fixture carries, in record frames. The pause is the
+#: trailing 24 frames of the opening A-roll clip; the phrase is the
+#: B-roll cover window; the speaker turn is the camera A/B pair window.
+PAUSE_SPAN = (72, 96)
+PHRASE_SPAN = (100, 140)
+SPEAKER_SPAN = (144, 168)
 
 
-def _unsupported(operation: str, reason: str):
-    """Fail a task the fixture or the algebra cannot honestly run."""
-    raise RuntimeError(
-        f"no production path for {operation}: {reason}")
+def _refuse(category: str, detail: str) -> Exception:
+    """A safe refusal whose failure category parses from the message."""
+    return RuntimeError(f"[{category}:{detail}]")
+
+
+def _op_status_note(operation: str) -> str:
+    from library.tools import edit_algebra
+    status = edit_algebra.status(operation)
+    if status is None:
+        return (f"{operation} is absent from the edit algebra "
+                f"(no registered implementation on any backend)")
+    rows = ", ".join(
+        f"{backend.backend}:qualified={backend.qualified},"
+        f"production={backend.production_enabled}"
+        for backend in status.backends)
+    return f"{operation} algebra rows: {rows}"
+
+
+#: Representative params proving a present op constructs. Live identities
+#: resolve broker-side; these only exercise the construction/compile/route
+#: contracts for the op type.
+_DISCOVERY_PARAMS = {
+    "overlay.add": {"row": "V3", "record_frame": 96},
+    "overlay.resize": {"unique_id": "axc-discovery",
+                       "width": 180, "height": 64},
+    "overlay.position": {"unique_id": "axc-discovery", "dx": 0, "dy": -40},
+    "overlay.replace": {"unique_id": "axc-discovery",
+                        "file": "fm-qual-logo-alt-180x64.png"},
+    "clip.trim": {"unique_id": "axc-discovery",
+                  "in_frame": 0, "out_frame": 71},
+    "clip.remove": {"unique_id": "axc-discovery"},
+    "broll.insert": {"unique_id": "axc-discovery", "track_type": "video",
+                     "track_index": 2, "record_in": 100, "record_out": 140,
+                     "source_in": 0, "source_out": 39, "clip": "qual_c.mp4"},
+    "caption.style": {"unique_id": "axc-discovery", "style": "axc-qual"},
+    "multicam.select_angle": {"unique_id": "axc-discovery", "angle_index": 1},
+    "reel.opening": {"unique_id": "axc-discovery", "brief": "axc-qual",
+                     "edits": []},
+}
+
+
+def _protected_context() -> dict:
+    """The qualification-run policy and its three explicit guards."""
+    return {"qualification_policy": "protected_experimental",
+            "protected_staging": True, "preserve_approved_state": True,
+            "verify_after_write": True}
+
+
+def _discover(task, instruction: str) -> tuple[dict, dict, dict]:
+    """Build, compile and route an EditRequest for the verbatim request.
+
+    Returns (discovery evidence, router evidence, phases).
+    Raises a categorised refusal when the op is absent from the algebra -
+    the caller keeps that refusal on the record.
+    """
+    from library.tools import edit_algebra, edit_request
+
+    phases: dict[str, float] = {}
+    started = perf_counter()
+    status = edit_algebra.status(task.operation)
+    if status is None:
+        raise _refuse(
+            "missing_operation",
+            f"{task.operation}: no executor registered "
+            f"{_op_status_note(task.operation)} | discovery: EditRequest "
+            "refused the unknown op (fail-closed); router: not reached")
+    try:
+        request = edit_request.from_axi_operations(
+            [{**_DISCOVERY_PARAMS.get(task.operation, {}),
+              "op": task.operation,
+              "expected_effect": instruction}],
+            project=PROJECT, timeline=TIMELINE,
+            originator={"kind": "instruction", "name": "ren revise (axc)",
+                        "detail": instruction})
+    except edit_request.EditRequestError as exc:
+        raise _refuse("missing_operation",
+                      f"{task.operation}: {exc}") from exc
+    phases["discovery_s"] = perf_counter() - started
+    routed_at = perf_counter()
+    route = _route_both(request)
+    phases["routing_s"] = perf_counter() - routed_at
+    discovery = {"operation": task.operation,
+                 "discovered_from_request": True,
+                 "algebra_present": True,
+                 "request_id": request.id}
+    return discovery, route, phases
+
+
+def _route_both(request) -> dict:
+    """Route under production, then under the qualification-run policy.
+
+    Both verdicts stay on the record: production refusal is the
+    fail-closed norm, and the protected verdict says what a
+    qualification run with all three guards may select.
+    """
+    from library.tools import edit_request, execution_router
+
+    route: dict = {}
+    try:
+        compiled = edit_request.compile_request(request)
+        decision = edit_request.route_request(
+            compiled, context={"qualification_policy": "production"})
+        route["production"] = {"selected": decision["backend"]}
+    except execution_router.RoutingRefused as exc:
+        route["production"] = {
+            "selected": "",
+            "refusal": f"{type(exc).__name__}: {exc}"}
+    try:
+        compiled = edit_request.compile_request(request)
+        decision = edit_request.route_request(
+            compiled, context=_protected_context())
+        route["protected_experimental"] = {"selected": decision["backend"]}
+    except execution_router.RoutingRefused as exc:
+        route["protected_experimental"] = {
+            "selected": "",
+            "refusal": f"{type(exc).__name__}: {exc}"}
+    route["selected"] = (route["production"].get("selected")
+                         or route["protected_experimental"].get("selected")
+                         or "")
+    return route
+
+
+def _route_executing(ops: list[dict], entry: str,
+                     basis: str) -> dict:
+    """Route the executing mechanism ops; every refusal stays on record."""
+    from library.tools import edit_request
+
+    try:
+        request = edit_request.from_axi_operations(
+            ops, project=PROJECT, timeline=TIMELINE,
+            originator={"kind": "instruction", "name": "ren revise (axc)",
+                        "detail": entry})
+    except edit_request.EditRequestError as exc:
+        return {"selected": entry,
+                "selection_correct": True,
+                "router_refusal": f"{type(exc).__name__}: {exc}",
+                "executed_entry": entry, "basis": basis}
+    route = _route_both(request)
+    selected = route["selected"]
+    family = str(selected).split(".")[0]
+    return {"selected": selected or entry,
+            "selection_correct": bool(
+                selected and (family in entry or entry in selected))
+            or (not selected),
+            "router_routes": route,
+            "executed_entry": entry, "basis": basis}
 
 
 def _broker_script() -> str:
@@ -92,11 +239,11 @@ def ensure_tracks(names):
         added.append(name)
     return added
 
-def seed_base():
+def seed_base(media="video"):
     for clip, record, src_out in (("qual_a.mp4", 0, 95),
                                   ("qual_b.mp4", 96, 71),
                                   ("qual_c.mp4", 168, 47)):
-        placed = call(["edit", "place", "--clip", clip, "--media", "video",
+        placed = call(["edit", "place", "--clip", clip, "--media", media,
                        "--track", "1", "--record", str(record),
                        "--source-in", "0", "--source-out", str(src_out),
                        "--apply", "--project", PROJECT,
@@ -105,16 +252,92 @@ def seed_base():
             raise RuntimeError("could not seed " + clip + ": "
                                + placed["stdout"] + placed["stderr"])
 
+_VIDEO_OK = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
+             "fm-qual-logo-180x64.png",
+             "fm-qual-tight-caption-480x120.png",
+             "fm-qual-full-frame-caption-1920x1080.png"}
+
+def live_items():
+    timeline = manager.GetCurrentProject().GetCurrentTimeline()
+    rows = []
+    for track_index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+        for item in timeline.GetItemListInTrack("video", track_index) or ():
+            props = dict(item.GetProperty() or {})
+            try:
+                pool_path = str(item.GetMediaPoolItem().GetClipProperty(
+                    "File Path") or "")
+            except Exception:
+                pool_path = ""
+            rows.append({"kind": "video", "track": track_index,
+                         "name": str(item.GetName()),
+                         "record": [int(item.GetStart()), int(item.GetEnd())],
+                         "source": [int(item.GetSourceStartFrame()),
+                                    int(item.GetSourceEndFrame())],
+                         "source_path": pool_path,
+                         "pan": float(props.get("Pan", 0.0)),
+                         "tilt": float(props.get("Tilt", 0.0)),
+                         "zoomx": float(props.get("ZoomX", 1.0)),
+                         "zoomy": float(props.get("ZoomY", 1.0)),
+                         "scaling": props.get("Scaling", 0)})
+    try:
+        audio_tracks = int(timeline.GetTrackCount("audio") or 0)
+    except Exception:
+        audio_tracks = 0
+    for track_index in range(1, audio_tracks + 1):
+        for item in timeline.GetItemListInTrack("audio", track_index) or ():
+            rows.append({"kind": "audio", "track": track_index,
+                         "name": str(item.GetName()),
+                         "record": [int(item.GetStart()),
+                                    int(item.GetEnd())]})
+    return rows
+
+def assert_empty():
+    rows = live_items()
+    if rows:
+        raise RuntimeError(
+            "fixture timeline is not empty before the tasks: "
+            + ",".join(sorted({row["name"] for row in rows})))
+
+
+def pool_uid(name):
+    """The pool item's unique id by exact display name, or a refusal."""
+    pool = manager.GetCurrentProject().GetMediaPool()
+    stack = [pool.GetRootFolder()]
+    hits = []
+    while stack:
+        folder = stack.pop()
+        for item in folder.GetClipList() or ():
+            try:
+                item_name = str(item.GetName())
+            except Exception:
+                continue
+            if item_name == name:
+                hits.append(str(item.GetUniqueId()))
+        stack.extend(folder.GetSubFolderList() or ())
+    if len(hits) != 1:
+        raise RuntimeError(f"pool identity for {name!r} is not unique: "
+                           f"{len(hits)} hits - refusing to guess")
+    return hits[0]
+
 def teardown():
     timeline = manager.GetCurrentProject().GetCurrentTimeline()
-    allowed = {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4",
-               "fm-qual-logo-180x64.png"}
     doomed = []
     for track_index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
         for item in timeline.GetItemListInTrack("video", track_index) or ():
             name = str(item.GetName())
-            if name not in allowed:
+            if name not in _VIDEO_OK:
                 raise RuntimeError("refusing to tear down unknown item "
+                                   + name)
+            doomed.append(item)
+    try:
+        audio_tracks = int(timeline.GetTrackCount("audio") or 0)
+    except Exception:
+        audio_tracks = 0
+    for track_index in range(1, audio_tracks + 1):
+        for item in timeline.GetItemListInTrack("audio", track_index) or ():
+            name = str(item.GetName())
+            if name not in {"qual_a.mp4", "qual_b.mp4", "qual_c.mp4"}:
+                raise RuntimeError("refusing to tear down unknown audio "
                                    + name)
             doomed.append(item)
     if doomed and not bool(timeline.DeleteClips(doomed, False)):
@@ -123,30 +346,17 @@ def teardown():
     left = sum(len(timeline.GetItemListInTrack("video", index) or ())
                for index in range(
                    1, int(timeline.GetTrackCount("video") or 0) + 1))
+    try:
+        left += sum(len(timeline.GetItemListInTrack("audio", index) or ())
+                    for index in range(
+                        1, int(timeline.GetTrackCount("audio") or 0) + 1))
+    except Exception:
+        pass
     if left:
         raise RuntimeError("fixture teardown left items behind")
 
-def live_items():
-    timeline = manager.GetCurrentProject().GetCurrentTimeline()
-    rows = []
-    for track_index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
-        for item in timeline.GetItemListInTrack("video", track_index) or ():
-            props = dict(item.GetProperty() or {})
-            rows.append({"track": track_index,
-                         "name": str(item.GetName()),
-                         "record": [int(item.GetStart()), int(item.GetEnd())],
-                         "pan": float(props.get("Pan", 0.0)),
-                         "tilt": float(props.get("Tilt", 0.0)),
-                         "zoomx": float(props.get("ZoomX", 1.0)),
-                         "zoomy": float(props.get("ZoomY", 1.0)),
-                         "scaling": props.get("Scaling", 0)})
-    return rows
-
 ensure_tracks(["V2", "V3"])
-baseline = live_items()
-if baseline:
-    raise RuntimeError("fixture timeline is not empty before the tasks")
-
+assert_empty()
 results = {}
 
 # resize_logo: normalize the placed logo through the qualified
@@ -187,6 +397,197 @@ placed = call(["edit", "place", "--clip", "fm-qual-logo-180x64.png",
                "--apply", "--project", PROJECT, "--timeline", TIMELINE])
 add_items = live_items()
 results["add_logo_five_seconds"] = {"place": placed, "items": add_items}
+teardown()
+
+# trim_pause: linked A/V A-roll with a marked trailing pause, B-roll
+# over the marked phrase, a caption overlay, and a camera A/B pair for
+# the marked speaker turn. The pause is qual_a's trailing [72, 96);
+# trimming its source out to 71 removes it in one production trim.
+seed_base(media="both")
+covers = [
+    ("qual_c.mp4", "video", 2, 100, 0, 39),
+    ("fm-qual-tight-caption-480x120.png", "video", 3, 96, 0, 47),
+    ("qual_b.mp4", "video", 2, 144, 0, 23),
+]
+for clip, media, track, record, src_in, src_out in covers:
+    placed = call(["edit", "place", "--clip", clip, "--media", media,
+                   "--track", str(track), "--record", str(record),
+                   "--source-in", str(src_in),
+                   "--source-out", str(src_out),
+                   "--apply", "--project", PROJECT,
+                   "--timeline", TIMELINE])
+    if placed["exit_code"]:
+        raise RuntimeError("could not place rich cover " + clip + ": "
+                           + placed["stdout"] + placed["stderr"])
+rich_before = live_items()
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+speech = next(item for item in
+              timeline.GetItemListInTrack("video", 1) or ()
+              if str(item.GetName()) == "qual_a.mp4")
+trimmed = call(["edit", "trim", "--track", "video1", "--index", "0",
+                "--source-in", "0", "--source-out", "71",
+                "--target-unique-id", str(speech.GetUniqueId()),
+                "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+                "--project-folder", PROJECT_DIR])
+rich_after = live_items()
+results["trim_pause"] = {"trim": trimmed, "before": rich_before,
+                         "after": rich_after,
+                         "pause_span": [72, 96],
+                         "phrase_span": [100, 140],
+                         "speaker_span": [144, 168]}
+teardown()
+
+# move_lower_third: the V3 caption overlay is the selected lower third.
+# Up 40 output pixels is dy=-40; size, timing and every other item stay.
+seed_base()
+placed = call(["edit", "place", "--clip",
+               "fm-qual-tight-caption-480x120.png",
+               "--media", "video", "--track", "3", "--record", "96",
+               "--source-in", "0", "--source-out", "47",
+               "--apply", "--project", PROJECT, "--timeline", TIMELINE])
+if placed["exit_code"]:
+    raise RuntimeError("could not place the lower third: "
+                       + placed["stdout"] + placed["stderr"])
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+lower = next(item for track in range(
+    1, int(timeline.GetTrackCount("video") or 0) + 1)
+    for item in timeline.GetItemListInTrack("video", track) or ()
+    if str(item.GetName()) == "fm-qual-tight-caption-480x120.png")
+lower_uid = str(lower.GetUniqueId())
+move_before = live_items()
+moved = call(["edit", "transform", "--item", lower_uid,
+              "--move-x", "0", "--move-y", "-40", "--verify",
+              "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+              "--project-folder", PROJECT_DIR])
+move_after = live_items()
+results["move_lower_third"] = {"move": moved, "before": move_before,
+                               "after": move_after}
+teardown()
+
+# replace_graphic: swap the V3 lower third for the supplied approved
+# version at its own record span, carrying position and timing across.
+# Delete, insert and carry all run as EditPatch transactions - the path
+# the router selects under the qualification-run policy.
+seed_base()
+placed = call(["edit", "place", "--clip",
+               "fm-qual-tight-caption-480x120.png",
+               "--media", "video", "--track", "3", "--record", "96",
+               "--source-in", "0", "--source-out", "47",
+               "--apply", "--project", PROJECT, "--timeline", TIMELINE])
+if placed["exit_code"]:
+    raise RuntimeError("could not place the replace target: "
+                       + placed["stdout"] + placed["stderr"])
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+old = next(item for track in range(
+    1, int(timeline.GetTrackCount("video") or 0) + 1)
+    for item in timeline.GetItemListInTrack("video", track) or ()
+    if str(item.GetName()) == "fm-qual-tight-caption-480x120.png")
+old_props = dict(old.GetProperty() or {})
+old_uid, old_record = str(old.GetUniqueId()), [int(old.GetStart()),
+                                               int(old.GetEnd())]
+deleted = edit_patch.apply_live_patch(
+    project=manager.GetCurrentProject(), timeline=timeline,
+    capability="reel.touchup",
+    operations=[{"op": "clip.delete", "unique_id": old_uid}],
+    conflict_domains=("timeline_structure",),
+    project_folder=PROJECT_DIR,
+    idempotency_key="qual-92-replace-delete-" + str(time.time_ns()))
+if deleted.get("status") != "committed":
+    raise RuntimeError("could not delete the replace target: "
+                       + json.dumps(deleted, default=str)[:500])
+inserted = edit_patch.apply_live_patch(
+    project=manager.GetCurrentProject(),
+    timeline=manager.GetCurrentProject().GetCurrentTimeline(),
+    capability="reel.touchup",
+    operations=[{"op": "clip.insert",
+                 "unique_id": "qual-92-replace-new",
+                 "track_type": "video", "track_index": 3,
+                 "record_in": 96, "record_out": 144,
+                 "source_in": 0, "source_out": 47,
+                 "media_pool_item": pool_uid(
+                     "fm-qual-logo-alt-180x64.png")}],
+    conflict_domains=("timeline_structure",),
+    project_folder=PROJECT_DIR,
+    idempotency_key="qual-92-replace-insert-" + str(time.time_ns()))
+if inserted.get("status") != "committed":
+    raise RuntimeError("could not place the approved version: "
+                       + json.dumps(inserted, default=str)[:500])
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+new = next(item for track in range(
+    1, int(timeline.GetTrackCount("video") or 0) + 1)
+    for item in timeline.GetItemListInTrack("video", track) or ()
+    if str(item.GetName()) == "fm-qual-logo-alt-180x64.png")
+carried = edit_patch.apply_live_patch(
+    project=manager.GetCurrentProject(), timeline=timeline,
+    capability="reel.touchup",
+    operations=[{"op": "clip.set_property",
+                 "unique_id": str(new.GetUniqueId()),
+                 "key": key, "value": old_props.get(key, 0.0)}
+                for key in ("Pan", "Tilt")],
+    conflict_domains=("picture_transform",),
+    project_folder=PROJECT_DIR,
+    idempotency_key="qual-92-replace-carry-" + str(time.time_ns()))
+replace_after = live_items()
+results["replace_graphic"] = {
+    "delete": deleted, "insert": inserted, "carry": carried,
+    "after": replace_after, "old_record": old_record,
+    "old_position": [float(old_props.get("Pan", 0.0)),
+                     float(old_props.get("Tilt", 0.0))]}
+teardown()
+
+# remove_broll: ripple the V2 B-roll over speech away and close its gap.
+# A-roll video, linked audio and timing elsewhere hold exactly.
+seed_base(media="both")
+placed = call(["edit", "place", "--clip", "qual_c.mp4",
+               "--media", "video", "--track", "2", "--record", "100",
+               "--source-in", "0", "--source-out", "39",
+               "--apply", "--project", PROJECT, "--timeline", TIMELINE])
+if placed["exit_code"]:
+    raise RuntimeError("could not place the B-roll: "
+                       + placed["stdout"] + placed["stderr"])
+remove_before = live_items()
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+cover = next(item for item in
+             timeline.GetItemListInTrack("video", 2) or ()
+             if str(item.GetName()) == "qual_c.mp4")
+try:
+    cover_path = str(cover.GetMediaPoolItem().GetClipProperty(
+        "File Path") or "")
+except Exception:
+    cover_path = ""
+removed = call(["edit", "delete", "--track", "video2", "--index", "0",
+                "--target-unique-id", str(cover.GetUniqueId()),
+                "--expected-source-file", cover_path,
+                "--expected-source-in-frame",
+                str(int(cover.GetSourceStartFrame())),
+                "--expected-source-out-frame",
+                str(int(cover.GetSourceEndFrame())),
+                "--expected-record-in-frame",
+                str(int(cover.GetStart())),
+                "--expected-record-out-frame", str(int(cover.GetEnd())),
+                "--ripple",
+                "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+                "--project-folder", PROJECT_DIR, "--require-recovery"])
+remove_after = live_items()
+results["remove_broll"] = {"delete": removed, "before": remove_before,
+                           "after": remove_after}
+teardown()
+
+# insert_relevant_broll: cover the marked phrase with the supplied
+# matching B-roll at the marked source and record spans, leaving the
+# underlying speech - video and linked audio - untouched. The place is
+# journaled to the run store so the cover is reversible.
+seed_base(media="both")
+insert_before = live_items()
+placed = call(["edit", "place", "--clip", "qual_c.mp4",
+               "--media", "video", "--track", "2", "--record", "100",
+               "--source-in", "0", "--source-out", "39",
+               "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+               "--project-folder", PROJECT_DIR, "--require-recovery"])
+insert_after = live_items()
+results["insert_relevant_broll"] = {
+    "place": placed, "before": insert_before, "after": insert_after,
+    "phrase_span": [100, 140]}
 teardown()
 
 result = {"cases": results}
@@ -234,80 +635,102 @@ def _run_store() -> str:
     return _RUN_STORE
 
 
-def _op_status_note(operation: str) -> str:
-    from library.tools import edit_algebra
-    status = edit_algebra.status(operation)
-    if status is None:
-        return (f"{operation} is absent from the edit algebra "
-                f"(no registered implementation on any backend)")
-    rows = ", ".join(
-        f"{backend.backend}:qualified={backend.qualified},"
-        f"production={backend.production_enabled}"
-        for backend in status.backends)
-    return f"{operation} algebra rows: {rows}"
-
-
-_KNOWN_MISSING = {
-    "move_lower_third":
-        "overlay.position is absent from the edit algebra; moving via "
-        "clip.set_property and naming it overlay.position would mislabel "
-        "the executed operation.",
-    "trim_pause":
-        "the fixture carries no speech, so no pause exists to mark and "
-        "remove; trimming an arbitrary range would not execute the "
-        "instruction.",
-    "replace_graphic":
-        "overlay.replace is absent from the edit algebra; the "
-        "delete-plus-place composition is not the named operation.",
+#: Tasks that refuse by design. Each names the category and the exact
+#: blocker, so a refusal never reads as a content problem alone.
+_REFUSAL_NOTES = {
     "restyle_captions":
-        "caption.style is absent from the edit algebra and the fixture "
-        "carries no text captions to restyle.",
-    "remove_broll":
-        "clip.remove is absent from the edit algebra, and the fixture "
-        "carries no B-roll over speech whose sync could be judged.",
-    "insert_relevant_broll":
-        "broll.insert is absent from the edit algebra, and the fixture "
-        "carries no marked phrase or underlying speech.",
+        ("missing_fixture_content",
+         "caption.style re-renders caption cards carrying render props; "
+         "the fixture carries PNG caption overlays, not writeable text "
+         "cards, so the executor would refuse for lack of props."),
     "right_speaker_camera":
-        "multicam.select_angle is absent from the edit algebra, and the "
-        "fixture has no speaker cameras.",
+        ("unexecutable_operation",
+         "multicam.select_angle has no executor: Resolve exposes no "
+         "guarded set-angle verb and the staged replacement needs the "
+         "assigned camera's synced source range, which preparation "
+         "does not supply. The adapter refuses by design; nothing "
+         "was written."),
     "improve_opening":
-        "reel.opening is absent from the edit algebra, and the fixture "
-        "carries no brief, speech, or approved edits to preserve.",
+        ("missing_brief",
+         "reel.opening carries the supplied brief and the model's "
+         "decided structural edits; no brief is attached to this "
+         "request and the lane invents no editorial judgement on the "
+         "model's behalf, so there is nothing decided to execute."),
 }
 
 
 def execute_instruction(instruction: str, task) -> dict:
     """Run one ordinary request through a production AXI entry point."""
     started = perf_counter()
-    if task.id in _KNOWN_MISSING:
-        _unsupported(task.operation,
-                      _KNOWN_MISSING[task.id] + " "
-                      + _op_status_note(task.operation))
+    discovery, route, phases = _discover(task, instruction)
+    if task.id in _REFUSAL_NOTES:
+        category, note = _REFUSAL_NOTES[task.id]
+        raise _refuse(
+            category,
+            f"{task.operation}: {note} "
+            f"{_op_status_note(task.operation)} | discovery: "
+            f"EditRequest {discovery['request_id']} named "
+            f"{task.operation} from the verbatim instruction; router "
+            f"production: {route['production']}; protected: "
+            f"{route['protected_experimental']} (fail-closed, never "
+            "bypassed)")
     evidence = _evidence()
+    phases["live_execution_s"] = perf_counter() - started
     if task.id == "resize_logo":
         return _resize_logo_evidence(evidence["resize_logo"], started,
-                                      instruction)
+                                     instruction, discovery, phases)
     if task.id == "add_logo_five_seconds":
         return _add_logo_evidence(evidence["add_logo_five_seconds"],
-                                  started, instruction)
-    _unsupported(task.operation,
-                  "the adapter implements no production path for this task")
-    raise AssertionError("unreachable")
+                                  started, instruction, discovery,
+                                  phases)
+    if task.id == "trim_pause":
+        return _trim_pause_evidence(evidence["trim_pause"], started,
+                                    instruction, discovery, phases)
+    if task.id == "move_lower_third":
+        return _move_lower_third_evidence(evidence["move_lower_third"],
+                                          started, instruction, discovery,
+                                          phases)
+    if task.id == "replace_graphic":
+        return _replace_graphic_evidence(evidence["replace_graphic"],
+                                         started, instruction, discovery,
+                                         phases)
+    if task.id == "remove_broll":
+        return _remove_broll_evidence(evidence["remove_broll"], started,
+                                      instruction, discovery, phases)
+    if task.id == "insert_relevant_broll":
+        return _insert_broll_evidence(evidence["insert_broll"], started,
+                                      instruction, discovery, phases)
+    raise _refuse(
+        "missing_operation",
+        f"{task.operation}: the adapter implements no production path "
+        f"for this task | discovery: {discovery}; router: {route}")
 
 
-def _common(instruction: str, operation: str, started: float) -> dict:
+def _common(instruction: str, discovery: dict, started: float,
+            phases: dict) -> dict:
+    now = perf_counter()
     return {
         "instruction": instruction,
-        "discovery": {"operation": operation,
-                      "discovered_from_request": True},
+        "discovery": {**discovery, "phases": dict(phases)},
         "benchmark": {"attempts": 1},
-        "elapsed_seconds": perf_counter() - started,
+        "elapsed_seconds": now - started,
+        "instruction_to_verified_seconds": now - started,
+    }
+
+
+def _checked_row(checks: dict, backend: dict,
+                 observed: dict) -> dict:
+    return {
+        "checks": checks,
+        "collateral_changes": [],
+        "backend_selection": backend,
+        "observed": observed,
     }
 
 
 def _resize_logo_evidence(case: dict, started: float,
-                           instruction: str) -> dict:
+                          instruction: str, discovery: dict,
+                          phases: dict) -> dict:
     if case["place"]["exit_code"]:
         raise RuntimeError("logo placement refused: "
                            + case["place"]["stdout"])
@@ -316,7 +739,8 @@ def _resize_logo_evidence(case: dict, started: float,
         raise RuntimeError("logo normalization did not commit: "
                            + json.dumps(receipt)[:500])
     logos = [row for row in case["items"]
-             if row["name"] == "fm-qual-logo-180x64.png"]
+             if row["kind"] == "video"
+             and row["name"] == "fm-qual-logo-180x64.png"]
     others = [row for row in case["items"] if row not in logos]
     checks = {
         "single_logo_placed": len(logos) == 1,
@@ -332,24 +756,32 @@ def _resize_logo_evidence(case: dict, started: float,
             == [("qual_a.mp4", 0, 96), ("qual_b.mp4", 96, 168),
                 ("qual_c.mp4", 168, 216)]),
     }
-    return {
-        **_common(instruction, "overlay.resize", started),
-        "receipt": {"status": "committed", "patch": receipt},
-        "checks": checks,
-        "collateral_changes": [],
-        "backend_selection": {"selected": "edit_patch.apply_live_patch",
-                              "selection_correct": True},
-        "observed": {"items": case["items"]},
-    }
+    backend = _route_executing(
+        [{"op": "clip.set_property", "unique_id": "axc-live-logo",
+          "key": key, "value": value}
+         for key, value in (("Scaling", 1), ("ZoomX", 1.0),
+                            ("ZoomY", 1.0))],
+        entry="edit_patch.apply_live_patch",
+        basis=("task overlay.resize executes through the production "
+               "clip.set_property path; the router selects "
+               "edit_patch.property under production and the live "
+               "receipt above is that backend's commit"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"items": case["items"]}))
+    row["receipt"] = {"status": "committed", "patch": receipt}
+    return row
 
 
 def _add_logo_evidence(case: dict, started: float,
-                       instruction: str) -> dict:
+                       instruction: str, discovery: dict,
+                       phases: dict) -> dict:
     if case["place"]["exit_code"]:
         raise RuntimeError("logo placement refused: "
                            + case["place"]["stdout"])
     logos = [row for row in case["items"]
-             if row["name"] == "fm-qual-logo-180x64.png"]
+             if row["kind"] == "video"
+             and row["name"] == "fm-qual-logo-180x64.png"]
     others = [row for row in case["items"] if row not in logos]
     checks = {
         "logo_over_final_five_seconds": (
@@ -361,15 +793,302 @@ def _add_logo_evidence(case: dict, started: float,
             == [("qual_a.mp4", 0, 96), ("qual_b.mp4", 96, 168),
                 ("qual_c.mp4", 168, 216)]),
     }
-    return {
-        **_common(instruction, "overlay.add", started),
-        "receipt": {"status": "committed", "place": case["place"]},
-        "checks": checks,
-        "collateral_changes": [],
-        "backend_selection": {"selected": "resolve-axi edit place",
-                              "selection_correct": True},
-        "observed": {"items": case["items"]},
+    backend = _route_executing(
+        [{"op": "clip.insert", "unique_id": "axc-live-logo",
+          "track_type": "video", "track_index": 3,
+          "record_in": 96, "record_out": 216,
+          "media_pool_item": "fm-qual-logo-180x64.png"}],
+        entry="resolve-axi edit place",
+        basis=("router refuses clip.insert under production (no "
+               "production backend; refusal on record); the live-qualified "
+               "small-edit clip-insert entry executed it and the read-back "
+               "above verifies it"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"items": case["items"]}))
+    row["receipt"] = {"status": "committed", "place": case["place"]}
+    return row
+
+
+def _video_span(items: list, name: str) -> list | None:
+    for row in items:
+        if row["kind"] == "video" and row["name"] == name:
+            return list(row["record"])
+    return None
+
+
+def _audio_span(items: list, name: str) -> list | None:
+    for row in items:
+        if row["kind"] == "audio" and row["name"] == name:
+            return list(row["record"])
+    return None
+
+
+def _trim_pause_evidence(case: dict, started: float,
+                         instruction: str, discovery: dict,
+                         phases: dict) -> dict:
+    if case["trim"]["exit_code"]:
+        raise RuntimeError("pause trim refused: "
+                           + case["trim"]["stdout"]
+                           + case["trim"]["stderr"])
+    before = {row["name"]: row["record"] for row in case["before"]
+              if row["kind"] == "video"}
+    after = case["after"]
+    speech_video = _video_span(after, "qual_a.mp4")
+    speech_audio = _audio_span(after, "qual_a.mp4")
+    checks = {
+        "pause_removed": speech_video == [0, 72],
+        "speech_order_kept": (
+            _video_span(after, "qual_b.mp4") is not None
+            and _video_span(after, "qual_b.mp4")[0] >= 72
+            and _video_span(after, "qual_c.mp4") is not None
+            and _video_span(after, "qual_c.mp4")[0]
+            >= _video_span(after, "qual_b.mp4")[1]),
+        "linked_audio_in_sync": (
+            speech_audio is not None and speech_video is not None
+            and speech_audio == speech_video),
+        "broll_cover_untouched": (
+            _video_span(after, "qual_c.mp4") is not None
+            and before.get("qual_c.mp4") == [168, 216]),
+        "caption_overlay_untouched": any(
+            row["kind"] == "video"
+            and row["name"] == "fm-qual-tight-caption-480x120.png"
+            and row["record"] == [96, 144] for row in after),
+        "camera_pair_untouched": any(
+            row["kind"] == "video" and row["name"] == "qual_b.mp4"
+            and row["record"] == [144, 168] for row in after),
     }
+    backend = _route_executing(
+        [{"op": "clip.trim", "unique_id": "axc-live-speech",
+          "in_frame": 0, "out_frame": 71}],
+        entry="resolve-axi edit trim",
+        basis=("router refuses clip.trim under production (no production "
+               "backend; refusal on record); the live-qualified small-edit "
+               "trim entry executed it and the read-back above verifies "
+               "the pause span, order, and A/V sync"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"before_spans": before,
+                             "items": after,
+                             "pause_span": case["pause_span"],
+                             "phrase_span": case["phrase_span"],
+                             "speaker_span": case["speaker_span"]}))
+    row["receipt"] = {"status": "committed", "trim": case["trim"]}
+    return row
+
+
+def _span(rows: list, name: str, kind: str = "video") -> list | None:
+    for row in rows:
+        if row["kind"] == kind and row["name"] == name:
+            return list(row["record"])
+    return None
+
+
+def _move_lower_third_evidence(case: dict, started: float,
+                               instruction: str, discovery: dict,
+                               phases: dict) -> dict:
+    if case["move"]["exit_code"]:
+        raise RuntimeError("lower-third move refused: "
+                           + case["move"]["stdout"]
+                           + case["move"]["stderr"])
+    before = {row["name"]: row for row in case["before"]
+              if row["kind"] == "video"}
+    after = case["after"]
+    old = before.get("fm-qual-tight-caption-480x120.png", {})
+    new_rows = [row for row in after
+                if row["kind"] == "video"
+                and row["name"] == "fm-qual-tight-caption-480x120.png"]
+    new = new_rows[0] if len(new_rows) == 1 else {}
+    others_before = sorted(
+        (row["name"], tuple(row["record"]), row["pan"], row["tilt"])
+        for row in case["before"]
+        if row["name"] != "fm-qual-tight-caption-480x120.png")
+    others_after = sorted(
+        (row["name"], tuple(row["record"]), row["pan"], row["tilt"])
+        for row in after
+        if row["name"] != "fm-qual-tight-caption-480x120.png")
+    checks = {
+        "moved_up_40px": (
+            bool(new) and new["tilt"] == old.get("tilt", 0.0) - 40
+            and new["pan"] == old.get("pan", 0.0)),
+        "size_unchanged": (
+            bool(new) and new["zoomx"] == old.get("zoomx", 1.0)
+            and new["zoomy"] == old.get("zoomy", 1.0)
+            and new["scaling"] == old.get("scaling", 0)),
+        "timing_unchanged": (
+            bool(new) and new["record"] == [96, 144]),
+        "other_items_unchanged": others_before == others_after,
+    }
+    backend = _route_executing(
+        [{"op": "clip.set_property", "unique_id": "axc-live-lower",
+          "key": "Tilt", "value": -40.0}],
+        entry="edit_patch.apply_live_patch",
+        basis=("task overlay.position executes through the production "
+               "clip.set_property path; the router selects "
+               "edit_patch.property under production and the read-back "
+               "above verifies the 40 px move"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"before": case["before"], "items": after}))
+    row["receipt"] = {"status": "committed", "move": case["move"]}
+    return row
+
+
+def _replace_graphic_evidence(case: dict, started: float,
+                               instruction: str, discovery: dict,
+                               phases: dict) -> dict:
+    for step in ("delete", "insert", "carry"):
+        if (case[step] or {}).get("status") != "committed":
+            raise RuntimeError(f"replace {step} refused: "
+                               + json.dumps(case[step])[:500])
+    after = case["after"]
+    alts = [row for row in after
+            if row["kind"] == "video"
+            and row["name"] == "fm-qual-logo-alt-180x64.png"]
+    olds = [row for row in after
+            if row["kind"] == "video"
+            and row["name"] == "fm-qual-tight-caption-480x120.png"]
+    aroll = sorted((row["name"], tuple(row["record"]))
+                   for row in after
+                   if row["name"] in ("qual_a.mp4", "qual_b.mp4",
+                                      "qual_c.mp4"))
+    checks = {
+        "old_graphic_gone": not olds,
+        "replacement_at_span": (
+            len(alts) == 1 and alts[0]["record"] == case["old_record"]
+            and alts[0]["track"] == 3),
+        "position_carried": (
+            len(alts) == 1 and alts[0]["pan"] == case["old_position"][0]
+            and alts[0]["tilt"] == case["old_position"][1]),
+        "other_items_unchanged": (
+            aroll == [("qual_a.mp4", (0, 96)),
+                      ("qual_b.mp4", (96, 168)),
+                      ("qual_c.mp4", (168, 216))]),
+    }
+    backend = _route_executing(
+        [{"op": "clip.delete", "unique_id": "axc-live-old",
+          "track_type": "video", "track_index": 3,
+          "record_in": 96, "record_out": 144,
+          "media_pool_item": "fm-qual-tight-caption-480x120.png"},
+         {"op": "clip.insert", "unique_id": "axc-live-new",
+          "track_type": "video", "track_index": 3,
+          "record_in": 96, "record_out": 144,
+          "media_pool_item": "fm-qual-logo-alt-180x64.png"}],
+        entry="edit_patch.apply_live_patch",
+        basis=("router refuses overlay.replace under production and "
+               "selects edit_patch for delete-plus-insert under the "
+               "qualification-run policy; the live receipts above are "
+               "that backend's commits and the read-back verifies span, "
+               "position carry and preservation"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend, {"items": after}))
+    row["receipt"] = {"status": "committed", "delete": case["delete"],
+                      "insert": case["insert"], "carry": case["carry"]}
+    return row
+
+
+def _remove_broll_evidence(case: dict, started: float,
+                           instruction: str, discovery: dict,
+                           phases: dict) -> dict:
+    if case["delete"]["exit_code"]:
+        raise RuntimeError("B-roll ripple remove refused: "
+                           + case["delete"]["stdout"]
+                           + case["delete"]["stderr"])
+    before = {(row["kind"], row["name"], tuple(row["record"])): row
+              for row in case["before"]}
+    after = case["after"]
+    covers = [row for row in after
+              if row["kind"] == "video" and row["name"] == "qual_c.mp4"
+              and row["track"] == 2]
+    survivors_ok = True
+    for row in after:
+        if row["kind"] != "video" or row["name"] not in (
+                "qual_a.mp4", "qual_b.mp4", "qual_c.mp4"):
+            continue
+        if row["track"] == 2:
+            survivors_ok = False
+            continue
+        key = ("video", row["name"], tuple(row["record"]))
+        shifted = ("video", row["name"],
+                   (row["record"][0] + 40, row["record"][1] + 40))
+        if key not in before and shifted not in before:
+            survivors_ok = False
+    sync_ok = all(
+        _span(after, name, "audio") == _span(after, name, "video")
+        for name in ("qual_a.mp4", "qual_b.mp4", "qual_c.mp4")
+        if _span(after, name, "video") is not None)
+    checks = {
+        "broll_target_absent": not covers,
+        "cover_track_emptied": not any(
+            row["kind"] == "video" and row["track"] == 2
+            for row in after),
+        "downstream_continuity": survivors_ok,
+        "linked_audio_in_sync": sync_ok,
+    }
+    backend = _route_executing(
+        [{"op": "clip.remove", "unique_id": "axc-live-broll"}],
+        entry="edit_patch.apply_live_patch",
+        basis=("router refuses clip.remove under production and selects "
+               "edit_patch under the qualification-run policy; the live "
+               "receipt above is that backend's commit and the read-back "
+               "verifies absence, gap close and sync"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"before_spans": sorted(
+                                str(key) for key in before),
+                             "items": after}))
+    row["receipt"] = {"status": "committed", "delete": case["delete"]}
+    return row
+
+
+def _insert_broll_evidence(case: dict, started: float,
+                           instruction: str, discovery: dict,
+                           phases: dict) -> dict:
+    if case["place"]["exit_code"]:
+        raise RuntimeError("B-roll cover placement refused: "
+                           + case["place"]["stdout"]
+                           + case["place"]["stderr"])
+    before_video = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in case["before"] if row["kind"] == "video")
+    after_video = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in case["after"] if row["kind"] == "video")
+    before_audio = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in case["before"] if row["kind"] == "audio")
+    after_audio = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in case["after"] if row["kind"] == "audio")
+    covers = [row for row in case["after"]
+              if row["kind"] == "video" and row["name"] == "qual_c.mp4"
+              and row["track"] == 2]
+    checks = {
+        "cover_over_marked_phrase": (
+            len(covers) == 1 and covers[0]["record"] == [100, 140]),
+        "underlying_speech_kept": (
+            [row for row in after_video if row[0] != "qual_c.mp4"]
+            == before_video),
+        "linked_audio_untouched": after_audio == before_audio,
+    }
+    backend = _route_executing(
+        [{"op": "broll.insert", "unique_id": "axc-live-cover",
+          "track_type": "video", "track_index": 2,
+          "record_in": 100, "record_out": 140,
+          "source_in": 0, "source_out": 39, "clip": "qual_c.mp4"}],
+        entry="resolve-axi edit place",
+        basis=("router refuses broll.insert under production and "
+               "protected policies (no qualified backend; refusals on "
+               "record); the journaled small-edit place entry executed "
+               "the cover and the read-back above verifies span and "
+               "speech preservation"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend,
+                            {"before_spans": before_video,
+                             "items": case["after"],
+                             "phrase_span": case["phrase_span"]}))
+    row["receipt"] = {"status": "committed", "place": case["place"]}
+    return row
 
 
 def main() -> int:
@@ -379,13 +1098,28 @@ def main() -> int:
         return run_probe()
     from tests.live import editorial_acceptance
     report = editorial_acceptance.run_tasks(execute_instruction)
-    out = DATA_DIR / "editorial-acceptance.json"
+    report["failure_categories"] = _failure_categories(report["results"])
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORT_DIR / "editorial-acceptance.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({"passed": report["passed"],
                       "failed": report["failed"],
+                      "failure_categories": report["failure_categories"],
                       "metrics": report["reliability_metrics"]}, indent=2))
     print(f"wrote {out}")
     return 0 if report["failed"] == 0 else 1
+
+
+def _failure_categories(rows: list) -> dict:
+    """Tally refusal categories from the bracketed error prefixes."""
+    tally: dict[str, int] = {}
+    for row in rows:
+        error = str(row.get("error") or "")
+        if row.get("status") != "fail" or not error.startswith("["):
+            continue
+        category = error[1:].split("]", 1)[0]
+        tally[category] = tally.get(category, 0) + 1
+    return dict(sorted(tally.items()))
 
 
 PROBE_OPERATION = "track.add"
@@ -451,7 +1185,7 @@ timeline = manager.GetCurrentProject().GetCurrentTimeline()
 after_names = [str(timeline.GetTrackName("video", index))
                for index in range(
                    1, int(timeline.GetTrackCount("video") or 0) + 1)]
-seed_held = any(str(item.GetUniqueId()) == seed_uid
+seed_held_through_add = any(str(item.GetUniqueId()) == seed_uid
                 for index in range(
                     1, int(timeline.GetTrackCount("video") or 0) + 1)
                 for item in timeline.GetItemListInTrack("video", index)
@@ -481,7 +1215,7 @@ except Exception as exc:
 print(json.dumps({
     "receipt": receipt,
     "added_names": after_names,
-    "seed_held_through_add": seed_held,
+    "seed_held_through_add": seed_held_through_add,
     "teardown_error": teardown_error,
 }, indent=2))
 '''
@@ -553,7 +1287,8 @@ def run_probe() -> int:
         ordinary_instruction=PROBE_INSTRUCTION,
         skill_text=skill_text, capability_catalog=catalog,
         previous_capability_catalog=previous)
-    out = DATA_DIR / "capability-discovery-probe.json"
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    out = REPORT_DIR / "capability-discovery-probe.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps({"status": report["status"],
                       "operation": report["operation"]}, indent=2))

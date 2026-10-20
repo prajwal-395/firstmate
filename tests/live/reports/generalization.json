@@ -1,0 +1,484 @@
+{
+  "schema": "ren-generalization-result/1",
+  "matrix": "tests/live/fixtures/generalization_matrix.json",
+  "case_count": 20,
+  "passed": 14,
+  "failed": 6,
+  "invariants": [
+    "same_semantic_target",
+    "exact_source_and_record_intervals",
+    "role_based_track_resolution",
+    "approved_edits_preserved",
+    "no_unrelated_timeline_changes",
+    "output_pixel_geometry_verified"
+  ],
+  "uncovered_dimensions": {
+    "timeline_resolution": "shared qualification timeline settings are immutable; needs an isolated scratch project",
+    "frame_rate": "shared qualification timeline settings are immutable; needs an isolated scratch project",
+    "source_3840x2160": "no 4K source in the qualification media pool",
+    "source_1080x1920": "no portrait source in the qualification pool",
+    "source_prores_mov": "no ProRes source in the qualification pool",
+    "source_wav_only": "no audio-only WAV in the pool; linked AAC AV covered",
+    "approved_revision": "needs revise machinery; not a live verb",
+    "staged_revision": "needs touch-up staging; not a live verb"
+  },
+  "elapsed_seconds": 33.489551624999876,
+  "results": [
+    {
+      "case_id": "G01",
+      "dimensions": {
+        "edit": "move",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "h264_mp4",
+        "clip_identity": "duplicate_display_name",
+        "project_complexity": "single_track",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "2065dc16a6670278",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": false,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "observed": {
+        "moved_from_uid": "990e99ef-f766-4ca9-a3a3-5a8fd8345f65",
+        "landed_uid": "d744eee2-5e4c-4a86-96ea-a3786c61b228",
+        "reidentified": true
+      },
+      "status": "fail",
+      "elapsed_seconds": 1.2332521669995913
+    },
+    {
+      "case_id": "G02",
+      "dimensions": {
+        "edit": "set_property",
+        "track_layout": "reversed_roles",
+        "source_media": "transparent_png",
+        "clip_identity": "duplicate_display_name",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "0e9628edf8a087b0",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "role_based_track_resolution": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 1.351387540998985
+    },
+    {
+      "case_id": "G03",
+      "dimensions": {
+        "edit": "trim",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "linked_aac_av",
+        "clip_identity": "duplicate_display_name",
+        "project_complexity": "multitrack",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "7f77a4179adbe930",
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '38ed050a-622d-4884-8df4-0290dd32ea29' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
+      "elapsed_seconds": 1.0866793750028592
+    },
+    {
+      "case_id": "G04",
+      "dimensions": {
+        "edit": "insert",
+        "track_layout": "reversed_roles",
+        "source_media": "transparent_png",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "multitrack",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "14786fdac2641d8f",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 336,
+        "reidentified": true
+      },
+      "elapsed_seconds": 1.4825816659977136
+    },
+    {
+      "case_id": "G05",
+      "dimensions": {
+        "edit": "delete",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "linked_aac_av",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "340dec687e862a2b",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 384,
+        "reidentified": true
+      },
+      "elapsed_seconds": 1.489666458001011
+    },
+    {
+      "case_id": "G06",
+      "dimensions": {
+        "edit": "trim",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "h264_mp4",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "single_track",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "20af8f052702a757",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 216,
+        "reidentified": true
+      },
+      "elapsed_seconds": 0.49074599999948987
+    },
+    {
+      "case_id": "G07",
+      "dimensions": {
+        "edit": "delete",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "transparent_png",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "single_track",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "e421f42a379370c4",
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: stable target revalidation failed: Resolve item '3ef2d9dd-49fc-4659-8056-c935e49bd2f7' no longer matches editorial identity ('fm-qual-logo-180x64.png', 64, 64, None)\n",
+      "elapsed_seconds": 0.5027434999974503
+    },
+    {
+      "case_id": "G08",
+      "dimensions": {
+        "edit": "move",
+        "track_layout": "reversed_roles",
+        "source_media": "h264_mp4",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "multitrack",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "78005aefef4f190d",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "observed": {
+        "moved_from_uid": "d0db398c-34c7-4481-89b5-8bb6ded82d1e",
+        "landed_uid": "4aeb0be3-8955-4160-bf8f-e2d1ba712d13",
+        "reidentified": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.9894185829980415
+    },
+    {
+      "case_id": "G09",
+      "dimensions": {
+        "edit": "insert",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "linked_aac_av",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "b929f1a0d07579da",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 0.7789727920026053
+    },
+    {
+      "case_id": "G10",
+      "dimensions": {
+        "edit": "delete",
+        "track_layout": "reversed_roles",
+        "source_media": "linked_aac_av",
+        "clip_identity": "duplicate_display_name",
+        "project_complexity": "single_track",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "1e9dbe629d167b9f",
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: stable target revalidation failed: Resolve item '197906d5-ae68-4b8b-a535-ee13def93fbc' no longer matches editorial identity ('qual_a.mp4', 0, 48, None)\n",
+      "elapsed_seconds": 0.3192791670007864
+    },
+    {
+      "case_id": "G11",
+      "dimensions": {
+        "edit": "delete",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "h264_mp4",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "multitrack",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "bd7573c0390df851",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 216,
+        "reidentified": true
+      },
+      "elapsed_seconds": 1.1546462500009511
+    },
+    {
+      "case_id": "G12",
+      "dimensions": {
+        "edit": "insert",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "h264_mp4",
+        "clip_identity": "duplicate_display_name",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "82847d8bfd84bcc6",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 1.2921543750017008
+    },
+    {
+      "case_id": "G13",
+      "dimensions": {
+        "edit": "insert",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "transparent_png",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "single_track",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "f518c9f6775add8d",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 216,
+        "reidentified": true
+      },
+      "elapsed_seconds": 0.6603242919991317
+    },
+    {
+      "case_id": "G14",
+      "dimensions": {
+        "edit": "move",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "linked_aac_av",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "d02325be30a43c94",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 384,
+        "reidentified": true
+      },
+      "elapsed_seconds": 1.8628657499975816
+    },
+    {
+      "case_id": "G15",
+      "dimensions": {
+        "edit": "move",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "transparent_png",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "cc165049462912f1",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 384,
+        "reidentified": true
+      },
+      "elapsed_seconds": 2.015783916998771
+    },
+    {
+      "case_id": "G16",
+      "dimensions": {
+        "edit": "set_property",
+        "track_layout": "v1_graphics_v2",
+        "source_media": "linked_aac_av",
+        "clip_identity": "reordered_after_snapshot",
+        "project_complexity": "single_track",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "5a150e5392bdffd0",
+      "checks": {
+        "stale_positional_guard_refused": true,
+        "no_wrong_clip_edit": true
+      },
+      "status": "pass",
+      "refusal_evidence": "",
+      "observed": {
+        "stale_record": [
+          0,
+          96
+        ],
+        "reorder_end": 96,
+        "reidentified": true
+      },
+      "elapsed_seconds": 0.7811807090001821
+    },
+    {
+      "case_id": "G17",
+      "dimensions": {
+        "edit": "set_property",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "h264_mp4",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "multitrack",
+        "approved_edit_history": "manual_transform"
+      },
+      "fingerprint": "4fcb6db748f71d45",
+      "checks": {
+        "same_semantic_target": true,
+        "exact_intervals": true,
+        "role_based_track_resolution": true,
+        "approved_edits_preserved": true,
+        "no_unrelated_changes": true,
+        "output_pixel_geometry": true
+      },
+      "status": "pass",
+      "elapsed_seconds": 1.1269689170003403
+    },
+    {
+      "case_id": "G18",
+      "dimensions": {
+        "edit": "trim",
+        "track_layout": "v1_v3_graphics_v4",
+        "source_media": "transparent_png",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "long_timeline",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "f25a51d1aa0db76c",
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '38c6f4a5-5612-4b68-b39b-1dc9542c46c3' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
+      "elapsed_seconds": 0.7152212920009333
+    },
+    {
+      "case_id": "G19",
+      "dimensions": {
+        "edit": "trim",
+        "track_layout": "reversed_roles",
+        "source_media": "linked_aac_av",
+        "clip_identity": "stable_unique_id",
+        "project_complexity": "single_track",
+        "approved_edit_history": "none"
+      },
+      "fingerprint": "4c492def830f070e",
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: stable target revalidation failed: Resolve item '9652f09a-45bf-48fb-a2c3-7447ca126f34' no longer matches editorial identity ('qual_a.mp4', 0, 95, None)\n",
+      "elapsed_seconds": 0.2754399579971505
+    },
+    {
+      "case_id": "G00-ambiguous",
+      "dimensions": {
+        "clip_identity": "ambiguous_no_unique_id",
+        "edit": "delete"
+      },
+      "fingerprint": "18f8a4dab0007597",
+      "checks": {
+        "duplicate_names_present": true,
+        "ambiguous_target_refused": true,
+        "names_stable_identity": true,
+        "unique_name_resolves": true
+      },
+      "status": "pass",
+      "observed": {
+        "refusals": [
+          "op 0 (clip.delete): name 'qual_a.mp4' matches 2 clips - name the stable identity"
+        ],
+        "resolved": [
+          "ambiguous"
+        ],
+        "control_resolved": [
+          "assumed"
+        ]
+      },
+      "elapsed_seconds": 0.02384962500218535
+    }
+  ]
+}
