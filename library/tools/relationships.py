@@ -568,6 +568,7 @@ def build_source_relationships(content_digest: str, source_file: str,
             "looking_at_spans": len(looking_at)}
 
 
+@source_memory._project_scoped
 def build_project_relationships(project_folder: str,
                                 clip_ids: Sequence[str] | None = None,
                                 root: Path | None = None) -> dict:

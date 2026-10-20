@@ -51,6 +51,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
+from library.tools.source_memory import _project_scoped
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -187,6 +188,7 @@ def execute_one(project: str, cid: str, result_path: str) -> int:
     return 0
 
 
+@_project_scoped
 def run(project: str, capability_ids: Sequence[str]) -> dict:
     """Execute the composed selection; a capability already done is reused.
 

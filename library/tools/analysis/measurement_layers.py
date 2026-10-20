@@ -89,24 +89,18 @@ MEASUREMENT_ROOT_ENV = "PIPELINE_SEMANTIC_MEASUREMENT_ROOT"
 
 
 def store_root() -> Path:
-    """The content-addressed semantic measurement store.
-
-    An explicit semantic root lets isolated workflows keep their source
-    memory private while reusing semantic measurements for byte-identical
-    footage. Without it, retain the existing source-memory placement.
-    """
+    """The semantic layer store, scoped to the active project by default."""
     explicit_measurements = os.environ.get(MEASUREMENT_ROOT_ENV)
     if explicit_measurements:
-        return Path(explicit_measurements).expanduser()
-    explicit = os.environ.get("PIPELINE_SOURCE_MEMORY_ROOT")
-    if explicit:
-        return Path(explicit).expanduser()
-    home = os.environ.get("PIPELINE_VEP_HOME")
-    if home:
-        return Path(home).expanduser() / "source_memory"
-    xdg = os.environ.get("XDG_DATA_HOME")
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
-    return base / "vep" / "source_memory"
+        explicit_root = Path(explicit_measurements).expanduser()
+        from library.tools.source_memory import _active_project_folder
+        project = _active_project_folder()
+        if project:
+            scope = hashlib.sha256(os.fsencode(project)).hexdigest()
+            return explicit_root / "projects" / scope
+        return explicit_root
+    from library.tools import source_memory
+    return source_memory.memory_root()
 
 # Bumped only when the STORED SHAPE of an entry changes in a way older
 # entries cannot be read as. A method change never needs this.

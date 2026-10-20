@@ -47,6 +47,39 @@ class CachePolicyRefused(ValueError):
     """The cache inventory or policy is not safe to act on."""
 
 
+def _approved_decision_digests(project_folder: str) -> set[str]:
+    """Return every source digest cited by a readable approved decision.
+
+    Source-memory artifacts are physically shared by content digest, so a
+    decision in any registered project protects the matching cache entry.
+    A malformed decision record is a refusal: the cache is not disposable
+    when its reachability cannot be established.
+    """
+    from library.tools import decision_evidence
+
+    roots = {Path(project_folder).resolve()}
+    projects_root = os.environ.get("PIPELINE_PROJECTS_ROOT")
+    if projects_root:
+        root = Path(projects_root).expanduser().resolve()
+        if root.is_dir():
+            roots.update(path.parent.resolve()
+                         for path in root.rglob("pipeline_data.json"))
+    protected: set[str] = set()
+    for root in roots:
+        try:
+            protected.update(decision_evidence.cited_digests(root))
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise CachePolicyRefused(
+                f"cannot establish approved-decision cache reachability "
+                f"for {root}: {exc}") from exc
+    return protected
+
+
+def _is_decision_evidence(path: str, digests: set[str]) -> bool:
+    """Whether a source-memory path is under a cited content digest."""
+    return bool(digests.intersection(Path(path).resolve().parts))
+
+
 @contextmanager
 def cache_file_lease(path: str | os.PathLike, *, exclusive: bool = False):
     """Fence an active cache reader/writer against lifecycle eviction."""
@@ -329,6 +362,7 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
     budget = budget or CacheBudget.from_environment()
     now = float(time() if now_epoch is None else now_epoch)
     inventory = artifact_lifecycle.inventory(project_folder)
+    decision_digests = _approved_decision_digests(project_folder)
     candidates = []
     valid_bytes = 0
     class_bytes: dict[str, int] = {"expensive": 0, "inexpensive": 0}
@@ -351,6 +385,8 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
         if not row.get("ownership_known") or not row.get("identity_matches"):
             continue
         if row.get("pinned") or row.get("dependencies"):
+            continue
+        if _is_decision_evidence(row["path"], decision_digests):
             continue
         usage = metrics_by_id.get(row["artifact_id"], [])
         cache_value = measured_values.get(row["artifact_id"], {})
@@ -456,6 +492,7 @@ def plan_eviction(project_folder: str, *, budget: CacheBudget | None = None,
             "class_high_watermark_bytes": class_high,
             "cacheable_bytes": valid_bytes,
             "selected": selected,
+            "approved_decision_digests": sorted(decision_digests),
             "estimated_reclaimed_bytes": reclaimed,
             "refused_git": []}
     _collectable, _refused = _git_guard.partition(
@@ -504,11 +541,16 @@ def apply_eviction(project_folder: str, plan: dict, *, cleanup_root: str,
                     for row in plan.get("selected", [])}
     current_rows = {row["artifact_id"]: row for row in
                     artifact_lifecycle.inventory(project_folder)["artifacts"]}
+    decision_digests = _approved_decision_digests(project_folder)
     for artifact_id in selected_ids:
         record = records.get(artifact_id)
         if record is None or record.kind not in CACHE_KIND_COST:
             raise CachePolicyRefused(f"registered cache record missing: {artifact_id}")
         planned = planned_rows[artifact_id]
+        if _is_decision_evidence(record.path, decision_digests):
+            raise CachePolicyRefused(
+                f"cache evidence is still cited by an approved project "
+                f"decision: {artifact_id}")
         current = current_rows.get(artifact_id)
         if current is not None and current.get("state") == artifact_lifecycle.PURGED:
             outcomes.append({"artifact_id": artifact_id, "path": record.path,

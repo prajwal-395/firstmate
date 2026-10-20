@@ -34,6 +34,8 @@ import math
 from pathlib import Path
 from typing import Any
 
+from library.tools import source_memory
+
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks, the Unit-3 evidence policy."""
 
@@ -98,6 +100,7 @@ def digest_for_clip(project_folder: str, clip: dict,
     return source_memory.digest_for_clip(project_folder, clip, recorded)
 
 
+@source_memory._project_scoped
 def link_scan(project_folder: str, catalog: list | None = None) -> dict[str, Any]:
     """Migrate the scan's footage into the Project Model, as one revision.
 
@@ -187,6 +190,7 @@ def stamp_catalog_revision(entries: list, model_revision) -> None:
             entry["model_revision"] = model_revision
 
 
+@source_memory._project_scoped
 def attach_transcript_obs_ids(document: dict, project_folder: str) -> dict[str, int]:
     """Stamp ``obs_id`` onto a timeline transcript's bound rows, in place.
 

@@ -930,6 +930,28 @@ def collect_pipeline_roots(project_folder: str,
             roots.append(RootResult(
                 name=name, status=OK, paths=merged, kind="pipeline",
                 detail=f"{len(merged)} referenced path(s)"))
+    # Approved editorial decisions are durable reachability roots too.
+    # Source spans normally protect source-memory digests (handled by its
+    # collector), while any exact asset path a decision cites must remain
+    # live here. An unreadable approval refuses the sweep.
+    try:
+        from library.tools import decision_evidence
+        citations = decision_evidence.cited_evidence(project_folder)
+        cited_paths = {str(layout.resolve_project_relative(path))
+                       for path in citations["paths"]}
+        status = UNREADABLE if citations["unreadable"] else OK
+        roots.append(RootResult(
+            name="project:approved-decisions", status=status,
+            paths=cited_paths,
+            detail=("; ".join(citations["unreadable"])
+                    if citations["unreadable"] else
+                    f"{len(cited_paths)} cited evidence path(s)"),
+            kind="pipeline"))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        roots.append(RootResult(
+            name="project:approved-decisions", status=UNREADABLE,
+            detail=f"cannot read approved decisions: {exc}",
+            kind="pipeline"))
     return roots
 
 

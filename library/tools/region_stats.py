@@ -299,6 +299,7 @@ def build_source_region_stats(source_file: str, content_digest: str,
             "wall_seconds": record["instrument"]["wall_seconds"]}
 
 
+@source_memory._project_scoped
 def build_project_region_stats(project_folder: str,
                                clip_ids: list[str] | None = None,
                                root: Path | None = None) -> dict:
@@ -437,6 +438,7 @@ def summarize_tracks(samples: list[dict], tracks: list[dict]) -> list[dict]:
     return rows
 
 
+@source_memory._project_scoped
 def clip_region_stats(project_folder: str, clip: dict,
                       spans: Sequence[Sequence[float]],
                       root: Path | None = None) -> dict:

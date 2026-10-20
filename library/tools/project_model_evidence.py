@@ -4045,6 +4045,7 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                 None, DEPTH_PRODUCER, evidence=native)
 
 
+@source_memory._project_scoped
 def migrate_project_evidence(project_folder: str, *,
                              memory_root: str | Path | None = None,
                              catalog: list | None = None,
@@ -4183,6 +4184,7 @@ def migrate_project_evidence(project_folder: str, *,
     return builder.model, report
 
 
+@source_memory._project_scoped
 def evidence_coverage(project_folder: str, model: dict[str, Any],
                       report: dict[str, Any], *,
                       memory_root: str | Path | None = None

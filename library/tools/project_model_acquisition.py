@@ -95,6 +95,7 @@ def _m4_rows(
     return [], []
 
 
+@source_memory._project_scoped
 def query_project(
     project: str | Path,
     model: dict[str, Any],

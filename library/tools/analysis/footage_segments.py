@@ -816,6 +816,7 @@ def _chunk_segments(clip, temporal_doc, vision_doc, base_facets) -> list:
 # ─── The whole project ───
 
 
+@source_memory._project_scoped
 def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
     """Every retrievable segment of every clip, in clip then time order.
 
@@ -911,6 +912,7 @@ def build_segments(project_folder, kinds=SEGMENT_KINDS) -> list:
     return segments
 
 
+@source_memory._project_scoped
 def coverage_report(project_folder) -> dict:
     """What the ingest actually produced, per source, before any search.
 

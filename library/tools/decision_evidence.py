@@ -189,6 +189,10 @@ def cited_evidence(project_folder: str | os.PathLike) -> dict[str, Any]:
             digest = recorded.get(source_file)
             if digest:
                 digests.add(digest)
+            else:
+                report["unreadable"].append(
+                    "cannot resolve the approved source path to a recorded "
+                    f"content digest: {source_file}")
         decisions.append({
             "kind": "proposal_moment",
             "id": getattr(moment, "moment_id", "") or
@@ -208,6 +212,10 @@ def cited_evidence(project_folder: str | os.PathLike) -> dict[str, Any]:
                 digests.add(str(row["content_digest"]))
             if row.get("source_file"):
                 paths.add(str(row["source_file"]))
+                if not row.get("content_digest"):
+                    report["unreadable"].append(
+                        "cannot resolve evidence-backed decision source to a "
+                        f"content digest: {row['source_file']}")
         decisions.append({"kind": "evidence_backed_edit",
                           "id": edit["edit_id"],
                           "cited_observations": [row["observation_id"]

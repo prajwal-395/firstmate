@@ -12,6 +12,8 @@ The defects these tests name, one at a time:
 - a dry run that imports anyway;
 - a deterministic measurement being laundered through a path meant for
   licensed, model-derived rows.
+- a project's source-memory reader seeing another project's digest cache
+  without a mutual grant, or importing it without a recorded consent event.
 
 The projects here are throwaway folders under tmp_path with small hand
 built models. No real project is touched and no media is read.
@@ -22,9 +24,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from library.tools import cross_project_evidence
-from library.tools import model_evidence_provenance
-from library.tools import project_model_store
+from library.tools import (
+    cross_project_evidence,
+    model_evidence_provenance,
+    project_model_store,
+)
 
 APPROVED = "fixture.approved_detector"
 RESTRICTED = "fixture.restricted_detector"
@@ -240,3 +244,60 @@ def test_a_project_with_no_model_shares_nothing(tmp_path):
                                                    registry=_registry())
     assert report["shared"] == []
     assert "Project Model" in report["reason"]
+
+
+def test_explicit_mutual_grant_imports_only_deterministic_source_slots(
+        tmp_path, monkeypatch):
+    from library.tools import source_memory
+
+    source, target, registry = _projects(tmp_path)
+    digest = "a" * 64
+    for project in (source, target):
+        (project / "pipeline_data.json").write_text(json.dumps({
+            "source_fingerprints": {"clip_001": {
+                "path": "/media/clip.mov", "size_bytes": 12,
+                "content_digest": digest}},
+        }), encoding="utf-8")
+    monkeypatch.setattr(source_memory, "vep_home", lambda: tmp_path / "ren-home")
+    source_dir = source_memory.project_memory_root(source) / digest
+    source_dir.mkdir(parents=True)
+    (source_dir / source_memory.SLOT_FRAMES_DIR).mkdir()
+    (source_dir / source_memory.SLOT_FRAMES_DIR / "frame_000001.jpg").write_bytes(
+        b"thumbnail")
+    (source_dir / source_memory.SLOT_FRAMES_INDEX).write_text(
+        json.dumps({"content_digest": digest, "frames": [{
+            "file": "frames/frame_000001.jpg", "t": 0.5}]}),
+        encoding="utf-8")
+    (source_dir / source_memory.SLOT_SCENES).write_text(
+        json.dumps({"content_digest": digest, "scenes": []}),
+        encoding="utf-8")
+
+    report = cross_project_evidence.share_evidence(
+        source, target, digest=digest, registry=registry)
+    target_dir = source_memory.project_memory_root(target) / digest
+    assert report["measurements_shared"] == {
+        digest: [source_memory.SLOT_FRAMES_INDEX]}
+    assert (target_dir / source_memory.SLOT_FRAMES_INDEX).is_file()
+    assert (target_dir / source_memory.SLOT_FRAMES_DIR /
+            "frame_000001.jpg").read_bytes() == b"thumbnail"
+    assert not (target_dir / source_memory.SLOT_SCENES).exists()
+
+
+def test_measurement_import_refuses_when_either_project_did_not_opt_in(
+        tmp_path, monkeypatch):
+    from library.tools import source_memory
+
+    source, target, registry = _projects(tmp_path, mutual=False)
+    digest = "b" * 64
+    for project in (source, target):
+        (project / "pipeline_data.json").write_text(json.dumps({
+            "source_fingerprints": {"clip_001": {
+                "path": "/media/clip.mov", "size_bytes": 12,
+                "content_digest": digest}},
+        }), encoding="utf-8")
+    monkeypatch.setattr(source_memory, "vep_home", lambda: tmp_path / "ren-home")
+
+    report = cross_project_evidence.share_evidence(
+        source, target, digest=digest, registry=registry)
+    assert report["measurements_shared"] == {}
+    assert not source_memory.project_memory_root(target).exists()

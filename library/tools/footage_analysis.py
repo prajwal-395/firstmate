@@ -433,6 +433,7 @@ def ensure_collection(footage_dir: str, into: str | None = None,
 # ── The capability half ─────────────────────────────────────────────
 
 
+@source_memory._project_scoped
 def run_steps(project: str, memory_only: bool, with_: Sequence[str] = (),
               skip: Sequence[str] = ()) -> dict:
     """Execute the analysis capabilities; per-capability outcomes."""
@@ -475,6 +476,7 @@ def _outcome(account: dict) -> dict:
     return {"status": BUILT}
 
 
+@source_memory._project_scoped
 def run_lane(lane: Lane, project: str, sources: list[dict],
              root: Path | None) -> dict:
     """Run one lane over the sources that need it; per-source outcomes."""
@@ -626,6 +628,7 @@ def read_run_record(project: str) -> dict | None:
     return doc if isinstance(doc, dict) else None
 
 
+@source_memory._project_scoped
 def analyze(project: str, lanes: Sequence[str] = LANE_NAMES,
             memory_only: bool = False, steps: bool = True,
             with_: Sequence[str] = (), skip: Sequence[str] = (),
@@ -705,6 +708,7 @@ def _write_record(project: str, record: dict, t0: float,
 # ── Status ──────────────────────────────────────────────────────────
 
 
+@source_memory._project_scoped
 def status(project: str, root: Path | None = None) -> dict:
     """Per source, per memory lane: fresh or not, read off the memory. Light."""
     rows = []

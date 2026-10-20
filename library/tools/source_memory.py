@@ -5,18 +5,18 @@ firstmate's home, outside this checkout) measured that Ren remembers
 the TIMELINE, not the footage: on the 3.03 h geo-podcast episode it
 holds a transcript of 24.6% of the source and no picture measurement at
 all. This module is build-plan items 1-3 of that report's section 5:
-a per-source store keyed by content digest, the whole-source
-transcription that fills it first, and a shared 2 Hz I-frame sample
-every per-frame measurement rides instead of decoding on its own.
+a project-private per-source store keyed by content digest, the
+whole-source transcription that fills it first, and a 2 Hz I-frame
+sample every per-frame measurement rides instead of decoding on its own.
 
 **The shape.** `<memory root>/<content_digest>/`, where the digest is
 `footage_identity.fingerprint` - size plus sha256 of the first and last
 mebibyte. Clip ids (`clip_001` ...) are project-local numbering; the
-digest is content identity, so two projects cut from the same camera
-file (geo-podcast and podcast-roughcut already share LC4932/LCATL0013)
-read the same memory for free. Projects REFERENCE it and never copy
-it. Nothing here goes into `pipeline_data.json` (rewritten after every
-step; the memory is per source, not per run).
+digest is content identity. Projects keep separate memory roots, and a
+project receives another project's deterministic measurements only
+through the explicit mutual-grant import. Nothing here goes into
+`pipeline_data.json` (rewritten after every step; the memory is per
+source, not per run).
 
 **The slots.** M0, M1, M2, M3, M3b, M3c, M3d, M3e, M3f, M1b, M4, M5, M6, M7, M9, M10, M11, VI-03 and VI-09 are
 written now; every later lane writes into its named slot without
@@ -127,7 +127,9 @@ audio or extracted frames.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -248,11 +250,225 @@ M2_STATUS_SAMPLED = "sampled"
 
 
 def memory_root() -> Path:
-    """The per-machine memory root, outside every project and checkout."""
+    """The active project's memory root, or the legacy machine root.
+
+    Pipeline runs identify their project through the event-log path. Their
+    measurements are private by default; cross-project access is an explicit
+    import governed by both projects' ``cross_project_policy.json`` grants.
+    Calls outside a project context retain the legacy root for maintenance
+    and migration tools.
+    """
+    project_folder = _active_project_folder()
+    if project_folder:
+        return project_memory_root(project_folder)
     explicit = os.environ.get(MEMORY_ROOT_ENV)
     if explicit:
         return Path(explicit).expanduser()
     return vep_home() / MEMORY_DIRNAME
+
+
+def _active_project_folder() -> Path | None:
+    """Resolve the project whose pipeline event log is active, if any."""
+    from library.tools import event_log
+
+    log_path = os.environ.get(event_log.EVENT_LOG_ENV)
+    if not log_path:
+        return None
+    path = Path(log_path).expanduser().resolve()
+    try:
+        return path.parents[2]
+    except IndexError:
+        return None
+
+
+def project_memory_root(project_folder: str | os.PathLike) -> Path:
+    """Stable private root for one project's source measurements."""
+    base = (Path(os.environ[MEMORY_ROOT_ENV]).expanduser()
+            if os.environ.get(MEMORY_ROOT_ENV)
+            else vep_home() / MEMORY_DIRNAME)
+    project = Path(project_folder).expanduser().resolve()
+    scope = hashlib.sha256(os.fsencode(project)).hexdigest()
+    return base / "projects" / scope
+
+
+def _project_scoped(function):
+    """Give project-aware entry points a private root outside pipeline runs."""
+    @functools.wraps(function)
+    def wrapped(*args, **kwargs):
+        from library.tools import event_log
+
+        bound = inspect.signature(function).bind_partial(*args, **kwargs)
+        project_folder = bound.arguments.get("project_folder")
+        if project_folder is None:
+            project_folder = bound.arguments.get("project")
+        if project_folder is None:
+            raise TypeError("project-scoped function needs a project path")
+        requested = Path(project_folder).expanduser().resolve()
+        if _active_project_folder() == requested:
+            return function(*args, **kwargs)
+        with event_log.scoped_log(project_folder):
+            return function(*args, **kwargs)
+    return wrapped
+
+
+DETERMINISTIC_SHARE_FILES = frozenset({
+    SLOT_SOURCE,
+    SLOT_FRAMES_INDEX,
+    SLOT_IMAGE_DEFECTS,
+    SLOT_AUDIO_QUALITY,
+    SLOT_REGION_STATS,
+    SLOT_SCENE_CINEMATOGRAPHY,
+})
+"""Deterministic measurements eligible for explicit cross-project import.
+
+Model-derived transcripts, scenes, identities, relationships and world
+models stay outside this list and continue through their licence-aware
+Project Model sharing path.
+"""
+
+
+def import_deterministic_measurements(source_project: str | os.PathLike,
+                                      target_project: str | os.PathLike,
+                                      content_digest: str) -> list[str]:
+    """Copy allowlisted measurements after the caller proves mutual consent.
+
+    The project boundary is enforced by ``cross_project_evidence`` before
+    this function is called. The source project's recorded fingerprint must
+    name the digest; a content-addressed directory alone is not authority.
+    Existing target files are accepted only when their bytes are identical.
+    """
+    import shutil
+
+    source = Path(source_project).expanduser().resolve()
+    target = Path(target_project).expanduser().resolve()
+    if (len(content_digest) != 64
+            or any(char not in "0123456789abcdef" for char in content_digest)):
+        raise ValueError("content_digest must be a lowercase SHA-256 fingerprint")
+    from library.tools import model_evidence_provenance
+    from library.tools.project_graph.cross_project import _policy
+
+    source_policy = _policy(source)
+    target_policy = _policy(target)
+    source_id = source_policy.get("project_id") if source_policy else None
+    target_id = target_policy.get("project_id") if target_policy else None
+    if (not source_id or not target_id
+            or not model_evidence_provenance._mutual_project_share(
+                source, target, source_id, target_id)):
+        raise PermissionError(
+            "deterministic source measurements require mutual project opt-in")
+    recorded = load_recorded_fingerprints(str(source))
+    if not any(row.get("content_digest") == content_digest
+               for row in recorded.values() if isinstance(row, dict)):
+        raise ValueError(
+            f"source project does not record footage digest {content_digest}")
+
+    source_dir_path = project_memory_root(source) / content_digest
+    if not source_dir_path.is_dir():
+        # One-time compatibility for measurements created before project
+        # scoping. The explicit mutual-grant caller names the source project.
+        legacy_root = (Path(os.environ[MEMORY_ROOT_ENV]).expanduser()
+                       if os.environ.get(MEMORY_ROOT_ENV)
+                       else vep_home() / MEMORY_DIRNAME)
+        source_dir_path = legacy_root / content_digest
+    destination = project_memory_root(target) / content_digest
+    if destination.is_symlink():
+        raise ValueError("target source-memory directory is a symlink")
+    pending: list[tuple[Path, Path, str]] = []
+    for name in sorted(DETERMINISTIC_SHARE_FILES):
+        origin = source_dir_path / name
+        if not origin.is_file() or origin.is_symlink():
+            continue
+        try:
+            document = json.loads(origin.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"source measurement is unreadable: {origin}") from exc
+        envelope = (document.get("evidence_envelope")
+                    if isinstance(document, dict) else None)
+        recorded_digest = (document.get("content_digest")
+                           if isinstance(document, dict) else None)
+        recorded_digest = recorded_digest or (
+            envelope.get("content_digest")
+            if isinstance(envelope, dict) else None)
+        if recorded_digest != content_digest:
+            raise ValueError(
+                f"source measurement identity does not match {content_digest}: "
+                f"{name}")
+        target_file = destination / name
+        if target_file.exists():
+            if (target_file.is_symlink()
+                    or target_file.read_bytes() != origin.read_bytes()):
+                raise ValueError(
+                    f"target already has different source measurement {name}")
+            continue
+        pending.append((origin, target_file, name))
+    frames = source_dir_path / SLOT_FRAMES_DIR
+    frame_index = source_dir_path / SLOT_FRAMES_INDEX
+    pending_frames: list[tuple[Path, Path, str]] = []
+    if frame_index.is_symlink():
+        raise ValueError("source frame index is a symlink")
+    if frame_index.exists() != frames.exists():
+        raise ValueError(
+            "source frame index and thumbnail directory must travel together")
+    if frames.is_dir() and not frames.is_symlink() and frame_index.is_file():
+        target_frames = destination / SLOT_FRAMES_DIR
+        try:
+            frame_document = json.loads(frame_index.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError("source frame index is unreadable") from exc
+        if (not isinstance(frame_document, dict)
+                or frame_document.get("content_digest") != content_digest):
+            raise ValueError("source frame index has the wrong content digest")
+        frame_paths = [Path(row["file"])
+                       for row in frame_document.get("frames", [])
+                       if isinstance(row, dict) and row.get("file")]
+        if not frame_paths:
+            raise ValueError("source frame index names no thumbnails")
+        if any(path.is_absolute() or len(path.parts) != 2
+               or path.parts[0] != SLOT_FRAMES_DIR
+               or ".." in path.parts for path in frame_paths):
+            raise ValueError("source frame index contains a non-local path")
+        frame_names = {path.name for path in frame_paths}
+        for path in frames.iterdir():
+            if path.is_symlink() or not path.is_file():
+                raise ValueError("source frame sample contains unsafe entries")
+        if not all((frames / name).is_file() for name in frame_names):
+            raise ValueError("source frame sample is incomplete")
+        if target_frames.exists():
+            if (target_frames.is_symlink() or not target_frames.is_dir()
+                    or any(not (target_frames / name).is_file()
+                           or (target_frames / name).read_bytes()
+                           != (frames / name).read_bytes()
+                           for name in frame_names)):
+                raise ValueError("target already has a different frame sample")
+        else:
+            for name in sorted(frame_names):
+                pending_frames.append((frames / name, target_frames / name, name))
+        target_index = destination / SLOT_FRAMES_INDEX
+        if (target_index.exists()
+                and (target_index.is_symlink()
+                     or target_index.read_bytes() != frame_index.read_bytes())):
+            raise ValueError("target already has a different frame index")
+    imported: list[str] = []
+    for origin, target_file, name in pending:
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(origin, target_file)
+        imported.append(name)
+    if pending_frames:
+        target_frames.mkdir(parents=True, exist_ok=True)
+        for origin, target_file, _name in pending_frames:
+            shutil.copy2(origin, target_file)
+        imported.append(SLOT_FRAMES_DIR)
+    from library.tools import event_log
+    event_log.emit(
+        str(target), "source_memory_shared",
+        task="cross-project-evidence",
+        source_project_id=source_id,
+        target_project_id=target_id,
+        content_digest=content_digest,
+        slots=imported,
+        reason="mutual cross-project opt-in")
+    return imported
 
 
 def source_dir(content_digest: str, root: Optional[Path] = None) -> Path:
@@ -1869,6 +2085,7 @@ def _run_clip_tasks(label: str, units, run_one) -> dict:
             for task_id in clip_of}
 
 
+@_project_scoped
 def build_project(project_folder: str,
                   clip_ids: Optional[List[str]] = None,
                   root: Optional[Path] = None) -> dict:
@@ -2117,6 +2334,7 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
                        "total": round(time.perf_counter() - started, 1)}}
 
 
+@_project_scoped
 def build_project_frames(project_folder: str,
                          clip_ids: Optional[List[str]] = None,
                          root: Optional[Path] = None,

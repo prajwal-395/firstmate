@@ -28,6 +28,45 @@ from library.tools.analysis import measurement_layers as ml
 from library.tools.analysis import vision_pipeline_v3 as vp
 
 
+def test_project_context_selects_a_private_source_memory_root(tmp_path, monkeypatch):
+    from library.tools import event_log
+
+    monkeypatch.delenv(source_memory.MEMORY_ROOT_ENV, raising=False)
+    monkeypatch.setattr(source_memory, "vep_home", lambda: tmp_path / "ren-home")
+    first = tmp_path / "projects" / "first"
+    second = tmp_path / "projects" / "second"
+    monkeypatch.setenv(event_log.EVENT_LOG_ENV,
+                       str(event_log.log_path(first)))
+    first_root = source_memory.memory_root()
+    first_semantic_root = ml.store_root()
+    monkeypatch.setenv(event_log.EVENT_LOG_ENV,
+                       str(event_log.log_path(second)))
+    second_root = source_memory.memory_root()
+    second_semantic_root = ml.store_root()
+
+    assert first_root == source_memory.project_memory_root(first)
+    assert second_root == source_memory.project_memory_root(second)
+    assert first_root != second_root
+    assert first_semantic_root == first_root
+    assert second_semantic_root == second_root
+
+
+def test_project_scoped_reader_finds_project_path_after_other_arguments(
+        tmp_path, monkeypatch):
+    from library.tools import event_log
+
+    monkeypatch.delenv(event_log.EVENT_LOG_ENV, raising=False)
+    monkeypatch.delenv(source_memory.MEMORY_ROOT_ENV, raising=False)
+    monkeypatch.setattr(source_memory, "vep_home", lambda: tmp_path / "ren-home")
+    project = tmp_path / "project"
+
+    @source_memory._project_scoped
+    def reader(_document, project_folder):
+        return source_memory.memory_root()
+
+    assert reader({}, project) == source_memory.project_memory_root(project)
+
+
 @pytest.fixture
 def memory_root(tmp_path, monkeypatch):
     """An isolated memory root: nothing touches the machine store."""

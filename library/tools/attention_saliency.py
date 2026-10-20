@@ -149,6 +149,7 @@ def build_source_saliency(source_file: str, content_digest: str,
             "wall_seconds": record["instrument"]["wall_seconds"]}
 
 
+@source_memory._project_scoped
 def build_project_saliency(project_folder: str,
                            clip_ids: list[str] | None = None,
                            root: Path | None = None) -> dict:

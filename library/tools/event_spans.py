@@ -1200,6 +1200,7 @@ def catalog_sources(project_folder: str) -> List[Tuple[str, str, str]]:
     return out
 
 
+@source_memory._project_scoped
 def build_project_events(project_folder: str,
                          root: Optional[Path] = None) -> dict:
     """M7 for every catalog source that carries M3 and M3b.
@@ -1436,6 +1437,7 @@ def _candidate_spans(person: dict, predicate: str,
     return sorted(spans, key=lambda s: (s["source_file"], s["start"]))
 
 
+@source_memory._project_scoped
 def verified_query(project_folder: str, person_query: str, predicate: str,
                    statement: str, root: Optional[Path] = None,
                    model=None, max_tier: Optional[int] = None) -> dict:
@@ -1540,6 +1542,7 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
     }
 
 
+@source_memory._project_scoped
 def query(project_folder: str, person_query: str, predicate: str,
           root: Optional[Path] = None) -> dict:
     """person x predicate -> source spans -> every angle -> timeline items.

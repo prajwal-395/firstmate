@@ -77,6 +77,7 @@ import os
 import sys
 from pathlib import Path
 
+from library.tools import source_memory
 from library.tools.ren_refusal import RenRefusal
 
 KIND_SOURCE = "source"
@@ -398,6 +399,7 @@ def _place(sources: list[dict]) -> list[dict]:
     return [s for s in sources if s.get("placed")]
 
 
+@source_memory._project_scoped
 def build(project_folder: str, sources: list[dict] | None = None,
           previous: dict | None = None) -> dict:
     """The transcript document, heard from the footage. Writes nothing."""
@@ -488,6 +490,7 @@ def build(project_folder: str, sources: list[dict] | None = None,
     return document
 
 
+@source_memory._project_scoped
 def ensure(project_folder: str) -> dict:
     """The project's transcript, heard from source when it has none.
 

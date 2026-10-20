@@ -643,6 +643,7 @@ def timeline_item_for_source_time(project_folder: str, source_file: str,
 # ── Building M6 ──────────────────────────────────────────────────────
 
 
+@source_memory._project_scoped
 def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
     """Discover multicam groups across a project's catalog and write M6.
 
@@ -742,6 +743,7 @@ def build_project(project_folder: str, root: Optional[Path] = None) -> dict:
             "skipped": skipped}
 
 
+@source_memory._project_scoped
 def status_report(project_folder: str, root: Optional[Path] = None) -> dict:
     """Per-clip clock state, reading only what `build_project` wrote."""
     catalog = source_memory.load_catalog(project_folder)

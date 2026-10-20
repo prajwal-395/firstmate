@@ -214,6 +214,7 @@ def _select_m2_frames(m2_frames: list, step_s: float) -> list:
     return selected
 
 
+@source_memory._project_scoped
 def build_frame_index(project_folder, index_dir=None,
                       step_s: float = FRAME_STEP_S, verbose=False) -> dict:
     """Embed a `step_s`-spaced thinning of every clip's M2 sample.

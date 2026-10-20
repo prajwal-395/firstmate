@@ -762,6 +762,7 @@ def _has_visual_intent(query: str) -> bool:
 # ─── Building ─────────────────────────────────────────────────────
 
 
+@source_memory._project_scoped
 def sound_events_for_project(project_folder) -> tuple:
     """PANNs sound events per clip, from the M5 slot (`sound.json`).
 
@@ -793,6 +794,7 @@ def sound_events_for_project(project_folder) -> tuple:
     return events_by_clip, methods
 
 
+@source_memory._project_scoped
 def audio_classification_for_project(project_folder) -> dict:
     """Audio classification per clip, from the M5 slot (`sound.json`).
 
@@ -820,6 +822,7 @@ def audio_classification_for_project(project_folder) -> dict:
     return by_clip
 
 
+@source_memory._project_scoped
 def ocr_texts_for_project(project_folder) -> tuple:
     """On-screen text per clip, from step 1.07's `ocr_result.json` files.
 
@@ -854,6 +857,7 @@ def ocr_texts_for_project(project_folder) -> tuple:
 
 
 @perf_ledger.measured("footage_index_build")
+@source_memory._project_scoped
 def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=False,
                 embedder="minilm", video_chunks=False,
                 unified_anchors=False) -> dict:
@@ -4430,6 +4434,7 @@ def json_answer(*, query, mode, floor=None, weak_floor=None, abstained=False,
 
 
 @perf_ledger.measured("footage_search")
+@source_memory._project_scoped
 def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,
@@ -4522,6 +4527,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
     return answer
 
 
+@source_memory._project_scoped
 def where_answer(project_folder, person, at=None, memory_root=None) -> dict:
     """Where one person is: every M3d region track they own, or the one
     region at `at` seconds (MU-09, `ren where`).

@@ -327,20 +327,27 @@ def plan() -> dict:
             f"source-memory root {memory_root} is outside Ren's data home "
             f"{home}; refusing cross-root collection")
     if mode != KEEP and memory_root.exists():
-        for entry in sorted(memory_root.iterdir()):
-            if (not entry.is_dir() or entry.is_symlink()
-                    or entry.name in digests):
-                continue
-            # Keep malformed or non-content-addressed directories. Only a
-            # 64-character digest directory has the cache's owned shape.
-            if len(entry.name) != 64 or any(c not in "0123456789abcdef" for c in entry.name):
-                continue
-            files = list(_files(entry))
-            for path in files:
-                if _protected(path) or path.stat().st_nlink != 1:
+        scopes = [memory_root]
+        project_scopes = memory_root / "projects"
+        if project_scopes.is_dir() and not project_scopes.is_symlink():
+            scopes.extend(path for path in sorted(project_scopes.iterdir())
+                          if path.is_dir() and not path.is_symlink())
+        for scope in scopes:
+            for entry in sorted(scope.iterdir()):
+                if (not entry.is_dir() or entry.is_symlink()
+                        or entry.name in digests):
                     continue
-                candidates.append(_entry(
-                    path, "source digest has no project-state reference"))
+                # Keep malformed or non-content-addressed directories. Only a
+                # 64-character digest directory has the cache's owned shape.
+                if (len(entry.name) != 64 or any(
+                        c not in "0123456789abcdef" for c in entry.name)):
+                    continue
+                files = list(_files(entry))
+                for path in files:
+                    if _protected(path) or path.stat().st_nlink != 1:
+                        continue
+                    candidates.append(_entry(
+                        path, "source digest has no project-state reference"))
 
     scratch = home / "scratch"
     if scratch.is_dir():

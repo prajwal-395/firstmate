@@ -30,16 +30,12 @@ does not decide, does not soften, and does not have a second path
 around it: a row the gate refuses is refused here, with the gate's own
 reason.
 
-**Deterministic measurements are not in this path.** A row with no
-model provenance has no licence record, and the gate fails closed on
-those. That is the right answer for a MODEL-derived row, and the wrong
-one for a deterministic measurement - but the deterministic measurements
-are already shared machine-wide by the per-source memory, keyed by
-content digest, so excluding them here excludes nothing that is not
-already available. What this path adds is the part that was NOT
-shared: model-derived intelligence, gated and audited.
+**Deterministic measurements use a separate explicit import.** They now
+live in project-private source-memory roots. This command imports the
+deterministic slot allowlist only after mutual project consent; model-
+derived observations continue through the licence gate and audit below.
 
-**The import is a merge, not a copy.** The rows go into the target's
+**The Project Model import is a merge, not a copy.** Its rows go into the target's
 canonical model by stable id, under a compare-and-swap against the
 target's current revision. The target must already hold the asset and
 the clock the rows sit on - the ids are derived from the content
@@ -157,6 +153,7 @@ def share_evidence(source_project: str | Path, target_project: str | Path, *,
         "target_project_id": target_id,
         "opt_in": "absent",
         "shared": [],
+        "measurements_shared": {},
         "refused": [],
         "imported": False,
         "target_revision": None,
@@ -171,6 +168,29 @@ def share_evidence(source_project: str | Path, target_project: str | Path, *,
                             "cross-project access")
         return report
     report["opt_in"] = "mutual"
+
+    # Deterministic source measurements live in project-private stores.
+    # Import them only after the same mutual grant checked above; model
+    # outputs remain on the separate licence-aware path below.
+    if not dry_run:
+        from library.tools import source_memory
+        source_fingerprints = source_memory.load_recorded_fingerprints(
+            str(source_root))
+        digests = ([digest] if digest else sorted({
+            str(row["content_digest"])
+            for row in source_fingerprints.values()
+            if isinstance(row, dict) and row.get("content_digest")}))
+        for source_digest in digests:
+            try:
+                imported = source_memory.import_deterministic_measurements(
+                    source_root, target_root, source_digest)
+            except (OSError, ValueError, TypeError) as exc:
+                report["refused"].append({
+                    "content_digest": source_digest,
+                    "reason": f"deterministic measurement import refused: {exc}"})
+                continue
+            if imported:
+                report["measurements_shared"][source_digest] = imported
 
     from library.tools import project_model_store
     from library.tools import model_evidence_provenance
@@ -197,7 +217,7 @@ def share_evidence(source_project: str | Path, target_project: str | Path, *,
     audit_path = (target_root / project_model_store.STORE_DIR /
                   model_evidence_provenance.AUDIT_FILE)
     shared: list[dict[str, Any]] = []
-    refused: list[dict[str, Any]] = []
+    refused: list[dict[str, Any]] = list(report["refused"])
     for row in rows:
         record, producer = _model_provenance(row)
         if record is None or producer is None:

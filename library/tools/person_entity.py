@@ -919,6 +919,7 @@ def build_source_identity(source_file: str,
            "voice_measurement_reused": voice_measurement_reused}
 
 
+@source_memory._project_scoped
 def build_project_identity(project_folder: str,
                            clip_ids: Optional[List[str]] = None,
                            root: Optional[Path] = None) -> dict:
@@ -984,6 +985,7 @@ def read_identity(content_digest: str,
     return doc if isinstance(doc, dict) else None
 
 
+@source_memory._project_scoped
 def declared_person_names(project_folder: str) -> Dict[str, str]:
     """`{person_id: declared name}` from `source.person_names` in
     project.yaml, or `{}` undeclared. A name is a human label on a
@@ -997,6 +999,7 @@ def declared_person_names(project_folder: str) -> Dict[str, str]:
            if isinstance(v, str) and v.strip()}
 
 
+@source_memory._project_scoped
 def resolve_person_tracks(project_folder: str,
                           root: Optional[Path] = None) -> dict:
     """The project's person roster: face tracks unified across every
@@ -1127,6 +1130,7 @@ def resolve_person_tracks(project_folder: str,
            "persons": out}
 
 
+@source_memory._project_scoped
 def find_person(project_folder: str, query: str,
                 root: Optional[Path] = None) -> Optional[dict]:
     """One person from `resolve_person_tracks`, by person_id or declared

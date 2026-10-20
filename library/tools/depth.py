@@ -538,6 +538,7 @@ def read_m3g(content_digest: str,
     return doc
 
 
+@source_memory._project_scoped
 def build_project_depth(project_folder: str,
                         clip_ids: list[str] | None = None,
                         root: Path | None = None) -> dict:
