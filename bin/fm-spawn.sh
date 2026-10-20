@@ -2858,6 +2858,7 @@ esac
 OPENCODE_WORKSPACE=main
 OPENCODE_SECOND_DB=
 OPENCODE_MAIN_DB=
+OPENCODE_TASK_DB=
 OPENCODE_SECOND_ORG=
 OPENCODE_MAIN_ORG=
 # The shared-server experiment (docs/configuration.md "Shared OpenCode
@@ -2919,29 +2920,43 @@ fi
 # which models bill a Go workspace). This runs after the secondmate-harness
 # tokens above so the pin decision reads the final MODEL. A pin applies only
 # to a launch that actually bills a Go workspace: the free model and every
-# other non-Go model launch exactly as before, pinned to nothing, so
-# discovering or requiring a workspace never blocks them - including on a
-# host with no console login. An explicit secondary workspace keeps its pin
-# whatever the model. In a home with a configured second workspace every Go
+# other non-Go model remain outside the workspace pin flow, so discovering or
+# requiring a workspace never blocks them - including on a host with no
+# console login. Unpinned standalone launches use an empty per-task database
+# to keep their event data out of the machine-wide database. An explicit
+# secondary workspace keeps its pin whatever the model. In a home with a
+# configured second workspace every Go
 # launch rides its own pin, main and secondary alike: an unpinned main launch
 # would inherit the machine-wide active workspace and bill the capped
 # secondary plan while its record reads main, so a main pin that cannot be
 # proven refuses the launch rather than running unpinned. Without a
-# configured second workspace the main workspace runs exactly as today.
+# configured second workspace the main workspace still runs without a
+# workspace pin.
 if [ "$OPENCODE_WORKSPACE" = secondary ]; then
   OPENCODE_SECOND_ORG=$(fm_opencode_workspace_org "$OPENCODE_WORKSPACE") || exit 1
 elif [ "$HARNESS" = opencode ] && fm_opencode_model_bills_go "$MODEL" 2>/dev/null \
   && fm_opencode_second_configured 2>/dev/null; then
   OPENCODE_MAIN_ORG=$(fm_opencode_main_org_ensure "$(fm_opencode_second_config_dir)") || exit 1
 fi
-# opencode_task_db: the standalone launch's private copy of its workspace pin.
-# An attached worker needs none: its server runs on that server's own proven
-# copy (bin/fm-opencode-server.sh).
+# opencode_task_db: the standalone launch's private workspace copy, or its
+# empty task-local database when no workspace pin applies. An attached worker
+# needs none: its server runs on that server's own proven copy
+# (bin/fm-opencode-server.sh).
 opencode_task_db() {
   if [ -n "$OPENCODE_SECOND_ORG" ]; then
     OPENCODE_SECOND_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_SECOND_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
   elif [ -n "$OPENCODE_MAIN_ORG" ]; then
     OPENCODE_MAIN_DB=$(fm_opencode_workspace_db_for_task "$OPENCODE_WORKSPACE" "$OPENCODE_MAIN_ORG" "$(fm_opencode_second_config_dir)" "$ID" "$STATE") || return 1
+  elif [ "$HARNESS" = opencode ] && [ "$KIND" != secondmate ]; then
+    # Unpinned standalone workers still need a task-private database so
+    # OpenCode cannot grow its machine-wide event log. Keep an existing file
+    # intact across relaunches; OpenCode initializes an empty file itself.
+    OPENCODE_TASK_DB="$STATE/$ID.opencode.db"
+    if [ ! -e "$OPENCODE_TASK_DB" ]; then
+      (umask 077; set -C; : > "$OPENCODE_TASK_DB") 2>/dev/null \
+        || [ -e "$OPENCODE_TASK_DB" ] || return 1
+    fi
+    chmod 600 "$OPENCODE_TASK_DB" 2>/dev/null || return 1
   fi
 }
 [ "$OPENCODE_SHARED_SERVER" -eq 1 ] || opencode_task_db || exit 1
@@ -6440,7 +6455,7 @@ fi
 # the workspace resolved above, before any endpoint or record existed; a Go
 # launch whose resolved workspace the pin cannot prove is refused rather than
 # launched unpinned, so a Go launch never runs on a workspace the ladder did
-# not choose. A non-Go launch carries no pin by construction.
+# not choose. A non-Go launch carries no workspace pin by construction.
 if [ -n "$OPENCODE_SERVER_SESSION" ]; then
   # The workspace pin rides the server's own proven database instead.
   :
@@ -6452,6 +6467,8 @@ elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = secondary ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_SECOND_DB") $LAUNCH"
 elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_MAIN_DB" ]; then
   LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_MAIN_DB") $LAUNCH"
+elif [ "$HARNESS" = opencode ] && [ -n "$OPENCODE_TASK_DB" ]; then
+  LAUNCH="OPENCODE_DB=$(shell_quote "$OPENCODE_TASK_DB") $LAUNCH"
 elif [ "$HARNESS" = opencode ] && [ "$OPENCODE_WORKSPACE" = main ] \
   && fm_opencode_model_bills_go "$MODEL" 2>/dev/null && fm_opencode_second_configured 2>/dev/null; then
   echo "error: task $ID is on the main OpenCode workspace but its pinned database is missing; refusing to launch unpinned" >&2

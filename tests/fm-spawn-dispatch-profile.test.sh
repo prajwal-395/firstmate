@@ -2519,7 +2519,7 @@ test_opencode_second_workspace_pins_launch() {
   pass "a capped Go rung pins the launch to the second workspace"
 }
 
-test_opencode_main_workspace_launch_is_unpinned_without_second() {
+test_opencode_main_workspace_launch_uses_task_db_without_second() {
   local rec id out status launch
   id=profile-main-workspace-z31
   rec=$(make_spawn_case profile-main-workspace opencode "$id")
@@ -2533,8 +2533,10 @@ test_opencode_main_workspace_launch_is_unpinned_without_second() {
   assert_grep 'model=opencode-go/muse-spark-1.3-contributor' "$HOME_DIR/state/$id.meta" "the routed Go model was not recorded"
   assert_not_contains "$(cat "$HOME_DIR/state/$id.meta")" "opencode_workspace" "a main-workspace launch must record no marker"
   launch=$(cat "$LAUNCH_LOG")
-  assert_not_contains "$launch" "OPENCODE_DB=" "a single-workspace main launch must not pin a database"
-  pass "an uncapped Go rung without a second workspace launches unpinned exactly as before"
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
+    "a single-workspace main launch must keep its sessions in the per-task database"
+  [ -f "$HOME_DIR/state/$id.opencode.db" ] || fail "the single-workspace task database was not created"
+  pass "an uncapped Go rung without a second workspace uses its per-task database"
 }
 
 test_opencode_main_workspace_pins_launch_when_second_configured() {
@@ -2635,8 +2637,15 @@ test_opencode_free_launch_ignores_an_inherited_second_workspace() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--model 'opencode/muse-spark-1.3-contributor-free'" \
     "the launch did not carry the free model id"
-  assert_not_contains "$launch" "OPENCODE_DB=" "a free launch must ride no workspace pin"
-  pass "a free launch with an inherited second workspace and no login runs unpinned"
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
+    "an unpinned OpenCode launch must use its per-task database, not the machine-wide default"
+  [ -f "$HOME_DIR/state/$id.opencode.db" ] \
+    || fail "the unpinned launch did not create its per-task database"
+  [ ! -s "$HOME_DIR/state/$id.opencode.db" ] \
+    || fail "a new unpinned task database must be empty for OpenCode to initialize"
+  [ "$(stat -f '%Lp' "$HOME_DIR/state/$id.opencode.db" 2>/dev/null || stat -c '%a' "$HOME_DIR/state/$id.opencode.db")" = 600 ] \
+    || fail "the unpinned task database must have mode 600"
+  pass "the unpinned OpenCode launch regression uses a fresh private per-task database"
 }
 
 test_opencode_free_launch_ignores_an_inherited_main_org() {
@@ -2655,7 +2664,8 @@ test_opencode_free_launch_ignores_an_inherited_main_org() {
   unset FM_FAKE_OPENCODE_DATA
   expect_code 0 "$status" "a free launch must not touch an inherited main id without a login: $out"
   launch=$(cat "$LAUNCH_LOG")
-  assert_not_contains "$launch" "OPENCODE_DB=" "a free launch must ride no workspace pin"
+  assert_contains "$launch" "OPENCODE_DB='$HOME_DIR/state/$id.opencode.db'" \
+    "a free launch with an inherited main org must still use its per-task database"
   [ ! -e "$HOME_DIR/config/opencode-main.db" ] \
     || fail "a free launch must not build a main pin database"
   pass "a free launch with an inherited main id and no login runs unpinned"
@@ -2836,7 +2846,7 @@ test_memory_pressure_defers_fresh_spawn_and_nice_is_applied
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_opencode_second_workspace_pins_launch
-test_opencode_main_workspace_launch_is_unpinned_without_second
+test_opencode_main_workspace_launch_uses_task_db_without_second
 test_opencode_main_workspace_pins_launch_when_second_configured
 test_opencode_main_launch_refuses_when_pin_unprovable
 test_opencode_shared_server_attaches_worker_to_its_own_session

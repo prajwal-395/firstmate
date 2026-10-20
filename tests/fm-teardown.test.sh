@@ -3353,6 +3353,24 @@ test_teardown_retires_task_watcher_markers_and_orphan_journal() {
   pass "teardown retires the task's own watcher markers and orphaned presentation journal, leaving other tasks' markers alone"
 }
 
+test_teardown_retires_unpinned_opencode_task_database() {
+  local case_dir
+  case_dir=$(make_case retire-opencode-task-db)
+  write_meta "$case_dir" local-only ship
+  printf '%s\n' 'private task database' > "$case_dir/state/task-x1.opencode.db"
+  printf '%s\n' 'private wal' > "$case_dir/state/task-x1.opencode.db-wal"
+  printf '%s\n' 'private shm' > "$case_dir/state/task-x1.opencode.db-shm"
+  printf '%s\n' 'another task database' > "$case_dir/state/task-y2.opencode.db"
+
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "retire-opencode-task-db: teardown failed: $(cat "$case_dir/stderr")"
+  for file in task-x1.opencode.db task-x1.opencode.db-wal task-x1.opencode.db-shm; do
+    assert_absent "$case_dir/state/$file" "teardown left the retired task's OpenCode database artifact"
+  done
+  assert_present "$case_dir/state/task-y2.opencode.db" "teardown removed another task's OpenCode database"
+  pass "teardown removes an unpinned task's private OpenCode database and sidecars"
+}
+
 test_teardown_retains_journal_bound_to_another_pane() {
   local case_dir log closed restored
   case_dir=$(make_case retain-drifted-journal)
@@ -4784,6 +4802,7 @@ test_herdr_projection_teardown_retires_journal_only_after_confirmed_close
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed
 test_herdr_projection_teardown_surfaces_restore_failure_without_blocking_cleanup
 test_teardown_retires_task_watcher_markers_and_orphan_journal
+test_teardown_retires_unpinned_opencode_task_database
 test_teardown_retains_journal_bound_to_another_pane
 test_teardown_retires_v1_journal_when_projected_workspace_gone
 test_teardown_retains_v1_journal_when_projected_workspace_present
