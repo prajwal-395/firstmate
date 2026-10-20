@@ -97,7 +97,7 @@ import argparse
 import importlib.util
 import json
 import sys
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -2536,13 +2536,28 @@ def catalog() -> dict:
                            for op in _REGISTRY]}
 
 
-def emit_skill() -> str:
+def emit_skill(only: Sequence[str] | None = None) -> str:
     """The registry, rendered as an agent skill.
 
     A projection, never a source: a hand-written skill would state its
     prerequisites in prose, which is the defect being removed.  Generated,
     the prose cannot drift, and the registry stays the only contract.
+
+    `only` renders the named operations and nothing else - the slice a
+    task that touches two operations needs, instead of the whole
+    fifty-three-row roster. The default is every operation, byte for byte,
+    because the checked-in skill IS that.
     """
+    selected = None
+    if only is not None:
+        wanted = {str(name) for name in only}
+        known = {op.name for op in _REGISTRY}
+        unknown = sorted(wanted - known)
+        if unknown:
+            raise KeyError(
+                f"unknown operation(s) {unknown}; the registry holds "
+                f"{len(known)} operations")
+        selected = [op for op in _REGISTRY if op.name in wanted]
     out = [
         "---",
         "name: pipeline_operations",
@@ -2565,7 +2580,7 @@ def emit_skill() -> str:
     out += ["", "## Operations", "",
             "| operation | owning node | scopes | what it does |",
             "|---|---|---|---|"]
-    for op in _REGISTRY:
+    for op in (selected if selected is not None else _REGISTRY):
         out.append(f"| `{op.name}` | `{op.legacy_node}` | "
                    f"{', '.join(op.scopes)} | {op.summary} |")
     # The registry export boundary: every capability's protocol
@@ -2587,6 +2602,150 @@ def emit_skill() -> str:
     return "\n".join(out)
 
 
+#: The column header the three single-row reference tables share.
+_STATUS_HEADER = ("| operation | implementation status | required parameters | "
+                  "defined | compilable | qualified | production enabled | "
+                  "verification contract |\n"
+                  "|---|---|---|---:|---:|---:|---:|---|")
+
+#: The column header the capability matrix shares.
+_MATRIX_HEADER = ("| operation | implementation status | defined | implemented | "
+                  "live-qualified | production-enabled | backend evidence | "
+                  "qualification limits | target strategy | safety class | "
+                  "minimal safe mechanism | inverse / recovery | unsupported "
+                  "native state | measured cost |\n"
+                  "|---|---|---:|---:|---:|---:|---|---|---|---|---|---|---|---|")
+
+#: The column header the recovery table uses.
+_RECOVERY_HEADER = ("| operation | inverse | self inverse | irreversible reason |"
+                    "\n|---|---|---|---|")
+
+#: The column header the backend-limitations table uses.
+_LIMITATION_HEADER = ("| operation | backend | compilable | qualified | "
+                       "production enabled | limitations | evidence |\n"
+                       "|---|---|---:|---:|---:|---|---|")
+
+
+def _status_row(status) -> str:
+    """One operation's row in the single-row reference tables."""
+    params = ", ".join(f"`{name}`" for name in
+                       status.param_schema["required"]) or "none"
+    return (f"| `{status.id}` | {status.implementation_status} | {params} | "
+            f"yes | {'yes' if status.compilable else 'no'} | "
+            f"{'yes' if status.qualified else 'no'} | "
+            f"{'yes' if status.production_enabled else 'no'} | "
+            f"{status.verification_contract} |")
+
+
+def _matrix_row(status) -> str:
+    """One operation's row in the capability matrix."""
+    from library.tools import edit_algebra
+
+    inverse = status.inverse_recovery
+    proven = [backend.backend for backend in status.backends
+              if edit_algebra.proven_inverse(status.id, backend.backend)]
+    inv = (f"{inverse.get('op') or 'none'}; self-inverse={inverse.get('self_inverse')}; "
+           f"proven on {', '.join(proven) if proven else 'no backend'}; "
+           f"{inverse.get('irreversible_reason') or 'no irreversible reason recorded'}")
+    cost = status.measured_cost or {"status": "unmeasured"}
+    wall = f"{cost['wall_s']}s" if "wall_s" in cost else "not recorded"
+    lease = (f"{cost['exclusive_lease_hold_s']}s"
+             if "exclusive_lease_hold_s" in cost else "not recorded")
+    resolve_ops = (f"{cost['resolve_ops_s']}s"
+                   if "resolve_ops_s" in cost else "not recorded")
+    cost_text = (f"{cost.get('scenario', 'unmeasured')}; wall={wall}; "
+                 f"lease={lease}; Resolve ops={resolve_ops}")
+    backend_text = "; ".join(
+        f"{backend.backend}: implemented={'yes' if backend.compilable else 'no'}, "
+        f"qualification_status={backend.qualification_status}, "
+        f"qualified={'yes' if backend.qualified else 'no'}, "
+        f"enabled={'yes' if backend.production_enabled else 'no'}, "
+        f"Resolve={backend.resolve_version or 'unrecorded'}, "
+        f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
+        f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
+        f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
+        f"visual={','.join(backend.visual_verification) or 'not specified'}, "
+        f"audio={','.join(backend.audio_verification) or 'not specified'}, "
+        f"recovery={backend.recovery_qualification}, "
+        f"evidence={','.join(backend.qualification_evidence) or 'none'}"
+        for backend in status.backends) or "no executor advertised"
+    qualification_text = "; ".join(
+        f"{backend.backend}: Resolve={backend.resolve_version or 'unrecorded'}, "
+        f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
+        f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
+        f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
+        f"visual={','.join(backend.visual_verification) or 'not specified'}, "
+        f"audio={','.join(backend.audio_verification) or 'not specified'}, "
+        f"recovery={backend.recovery_qualification}"
+        for backend in status.backends) or "no backend qualification"
+    return (f"| `{status.id}` | {status.implementation_status} | yes | "
+            f"{'yes' if status.compilable else 'no'} | "
+            f"{'yes' if status.qualified else 'no'} | "
+            f"{'yes' if status.production_enabled else 'no'} | "
+            f"{backend_text} | {qualification_text} | "
+            f"{status.target_strategy} | {status.safety_class} | "
+            f"{status.minimal_safe_mechanism} | {inv} | "
+            f"not preservation-qualified: {', '.join(status.unsupported_native_state)} "
+            f"| {cost_text} |")
+
+
+def _recovery_row(status) -> str:
+    """One operation's row in the recovery table."""
+    inverse = status.inverse_recovery
+    reason = str(inverse.get("irreversible_reason") or "none").replace("|", "\\|")
+    return (f"| `{status.id}` | `{inverse.get('op') or 'none'}` | "
+            f"{inverse.get('self_inverse')} | {reason} |")
+
+
+def _limitation_rows(status) -> list[str]:
+    """One operation's rows in the backend-limitations table."""
+    rows = []
+    for backend in status.backends:
+        limits = "; ".join(backend.limitations).replace("|", "\\|")
+        evidence = ", ".join(f"`{path}`" for path in
+                             backend.qualification_evidence) or "none"
+        rows.append(
+            f"| `{status.id}` | `{backend.backend}` | yes | "
+            f"{'yes' if backend.qualified else 'no'} | "
+            f"{'yes' if backend.production_enabled else 'no'} | "
+            f"{limits} | {evidence} |")
+    return rows
+
+
+def reference_sections(operation_id: str) -> dict[str, str]:
+    """One operation's rows, from every reference file, and nothing else.
+
+    The six generated references are 141 KB of flat tables - one row per
+    operation per dimension - and a task that touches one operation needs
+    about one row. This is the narrow read: the SAME rows the files
+    carry, computed from `edit_algebra.OP_STATUS` rather than parsed back
+    out of the markdown, so the slice cannot drift from the registry.
+
+    A file the operation has no row in comes back empty, which is the
+    answer too: `transactions.md` lists only the compilable operations,
+    so an operation that is not compilable has no transaction row.
+    """
+    from library.tools import edit_algebra
+
+    status = edit_algebra.OP_STATUS.get(str(operation_id))
+    if status is None:
+        raise KeyError(
+            f"unknown operation {operation_id!r}; the registry holds "
+            f"{len(edit_algebra.OP_STATUS)} operations")
+    return {
+        "concepts.md": f"{_STATUS_HEADER}\n{_status_row(status)}\n",
+        "transactions.md": (f"{_STATUS_HEADER}\n{_status_row(status)}\n"
+                            if status.compilable else ""),
+        "capability-matrix.md": f"{_MATRIX_HEADER}\n{_matrix_row(status)}\n",
+        "verification.md": f"{_STATUS_HEADER}\n{_status_row(status)}\n",
+        "recovery.md": f"{_RECOVERY_HEADER}\n{_recovery_row(status)}\n",
+        "backend-limitations.md": (
+            f"{_LIMITATION_HEADER}\n"
+            + ("\n".join(_limitation_rows(status)) + "\n"
+               if _limitation_rows(status) else "")),
+    }
+
+
 def emit_resolve_axi_references() -> dict[str, str]:
     """Project the editing algebra's executable status into AXI references.
 
@@ -2604,19 +2763,10 @@ def emit_resolve_axi_references() -> dict[str, str]:
         for status in statuses:
             if not select(status):
                 continue
-            params = ", ".join(f"`{name}`" for name in
-                               status.param_schema["required"]) or "none"
-            rows.append(
-                f"| `{status.id}` | {status.implementation_status} | {params} | yes | "
-                f"{'yes' if status.compilable else 'no'} | "
-                f"{'yes' if status.qualified else 'no'} | "
-                f"{'yes' if status.production_enabled else 'no'} | "
-                f"{status.verification_contract} |")
+            rows.append(_status_row(status))
         return rows
 
-    header = ("| operation | implementation status | required parameters | defined | compilable | "
-              "qualified | production enabled | verification contract |\n"
-              "|---|---|---|---:|---:|---:|---:|---|")
+    header = _STATUS_HEADER
     concepts = ["# Capability concepts", "", "Generated from `edit_algebra.OP_STATUS`.",
                 "", "Operation ids are editorial semantics. `defined` says the id is in the vocabulary; `compilable` says a listed backend can emit a write; qualification status is one of not_qualified, evidence_incomplete, qualified or production_enabled. Evidence paths alone do not qualify a backend; production routing requires the full version, media, timeline, preservation, verification and recovery record.",
                 "", "## Operation vocabulary", "", header]
@@ -2635,53 +2785,10 @@ def emit_resolve_axi_references() -> dict[str, str]:
          "Native state listed here lacks a preservation qualification for this operation."),
         ("Costs are live VC-02 measurements from the controlled Ren Qualification fixture; combined scenarios are labeled. "
          "Unmeasured means no operation-specific measurement is recorded."), "",
-        "| operation | implementation status | defined | implemented | live-qualified | production-enabled | backend evidence | qualification limits | target strategy | safety class | minimal safe mechanism | inverse / recovery | unsupported native state | measured cost |",
-        "|---|---|---:|---:|---:|---:|---|---|---|---|---|---|---|---|",
+        _MATRIX_HEADER,
     ]
     for status in statuses:
-        inverse = status.inverse_recovery
-        proven = [backend.backend for backend in status.backends
-                  if edit_algebra.proven_inverse(status.id, backend.backend)]
-        inv = (f"{inverse.get('op') or 'none'}; self-inverse={inverse.get('self_inverse')}; "
-               f"proven on {', '.join(proven) if proven else 'no backend'}; "
-               f"{inverse.get('irreversible_reason') or 'no irreversible reason recorded'}")
-        cost = status.measured_cost or {"status": "unmeasured"}
-        wall = f"{cost['wall_s']}s" if "wall_s" in cost else "not recorded"
-        lease = (f"{cost['exclusive_lease_hold_s']}s"
-                 if "exclusive_lease_hold_s" in cost else "not recorded")
-        resolve_ops = (f"{cost['resolve_ops_s']}s"
-                       if "resolve_ops_s" in cost else "not recorded")
-        cost_text = (f"{cost.get('scenario', 'unmeasured')}; wall={wall}; "
-                     f"lease={lease}; Resolve ops={resolve_ops}")
-        backend_text = "; ".join(
-            f"{backend.backend}: implemented={'yes' if backend.compilable else 'no'}, "
-            f"qualification_status={backend.qualification_status}, "
-            f"qualified={'yes' if backend.qualified else 'no'}, "
-            f"enabled={'yes' if backend.production_enabled else 'no'}, "
-            f"Resolve={backend.resolve_version or 'unrecorded'}, "
-            f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
-            f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
-            f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
-            f"visual={','.join(backend.visual_verification) or 'not specified'}, "
-            f"audio={','.join(backend.audio_verification) or 'not specified'}, "
-            f"recovery={backend.recovery_qualification}, "
-            f"evidence={','.join(backend.qualification_evidence) or 'none'}"
-            for backend in status.backends) or "no executor advertised"
-        qualification_text = "; ".join(
-            f"{backend.backend}: Resolve={backend.resolve_version or 'unrecorded'}, "
-            f"media={','.join(backend.qualification_media_types) or 'unrecorded'}, "
-            f"timeline={','.join(backend.qualification_timeline_conditions) or 'unrecorded'}, "
-            f"preservation={','.join(backend.preservation_limits) or 'unrecorded'}, "
-            f"visual={','.join(backend.visual_verification) or 'not specified'}, "
-            f"audio={','.join(backend.audio_verification) or 'not specified'}, "
-            f"recovery={backend.recovery_qualification}"
-            for backend in status.backends) or "no backend qualification"
-        matrix.append(
-            f"| `{status.id}` | {status.implementation_status} | yes | {'yes' if status.compilable else 'no'} | "
-            f"{'yes' if status.qualified else 'no'} | {'yes' if status.production_enabled else 'no'} | {backend_text} | "
-            f"{qualification_text} | "
-            f"{status.target_strategy} | {status.safety_class} | {status.minimal_safe_mechanism} | {inv} | "
-            f"not preservation-qualified: {', '.join(status.unsupported_native_state)} | {cost_text} |")
+        matrix.append(_matrix_row(status))
 
     verification = ["# Verification contracts", "", "Generated from `edit_algebra.OP_STATUS`.",
                     "", "The contract names the operation's read-back verifier. A successful API return alone is not verification.",
@@ -2692,9 +2799,7 @@ def emit_resolve_axi_references() -> dict[str, str]:
                 "", "Inverse metadata is descriptive. Follow the transaction receipt and recovery policy for the actual operation; do not retry a write based only on an exit code.",
                 "", "| operation | inverse | self inverse | irreversible reason |", "|---|---|---|---|"]
     for status in statuses:
-        inverse = status.inverse_recovery
-        reason = str(inverse.get("irreversible_reason") or "none").replace("|", "\\|")
-        recovery.append(f"| `{status.id}` | `{inverse.get('op') or 'none'}` | {inverse.get('self_inverse')} | {reason} |")
+        recovery.append(_recovery_row(status))
 
     invariant_sources = [
         ("A Resolve project is addressed by its EXACT listed name, never a prefix.", "library/tools/timeline_ingest.py"),
@@ -2732,10 +2837,7 @@ def emit_resolve_axi_references() -> dict[str, str]:
     limitations.extend(f"- {rule} Owner: `{source}`" for rule, source in invariant_sources)
     limitations += ["", "| operation | backend | compilable | qualified | production enabled | limitations | evidence |", "|---|---|---:|---:|---:|---|---|"]
     for status in statuses:
-        for backend in status.backends:
-            limits = "; ".join(backend.limitations).replace("|", "\\|")
-            evidence = ", ".join(f"`{path}`" for path in backend.qualification_evidence) or "none"
-            limitations.append(f"| `{status.id}` | `{backend.backend}` | yes | {'yes' if backend.qualified else 'no'} | {'yes' if backend.production_enabled else 'no'} | {limits} | {evidence} |")
+        limitations.extend(_limitation_rows(status))
     return {
         "concepts.md": "\n".join(concepts) + "\n",
         "transactions.md": "\n".join(transactions) + "\n",
@@ -2804,6 +2906,11 @@ def main(argv=None) -> int:
                         help="list every operation and exit")
     parser.add_argument("--emit-skill", action="store_true",
                         help="print the registry as an agent skill")
+    parser.add_argument("--only", action="append", default=[],
+                        metavar="OPERATION",
+                        help="with --emit-skill: render only these "
+                             "operations. Repeatable. The default is every "
+                             "operation, byte for byte.")
     parser.add_argument("--emit-resolve-axi-references", action="store_true",
                         help="print registry-generated AXI skill references as JSON")
     parser.add_argument("--project", default="",
@@ -2826,7 +2933,11 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     if args.emit_skill:
-        print(emit_skill())
+        try:
+            print(emit_skill(only=args.only or None))
+        except KeyError as exc:
+            print(f"operations: {exc.args[0]}", file=sys.stderr)
+            return 2
         return 0
     if args.emit_resolve_axi_references:
         print(json.dumps(emit_resolve_axi_references(), indent=2, ensure_ascii=False))

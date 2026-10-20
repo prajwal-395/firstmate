@@ -755,6 +755,34 @@ def cmd_capabilities(args) -> int:
         } for _, _, status, op in rows[:10]]
         return render({"query": query, "matches": result_rows})
 
+    if getattr(args, "references", False):
+        # The narrow read: one operation's rows out of 141 KB of flat
+        # tables. The rows are the SAME ones the generated files carry,
+        # read off the registry, so the slice cannot drift from it.
+        if not requested:
+            return fail("no operation was named",
+                        f'{TOOL} capabilities <operation> --references')
+        from library.tools import operations
+        try:
+            sections = operations.reference_sections(requested)
+        except KeyError as exc:
+            return fail(str(exc),
+                        f'{TOOL} capabilities --search "{requested}"')
+        if as_json:
+            return render({"id": requested, "references": sections})
+        parts = [f"# {requested} - capability reference rows", "",
+                 "This is the slice of the six generated references that "
+                 "concerns this operation. Read the whole file only when "
+                 "the task needs more than one operation.", ""]
+        for name, body in sections.items():
+            if not body:
+                continue
+            parts.append(f"## {name}")
+            parts.append(body.rstrip())
+        parts.append("")
+        sys.stdout.write("\n".join(parts) + "\n")
+        return 0
+
     if not requested:
         rows = [{
             "id": op.id,
@@ -9436,6 +9464,10 @@ def build_parser() -> Parser:
                    help="AXI operation id, native_mcp.<tool>, or algebra op id")
     p.add_argument("--search", default="",
                    help="search operation names and purpose text")
+    p.add_argument("--references", action="store_true",
+                   help="print this operation's rows from the generated "
+                        "capability references - the narrow read, instead "
+                        "of the whole 141 KB of tables")
     p.add_argument("--json", action="store_true",
                    help="emit structured JSON instead of concise TOON")
     p.set_defaults(func=cmd_capabilities)
