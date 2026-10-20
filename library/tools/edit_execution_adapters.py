@@ -945,9 +945,9 @@ def _reel_opening_decided(operation: Mapping) -> tuple[str, list[dict]]:
     """The validated brief and structural edits a reel.opening carries.
 
     The model decides the edits; this adapter never invents trim points.
-    A ripple edit is refused before the first write: no ripple executor
-    qualifies today, so executing around it would leave a half-tightened
-    opening behind.
+    Gap-closing removals are carried as `clip.remove`, which has its own
+    guarded AXI executor and continuity acceptance. Local deletes are not
+    accepted because they leave a gap in the opening.
     """
     from library.tools import edit_algebra
 
@@ -974,12 +974,6 @@ def _reel_opening_decided(operation: Mapping) -> tuple[str, list[dict]]:
                 f"reel.opening edit {index} names {edit_id!r}; one of "
                 f"{list(allowed)}")
         decided.append(edit)
-    if any(str(edit.get("op")) == "clip.ripple" for edit in decided):
-        raise ValueError(
-            "reel.opening refuses a ripple edit before mutation: no "
-            "qualified ripple executor exists (the staged adapter raises "
-            "for clip.ripple) - re-plan the close as trim/remove, or "
-            "qualify ripple first")
     return brief, decided
 
 
@@ -1045,7 +1039,15 @@ def _opening_preserved(before: Mapping, live: Mapping,
                      "name")
     old, new = rows(before), rows(live)
     removed = {str(edit["unique_id"]) for edit in ordered
-               if str(edit.get("op")) == "clip.delete"}
+               if str(edit.get("op")) == "clip.remove"}
+    ripple_rows = {}
+    for clip in old.values():
+        if any(str(edit.get("op")) == "clip.remove"
+               and str(edit.get("unique_id")) == str(clip["unique_id"])
+               for edit in ordered):
+            row = (int(clip["track_index"]), str(clip["track_type"]))
+            ripple_rows[row] = min(
+                int(clip["record_in"]), ripple_rows.get(row, int(clip["record_in"])))
     targets = {str(edit.get("unique_id")) for edit in ordered
                if edit.get("unique_id")}
     if {uid for uid in old if uid not in new} != removed:
@@ -1057,6 +1059,13 @@ def _opening_preserved(before: Mapping, live: Mapping,
             continue
         kept = new[uid]
         keys = target_stable if uid in targets else stable
+        row = (int(clip["track_index"]), str(clip["track_type"]))
+        if row in ripple_rows and int(clip["record_in"]) > ripple_rows[row]:
+            # The clip.remove executor's continuity acceptance proves
+            # the expected ripple offset; this aggregate check still
+            # requires the retained clip's source and editorial identity.
+            keys = tuple(key for key in keys
+                         if key not in {"record_in", "record_out"})
         if any(clip.get(key) != kept.get(key) for key in keys):
             return False
     return True
@@ -1117,7 +1126,7 @@ def _reel_opening(context) -> dict:
         request=context.request, operations=ordered,
         snapshot=context.snapshot)
 
-    executors = {"clip.trim": _trim, "clip.delete": _delete}
+    executors = {"clip.trim": _trim, "clip.remove": _remove}
     before = context.snapshot
     live = before
     sub_receipts: list = []

@@ -1752,11 +1752,10 @@ def _apply_track_add(op, tl, _item, _project=None):
 # op stays independent of the lane that owns it.
 
 
-#: The structural edits a `reel.opening` may carry. Ripple stays
-#: declared-but-refused: no ripple executor qualifies today (the
-#: staged adapter raises for `clip.ripple`), so an edit naming it is
-#: refused before the first write.
-REEL_OPENING_STRUCTURAL_OPS = ("clip.trim", "clip.delete", "clip.ripple")
+#: Structural edits a `reel.opening` may carry. `clip.remove` is the
+#: verified ripple-delete operation; local `clip.delete` would leave a
+#: gap and does not satisfy an opening tighten.
+REEL_OPENING_STRUCTURAL_OPS = ("clip.trim", "clip.remove")
 
 
 def _reel_opening_edit_list(op) -> list:
@@ -2784,7 +2783,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
     # ── reel opening (domain: timeline_structure) ────────────────────
     #
     # A planning-level operation that compiles to existing structural
-    # edits (trim, remove, ripple) through EditRequest. `unique_id`
+    # edits (trim and ripple remove) through EditRequest. `unique_id`
     # anchors the opening clip being tightened, `brief` is the supplied
     # brief the opening is tightened to, and `edits` are the model's
     # decided structural edits in execution order. The adapter runs
@@ -3523,13 +3522,13 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("caption_fix", "resolve_axi"):
         ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
     ("multicam.select_angle", "resolve_axi"):
-        ("no guarded set-angle verb: only the sense-switch auto-cut and the pool build/sync verbs exist; "
-         "the timeline inventory exposes no per-item angle, so the switch cannot be verified; "
-         "the staged replacement needs the assigned camera's synced source range, which preparation does not supply",),
+        (("no guarded set-angle verb: only the sense-switch auto-cut and the pool build/sync verbs exist; "
+          "the timeline inventory exposes no per-item angle, so the switch cannot be verified; "
+          "the staged replacement needs the assigned camera's synced source range, which preparation does not supply"),),
     ("caption.style", "resolve_axi"):
         ("one caption card per operation, re-rendered in a named subtitle style with its text and timing preserved; the style must name library/tools/subtitle_style.py SUBTITLE_STYLES and is never guessed; rendered caption images require regeneration with per-card swap read-back; live Resolve qualification remains deferred",),
     ("reel.opening", "resolve_axi"):
-        ("supplied brief plus decided trim/remove edits only; ripple edits refuse until a ripple executor qualifies; every executed edit carries its own undo journal entry and independent read-back; live Resolve qualification remains deferred",),
+        ("supplied brief plus decided source trims and gap-closing clip.remove edits only; every executed edit carries its own undo journal entry and independent read-back; live Resolve qualification remains deferred",),
     ("clip.move", "reel_touchup"):
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):

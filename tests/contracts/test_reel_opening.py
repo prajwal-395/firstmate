@@ -2,8 +2,9 @@
 
 The captain's AXI consolidation punch list failed the ordinary request
 "Tighten the opening to the supplied brief while preserving the
-speaker's meaning and approved edits." with "no production path for
-reel.opening: reel.opening is absent from the edit algebra". These
+speaker's meaning and approved edits." because reel.opening had no
+complete, executable path from the supplied brief through verified
+structural edits. These
 tests pin the production path this lane adds - the canonical algebra
 op, its acceptance contract, its registered backend, and the
 fail-closed qualification - so a later edit that drops any half
@@ -22,7 +23,7 @@ def _opening(**overrides):
           "brief": "open on the claim, not the throat-clearing",
           "edits": [{"op": "clip.trim", "unique_id": "o1",
                      "in_frame": 10, "out_frame": 100},
-                    {"op": "clip.delete", "unique_id": "o2"}]}
+                    {"op": "clip.remove", "unique_id": "o2"}]}
     op.update(overrides)
     return op
 
@@ -49,8 +50,7 @@ def _base():
 
 
 def test_reel_opening_is_defined_with_anchor_brief_and_edits():
-    """Defect: the punch-list failure - no production path because the
-    op is absent from the edit algebra."""
+    """Defect: the punch-list failure - no complete operation contract."""
     spec = edit_algebra.get("reel.opening")
 
     assert spec is not None
@@ -155,21 +155,32 @@ def test_reel_opening_compiles_to_direct_structural_edits_only():
     request = from_algebra_ops(
         [{"op": "clip.trim", "unique_id": "o1", "in_frame": 10,
           "out_frame": 100},
-         {"op": "clip.delete", "unique_id": "o2"}],
+         {"op": "clip.remove", "unique_id": "o2"}],
         project="p", timeline="t",
         originator={"kind": "agent", "name": "reel.opening"})
     compiled = compile_request(request, _base())
 
     assert [op["op"] for op in compiled.operations] == [
-        "clip.trim", "clip.delete"]
-    assert tuple(compiled.affected_spans) == ((0, 240),)
+        "clip.trim", "clip.remove"]
+    assert tuple(compiled.affected_spans) == ((0, 360),)
     assert tuple(compiled.conflict_domains) == ("timeline_structure",)
     assert set(compiled.kinds) == {"direct"}
 
 
-def test_reel_opening_without_a_brief_is_not_decided():
-    """Defect: tightening an opening with no supplied brief would invent
-    the target - the adapter refuses before compilation."""
+def test_reel_opening_accepts_supplied_brief_and_ripple_remove():
+    """Defect: a supplied opening brief could not reach a verified
+    ripple removal through the opening adapter."""
+    from library.tools.edit_execution_adapters import (
+        _reel_opening_decided,
+    )
+
+    brief, edits = _reel_opening_decided(_opening())
+    assert brief == "open on the claim, not the throat-clearing"
+    assert [edit["op"] for edit in edits] == ["clip.trim", "clip.remove"]
+
+
+def test_reel_opening_without_a_brief_is_refused():
+    """Defect: no brief means no editorial target to execute."""
     from library.tools.edit_execution_adapters import (
         _reel_opening_decided,
     )
@@ -182,19 +193,3 @@ def test_reel_opening_without_a_brief_is_not_decided():
         _reel_opening_decided(_opening(edits=[{"op": "clip.move",
                                                "unique_id": "o1",
                                                "to_frame": 5}]))
-
-
-def test_reel_opening_ripple_refuses_before_the_first_write():
-    """Defect: a half-tightened opening - no ripple executor qualifies,
-    so a ripple edit must refuse before anything mutates, never after
-    the trims have already landed."""
-    from library.tools.edit_execution_adapters import (
-        _reel_opening_decided,
-    )
-
-    with pytest.raises(ValueError, match="ripple"):
-        _reel_opening_decided(_opening(edits=[
-            {"op": "clip.trim", "unique_id": "o1",
-             "in_frame": 10, "out_frame": 100},
-            {"op": "clip.ripple", "unique_id": "o2",
-             "delta_frames": -20}]))
