@@ -86,6 +86,37 @@ export type CardRun = {
   font_size?: number;
 };
 
+/**
+ * The stroke behind the word that owns the clock - the highlighter.
+ *
+ * `colour` is a declared colour and `width` a declared number of pixels
+ * of the delivery frame: the engine states neither (AGENTS.md 10.5), so
+ * a segment that declares no highlighter strokes nothing at all. The
+ * stroke marks the CURRENT word, the same one `emphasisColour` restyles,
+ * so it needs the same word clock - see `highlightedWordIndex`.
+ */
+export type Highlighter = {
+  colour: string;
+  width: number;
+};
+
+/**
+ * A move of the frame: a `push` scales it in, a `pan` moves it across.
+ *
+ * `to` is the scale a push reaches (the camera starts at the neutral
+ * 1.0), and `x`/`y` are the offsets a pan ends on, as fractions of the
+ * delivery WIDTH - one world unit is one delivery width, the engine's
+ * own camera unit - and they are the CAMERA's, so the content travels
+ * the other way. Every magnitude is the declaration's; the engine
+ * states no distance and no speed (AGENTS.md 10.5).
+ */
+export type Camera = {
+  move: "push" | "pan";
+  to?: number;
+  x?: number;
+  y?: number;
+};
+
 export type FullFrameCardProps = {
   runs: CardRun[];
   /** The card's own ground. Required: a full-frame element IS the picture. */
@@ -140,6 +171,25 @@ export type FullFrameCardProps = {
    */
   emphasisColour?: string;
   /**
+   * The stroke behind the current word, when the segment declares one.
+   *
+   * Declared or absent, never defaulted: the engine ships no palette
+   * and no stroke weight (AGENTS.md 10.5), so a segment that names no
+   * highlighter draws no stroke rather than one somebody else chose.
+   * Read only beside `wordCues` - the stroke marks the word that owns
+   * the clock, and the plan refuses a highlighter with no clock.
+   */
+  highlighter?: Highlighter;
+  /**
+   * A move of the frame, when the segment declares one.
+   *
+   * Absent means the camera does not move, which is the NEUTRAL camera
+   * rather than a chosen one - the same reading `StagedScene` gives its
+   * own neutral state. It moves the frame's CONTENT: the ground is the
+   * segment's declared colour and does not move under it.
+   */
+  camera?: Camera;
+  /**
    * Render every Nth frame twice - motion on twos, threes, and so on.
    *
    * Blocker 8 of docs/SPAN_RENDERER_CAPABILITY.md, measured in
@@ -189,6 +239,15 @@ export const fullFrameCardSchema: z.ZodType<FullFrameCardProps> = z.object({
     lead: z.number().optional(),
   })).optional(),
   emphasisColour: z.string().optional(),
+  highlighter: z.object({ colour: z.string(), width: z.number() }).optional(),
+  camera: z
+    .object({
+      move: z.enum(["push", "pan"]),
+      to: z.number().optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+    })
+    .optional(),
   holdFrames: z.number().optional(),
 });
 
@@ -453,6 +512,94 @@ export const cuedEmphasisIndex = (
 export const cuedWordRisePercent = (progress: number): number =>
   (1 - Math.min(1, Math.max(0, progress))) * 120;
 
+/**
+ * The word the highlighter strokes at `frame`, or -1 when none does.
+ *
+ * The same word `emphasisColour` restyles - the one whose measured
+ * speech window contains the frame - because a stroke and a restyle
+ * mark the same thing, and two clocks would be two answers to "which
+ * word is current". Deliberately unled, for the reason
+ * `cuedEmphasisIndex` gives.
+ *
+ * -1 whenever there is no stroke to draw: no highlighter declared, no
+ * word clock, or no word current. The plan refuses a highlighter with
+ * no clock, so this is the composition being defensive rather than
+ * the plan's check being optional.
+ */
+export const highlightedWordIndex = (
+  frame: number,
+  fps: number,
+  cues: WordCue[],
+  highlighter?: Highlighter,
+): number => {
+  if (!highlighter) return -1;
+  if (!cues || cues.length === 0) return -1;
+  return cuedEmphasisIndex(frame, fps, cues);
+};
+
+/**
+ * The highlighter's band, as a CSS background on the word it strokes.
+ *
+ * A band across the word's own box, `width` pixels thick and centred on
+ * it, in the DECLARED colour. The band's thickness is the declaration's
+ * and its colour is the declaration's; what the engine supplies is the
+ * shape - a stroke across the word, centred on the box it draws in.
+ *
+ * Centred on the box rather than on the cap height, because the box is
+ * what the composition has: the glyphs' own metrics are not something
+ * this renderer measures, and inventing one would be the engine holding
+ * taste (AGENTS.md 10.5).
+ */
+export const highlighterBackground = (highlighter: Highlighter): string => {
+  const width = Math.max(1, highlighter.width);
+  const top = `calc(50% - ${width / 2}px)`;
+  const bottom = `calc(50% + ${width / 2}px)`;
+  return (
+    `linear-gradient(to bottom, transparent 0%, transparent ${top}, ` +
+    `${highlighter.colour} ${top}, ${highlighter.colour} ${bottom}, ` +
+    `transparent ${bottom}, transparent 100%)`
+  );
+};
+
+/**
+ * The camera's transform at `frame`, as a CSS transform.
+ *
+ * The camera travels from the NEUTRAL state - scale 1, no offset - at
+ * the segment's first frame to the DECLARED state at its last. Linear,
+ * which is the absence of shaping rather than a chosen curve: the
+ * segment's own length is the only clock here, and a curve is a taste
+ * the engine states no default for (AGENTS.md 10.5).
+ *
+ * "" when there is no camera, so a segment that declares none draws
+ * exactly as it did before the slot existed - no key, no change of
+ * path.
+ *
+ * A push scales the frame's CONTENT about the frame's centre. A pan is
+ * the CAMERA's own offset, so the content travels the other way - the
+ * same reading StagedScene's camera gives, and the same one the
+ * graphics IR lowers to - and one unit is one delivery WIDTH, so a pan
+ * means the same thing at any delivery format.
+ */
+export const cameraTransform = (
+  frame: number,
+  fps: number,
+  durationInFrames: number,
+  camera: Camera | undefined,
+  width: number,
+): string => {
+  if (!camera) return "";
+  const total = Math.max(1, durationInFrames - 1);
+  const t = Math.min(1, Math.max(0, frame / total));
+  if (camera.move === "push") {
+    const to = camera.to === undefined ? 1 : camera.to;
+    return `scale(${1 + (to - 1) * t})`;
+  }
+  const unit = width;
+  const x = -((camera.x === undefined ? 0 : camera.x) * unit * t);
+  const y = -((camera.y === undefined ? 0 : camera.y) * unit * t);
+  return `translate(${x}px, ${y}px)`;
+};
+
 /** The entrance transform at word progress `p`, 0..1, for `draw`.
  *
  * The same drawing `entranceTransform` in MotionGraphics gives - the
@@ -509,6 +656,8 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   imageWidth,
   wordCues,
   emphasisColour,
+  highlighter,
+  camera,
   holdFrames,
 }) => {
   // The card's whole clock goes through the hold: entrances, exits,
@@ -607,6 +756,17 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
     cuedWords && emphasisColour
       ? cuedEmphasisIndex(frame, fps, wordCues as WordCue[])
       : -1;
+  // The word the highlighter strokes, when the segment declares one.
+  // The SAME word the emphasis restyles - a stroke and a restyle mark
+  // one thing, and two clocks would be two answers to "which word is
+  // current". -1 when there is no stroke to draw.
+  const highlightIndex = cuedWords
+    ? highlightedWordIndex(frame, fps, wordCues as WordCue[], highlighter)
+    : -1;
+  const stroke =
+    highlightIndex >= 0 && highlighter
+      ? { backgroundImage: highlighterBackground(highlighter) }
+      : {};
   const motion = {
     ...(cuedWords
       ? {}
@@ -639,22 +799,42 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
           transform: "translateY(-50%)",
         };
 
+  // The camera's own transform, read on the same held frame as
+  // everything else. "" when the segment declares no camera, so a card
+  // that declares none draws exactly as it did before the slot existed.
+  const cameraCss = cameraTransform(
+    frame,
+    fps,
+    durationInFrames,
+    camera,
+    width,
+  );
+
   return (
     <AbsoluteFill style={{ backgroundColor: background, fontFamily }}>
-      <div
-        style={{
-          position: "absolute",
-          left: safeArea.left,
-          width: boxWidth,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: `${RUN_GAP_PX}px`,
-          opacity,
-          ...positioned,
-          ...motion,
-        }}
-      >
+      {/*
+        The camera moves the frame's CONTENT, not the ground: the ground
+        is the segment's own declared colour and stays where it is, so a
+        push reads as the type coming toward the viewer over a still
+        ground - which is what the engine can do without artwork under
+        it. A project that renders its own scene moves its own camera in
+        that file (AGENTS.md 14).
+      */}
+      <AbsoluteFill style={cameraCss ? { transform: cameraCss } : {}}>
+        <div
+          style={{
+            position: "absolute",
+            left: safeArea.left,
+            width: boxWidth,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: `${RUN_GAP_PX}px`,
+            opacity,
+            ...positioned,
+            ...motion,
+          }}
+        >
         {/*
           The project's own mark, stacked above the runs in the same
           centred column - the wordmark reading order, not a chosen
@@ -733,6 +913,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
                           TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
                         opacity: progress <= 0 ? 0 : progress,
                         ...wordCuedEntrance(progress, "draw"),
+                        ...(index === highlightIndex ? stroke : {}),
                       }}
                     >
                       {word.text}
@@ -774,6 +955,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
                       style={{
                         display: "inline-block",
                         transform: `translateY(${rise}%)`,
+                        ...(index === highlightIndex ? stroke : {}),
                       }}
                     >
                       {word.text}
@@ -811,7 +993,8 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
             );
           })
         )}
-      </div>
+        </div>
+      </AbsoluteFill>
     </AbsoluteFill>
   );
 };

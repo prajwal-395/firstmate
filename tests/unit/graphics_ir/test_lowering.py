@@ -82,8 +82,35 @@ def _card_props(entrance="fade", exit_char="cut"):
     }
 
 
-def _mg_props():
-    return {
+_NO_HIGHLIGHTER = object()
+"""The sentinel for "this card declares no highlighter"."""
+
+
+def _cued_card_props(highlighter=_NO_HIGHLIGHTER, camera=None):
+    """A card whose words are paced by a word clock.
+
+    The shape a span segment takes: two words, each with its own
+    measured window, so a band can be placed behind one of them and a
+    camera can be placed over the card.
+    """
+    props = _card_props("mask", "cut")
+    props["durationInFrames"] = 120
+    props["runs"] = [{"text": "hello world", "type_role": "display",
+                      "colour": "#FFFFFF", "font_size": 84}]
+    props["wordCues"] = [
+        {"word": "hello", "start": 0.0, "end": 0.8, "chars": 5},
+        {"word": "world", "start": 1.0, "end": 1.8, "chars": 10},
+    ]
+    if highlighter is _NO_HIGHLIGHTER:
+        props["highlighter"] = {"colour": "#F2C94C", "width": 26}
+    elif highlighter is not None:
+        props["highlighter"] = highlighter
+    if camera is not None:
+        props["camera"] = camera
+    return props
+
+
+def _mg_props():    return {
         "fps": 30,
         "width": 1080,
         "height": 1920,
@@ -212,6 +239,83 @@ class TestFullFrameCardLowering:
             assert FLIP_REFUSAL in str(exc)
         else:
             raise AssertionError("flip entrance did not refuse")
+
+    def test_a_cued_card_puts_a_word_behind_each_word(self):
+        """The words are placed, so a band can be placed behind one."""
+        scene = lower_full_frame_card(_cued_card_props())
+        words = [n for n in scene.nodes if n.type == NodeType.TEXT]
+        assert [w.id for w in words] == ["word_0", "word_1"]
+
+    def test_the_highlighter_is_a_band_behind_the_current_word(self):
+        """The band is the DECLARED colour and thickness, on the word
+        that owns the clock, and on no other."""
+        scene = lower_full_frame_card(_cued_card_props())
+        bands = [n for n in scene.nodes if n.id.startswith("highlight_")]
+        assert len(bands) == 2
+        for band in bands:
+            assert band.type == NodeType.SHAPE
+            assert band.shape.shape == "rect"
+            assert band.shape.fill == "#F2C94C"
+            assert band.bounds.height == pytest.approx(26.0)
+            assert band.bounds.width > 0
+        # The band sits on the word's own box, centred on it.
+        word = next(n for n in scene.nodes if n.id == "word_0")
+        band = bands[0]
+        assert band.bounds.x == pytest.approx(word.bounds.x)
+        assert band.bounds.y + band.bounds.height / 2 == pytest.approx(
+            word.bounds.y + word.bounds.height / 2)
+
+    def test_the_band_is_on_only_while_its_word_owns_the_clock(self):
+        scene = lower_full_frame_card(_cued_card_props())
+        state = evaluate(scene, 4)   # inside word_0's window
+        assert state["highlight_0"]["opacity"] == pytest.approx(1.0, abs=0.01)
+        assert state["highlight_1"]["opacity"] == pytest.approx(0.0, abs=0.01)
+        state = evaluate(scene, 44)  # inside word_1's window
+        assert state["highlight_0"]["opacity"] == pytest.approx(0.0, abs=0.01)
+        assert state["highlight_1"]["opacity"] == pytest.approx(1.0, abs=0.01)
+
+    def test_the_band_rides_the_word_it_marks(self):
+        """The same reveal the word gets, so the band is drawn by it."""
+        scene = lower_full_frame_card(_cued_card_props())
+        band = next(n for n in scene.nodes if n.id == "highlight_0")
+        word = next(n for n in scene.nodes if n.id == "word_0")
+        rides = {a.property: a for a in band.animations}
+        revealed = {a.property: a for a in word.animations}
+        assert "transform.translate" in rides
+        assert rides["transform.translate"].start == pytest.approx(
+            revealed["transform.translate"].start)
+        assert rides["transform.translate"].to_value == pytest.approx(
+            revealed["transform.translate"].to_value)
+
+    def test_a_card_with_no_highlighter_draws_no_band(self):
+        scene = lower_full_frame_card(_cued_card_props(highlighter=None))
+        assert not [n for n in scene.nodes if n.id.startswith("highlight_")]
+
+    def test_a_declared_push_becomes_the_camera_s_scale(self):
+        scene = lower_full_frame_card(_cued_card_props(
+            camera={"move": "push", "to": 1.12}))
+        camera = next(n for n in scene.nodes if n.type == NodeType.CAMERA)
+        track = camera.tracks[0]
+        assert track.property == "camera.scale"
+        assert [(k.at, k.value) for k in track.keys] == [
+            (0.0, 1.0), (pytest.approx(4.0), pytest.approx(1.12))]
+        assert camera.children == ["card"]
+
+    def test_a_declared_pan_becomes_the_camera_s_own_offset(self):
+        """The camera's offsets, in world units - one unit is one
+        delivery WIDTH."""
+        scene = lower_full_frame_card(_cued_card_props(
+            camera={"move": "pan", "x": 0.02, "y": -0.01}))
+        camera = next(n for n in scene.nodes if n.type == NodeType.CAMERA)
+        tracks = {t.property: t for t in camera.tracks}
+        assert tracks["camera.translateX"].keys[-1].value == pytest.approx(
+            0.02 * 1080)
+        assert tracks["camera.translateY"].keys[-1].value == pytest.approx(
+            -0.01 * 1080)
+
+    def test_a_card_with_no_camera_has_none(self):
+        scene = lower_full_frame_card(_cued_card_props(camera=None))
+        assert not [n for n in scene.nodes if n.type == NodeType.CAMERA]
 
 
 class TestMotionGraphicsLowering:

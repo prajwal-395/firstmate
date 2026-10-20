@@ -660,6 +660,8 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
     word_cues = props.get("wordCues", [])
     emphasis_colour = props.get("emphasisColour")
     hold_frames = props.get("holdFrames")
+    highlighter = props.get("highlighter")
+    camera = props.get("camera")
 
     in_frames = RAMP_FRAMES.get(entrance, 0)
     out_frames = RAMP_FRAMES.get(exit_char, 0)
@@ -854,6 +856,17 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
 
                 content = run_text(word["text"], run)
                 content.text_align = "left"
+                # The highlighter's band, BEHIND the word: a shape node at
+                # the word's own box, `width` pixels thick and centred on
+                # it, in the DECLARED colour. It lives on the current word
+                # only - the same window the emphasis colour uses - so it
+                # is drawn by an opacity pair rather than by moving.
+                if highlighter and wi < len(word_boxes):
+                    band = _highlighter_band(
+                        highlighter, word_boxes[wi], cue, wi, word_animations)
+                    if band is not None:
+                        nodes.append(band)
+                        card_children.append(band.id)
                 nodes.append(Node(
                     id=word_id, type=NodeType.TEXT, text=content,
                     bounds=word_boxes[wi] if wi < len(word_boxes) else None,
@@ -867,8 +880,104 @@ def lower_full_frame_card(props: dict[str, Any]) -> Scene:
         animations=card_animations, children=card_children,
     ))
 
+    # The camera, when the segment declares one: a CAMERA node over the
+    # card group, so the push or the pan moves the frame's CONTENT while
+    # the ground - the segment's own colour - stays where it is. The
+    # camera's own convention is the engine's (StagedScene's): the
+    # offsets are the CAMERA's, so the content travels the other way, and
+    # one unit is one delivery WIDTH.
+    camera_node = _full_frame_camera(camera, width, duration)
+    if camera_node is not None:
+        nodes.append(camera_node)
+
     return Scene(version=1, fps=fps, width=width, height=height,
                  duration=duration, nodes=nodes)
+
+
+def _highlighter_band(highlighter: dict[str, Any], box: Bounds,
+                      cue: dict[str, Any], index: int,
+                      word_animations: list[Animation]) -> Node | None:
+    """The highlighter's band behind one word, or None.
+
+    A shape node at the word's own box: the DECLARED width thick and
+    centred on it, filled with the DECLARED colour. It RIDES the word -
+    it carries the word's own transform and blur, so the band is drawn
+    by the same reveal as the word it marks - and it is on only while
+    the word owns the clock, the same window the emphasis colour reads.
+
+    The band's OWN opacity is a pair of steps rather than the word's
+    ramp: the band belongs to one word, so it comes on at that word's
+    onset and goes at its end, while the word it marks keeps whatever
+    reveal its entrance gives it.
+
+    The thickness is the declaration's and the colour is the
+    declaration's; what the engine supplies is the shape: a band across
+    the word, centred on the box it is drawn in (AGENTS.md 10.5).
+    """
+    colour = str(highlighter.get("colour") or "").strip()
+    thickness = float(highlighter.get("width") or 0.0)
+    if not colour or thickness <= 0:
+        return None
+    band_id = f"highlight_{index}"
+    start = max(0.0, float(cue.get("start", 0.0)) - EPS)
+    end = max(0.0, float(cue.get("end", 0.0)) - EPS)
+    rides = [Animation(target=band_id, property=a.property,
+                       from_value=a.from_value, to_value=a.to_value,
+                       start=a.start, duration=a.duration, easing=a.easing)
+             for a in word_animations
+             if a.property in ("transform.scale", "transform.translate", "blur")]
+    return Node(
+        id=band_id, type=NodeType.SHAPE,
+        shape=ShapeContent(shape="rect", fill=colour),
+        bounds=Bounds(x=box.x, y=box.y + (box.height - thickness) / 2.0,
+                      width=box.width, height=thickness),
+        animations=rides + [
+            Animation(target=band_id, property="opacity", from_value=0.0,
+                      to_value=1.0, start=start, duration=EPS,
+                      easing=LinearEasing()),
+            Animation(target=band_id, property="opacity", from_value=1.0,
+                      to_value=0.0, start=end, duration=EPS,
+                      easing=LinearEasing()),
+        ],
+    )
+
+
+def _full_frame_camera(camera: dict[str, Any] | None, width: int,
+                        duration: float) -> Node | None:
+    """The camera node over a full-frame card's content, or None.
+
+    The engine's ONE camera (StagedScene's): a push is a scale from the
+    neutral 1.0 to the declared one, a pan is the camera's own offset
+    over the segment, and one unit is one delivery WIDTH - so a pan
+    means the same thing at any delivery format. The camera pivots on
+    the frame's centre, which is what a camera does.
+    """
+    if not camera:
+        return None
+    move = str(camera.get("move") or "")
+    tracks: list[Track] = []
+    if move == "push":
+        to = float(camera.get("to") or 1.0)
+        tracks.append(Track(
+            target="camera", property="camera.scale",
+            keys=[Keyframe(at=0.0, value=1.0), Keyframe(at=duration, value=to)],
+        ))
+    elif move == "pan":
+        unit = float(width)
+        tracks.append(Track(
+            target="camera", property="camera.translateX",
+            keys=[Keyframe(at=0.0, value=0.0),
+                  Keyframe(at=duration, value=float(camera.get("x") or 0.0) * unit)],
+        ))
+        tracks.append(Track(
+            target="camera", property="camera.translateY",
+            keys=[Keyframe(at=0.0, value=0.0),
+                  Keyframe(at=duration, value=float(camera.get("y") or 0.0) * unit)],
+        ))
+    if not tracks:
+        return None
+    return Node(id="camera", type=NodeType.CAMERA, camera=CameraContent(),
+                children=["card"], tracks=tracks)
 
 
 def _word_boxes_in_runs(texts, full_lines, runs, run_tops, column_x, column_width,

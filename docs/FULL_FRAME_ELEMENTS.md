@@ -326,6 +326,59 @@ frame clock: it runs after the words are spoken. Pinned by
 `tests/test_fullframe_word_cues.py`, including stills that fail with
 identical pixels on a composition without the cue-driven node.
 
+**A segment may carry the PROJECT's own picture.** `asset` names a file the
+project rendered at the delivery frame - an illustrated scene - and that
+file IS the segment's picture: it is placed verbatim for the segment's
+own window, the way a card is placed, and the engine draws nothing at
+all for that segment. This is the gap the break test found
+(`data/vep-ren-breaktest/findings.md` §10.4): the vocabulary had the
+`asset` axis and `full_frame_clip` was the project-authored file the
+engine places verbatim, but a span SEGMENT could name neither, so an
+explainer segment could not carry illustrated artwork and the words,
+typed, were all a segment could be.
+
+A segment that names an `asset` therefore carries no `runs`, no `image`,
+no ground of its own and no camera - the file is the whole frame, and
+two pictures on the same seconds is an overlap, not a composite. Every
+one of those is refused by name rather than ignored. The file is
+MEASURED before it is placed, on the same terms a `full_frame_clip` is:
+it must already be the delivery frame, at the reel's own rate (a conform
+would not land on the window the segment chose), and long enough to
+cover that window (a file that ends before the words do would leave a
+hole). A segment that places a file is identified on the timeline by
+that file, so two segments naming one file are refused too.
+
+**A segment that draws type may declare a highlighter and a camera.**
+`highlighter` is the stroke behind the word that owns the clock - a
+declared `colour` and a declared `width` in pixels of the delivery
+frame - and it needs the same word clock `emphasis_colour` needs, so a
+segment without `word_sync`, or one whose entrance is a `typewriter`
+(no per-word glyph to stroke), is refused by name. `camera` is a `push`
+or a `pan` of the frame: a push states the scale it reaches (from the
+neutral 1.0) and a pan the offsets it ends on, as fractions of the
+delivery WIDTH - one world unit is one delivery width, the engine's own
+camera unit - and the offsets are the CAMERA's, so the content travels
+the other way, the same reading StagedScene's camera gives.
+
+Neither carries an engine default - no stroke weight, no distance, no
+speed (AGENTS.md 10.5) - and the neutral camera is the absence of a move
+rather than a chosen one. The camera moves the frame's CONTENT: the
+ground is the segment's declared colour and does not move under it,
+because a project that renders its own scene moves its own camera in
+that file (AGENTS.md 14).
+
+**Both engines draw them.** The Remotion composition draws the band on
+the word it marks and the camera on the frame's content; the graphics IR
+- what FFrames renders, and the default engine - lowers the same props
+to a shape node behind the word (carrying the word's own reveal, so the
+band is drawn by the same motion) and to the IR's own camera node over
+the card group. A capability is only real where the renderer reads it
+(AGENTS.md 10.2), so both halves carry it. Pinned by
+`tests/unit/captions/test_full_frame_span_asset.py`, whose renderer half
+executes the composition's own functions rather than reading them, and
+by `tests/unit/graphics_ir/test_lowering.py`, which grades the lowered
+scene.
+
 **How long it may hold** is the declaration's. The engine bounds it only where
 the bound is mechanical: at least one frame, and at most
 `MAX_CARD_SECONDS = 30.0` - the same number and the same reading as

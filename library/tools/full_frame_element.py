@@ -54,6 +54,17 @@ A card's placement is one of :data:`PLACEMENTS`; a ``full_frame_span``
 carries only :data:`SPAN_PLACEMENT`.  A ``full_frame_clip`` is a file the
 project authored, placed verbatim and never re-drawn (AGENTS.md 13).
 
+A segment of a span may name its own ``asset``: a file the PROJECT
+rendered at the delivery frame - an illustrated scene - and that file IS
+the segment's picture, placed verbatim for the segment's own window the
+way a card is placed.  The engine draws no artwork at all for such a
+segment, so it carries no runs: the picture is the idea, and the type
+would be a second picture on the same seconds.  A segment that DRAWS
+type may declare its own ``highlighter`` (the stroke behind the word
+that owns the clock) and its own ``camera`` (a push or a pan of the
+frame), and every magnitude in both is the declaration's - the engine
+holds no stroke weight, no distance and no speed (AGENTS.md 10.5).
+
 Copy is DECLARED or BOUND, never written here
 ---------------------------------------------
 A run either carries literal ``text`` - the project's own words - or
@@ -74,7 +85,9 @@ How a declaration reaches the picture, in order
    a CARD per declaration, or one SEGMENT per declared window inside a
    keep range for a ``full_frame_span`` - the props, the reel seconds
    it occupies, and the file it will be rendered to - using facts
-   measured off the reel itself (:class:`ReelFacts`).
+   measured off the reel itself (:class:`ReelFacts`).  A segment that
+   names an ``asset`` is not rendered at all: it is PLACED, and the
+   project's own file is its picture.
 3. :func:`render_reel_cards` renders them OPAQUE, on their declared
    ground: in ONE batch through the shared Remotion renderer
    (``library/tools/remotion_batch.py``), or card by card through each
@@ -225,13 +238,14 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
         key="full_frame_span",
         what=("The reel's whole body as one animated element: a segment "
               "per declared window inside a keep range, each a full frame "
-              "of type on its own ground, tiling the body's own seconds "
-              "exactly, in place of picture rather than over it. "
-              "The word the seven-back-to-back-cards build of "
+              "of type on its own ground OR a project-owned file the "
+              "project rendered at the delivery frame, tiling the body's "
+              "own seconds exactly, in place of picture rather than over "
+              "it. The word the seven-back-to-back-cards build of "
               "docs/ANIMATED_REEL_CEILING.md was missing."),
         axes=("placement", "segments", "entrance", "exit", "copy",
               "type_role", "colour_role", "image", "word_sync",
-              "emphasis_colour"),
+              "emphasis_colour", "asset", "highlighter", "camera"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -257,7 +271,16 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "inside continuous speech, and a segment may declare its own "
             "background over the span's, so a mid-piece value inversion "
             "is a declaration rather than decoration "
-            "(tests/test_full_frame_span.py)."
+            "(tests/test_full_frame_span.py). A segment may name its own "
+            "`asset` - a file the PROJECT rendered at the delivery frame, "
+            "an illustrated scene - and the engine places that file "
+            "verbatim for the segment's own window, the way a card is "
+            "placed: the engine draws no artwork (AGENTS.md 14). A segment "
+            "that draws type may declare its own `highlighter` (the "
+            "stroke behind the word that owns the clock) and its own "
+            "`camera` (a push or a pan of the frame), neither with an "
+            "engine default of any kind "
+            "(tests/test_full_frame_span_asset.py)."
         ),
         never=(
             "Never a card beside it: the span already covers the reel's "
@@ -284,6 +307,21 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "Never artwork the engine supplies: the ground, the typeface "
             "and every word are the declaration's (AGENTS.md 14), the "
             "same as a card's.",
+            (
+                "Never two pictures on one segment: a segment that names an "
+                "`asset` carries no `runs`, no `image` and no ground of its "
+                "own, because the project's file IS that segment's picture. "
+                "A camera move and a highlighter belong to the segments "
+                "that draw type; on a segment that places a file they would "
+                "have no reader, so they are refused by name."
+            ),
+            (
+                "Never one file on two segments: a segment that places a "
+                "project file is identified on the timeline by that file, so "
+                "two segments naming one file are two placements of one "
+                "identity, and the check that holds the elements cannot "
+                "tell them apart."
+            ),
         ),
     ),
     FullFrameElementKind(
@@ -368,7 +406,8 @@ def assert_roster_is_well_formed() -> None:
     """Every entry declares its refusals, its reachability and its axes.
 
     The runnable statement of the rule, and it can fail: see
-    ``tests/unit/captions/test_full_frame_element.py``.
+    ``tests/unit/captions/test_full_frame_element.py`` and
+    ``tests/unit/captions/test_full_frame_span_asset.py``.
     """
     seen = set()
     for element in ROSTER:
@@ -456,6 +495,59 @@ typeface, duration, copy - has no default and refuses when absent.
 
 TYPE_ROLES = tuple(_mg.AXES_BY_NAME["type_role"].positions)
 """The typographic weight of a run.  Also the overlay roster's own axis."""
+
+CAMERA_MOVES = ("push", "pan")
+"""How a segment's frame may MOVE, as a character and never a magnitude.
+
+Two, and they are the two the captain named for the explainer
+("camera moves (push, pan)").  A ``push`` scales the frame in and a
+``pan`` moves it across; which one a segment does is DECLARED here and
+the strengths are the declaration's - the engine states no distance and
+no speed (AGENTS.md 10.5).
+
+The camera's own NEUTRAL state - scale 1, no offset - is the absence of
+a move rather than a chosen one, the same reading
+``series_look.NEUTRAL_CDL`` and ``transition_vocabulary.CUT_TYPES`` get:
+a push therefore travels from 1.0 to the scale the declaration states,
+and a pan from no offset to the offset it states.
+
+The camera is the ENGINE'S camera (StagedScene's): the offsets are the
+CAMERA's, so the content travels the other way, and one unit is one
+delivery WIDTH - so a pan means the same thing at any delivery format.
+"""
+
+#: The fields a segment that names an `asset` may NOT carry, and why.
+#:
+#: The project's file IS that segment's picture, so every field that
+#: would draw a SECOND picture on the same seconds has no reader - and a
+#: field with no reader is a declaration nothing owns.  Refused by name
+#: rather than ignored, for the reason the rest of this module refuses:
+#: a project that wrote one believes it reached the picture.
+SEGMENT_ASSET_REFUSED_FIELDS: dict[str, str] = {
+    "runs": (
+        "the asset IS this segment's picture - the project rendered the "
+        "frame - so there is nothing for the engine's type to sit on. Two "
+        "pictures on the same seconds is an overlap, not a composite."
+    ),
+    "background": (
+        "the asset draws its own ground; it is the whole frame, rendered "
+        "by the project (AGENTS.md 13)."
+    ),
+    "entrance": (
+        "the asset is placed verbatim; its entrance is in the file."
+    ),
+    "image": (
+        "a still drawn above the runs has no runs to sit above, and the "
+        "asset is already the whole frame."
+    ),
+    "highlighter": (
+        "the asset carries no type, so there is no word to stroke."
+    ),
+    "camera": (
+        "the asset is placed verbatim, so the engine moves no frame - a "
+        "camera move in a project-owned file is the project's own render."
+    ),
+}
 
 
 #: What a run may BIND to instead of carrying literal text, and what each
@@ -1274,6 +1366,25 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
                 f"per-word drawing, so there is no current-word glyph "
                 f"to restyle - the field would have no reader on this "
                 f"segment.")
+        # The highlighter marks the word that owns the clock, so it needs
+        # a clock and a per-word drawing to mark. Same two refusals the
+        # emphasis colour gets, for the same reason: a field nothing
+        # reads is a declaration nothing owns.
+        if segment.get("highlighter") is not None:
+            if not shared["word_sync"]:
+                raise FullFrameDeclarationError(
+                    f"{seg_label} declares a `highlighter` without "
+                    f"word_sync; the stroke marks the word that owns the "
+                    f"clock, and with no word clock no word is ever "
+                    f"current. Omit it and the type draws without a "
+                    f"stroke.")
+            if effective == "typewriter":
+                raise FullFrameDeclarationError(
+                    f"{seg_label} reads entrance='typewriter' beside a "
+                    f"`highlighter`; a typewriter is a reveal, not a "
+                    f"per-word drawing, so there is no current-word glyph "
+                    f"to stroke - the field would have no reader on this "
+                    f"segment.")
     # Beats may go uncovered only when the span says so. Off by default,
     # and either on or off - the same shape `word_sync` takes - because
     # a half-covered range with no such declaration is the silent
@@ -1353,13 +1464,40 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
     picture paces itself to. Absent means its positional keep range -
     segment i covers range i, the old reading - so a declaration that
     never subdivides plans exactly as before.
+
+    A segment may name its own `asset`: a file the PROJECT rendered at
+    the delivery frame - an illustrated scene. That file IS the segment's
+    picture, placed verbatim for the segment's own window the way a card
+    is placed, so the engine draws no artwork at all (AGENTS.md 14) and
+    the segment carries no runs: the picture is the idea, and the type
+    would be a second picture on the same seconds.
+
+    A segment that draws type may name its own `highlighter` - the
+    stroke behind the word that owns the clock - and its own `camera` -
+    a push or a pan of the frame. Both are DECLARED magnitudes: the
+    engine states no stroke weight, no distance and no speed
+    (AGENTS.md 10.5).
     """
     label = f"full_frame_elements[{span_index}].segments[{position}]"
     if not isinstance(raw, dict):
         raise FullFrameDeclarationError(
             f"{label} must be a mapping, got {type(raw).__name__}")
+    asset = raw.get("asset")
+    if asset is not None:
+        if not isinstance(asset, str) or not asset.strip():
+            raise FullFrameDeclarationError(
+                f"{label} has asset={raw.get('asset')!r}; the asset is a "
+                f"file the project supplies - the project's own "
+                f"illustrated scene, rendered at the delivery frame. Omit "
+                f"it and the segment draws its own runs.")
+        asset = asset.strip()
+        for field_name, why in SEGMENT_ASSET_REFUSED_FIELDS.items():
+            if raw.get(field_name) is not None:
+                raise FullFrameDeclarationError(
+                    f"{label} names an `asset` and sets "
+                    f"{field_name}={raw.get(field_name)!r}: {why}")
     runs = raw.get("runs")
-    if not isinstance(runs, (list, tuple)) or not runs:
+    if asset is None and (not isinstance(runs, (list, tuple)) or not runs):
         raise FullFrameDeclarationError(
             f"{label} declares no `runs`; a segment with no copy on it "
             f"draws a coloured rectangle, and an element that draws "
@@ -1384,10 +1522,113 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
         "entrance": entrance,
         "window": _normalise_window(raw.get("window"), label),
         "background": background,
-        "runs": [_normalise_segment_run(run, span_index, position, number)
-                  for number, run in enumerate(runs, start=1)],
+        "asset": asset,
+        "runs": ([] if asset is not None else
+                 [_normalise_segment_run(run, span_index, position, number)
+                  for number, run in enumerate(runs, start=1)]),
         **_normalise_image_fields(raw, label),
+        "highlighter": _normalise_highlighter(raw.get("highlighter"), label),
+        "camera": _normalise_camera(raw.get("camera"), label),
     }
+
+
+def _normalise_highlighter(raw: Any, label: str) -> dict | None:
+    """A highlighter stroke behind the current word, or None.
+
+    Declared or absent, never defaulted: the engine ships no palette and
+    no stroke weight (AGENTS.md 10.5), so a segment that declares no
+    highlighter strokes nothing at all rather than drawing a stroke
+    somebody else chose.
+
+    The stroke needs a word clock to land on - it marks the word that
+    OWNS the clock - and that is checked in ``_normalise_span``, where
+    the span's ``word_sync`` and the segment's effective entrance are
+    both known.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise FullFrameDeclarationError(
+            f"{label} has highlighter={raw!r}; a highlighter is a mapping "
+            f"with a `colour` and a `width`.")
+    colour = str(raw.get("colour") or "").strip()
+    if not colour:
+        raise FullFrameDeclarationError(
+            f"{label} has highlighter without a `colour`. The stroke's "
+            f"colour is a declared colour or the stroke draws nothing - "
+            f"the engine ships no palette (AGENTS.md 10.5).")
+    width = raw.get("width")
+    if (not isinstance(width, (int, float)) or isinstance(width, bool)
+            or width <= 0):
+        raise FullFrameDeclarationError(
+            f"{label} has highlighter width={width!r}; the stroke's width "
+            f"is a positive number of pixels of the delivery frame. Omit "
+            f"the highlighter rather than let the engine pick a weight.")
+    return {"colour": colour, "width": float(width)}
+
+
+def _normalise_camera(raw: Any, label: str) -> dict | None:
+    """A camera move for one segment, or None.
+
+    ``move`` names the CHARACTER (a push or a pan) and the magnitudes
+    beside it are the declaration's: the scale a push reaches, the
+    offsets a pan ends on.  The engine states neither (AGENTS.md 10.5),
+    and the NEUTRAL camera - scale 1, no offset - is the absence of a
+    move rather than a chosen one, so a push travels from 1.0 to the
+    scale stated and a pan from no offset to the offset stated.
+
+    The offsets are the CAMERA's, as fractions of the delivery WIDTH -
+    one world unit is one delivery width, the same unit the engine's own
+    camera (StagedScene's) uses - so the content travels the other way
+    and a pan means the same thing at any delivery format.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise FullFrameDeclarationError(
+            f"{label} has camera={raw!r}; a camera is a mapping naming a "
+            f"`move`.")
+    move = str(raw.get("move") or "").strip().lower()
+    if move not in CAMERA_MOVES:
+        raise FullFrameDeclarationError(
+            f"{label} has camera move={raw.get('move')!r}; the camera "
+            f"moves are {', '.join(CAMERA_MOVES)}.")
+    to = raw.get("to")
+    x = raw.get("x")
+    y = raw.get("y")
+    for name, value in (("to", to), ("x", x), ("y", y)):
+        if value is not None and (not isinstance(value, (int, float))
+                                  or isinstance(value, bool)):
+            raise FullFrameDeclarationError(
+                f"{label} has camera {name}={value!r}; a camera magnitude "
+                f"is a number.")
+    if move == "push":
+        if to is None or float(to) <= 1.0:
+            raise FullFrameDeclarationError(
+                f"{label} has camera move='push' with to={to!r}; a push "
+                f"states the scale the frame reaches, and a push IN is a "
+                f"scale above 1.0.")
+        if x is not None or y is not None:
+            raise FullFrameDeclarationError(
+                f"{label} has camera move='push' and a pan offset; a push "
+                f"is a scale and a pan is a move across the frame. Name "
+                f"one.")
+        return {"move": "push", "to": float(to)}
+    if to is not None:
+        raise FullFrameDeclarationError(
+            f"{label} has camera move='pan' and a scale; a pan moves the "
+            f"frame across and a push scales it. Name one.")
+    if x is None and y is None:
+        raise FullFrameDeclarationError(
+            f"{label} has camera move='pan' and no offset; a pan that ends "
+            f"where it started is no camera move.")
+    pan_x = float(x or 0.0)
+    pan_y = float(y or 0.0)
+    if pan_x == 0.0 and pan_y == 0.0:
+        raise FullFrameDeclarationError(
+            f"{label} has camera move='pan' to no offset; a pan that ends "
+            f"where it started is no camera move.")
+    return {"move": "pan", "x": pan_x, "y": pan_y}
 
 
 def _normalise_segment_run(raw: Any, span_index: int, position: int,
@@ -2001,6 +2242,13 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
     renderer.  ``render_name`` says ``span`` rather than ``card`` so the
     verifier identifies it as what it is
     (``reel_conformance_verifier.CARD_NAME_SHAPE``).
+
+    A segment that names an ``asset`` is NOT rendered: the project's own
+    file IS that segment's picture, placed verbatim for the segment's
+    window the way a card is placed (AGENTS.md 13, 14).  It is measured
+    on the same terms a ``full_frame_clip`` is measured - the file must
+    BE the delivery frame - and it is identified on the timeline by the
+    file it places, so the plan refuses two segments naming one file.
     """
     label = f"full_frame_elements[{index}]"
     if not ranges:
@@ -2028,6 +2276,7 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
         body_offsets.append(cursor)
         cursor += _reel_clock.played_frames(keep_range, fps)
     planned: list[PlannedCard] = []
+    placed_assets: dict[str, int] = {}
     for position, (segment, (ws, we), owner) in enumerate(
             zip(segments, windows, owners), start=1):
         reel_start_frame = (body_offsets[owner]
@@ -2042,6 +2291,65 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
                 f"[{ws:.3f}, {we:.3f}], which rounds to "
                 f"{duration_frames} frames at {fps:.3f}fps; a segment "
                 f"must occupy at least one")
+        seg_label = f"{label}.segments[{position}]"
+        # A segment that names a project file is PLACED, not drawn: the
+        # file is its picture, and the engine authors no artwork
+        # (AGENTS.md 14). Everything else about it - where it sits, how
+        # long it holds - is the segment's own window, the same window
+        # the words are spoken in.
+        if segment.get("asset"):
+            path = resolve_clip_asset(segment["asset"], project_folder)
+            if path in placed_assets:
+                raise FullFrameDeclarationError(
+                    f"{seg_label} names asset={segment['asset']!r}, which "
+                    f"{label}.segments[{placed_assets[path]}] already "
+                    f"places. A segment that places a project file is "
+                    f"identified on the timeline by that file, so two "
+                    f"segments naming one file are two placements of one "
+                    f"identity - give each segment its own file.")
+            placed_assets[path] = position
+            measured = measure_clip(path)
+            if (measured.width, measured.height) != (int(width), int(height)):
+                raise FullFrameDeclarationError(
+                    f"{seg_label} names {path!r}, which measures "
+                    f"{measured.width}x{measured.height}; this reel "
+                    f"delivers {width}x{height}. Fitting it would "
+                    f"letterbox the scene small or crop it, and which of "
+                    f"those to do is taste the engine may not take - "
+                    f"re-author the file at the delivery frame.")
+            if abs(measured.fps - fps) > 1e-3:
+                raise FullFrameDeclarationError(
+                    f"{seg_label} names {path!r}, which runs at "
+                    f"{measured.fps:.3f}fps on a {fps:.3f}fps reel. A "
+                    f"file at another rate conforms to a length the "
+                    f"segment's own window does not choose, and the "
+                    f"segment would not cover the words it is timed to - "
+                    f"render the file at the reel's own rate.")
+            if measured.frame_count < duration_frames:
+                raise FullFrameDeclarationError(
+                    f"{seg_label} names {path!r}, which measures "
+                    f"{measured.frame_count} frame(s), and its window "
+                    f"[{ws:.3f}, {we:.3f}] is {duration_frames} frame(s) "
+                    f"long. The file ends before the words do, so the "
+                    f"tail of the segment would be a hole - render the "
+                    f"file long enough to cover the window.")
+            planned.append(PlannedCard(
+                index=position,
+                element="full_frame_span",
+                placement=SPAN_PLACEMENT,
+                reel_start_frame=reel_start_frame,
+                duration_seconds=duration_frames / fps,
+                duration_frames=duration_frames,
+                props={},
+                # The FILE is the identity on the timeline: the timeline
+                # carries the project's own name for it, and that is what
+                # the check that holds the elements reads back.
+                render_name=os.path.splitext(os.path.basename(path))[0],
+                # The placement plays the window's frames of that file.
+                source_frames=duration_frames,
+                rendered_path=path,
+            ))
+            continue
         context = {"range_index": owner, "ranges": ranges,
                    "transcript": transcript, "window": (ws, we)}
         resolved = tuple(
@@ -2088,7 +2396,6 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
         if segment.get("image"):
             named = segment["image"]
             url = resolve_asset(named) if resolve_asset else ""
-            seg_label = f"{label}.segments[{position}]"
             if not url:
                 raise FullFrameDeclarationError(
                     f"{seg_label} names image={named!r}, "
@@ -2108,6 +2415,14 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             props["wordCues"] = _word_cues(
                 label, position, (ws, we), owner, ranges, transcript,
                 fps, duration_frames, resolved)
+        # The stroke behind the current word, and the move of the frame -
+        # both declared per segment, both absent unless declared, so a
+        # segment that names neither draws exactly as it did before these
+        # slots existed.
+        if segment.get("highlighter") is not None:
+            props["highlighter"] = dict(segment["highlighter"])
+        if segment.get("camera") is not None:
+            props["camera"] = dict(segment["camera"])
         planned.append(PlannedCard(
             index=position,
             element="full_frame_span",

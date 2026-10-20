@@ -67,6 +67,29 @@ Each item below is a verified capability, not a plan.
   A name that resolves to nothing refuses at plan time
   (`full_frame_element.py:1532-1551`,
   `FullFrameCard/index.tsx:489-520`).
+- **A project-owned file as the segment's PICTURE.** A segment may name
+  its own `asset`: a file the project rendered at the delivery frame -
+  an illustrated scene - and that file is placed verbatim for the
+  segment's window, the way a card is placed. The engine draws nothing
+  for such a segment, so it carries no runs: the picture is the idea and
+  the type would be a second picture on the same seconds. The file is
+  measured before it is placed - the delivery frame, the reel's own
+  rate, long enough to cover the window - and a segment that places a
+  file is identified on the timeline by that file
+  (`full_frame_element.py`, `_plan_span`;
+  `tests/unit/captions/test_full_frame_span_asset.py`).
+- **A highlighter stroke behind the current word.** Declared per segment
+  as a colour and a width in pixels of the delivery frame, drawn on the
+  word that owns the word clock - the same word `emphasis_colour`
+  restyles. No engine default: a segment that declares no highlighter
+  strokes nothing. The Remotion composition draws it on the word; the
+  graphics IR lowers it to a shape node behind the word carrying the
+  word's own reveal.
+- **A camera: a push or a pan of the frame.** Declared per segment, from
+  the neutral camera to the declared one across the segment. The camera
+  moves the frame's content; the ground is the segment's declared colour
+  and does not move under it. The IR lowers it to the IR's own camera
+  node over the card group.
 - **Block-level entrances and exits.** The full motion-character set
   (`cut fade slide scale mask draw blur typewriter glitch flip`) for
   whole-card arrival/departure on the frame clock, drawn once in
@@ -120,10 +143,13 @@ to change. Ordered by how much of the reference it blocks.
    `docs/VISUAL_COMPONENT_ANATOMY.md` §2 and §4.) One static centred
    picture above the type; no transform over time, no full-bleed
    placement, no second image, no object that splits, moves, or is
-   replaced through defocus. There is no camera, no world coordinates,
-   no shadow, no focus property, no shape that both draws and clips
+   replaced through defocus. There is no world coordinates, no shadow,
+   no focus property, no shape that both draws and clips
    (sibling gaps 1, 3, 4, 5, 8 - all confirmed absent from the
-   component's props and drawing code).
+   component's props and drawing code). A CAMERA now exists - a declared
+   push or pan of the frame's content - but it is a transform over the
+   declared type, not a camera over a world: there is nothing under it
+   to move.
 7. **The ground has no depth.** No texture, no vignette, no
    light-direction property. A flat `#RRGGBB` cannot answer "what holds
    the frame when nobody is on screen" (reference §3: lit surface,
