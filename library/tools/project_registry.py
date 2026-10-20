@@ -192,6 +192,47 @@ def _open_project(yaml_path: Path, *, strict: bool = True) -> ProjectConfig:
     return load_project_config(yaml_path, strict=strict)
 
 
+def project_folder_for_resolve_name(name: str, root: Path = None) -> Optional[str]:
+    """The project folder whose Resolve project is exactly `name`.
+
+    An edit request names the RESOLVE project - that is what the
+    broker's open-project check and the shadow store key on - while the
+    touch-up executor needs the Ren project FOLDER to read the reel
+    proposals. This is the reverse of `ProjectConfig.resolve.project_name`
+    and the one place that mapping is written down.
+
+    Read-only: the registry is scanned without migrating anything.
+    """
+    wanted = str(name or "").strip()
+    if not wanted:
+        return None
+    for config in scan_projects(root):
+        if str(config.resolve.project_name or "").strip() == wanted:
+            return str(config.project_root)
+    return None
+
+
+def resolve_project_name(reference: str) -> str:
+    """The RESOLVE project name for a Ren project reference.
+
+    A reference is a project folder, a `project.yaml` path or a slug.
+    The Resolve project name is what the broker's open-project check and
+    the shadow store key on, so every request that names a project names
+    it this way. The `project.yaml` is read directly: this is a read,
+    and reading must not migrate anything.
+    """
+    wanted = str(reference or "").strip()
+    if not wanted:
+        return ""
+    yaml_path = resolve_project_path(wanted)
+    if yaml_path is not None:
+        data = load_project_config(yaml_path, migrate_format=False,
+                                   strict=False)
+        return str(data.resolve.project_name or "").strip()
+    config = get_project(wanted, strict=False)
+    return str(config.resolve.project_name or "").strip()
+
+
 def get_project(slug: str, root: Path = None, *,
                 strict: bool = True) -> ProjectConfig:
     """Load a project by slug or by filesystem path.

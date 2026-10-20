@@ -77,6 +77,12 @@ FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT,
 ROUTE_PATCH = "patch"
 ROUTE_REBUILD = "rebuild"
 
+#: The originator this front door stamps on every request it raises. The
+#: protected experimental routing policy is granted by ORIGINATOR NAME
+#: (`edit_qualification_policy`), so the classifier and the AXI planner
+#: read the same string.
+ORIGINATOR_NAME = "ren revise"
+
 _ENGINE = Path(__file__).resolve().parents[2]
 
 
@@ -90,6 +96,27 @@ def _now() -> str:
 
 def _root(project) -> str:
     return str(Path(project).expanduser().resolve())
+
+
+def _resolve_project_name(project_folder: str) -> str:
+    """The RESOLVE project name this project binds to.
+
+    An edit request names the RESOLVE project: that is what the broker's
+    open-project check and the shadow store key on, and a request that
+    named the Ren project FOLDER was refused as "Resolve has 'X' open,
+    not '<the folder>'". The Ren project folder reaches the executor
+    through the registry's reverse lookup instead.
+    """
+    from library.tools import project_registry
+
+    name = project_registry.resolve_project_name(project_folder)
+    if not name:
+        raise ReviseRefused(
+            f"project {project_folder!r} names no Resolve project",
+            "an edit request is addressed to the Resolve project, and "
+            "project.yaml must name it",
+            f"run `ren info {shlex.quote(project_folder)}`")
+    return name
 
 
 # ── The durable record ──────────────────────────────────────────────
@@ -336,7 +363,11 @@ def classify(spec: dict, frame=None) -> dict:
         "outcome": (marker_routing.OUTCOME_UNROUTED if program
                     else marker_routing.OUTCOME_ROUTED),
         "steps": owners, "frame": frame,
-        "evidence": {"edit_spec_ops": operations}})
+        # The originator names the front door that owns the protected
+        # staging guarantee, so the classifier routes under the SAME
+        # policy the AXI planner will (`edit_qualification_policy`).
+        "evidence": {"edit_spec_ops": operations,
+                     "originator": ORIGINATOR_NAME}})
     if verdict["verdict"] == feedback_patch.VERDICT_REFUSED:
         route = None
     elif program:
@@ -660,8 +691,8 @@ def _patch(project: str, record: dict, spec: dict, verdict: dict,
 
     change = region_summary(reel, snapshot, operations)
     request = edit_request.from_edit_program(
-        program, project=project, timeline=reel,
-        originator={"kind": "human", "name": "ren revise",
+        program, project=_resolve_project_name(project), timeline=reel,
+        originator={"kind": "human", "name": ORIGINATOR_NAME,
                     "detail": record.get("note", "")})
     record["assignment_id"] = spine.attach_revision(
         project, reel, request=record["note"])["assignment_id"]
@@ -924,8 +955,9 @@ def advance(project, revise_id: str, *, answer: str = "",
             _reel = ((spec.get("program") or {}).get("reel")
                      or record["reel"])
             _request = edit_request.from_edit_program(
-                spec["program"], project=project, timeline=_reel,
-                originator={"kind": "human", "name": "ren revise",
+                spec["program"], project=_resolve_project_name(project),
+                timeline=_reel,
+                originator={"kind": "human", "name": ORIGINATOR_NAME,
                             "detail": record.get("note", "")})
             record["edit_request"] = _request.to_dict()
             record["preparation"] = resolve_axi_core.prepare_edit_request(

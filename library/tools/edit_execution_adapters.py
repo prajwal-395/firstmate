@@ -1484,8 +1484,16 @@ def _touchup(context) -> dict:
     request = context.request
     project_path = project_registry.resolve_project_path(request.project)
     if project_path is None:
-        project = project_registry.get_project(request.project)
-        project_folder = str(project.project_root)
+        # The request names the RESOLVE project (the broker's
+        # open-project check and the shadow store key on that), so the
+        # Ren project FOLDER is found by its Resolve name. A slug still
+        # resolves by slug.
+        folder = project_registry.project_folder_for_resolve_name(
+            request.project)
+        if folder is None:
+            project = project_registry.get_project(request.project)
+            folder = str(project.project_root)
+        project_folder = folder
     else:
         project_folder = str(project_path.parent)
     matches = [moment for moment in reel_proposal.read_proposal(

@@ -2997,6 +2997,11 @@ EXEMPT_IMPORTS = {
     # Edit routing selects an executor but does not measure footage; it
     # must not invalidate a cached catalog result.
     "library/tools/execution_router.py",
+    # The protected experimental routing policy: which unqualified
+    # operation may run on a protected staged candidate, and under which
+    # guarantees. It selects an executor and measures nothing, on the same
+    # terms as the router beside it.
+    "library/tools/edit_qualification_policy.py",
     # The operation registry and its DAG-node translator: capability
     # addressing and execution routing.  The preflight measurement
     # chain (vision_pipeline_v3, picture_quality, camera_stability)

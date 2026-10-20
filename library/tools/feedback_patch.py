@@ -65,6 +65,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Mapping
 
 _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
@@ -138,14 +139,23 @@ def _edit_spec_owners(evidence: dict) -> list:
     return owners
 
 
-def _decide_program(operations: list, steps: list) -> dict:
+def _decide_program(operations: list, steps: list,
+                    evidence: Mapping | None = None) -> dict:
     """Route a semantic timeline program through the shared capability router.
 
     This classifier does not maintain an execution allowlist. In-place
     execution is eligible only when the shared router names a safe backend.
+
+    The policy the router is given is the SAME one the AXI planner uses
+    (`edit_qualification_policy`). Asking for the production policy here
+    refused every operation the planner would have run under the
+    protected experimental policy, so the front door could only ever
+    reach the production-enabled operations.
     """
+    from library.tools import edit_qualification_policy
     from library.tools import edit_request, execution_router
 
+    evidence = evidence or {}
     try:
         normalized = [edit_request._program_op_to_operation(operation, index)
                       .to_algebra_op()
@@ -154,10 +164,15 @@ def _decide_program(operations: list, steps: list) -> dict:
         return {"verdict": VERDICT_REFUSED,
                 "reason": f"the timeline program is invalid: {exc}",
                 "steps": steps, "execution": None}
+    context = edit_qualification_policy.protected_experimental_context(
+        [str(operation.get("op", "")) for operation in normalized],
+        originator_name=str(evidence.get("originator") or ""))
+    if context is None:
+        context = {"require_qualified": True}
     try:
         routing = execution_router.route_compiled_edit(
             {"operations": normalized},
-            context={"require_qualified": True}).as_dict()
+            context=context).as_dict()
     except execution_router.RoutingRefused as exc:
         return {"verdict": VERDICT_REFUSED,
                 "reason": f"the shared execution planner refused this edit: {exc}",
@@ -196,7 +211,7 @@ def decide(note) -> dict:
             "edit_spec_ops") or ())
         if any(operation.get("ledger_op") == "edit_program"
                for operation in operations):
-            return _decide_program(operations, steps)
+            return _decide_program(operations, steps, raw.get("evidence") or {})
         if outcome == marker_routing.OUTCOME_ROUTED:
             return _decide_edit_spec(raw, steps)
 

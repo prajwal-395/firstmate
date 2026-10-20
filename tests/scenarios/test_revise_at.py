@@ -65,7 +65,7 @@ def project(tmp_path, monkeypatch):
     root.mkdir()
     (root / "project.yaml").write_text(
         'name: "Pricing Show"\nslug: pricing-show\n'
-        f'project_format_version: 1\nresolve:\n  project: "{QUALIFICATION}"\n',
+        f'project_format_version: 1\nresolve:\n  project_name: "{QUALIFICATION}"\n',
         encoding="utf-8")
     layout = ProjectLayout(str(root))
     layout.ensure()
@@ -148,7 +148,7 @@ def test_revise_at_refuses_past_the_end_and_without_a_delivery(
     bare.mkdir()
     (bare / "project.yaml").write_text(
         'name: "Bare"\nslug: bare-show\nproject_format_version: 1\n'
-        f'resolve:\n  project: "{QUALIFICATION}"\n', encoding="utf-8")
+        f'resolve:\n  project_name: "{QUALIFICATION}"\n', encoding="utf-8")
     with pytest.raises(anchor.AnchorRefused, match="no reel .* delivered"):
         anchor.resolve(bare, "", anchor.parse_at("0:12"))
 

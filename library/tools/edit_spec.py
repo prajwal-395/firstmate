@@ -675,12 +675,20 @@ def _resolve_project_name(project_folder: str) -> str:
             "Resolve project name")
     import yaml
     data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    name = (data.get("resolve") or {}).get("project") or data.get("project")
+    # The key the project schema WRITES is `resolve.project_name`
+    # (`schemas/project_config.py`). Reading `resolve.project` here found
+    # a key nothing writes, so every real project answered "no resolve
+    # project name" and the reel's items were never listed.
+    resolve_section = data.get("resolve")
+    name = ""
+    if isinstance(resolve_section, dict):
+        name = str(resolve_section.get("project_name") or "").strip()
     if not name:
         raise EditSpecError(
-            f"no resolve project name in {config_path}; the preview reads "
+            f"no resolve project name in {config_path} "
+            f"(resolve.project_name); the preview reads "
             "the timeline generation from the shadow store")
-    return str(name)
+    return name
 
 
 def _normalise_recorded_row(row: dict) -> dict:

@@ -83,7 +83,7 @@ def round_project(tmp_path, monkeypatch):
     root.mkdir()
     (root / "project.yaml").write_text(
         'name: "Pricing Show"\nslug: pricing-show\n'
-        f'project_format_version: 1\nresolve:\n  project: "{QUALIFICATION}"\n',
+        f'project_format_version: 1\nresolve:\n  project_name: "{QUALIFICATION}"\n',
         encoding="utf-8")
     ProjectLayout(str(root)).ensure()
     previews = {}

@@ -115,7 +115,7 @@ def test_ren_revise_removes_pulled_source_marker_and_writes_reply(
         root.mkdir()
         (root / "project.yaml").write_text(
             'name: "Ren Qualification"\nslug: qualification\n'
-            'project_format_version: 1\nresolve:\n  project: '
+            'project_format_version: 1\nresolve:\n  project_name: '
             '"Ren Qualification"\n', encoding="utf-8")
         marker_feedback.pull(str(root), timeline=timeline, project=project)
         pulled = next(note for note in revise._routed_notes(str(root))

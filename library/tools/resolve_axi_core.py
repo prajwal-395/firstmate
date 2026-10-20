@@ -1173,6 +1173,44 @@ def _is_request_mapping(data: Mapping[str, Any]) -> bool:
                for op in operations)
 
 
+def _shadow_project_key(project: str) -> str:
+    """The shadow store's project key for a request's project.
+
+    The store is keyed by the RESOLVE project name - every recorded
+    generation names the Resolve project it was read from. A request
+    names the Ren project FOLDER on the revise path, so the key is read
+    from that folder's `project.yaml`; a request that already names the
+    Resolve project is used as it stands.
+
+    Looking the base up by the request's own `project` string found
+    nothing for every revise request, because no generation is recorded
+    under a folder path.
+    """
+    from pathlib import Path
+
+    folder = Path(str(project or "")).expanduser()
+    if folder.is_dir():
+        from library.tools import edit_spec
+
+        return edit_spec._resolve_project_name(str(folder))
+    return str(project)
+
+
+def _protected_route_context(request, operation_ids) -> dict:
+    """The routing context for a request, under the ONE policy.
+
+    The protected experimental policy has one owner
+    (`edit_qualification_policy`), so the front door's classifier and
+    this planner cannot disagree about which operations it covers.
+    """
+    from library.tools import edit_qualification_policy
+
+    originator_name = str(
+        (request.originator or {}).get("name", "")).strip().casefold()
+    return edit_qualification_policy.protected_experimental_context(
+        operation_ids, originator_name=originator_name) or {}
+
+
 def _prepare_request_plan(request):
     """Validate an edit request against its recorded base, without Resolve.
 
@@ -1195,14 +1233,15 @@ def _prepare_request_plan(request):
     if not isinstance(request, EditRequest):
         request = EditRequest.from_dict(request)
     store = timeline_shadow.ShadowStore()
+    project_key = _shadow_project_key(request.project)
     candidates = [
         (generation, snapshot)
-        for generation, snapshot in store.current_snapshots(request.project)
+        for generation, snapshot in store.current_snapshots(project_key)
         if generation.timeline_name == request.timeline
     ]
     if len(candidates) != 1:
         raise ValueError(
-            f"recorded base for {request.project!r}/{request.timeline!r} "
+            f"recorded base for {project_key!r}/{request.timeline!r} "
             f"resolved to {len(candidates)} timelines")
     generation, snapshot = candidates[0]
     if (request.expected_base_generation is not None
@@ -1251,29 +1290,9 @@ def _prepare_request_plan(request):
             "already satisfied: recorded state already holds every "
             "requested value")
     else:
-        route_context = {}
-        originator_name = str(
-            (request.originator or {}).get("name", "")).strip().casefold()
         operation_ids = tuple(
             str(operation.get("op", "")) for operation in compiled.operations)
-        protected_compounds = (
-            len(operation_ids) == 2
-            and set(operation_ids) in ({"clip.trim", "clip.insert"},
-                                       {"clip.replace", "caption.style"}))
-        protected_single = (
-            len(operation_ids) == 1
-            and operation_ids[0] in {
-                "audio.gain", "audio.fade", "transition",
-                "overlay.resize", "overlay.position",
-                "clip.split", "clip.slide", "clip.roll"})
-        if (originator_name in {"ren revise", "ren touch"}
-                and (protected_single or protected_compounds)):
-            route_context = {
-                "qualification_policy": "protected_experimental",
-                "protected_staging": True,
-                "preserve_approved_state": True,
-                "verify_after_write": True,
-            }
+        route_context = _protected_route_context(request, operation_ids)
         routing = route_request(compiled, context=route_context)
         backend = routing["backend"]
         backend_reason = "; ".join(routing.get("reasons", ()))

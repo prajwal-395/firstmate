@@ -1200,5 +1200,34 @@ def test_the_resolve_project_name_is_read_from_project_yaml(tmp_path):
     translation context could never be read."""
     project = _project(tmp_path)
     (project / "project.yaml").write_text(
-        'resolve:\n  project: "Pricing Show"\n', encoding="utf-8")
+        'resolve:\n  project_name: "Pricing Show"\n', encoding="utf-8")
     assert edit_spec._resolve_project_name(str(project)) == "Pricing Show"
+
+
+def test_the_resolve_project_name_is_the_key_the_project_schema_writes(tmp_path):
+    """Catches: the name lookup reading `resolve.project` - a key no
+    project.yaml carries - so every real project answered "no resolve
+    project name" and the reel's items were never listed in the
+    translation context.
+
+    The project schema writes `resolve.project_name`
+    (`schemas/project_config.py`); this writes the file the way the
+    schema does and reads the name back the way the reader does.
+    """
+    project = _project(tmp_path)
+    (project / "project.yaml").write_text(
+        "resolve:\n  project_name: Podcast (field test)\n"
+        "  database: local\n  folder: Lucie Content/Social Media/Podcast\n"
+        "  timeline_name: GEO Podcast - Synced\n", encoding="utf-8")
+    assert edit_spec._resolve_project_name(str(project)) == "Podcast (field test)"
+
+
+def test_a_project_yaml_without_a_resolve_project_name_says_which_key(tmp_path):
+    """Catches: the refusal naming a missing file instead of the missing
+    key, so the editor cannot tell what to write."""
+    project = _project(tmp_path)
+    (project / "project.yaml").write_text(
+        "resolve:\n  database: local\n", encoding="utf-8")
+    with pytest.raises(edit_spec.EditSpecError) as raised:
+        edit_spec._resolve_project_name(str(project))
+    assert "resolve.project_name" in str(raised.value)
