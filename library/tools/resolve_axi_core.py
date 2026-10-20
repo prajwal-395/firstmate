@@ -110,7 +110,7 @@ _EDIT_EXECUTOR_LOCK = threading.RLock()
 _ROUTER_QUALIFIED_BACKENDS = frozenset({
     "incremental", "resolve_native_invocation",
 })
-_ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup"})
+_ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup", "resolve_axi"})
 
 
 class RegisteredBatchPreflightRefused(ValueError):
@@ -893,18 +893,18 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             raise ValueError(
                 f"router selected {backend!r}, but {operation_id} is not "
                 f"production enabled on {backend_id}")
-        if (backend_id == "reel_touchup"
+        if (backend_id in _ROUTER_PROTECTED_BACKENDS
                 and (row is None or not row.production_enabled)):
             selection = decision.get("selection") or {}
             if selection.get("qualification_policy") != "protected_experimental":
                 raise ValueError(
                     f"router selected unqualified {operation_id} on "
-                    "reel_touchup without protected experimental policy")
+                    f"{backend_id} without protected experimental policy")
             if not any(gap[0] == operation_id
                        for gap in decision.get("qualification_gaps", ())):
                 raise ValueError(
                     f"router omitted the qualification gap for "
-                    f"{operation_id} on reel_touchup")
+                    f"{operation_id} on {backend_id}")
         with _EDIT_EXECUTOR_LOCK:
             executor = _EDIT_EXECUTORS.get((operation_id, backend_id))
         if executor is None:

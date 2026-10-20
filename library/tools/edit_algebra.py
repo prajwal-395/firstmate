@@ -3476,6 +3476,10 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/edit_execution_adapters.py:_remove",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_track_ripple_remove",
     ),
+    ("clip.insert", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_place",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_place",
+    ),
     ("clip.trim", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
@@ -3576,6 +3580,12 @@ _BACKEND_OPERATION_LIMITATIONS = {
           "and explicit link groups; production remains disabled until live "
           "qualification proves continuity, unrelated-track preservation, and "
           "journal recovery"),),
+    ("clip.insert", "resolve_axi"):
+        (("one pool item placed at one record span on one named video row "
+          "through the journaled AXI place verb; the placement is read back "
+          "from a fresh live snapshot and every unrelated item must read "
+          "unchanged; production remains disabled until live qualification "
+          "lands"),),
     ("clip.ripple", "reel_touchup"):
         ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
     ("clip.slip", "reel_touchup"):
@@ -3665,6 +3675,12 @@ def _executor_coverage() -> dict[str, set[str]]:
             # live qualification records are added.
             "clip.trim", "caption_fix", "broll.insert", "multicam.select_angle",
             "caption.style",
+            # AXI-11: the journaled `edit place` verb IS the guarded
+            # placement path for a plain pool-item insert, so the router
+            # can name the path that ran.  It stays UNQUALIFIED - the
+            # evidence that would promote it belongs to the live
+            # qualification lane, and nothing here grants it.
+            "clip.insert",
             # Planning-level: no command of its own, executed through the
             # trim/delete commands its carried edits name. Unqualified
             # until the live-requests lane records qualifying evidence.

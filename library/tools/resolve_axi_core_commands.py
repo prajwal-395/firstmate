@@ -4885,6 +4885,69 @@ def _pool_find_clip(project, clip_name: str, bin_path: str):
         f"{TOOL} pool")
 
 
+def _pool_find_clip_by_id(project, clip_id: str):
+    """The one placeable pool item with this exact unique id.
+
+    `clip.insert` names the pool item by its unique id (the identity the
+    algebra carries), while `edit place --clip` names it by its display
+    name.  This resolves the id to the SAME item the name would have
+    found, so the two never disagree about what is placed: several items
+    answering to one id refuse rather than guess.
+    """
+    try:
+        pool = project.GetMediaPool()
+        root = pool.GetRootFolder()
+    except Exception as exc:
+        raise AxiError(
+            f"project {project.GetName()!r} would not open its media "
+            f"pool ({exc}).",
+            f"{TOOL} pool") from exc
+    hits = []
+    stack = [root]
+    while stack:
+        folder = stack.pop()
+        try:
+            clips = list(folder.GetClipList() or ())
+        except Exception:
+            clips = []
+        for clip in clips:
+            try:
+                uid = str(clip.GetUniqueId())
+            except Exception:
+                continue
+            if uid == clip_id:
+                hits.append(clip)
+        try:
+            stack.extend(folder.GetSubFolderList() or ())
+        except Exception:
+            pass
+    if not hits:
+        raise AxiError(
+            f"no pool item has the unique id {clip_id!r}.",
+            f"{TOOL} pool")
+    if len(hits) > 1:
+        raise AxiError(
+            f"the pool item id {clip_id!r} answers to {len(hits)} items - "
+            f"refusing to guess which one to place.",
+            f"{TOOL} pool")
+    clip = hits[0]
+    try:
+        props = clip.GetClipProperty() or {}
+    except Exception:
+        props = {}
+    if isinstance(props, dict) and not (props.get("File Path") or ""):
+        raise AxiError(
+            f"the pool item {clip_id!r} is not a placeable source clip.",
+            f"{TOOL} pool")
+    try:
+        name = str(clip.GetName())
+    except Exception as exc:
+        raise AxiError(
+            f"the pool item {clip_id!r} would not report its name ({exc}).",
+            f"{TOOL} pool") from exc
+    return clip, {"name": name, "bin": ""}
+
+
 def cmd_edit_place(args) -> int:
     """Append a pool clip onto the reel. The plan says where; the
     read-back says where it actually landed.
@@ -4905,8 +4968,11 @@ def cmd_edit_place(args) -> int:
                 project, args.timeline)
         except AxiError as exc:
             return fail(str(exc), exc.fix)
-        if not args.clip:
-            return fail("place needs --clip.",
+        if not args.clip and not getattr(args, "clip_id", ""):
+            return fail("place needs --clip or --clip-id.",
+                        f"{TOOL} pool")
+        if args.clip and getattr(args, "clip_id", ""):
+            return fail("place takes --clip or --clip-id, not both.",
                         f"{TOOL} pool")
         if args.apply:
             try:
@@ -4914,10 +4980,17 @@ def cmd_edit_place(args) -> int:
             except AxiError as exc:
                 return fail(str(exc), exc.fix)
         try:
-            clip, row = _pool_find_clip(project, args.clip,
-                                        args.bin or "")
+            if getattr(args, "clip_id", ""):
+                clip, row = _pool_find_clip_by_id(project, args.clip_id)
+            else:
+                clip, row = _pool_find_clip(project, args.clip,
+                                            args.bin or "")
         except AxiError as exc:
             return fail(str(exc), exc.fix)
+        # The clip is named by its DISPLAY name everywhere the plan, the
+        # journal and the receipt are written, whether it was asked for
+        # by name or by its pool unique id.
+        clip_name = str(row.get("name") or args.clip or "")
         if args.media not in ("both", "video", "audio"):
             return fail(f"bad --media {args.media!r}: both|video|audio.",
                         f"{TOOL} edit place --help")
@@ -4967,7 +5040,7 @@ def cmd_edit_place(args) -> int:
             emit([kv_block("place_plan", {
                       "timeline": timeline.GetName() +
                       (" (current)" if is_current else ""),
-                      "clip": args.clip,
+                      "clip": clip_name,
                       "bin": row["bin"] or "/ (root)",
                       "where": where,
                   }),
@@ -4976,7 +5049,7 @@ def cmd_edit_place(args) -> int:
                   f"Resolve lease (cursor must sit on the reel)",
                   help_block([
                       f"{TOOL} edit place --timeline "
-                      f"\"{timeline.GetName()}\" --clip \"{args.clip}\" "
+                      f"\"{timeline.GetName()}\" --clip \"{clip_name}\" "
                       f"--apply"])])
             return 0
         before = sum(
@@ -4986,7 +5059,7 @@ def cmd_edit_place(args) -> int:
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_place", "timeline": timeline.GetName(),
-                      "clip": args.clip, "media": args.media,
+                      "clip": clip_name, "media": args.media,
                       "source_in": args.source_in,
                       "source_out": args.source_out,
                       "track": args.track, "record": args.record},
@@ -5013,11 +5086,11 @@ def cmd_edit_place(args) -> int:
                             f"\"{timeline.GetName()}\"")
             journal_state["success"] = True
         spans = [_item_span(item) for item in new_items] or [
-            {"name": args.clip, "record_in": "", "record_out": "",
+            {"name": clip_name, "record_in": "", "record_out": "",
              "source_in": "", "source_out": "", "uid": ""}]
         emit([kv_block("placed", {
                   "timeline": timeline.GetName(),
-                  "clip": args.clip,
+                  "clip": clip_name,
                   "items_delta": delta,
                   "verified": ("yes (item count moved, no retry - a "
                                "retry would place it twice)"),
@@ -9746,6 +9819,9 @@ def build_parser() -> Parser:
     _add_scope(q, "place")
     q.add_argument("--clip", default="",
                    help="pool clip name (exact; --bin disambiguates)")
+    q.add_argument("--clip-id", default="",
+                   help="pool clip unique id (exact; the identity "
+                        "clip.insert carries)")
     q.add_argument("--bin", default="",
                    help="scope the clip search to bin path A/B/C")
     q.add_argument("--source-in", default=None, type=int,

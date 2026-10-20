@@ -196,20 +196,35 @@ def _discover_operation(operation: str, instruction: str,
     return discovery, route, phases
 
 
-def _route_both(request) -> dict:
+def _route_both(request, qualification_state: dict | None = None) -> dict:
     """Route under production, then under the qualification-run policy.
 
     Both verdicts stay on the record: production refusal is the
     fail-closed norm, and the protected verdict says what a
     qualification run with all three guards may select.
+
+    ``qualification_state`` is the MEASURED runtime the operation was
+    written against (`library/tools/axi_qualification_state.py`), read
+    on the live timeline before the write. The production path has
+    carried it since PR 2893; without it the router cannot check a
+    promoted operation's recorded predicates and refuses every one of
+    them with "runtime qualification state was not inspected" - a
+    statement about the code rather than about the timeline.
     """
     from library.tools import edit_request, execution_router
+
+    def _context(policy_context: dict) -> dict:
+        context = dict(policy_context)
+        if qualification_state is not None:
+            context["qualification_state"] = qualification_state
+        return context
 
     route: dict = {}
     try:
         compiled = edit_request.compile_request(request)
         decision = edit_request.route_request(
-            compiled, context={"qualification_policy": "production"})
+            compiled, context=_context(
+                {"qualification_policy": "production"}))
         route["production"] = {"selected": decision["backend"]}
     except execution_router.RoutingRefused as exc:
         route["production"] = {
@@ -218,7 +233,7 @@ def _route_both(request) -> dict:
     try:
         compiled = edit_request.compile_request(request)
         decision = edit_request.route_request(
-            compiled, context=_protected_context())
+            compiled, context=_context(_protected_context()))
         route["protected_experimental"] = {"selected": decision["backend"]}
     except execution_router.RoutingRefused as exc:
         route["protected_experimental"] = {
@@ -230,14 +245,31 @@ def _route_both(request) -> dict:
     return route
 
 
+def _entry_family(entry: str) -> str:
+    """The backend family an executed AXI entry belongs to.
+
+    `resolve-axi edit place` is the resolve_axi backend's place command:
+    the CLI spells the family with a hyphen and the router with an
+    underscore, so the comparison NORMALIZES the spelling rather than
+    guessing which of the two a route names.
+    """
+    head = str(entry or "").strip().split(" ")[0]
+    return head.replace("-", "_")
+
+
 def _route_executing(ops: list[dict], entry: str,
-                     basis: str, capability_gap: str = "") -> dict:
+                     basis: str, capability_gap: str = "",
+                     qualification_state: dict | None = None) -> dict:
     """Route the executing mechanism ops; every refusal stays on record.
 
     ``capability_gap`` names the reason a router-selected backend cannot
     execute (e.g. the capability declaration gates an op out): the
     qualified fallback entry is then correct with the gap on record,
     never a silent substitution.
+
+    ``qualification_state`` is the runtime measured before the write;
+    the router checks a promoted operation's recorded predicates against
+    it exactly as the production path does.
     """
     from library.tools import edit_request
 
@@ -251,10 +283,11 @@ def _route_executing(ops: list[dict], entry: str,
                 "selection_correct": True,
                 "router_refusal": f"{type(exc).__name__}: {exc}",
                 "executed_entry": entry, "basis": basis}
-    route = _route_both(request)
+    route = _route_both(request, qualification_state=qualification_state)
     selected = route["selected"]
     family = str(selected).split(".")[0]
-    correct = bool(selected and (family in entry or entry in selected))
+    correct = bool(selected and (family == _entry_family(entry)
+                                 or family in entry or entry in selected))
     if selected and not correct and capability_gap:
         correct = True
         basis = basis + " | capability gap: " + capability_gap
@@ -315,6 +348,26 @@ if "resolve" not in _stamp:
 if _stamps:
     with open(_project_yaml, "a", encoding="utf-8") as _handle:
         _handle.write("".join(_stamps))
+
+def qualification_state(operations):
+    """The MEASURED runtime state for the operations about to run.
+
+    The router checks a promoted operation's recorded qualification
+    predicates against this state; without it every promoted operation
+    is refused with "runtime qualification state was not inspected" -
+    a statement about the code rather than about the timeline. It is
+    read HERE, on the timeline the write is about to land on, because
+    the state after the write describes a different timeline.
+    """
+    try:
+        from library.tools import axi_qualification_state
+        open_project = manager.GetCurrentProject()
+        return axi_qualification_state.inspect_handles(
+            resolve=resolve, resolve_project=open_project,
+            timeline=open_project.GetCurrentTimeline(),
+            operations=operations)
+    except Exception as exc:
+        return {"inspected": False, "reason": f"{type(exc).__name__}: {exc}"}
 
 def call(argv):
     out, err = io.StringIO(), io.StringIO()
@@ -693,12 +746,17 @@ if TASK in ("all", "add_logo_five_seconds"):
     # add_logo_five_seconds: the 9 s fixture's final five seconds are
     # record [96, 216); prove the span, the width, and preservation.
     seed_base()
+    logo_state = qualification_state([
+        {"op": "clip.insert", "unique_id": "axc-live-logo"}])
     placed = call(["edit", "place", "--clip", "fm-qual-logo-180x64.png",
                    "--media", "video", "--track", "3", "--record", "96",
                    "--source-in", "0", "--source-out", "119",
                    "--apply", "--project", PROJECT, "--timeline", TIMELINE])
     add_items = live_items()
-    results["add_logo_five_seconds"] = {"place": placed, "items": add_items}
+    results["add_logo_five_seconds"] = {
+        "place": placed, "items": add_items,
+        "qualification_state": logo_state,
+        "media_pool_item": pool_uid("fm-qual-logo-180x64.png")}
     teardown()
 
 if TASK in ("all", "trim_pause"):
@@ -922,6 +980,12 @@ if TASK in ("all", "remove_broll"):
             "File Path") or "")
     except Exception:
         cover_path = ""
+    # The runtime the removal is qualified against is the timeline AS IT
+    # IS, before the write: the recorded predicates describe the state
+    # the edit may run in, and the state after the removal describes a
+    # different timeline.
+    remove_state = qualification_state([
+        {"op": "clip.remove", "unique_id": str(cover.GetUniqueId())}])
     removed = call(["edit", "track-ripple-remove", "--track", "video2",
                      "--index", "0",
                      "--target-unique-id", str(cover.GetUniqueId()),
@@ -937,7 +1001,9 @@ if TASK in ("all", "remove_broll"):
                      "--project-folder", PROJECT_DIR, "--require-recovery"])
     remove_after = live_items()
     results["remove_broll"] = {"delete": removed, "before": remove_before,
-                               "after": remove_after}
+                               "after": remove_after,
+                               "qualification_state": remove_state,
+                               "target_unique_id": str(cover.GetUniqueId())}
     teardown()
 
 if TASK in ("all", "insert_relevant_broll"):
@@ -1901,16 +1967,16 @@ def _add_logo_evidence(case: dict, started: float,
         [{"op": "clip.insert", "unique_id": "axc-live-logo",
           "track_type": "video", "track_index": 3,
           "record_in": 96, "record_out": 216,
-          "media_pool_item": "fm-qual-logo-180x64.png"}],
+          "media_pool_item": str(case.get("media_pool_item")
+                                 or "fm-qual-logo-180x64.png")}],
         entry="resolve-axi edit place",
-        capability_gap=("reel.touchup declares no clip.insert, so the "
-                        "router-selected edit_patch pair cannot execute; "
-                        "the journaled place verb is the qualified "
-                        "physical path"),
-        basis=("router refuses clip.insert under production and "
-               "selects edit_patch under the qualification-run policy; "
-               "the live-qualified journaled place entry executed it "
-               "and the read-back above verifies it"))
+        qualification_state=case.get("qualification_state"),
+        basis=("the router refuses clip.insert under production (the "
+               "operation has no production qualification; the live "
+               "evidence is the qualification lane's to land) and "
+               "selects the AXI place verb under the qualification-run "
+               "policy; that verb is the path that executed the "
+               "placement, and the read-back above verifies it"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend,
                             {"items": case["items"]}))
@@ -2146,18 +2212,17 @@ def _remove_broll_evidence(case: dict, started: float,
         "linked_audio_in_sync": sync_ok,
     }
     backend = _route_executing(
-        [{"op": "clip.remove", "unique_id": "axc-live-broll"}],
+        [{"op": "clip.remove",
+          "unique_id": str(case.get("target_unique_id")
+                           or "axc-live-broll")}],
         entry="resolve-axi edit track-ripple-remove",
-        capability_gap=("reel.touchup declares no clip.remove, so the "
-                        "router-selected edit_patch pair cannot execute; "
-                        "the guarded track-scoped ripple verb is the "
-                        "qualified physical path"),
-        basis=("router refuses clip.remove under production and selects "
-               "edit_patch under the qualification-run policy, but no "
-               "patch capability declares clip.remove, so the guarded "
-               "track-scoped ripple verb executed the removal and the "
-               "read-back above verifies cover removal with A-roll and "
-               "audio untouched and unmoved"))
+        qualification_state=case.get("qualification_state"),
+        basis=("the router routes clip.remove to the AXI track-scoped "
+               "ripple verb when the measured runtime satisfies the "
+               "recorded qualification predicates, and to that same verb "
+               "under the qualification-run policy; the verb executed the "
+               "removal and the read-back above verifies cover removal "
+               "with A-roll and audio untouched and unmoved"))
     row = _common(instruction, discovery, started, phases)
     row.update(_checked_row(checks, backend,
                             {"before_spans": sorted(

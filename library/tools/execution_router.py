@@ -120,12 +120,11 @@ ROUTE_MUTATION_SCOPE: Mapping[str, str] = {
     "incremental": "targeted",
     "edit_patch": "targeted",
     "edit_patch.property": "targeted",
-    "resolve_axi": "targeted",
-    "reel_touchup": "targeted",
-    "composed_edit.structural": "targeted",
     # Semantic AXI adapters perform a narrowly authorized request and own
     # their live read-back.  They are a targeted route, never a rebuild.
     "resolve_axi": "targeted",
+    "reel_touchup": "targeted",
+    "composed_edit.structural": "targeted",
     "full_rebuild": "full_rebuild",
 }
 
@@ -182,8 +181,6 @@ ROUTE_TRANSACTION_OWNERSHIP: Mapping[str, Mapping[str, object]] = {
                                writes=True),
     "composed_edit.structural": _ownership("timeline.semantic_edit",
                                             lease="exclusive", writes=True),
-    "resolve_axi": _ownership("timeline.semantic_edit", lease="exclusive",
-                               writes=True),
     "incremental": _ownership("", lease="exclusive", writes=True),
     "full_rebuild": _ownership("", lease="exclusive", writes=True),
 }
@@ -648,6 +645,44 @@ def _qualification_matches(backend, inspected) -> bool:
         if predicate["operator"] == "one_of" and actual not in expected:
             return False
     return True
+
+
+def _axi_implemented_rows(edit_algebra, ids: Sequence[str]):
+    """The AXI adapter row for each operation, when the CODE implements it.
+
+    A row that lists implementation evidence names the adapter that runs
+    the operation on Resolve; a row without it names a vocabulary, not a
+    path.  The protected route may only name a path that exists, so a
+    row without evidence keeps the route off the AXI backend.
+    """
+    rows = []
+    for op_id in ids:
+        entry = edit_algebra.status(op_id)
+        row = entry.for_backend("resolve_axi") if entry is not None else None
+        if (row is None or not row.compilable
+                or not row.implementation_evidence):
+            return None
+        rows.append(row)
+    return tuple(rows)
+
+
+def _production_writers_elsewhere(edit_algebra,
+                                   ids: Sequence[str]) -> tuple[str, ...]:
+    """Production-enabled writers for these ops that are NOT the AXI path.
+
+    A production-qualified writer on another backend keeps the route: the
+    AXI adapter is the implemented path, not a better one.
+    """
+    found: list[str] = []
+    for op_id in ids:
+        entry = edit_algebra.status(op_id)
+        if entry is None:
+            continue
+        for backend in entry.backends:
+            if (backend.backend != "resolve_axi"
+                    and backend.production_enabled):
+                found.append(f"{op_id} on {backend.backend}")
+    return tuple(found)
 
 
 def _gap_reasons(gaps) -> tuple[str, ...]:
@@ -1227,6 +1262,41 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                 qualification_gaps=backend_gaps,
                 selection=_selection_basis(
                     operations, context, "reel_touchup",
+                    limitations=("protected experimental route; live operation qualification deferred",)),
+            )
+
+    # AXI-11: the route chosen for an executed edit must be the path
+    # that actually ran.  Under the protected experimental policy an
+    # operation whose AXI adapter is IMPLEMENTED is routed to that
+    # adapter - the journaled AXI verb that performs it - and never to a
+    # lower-level writer whose matrix row merely says "compilable": a
+    # route that names a path nobody executed records a decision that
+    # did not happen.  The qualification gap stays on the record, and
+    # promoting this route is the live qualification lane's to do -
+    # nothing here grants it.
+    if context.get("qualification_policy") == "protected_experimental":
+        axi_rows = _axi_implemented_rows(edit_algebra, ids)
+        elsewhere = _production_writers_elsewhere(edit_algebra, ids)
+        if axi_rows and not elsewhere:
+            return ExecutionDecision(
+                backend="resolve_axi",
+                reasons=("every operation has an implemented Resolve AXI adapter",
+                         "protected experimental execution keeps production qualification closed",
+                         *checked, *gap_reasons),
+                rejected_alternatives=(
+                    RejectedBackend("edit_patch", "the AXI adapter is the implemented path for this operation"),
+                    RejectedBackend("full_rebuild", "a targeted semantic AXI transaction is available"),
+                ),
+                verification=("verify the adapter receipt and operation-specific fresh state read-back",
+                              "verify unrelated timeline state remains unchanged"),
+                algebra_status=statuses,
+                mode=_mode_for("resolve_axi",
+                               blockers=edit_algebra.direct_blockers(
+                                   ids, "resolve_axi"),
+                               context=context),
+                qualification_gaps=gaps,
+                selection=_selection_basis(
+                    operations, context, "resolve_axi",
                     limitations=("protected experimental route; live operation qualification deferred",)),
             )
 

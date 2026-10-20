@@ -3269,6 +3269,26 @@ def test_edit_place_apply_journals(edit_patched, tmp_path, capsys):
     assert entries[0]["gate_class"] == "edit_place"
 
 
+def test_edit_place_by_pool_unique_id_places_that_item(edit_patched, capsys):
+    """`clip.insert` names the pool item by its unique id, so the place
+    verb resolves that id to the SAME item its display name would have
+    found - and says so in the plan it prints."""
+    args = _place_ns(clip="", clip_id="pool:a.mov")
+    assert cmd_edit_place(args) == 0
+    out = capsys.readouterr().out
+    assert "a.mov" in out
+    assert "place_plan" in out
+
+
+def test_edit_place_by_pool_unique_id_refuses_an_unknown_id(edit_patched,
+                                                            capsys):
+    """An id no pool item answers to is a refusal, never a guess."""
+    args = _place_ns(clip="", clip_id="pool:nothing-here")
+    assert cmd_edit_place(args) == 1
+    out = capsys.readouterr().out
+    assert "no pool item has the unique id" in out
+
+
 def test_edit_move_refuses_unqualified_axi_delete_route(
         edit_patched, tmp_path, capsys):
     """Move refuses before writes while its source-delete route is unqualified."""

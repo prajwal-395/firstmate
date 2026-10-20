@@ -763,6 +763,154 @@ def _broll_insert(context) -> dict:
     }
 
 
+def _place(context) -> dict:
+    """Place a pool clip at a stated span through the journaled AXI verb.
+
+    The physical write is the AXI `edit place` verb - the guarded,
+    journaled AppendToTimeline placement - and the read-back is a fresh
+    live snapshot: exactly one new item, on the requested row, at the
+    requested record span, carrying the requested source range, with
+    every other item on the timeline unchanged. The op names the pool
+    item by its unique id, which is the identity the algebra carries;
+    the verb resolves that id to the same item its name would have
+    found, so the two can never disagree about what was placed.
+
+    Qualification stays closed until live evidence lands: this is an
+    IMPLEMENTED path, not a qualified one.
+    """
+    import re
+
+    from library.tools import operation_acceptance, resolve_axi_core
+
+    operation = dict(context.operation)
+    track_type = str(operation.get("track_type") or "video")
+    if track_type != "video":
+        raise ValueError(
+            f"clip.insert refuses {track_type!r}: the AXI place verb "
+            "places video or audio media, and this request names neither")
+    try:
+        track_index = int(operation["track_index"])
+        record_in = int(operation["record_in"])
+        record_out = int(operation["record_out"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"clip.insert needs integer track/record spans ({exc})")
+    if record_out <= record_in:
+        raise ValueError("clip.insert needs a positive record span")
+    media_pool_item = str(operation.get("media_pool_item") or "")
+    if not media_pool_item:
+        raise ValueError("clip.insert names no pool item to place")
+
+    before = context.snapshot
+    command = ["edit", "place", "--clip-id", media_pool_item,
+               "--media", "video",
+               "--track", str(track_index), "--record", str(record_in)]
+    if operation.get("source_in") is not None:
+        command += ["--source-in", str(int(operation["source_in"]))]
+    if operation.get("source_out") is not None:
+        command += ["--source-out", str(int(operation["source_out"]))]
+    command += ["--project-folder", _project_folder(context),
+                "--require-recovery", "--apply",
+                "--project", context.request.project,
+                "--timeline", context.request.timeline]
+    result = resolve_axi_core.execute(command)
+    if not result.ok:
+        raise RuntimeError(result.stderr.strip() or result.stdout.strip()
+                           or "AXI edit place for clip.insert failed")
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    before_uids = {str(clip.get("unique_id"))
+                   for track in before.get("tracks", [])
+                   for clip in track.get("clips") or []}
+    placed = [clip for track in after.get("tracks", [])
+              for clip in track.get("clips") or []
+              if str(clip.get("unique_id")) not in before_uids]
+    if len(placed) != 1:
+        raise RuntimeError(
+            f"clip.insert placed {len(placed)} items, not exactly one - "
+            "verify by hand before retrying")
+    item = placed[0]
+    placed_uid = str(item.get("unique_id"))
+    requested_source_in = operation.get("source_in")
+    evidence = {
+        "target_identity": True,
+        "source_identity": (
+            bool(str(item.get("source_file") or ""))
+            and (requested_source_in is None
+                 or int(item.get("source_in_frame") or -1)
+                 == int(requested_source_in))),
+        "requested_record_span": (
+            int(item.get("record_in")) == record_in
+            and int(item.get("record_out")) == record_out),
+        "requested_track": (
+            str(item.get("track_type") or "video") == "video"
+            and int(item.get("track_index") or 0) == track_index),
+    }
+    collateral = _unrelated_changes(
+        before, after, placed_uid,
+        affected_spans=[(record_in, record_out)])
+    evidence["unrelated_items_unchanged"] = not collateral
+    preservation = _preservation_verdict(
+        context, [operation], before, after,
+        affected_spans=[(record_in, record_out)])
+    _refuse_collateral("clip.insert", preservation)
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": "clip.insert"},
+        readback_passed=all(evidence.values()),
+        evidence=evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            f"AXI read-back acceptance failed for clip.insert: "
+            f"missing evidence [{missing}], failed checks [{failed}]")
+    journal_match = re.search(r"(?m)^\s*entry:\s*(\S+)\s*$",
+                              result.stdout)
+    if not journal_match:
+        raise RuntimeError(
+            "clip.insert verified without a recovery journal reference")
+    recovery_reference = {
+        "kind": "undo_journal_entry",
+        "project_folder": _project_folder(context),
+        "entry_id": journal_match.group(1),
+    }
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": "clip.insert",
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            "unique_id": placed_uid,
+            "client_unique_id": str(operation.get("unique_id") or ""),
+            "media_pool_item": media_pool_item,
+            "source_file": str(item.get("source_file", "")),
+            "source_in_frame": int(item.get("source_in_frame") or 0),
+            "source_out_frame": int(item.get("source_out_frame") or 0),
+            "record_in": int(item.get("record_in") or 0),
+            "record_out": int(item.get("record_out") or 0),
+        },
+        "readback": {"snapshot": after, "command_output": result.stdout},
+        "acceptance_contracts": [acceptance],
+        "preservation": preservation,
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": "clip.insert", "passed": True},),
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline"},
+            },
+            "recovery": {
+                "status": "available",
+                "action": ("AXI undo journal; delete the placed item to "
+                           "restore the timeline"),
+                "reference": recovery_reference,
+            },
+        },
+    }
+
+
 def _caption_style_props(source_file: str) -> dict:
     """The tight render props written beside a placed caption card.
 
@@ -1785,6 +1933,7 @@ def register_builtin_edit_executors() -> None:
         ("clip.trim", "resolve_axi"): _trim,
         ("clip.delete", "resolve_axi"): _delete,
         ("clip.remove", "resolve_axi"): _remove,
+        ("clip.insert", "resolve_axi"): _place,
         ("reel.opening", "resolve_axi"): _reel_opening,
         ("caption_fix", "resolve_axi"): _caption_fix,
         ("broll.insert", "resolve_axi"): _broll_insert,

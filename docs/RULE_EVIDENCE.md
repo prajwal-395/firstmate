@@ -8152,3 +8152,55 @@ change does not invent one: a record that reports a default as though it were me
 defect, so the confidence stays absent and the sampling says what the reading rests on. A
 calibrated per-description confidence needs its own measurement and its own corpus; the
 held-out harness for it is `library/tools/acquisition_benchmark.py`.
+
+## the-route-that-named-a-path-nobody-ran
+
+**The rule.** The route chosen for an executed edit is the PATH THAT ACTUALLY RAN, and a
+route that names a path nobody executed records a decision that did not happen.
+
+**What happened.** Two AXI-11 requests failed with the same defect wearing two faces.
+
+The logo placement ("add the supplied logo over the final five seconds, inside the safe area,
+without moving or changing any other timeline item") placed the item and read it back
+correctly. The ROUTE said `edit_patch` - a route the run never took - because the router had no
+`resolve_axi` row for `clip.insert` to name: the journaled AXI `edit place` verb was the
+physical path, and the algebra never said so. Under production the request was refused with
+"no production-qualified executor is available for: clip.insert", which is TRUE - `clip.insert`
+has no production qualification - but the qualification-run policy then answered with a route
+that could not have performed the write.
+
+The B-roll removal ("remove the selected B-roll shot and close its gap while keeping adjacent
+speech and sync intact") rippled the cover away and read the gap closed. Two things were
+wrong with its route. Production refused `clip.remove` with "runtime qualification state was
+not inspected" - a statement about the CODE, not about the timeline: the live adapter never put
+the measured runtime into its routing context, although the production path has carried it
+since PR 2893 (`library/tools/axi_qualification_state.py`). And the qualification-run policy
+again selected `edit_patch`, while the path that ran was the AXI
+`edit track-ripple-remove` verb.
+
+**The rule.** A route names a PATH, so the path must exist and must be the one that ran. The
+router may only select a backend whose adapter the code actually implements - the algebra's
+implementation evidence is that statement - and under the protected experimental policy an
+operation whose AXI adapter is implemented is routed to THAT adapter rather than to a
+lower-level writer whose matrix row merely says "compilable". The qualification gap stays on
+the record: promoting a route is the live qualification lane's to do, and nothing here grants
+it. And a router that checks recorded qualification predicates needs the MEASURED runtime in
+its context; a state nobody read and a state that was read and does not match are different
+facts, and only the second one may name a predicate.
+
+**Where it is.** `library/tools/execution_router.py` selects the AXI adapter under the
+protected policy (`_axi_implemented_rows`, `_production_writers_elsewhere`), and
+`library/tools/edit_algebra.py` records the `clip.insert` AXI adapter as IMPLEMENTED and
+UNQUALIFIED. `library/tools/edit_execution_adapters.py:_place` is that adapter: it places
+through the journaled AXI `edit place` verb and reads the placement back from a fresh live
+snapshot. `library/tools/resolve_axi_core_commands.py` gained `edit place --clip-id`, because
+`clip.insert` names its pool item by unique id. The live adapter
+(`tests/live/editorial_live_adapter.py`) measures the runtime on the timeline the write is
+about to land on and puts it in the routing context, and compares the route with the executed
+entry by FAMILY, because the CLI spells the family `resolve-axi` and the router spells it
+`resolve_axi`.
+
+**What it does not fix.** `clip.insert` is still NOT production-qualified: the placement is
+still refused under production routing, and the evidence that would promote it belongs to the
+live qualification lane. This change fixes the route that was recorded, not the qualification
+that has not been earned.
