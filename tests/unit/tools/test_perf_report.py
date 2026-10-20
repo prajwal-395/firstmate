@@ -50,6 +50,30 @@ def test_a_layer_no_stage_claims_is_not_charged_to_a_stage():
     assert "a_layer_nobody_placed" in report["unclassified_layers"]
 
 
+def test_the_placement_pass_is_charged_to_the_stage_it_is():
+    """The OTIO placement pass is the AXI stage, and it is NOT silent.
+
+    Defect caught: the placement pass wrote eleven span layers that no
+    stage claimed, so a live reel build (measured 2026-10-20) reported
+    40-46% of its wall as unattributed time - the exact silence the
+    stage vocabulary exists to end. A reader deciding where to spend
+    the next hour saw a build with no visible biggest cost.
+    """
+    rows = [
+        _capability(100.0, 0.0),
+        _span("otio_placement.deferred_transform_s", 40.0, 1.0),
+        _span("otio_placement.unattributed_build_work_s", 5.0, 41.0),
+    ]
+
+    report = perf_report.stage_breakdown(rows, "r1")
+
+    axi = next(stage for stage in report["stages"]
+               if stage["stage"] == "axi")
+    assert axi["wall_s"] == 45.0
+    assert report["unclassified_s"] == 0.0
+    assert report["unattributed_s"] == 55.0
+
+
 def test_two_spans_of_one_stage_that_overlap_count_once():
     """A stage is charged the time it COVERED, not the sum of its spans.
 

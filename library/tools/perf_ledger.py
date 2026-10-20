@@ -177,6 +177,24 @@ STAGE_LAYERS = {
     "reel_build_promote": "axi",
     "version_store": "axi",
     "archive_export": "axi",
+    # The OTIO placement pass: the reel being cut and laid onto the
+    # timeline.  Measured live on 2026-10-20, these layers were 40-46%
+    # of a reel build's wall and NO STAGE CLAIMED THEM, so the stage
+    # table reported the build's biggest cost as unattributed time -
+    # the same silence the vocabulary was written to end.  The
+    # placement IS the AXI execution stage: it is the reel arriving on
+    # the timeline.
+    "otio_placement.deferred_transform_s": "axi",
+    "otio_placement.unattributed_build_work_s": "axi",
+    "otio_placement.punch_in_s": "axi",
+    "otio_placement.transform_overrides_and_replay_s": "axi",
+    "otio_placement.linking_s": "axi",
+    "otio_placement.overlay_sweep_readback_s": "axi",
+    "otio_placement.grade_s": "axi",
+    "otio_placement.fusion_comps_s": "axi",
+    "otio_placement.ledger_retime_s": "axi",
+    "otio_placement.row_occupancy_cleanup_s": "axi",
+    "otio_placement.motion_coverage_s": "axi",
 }
 
 #: Layers that SUMMARY other rows rather than measure a stage of their
