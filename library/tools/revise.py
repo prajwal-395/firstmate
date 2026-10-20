@@ -34,6 +34,13 @@ order:
    still use a scoped rebuild; without request-specific verification the
    revision is recorded as unverified. The reply names the affected region.
 
+6. **Refuse, and settle.** A refusal is a DECISION, so the translation it
+   belongs to is settled with it (`edit_spec.record_refusal`): the note is
+   no longer held by the edit pipeline, it reaches no planner, and the
+   edit ledger stays clean - a refused edit is not a declared edit the
+   build would replay. The refusal says so, because a refusal that
+   silently blocked the next run was the break test's D5.
+
 A revision is one durable record per note under
 `pipeline_output/llm_requests/revise/`, so the verb resumes where it
 stopped: `ren revise <p>` alone continues the newest open one. A landed
@@ -76,6 +83,17 @@ FINISHED = (STATUS_PATCHED, STATUS_TOUCHED, STATUS_REBUILT,
 
 ROUTE_PATCH = "patch"
 ROUTE_REBUILD = "rebuild"
+
+#: What a refusal says about the note it settled. The refusal is a
+#: DECISION, so the note is settled with it: the translated spec is
+#: recorded as refused, the edit ledger stays clean (a refused edit is
+#: not a declared edit the build would replay), and the edit pipeline is
+#: NOT held - a later run is not blocked by this refusal.
+#: [why](docs/RULE_EVIDENCE.md#a-refused-revision-held-the-whole-project)
+SETTLED_REFUSAL_NOTE = (
+    "This note is settled as refused: its translated edit spec was not "
+    "applied, and it does not hold the edit pipeline - a later run is "
+    "not blocked by it.")
 
 #: The originator this front door stamps on every request it raises. The
 #: protected experimental routing policy is granted by ORIGINATOR NAME
@@ -854,6 +872,33 @@ def _rebuild(project: str, record: dict, spec: dict, verdict: dict,
 # ── The whole verb ──────────────────────────────────────────────────
 
 
+def _settle_refusal(project: str, record: dict, spec: dict, reason: str,
+                    *, detail: dict | None = None) -> None:
+    """Settle a refused translation: record it as refused, with its reason.
+
+    A refusal is a decision, not a gap, so the spec it belongs to is
+    SETTLED: `edit_spec.pending_note_states` stops holding the edit
+    pipeline for the note, and the note is routed away from planning.
+    The record goes beside the spec and NOT into the edit ledger, which
+    the build replays - a refused edit is not a declared edit, and
+    recording one there would make the ledger claim a change nobody
+    asked for.
+
+    A spec the ledger ALREADY holds is a declared edit, whatever became
+    of it, and there is nothing to settle: the note is not held by it.
+    """
+    from library.tools import edit_spec
+
+    if edit_spec.spec_is_recorded(project, spec):
+        return
+    edit_spec.record_refusal(
+        project, record["spec_id"], reason,
+        detail={"revise_id": record["revise_id"],
+                "note_id": record["note_id"],
+                "reel": record.get("reel") or "",
+                **(detail or {})})
+
+
 def _result(project: str, record: dict) -> dict:
     """What the host reads: the state, and the one line to tell the person."""
     status = record["status"]
@@ -863,7 +908,9 @@ def _result(project: str, record: dict) -> dict:
         STATUS_PROPOSED: "Here is what would change; nothing is changed yet.",
         STATUS_UNVERIFIED: ("The scoped rebuild ran, but the requested "
                             "outcome has no request-specific verification."),
-        STATUS_REFUSED: record.get("refusal"),
+        STATUS_REFUSED: (f"{record.get('refusal')} {SETTLED_REFUSAL_NOTE}"
+                         if record.get("refusal") else
+                         SETTLED_REFUSAL_NOTE),
         STATUS_INCOMPLETE: (
             f"The rebuild stopped at `{record.get('failed_command')}`."
             if record.get("failed_command") else
@@ -902,7 +949,12 @@ def advance(project, revise_id: str, *, answer: str = "",
     preview = bool(options.get("preview") or record.get("preview_requested"))
     if preview:
         record["preview_requested"] = True
-    if record["status"] in FINISHED:
+    if record["status"] in FINISHED and not (
+            retranslate and record["status"] == STATUS_REFUSED):
+        # A REFUSED revision is finished, but the editor can change their
+        # mind: `--retranslate` translates the same note again, against
+        # the reel as it is now. Every other finished state stays put -
+        # a landed edit is not re-planned by a flag.
         return _result(project, record)
     if (record["status"] == STATUS_INCOMPLETE
             and record.get("execution_receipt") and not retranslate
@@ -935,12 +987,12 @@ def advance(project, revise_id: str, *, answer: str = "",
     if classification["route"] is None:
         from library.tools import feedback_outcomes
 
+        reason = classification["verdict"]["reason"]
         if note is not None:
             feedback_outcomes.record_blocked(
-                project, asdict(note),
-                reason=classification["verdict"]["reason"])
-        _status(record, STATUS_REFUSED,
-                refusal=classification["verdict"]["reason"])
+                project, asdict(note), reason=reason)
+        _settle_refusal(project, record, spec, reason)
+        _status(record, STATUS_REFUSED, refusal=reason)
         return _result(project, _save(project, record))
     record["route"] = classification["route"]
     if plan_only:
@@ -971,8 +1023,16 @@ def advance(project, revise_id: str, *, answer: str = "",
                       options)
     except RenRefusal as refused:
         record["refusal_detail"] = refused.to_dict()
+        _settle_refusal(project, record, spec, refused.what,
+                        detail={"why": refused.why, "fix": refused.fix})
         _save(project, record)
-        raise
+        # The refusal says what it settled: the note is settled, so the
+        # edit pipeline is not held and a later run is not blocked.
+        raise ReviseRefused(
+            refused.what, refused.why,
+            f"{refused.fix} {SETTLED_REFUSAL_NOTE}",
+            code=refused.code, user_message=refused.user_message,
+            recovery_class=refused.recovery_class) from refused
     record.update({key: value for key, value in outcome.items()
                    if key != "status"})
     _status(record, outcome["status"])

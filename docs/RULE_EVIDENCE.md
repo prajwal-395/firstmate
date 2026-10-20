@@ -7967,3 +7967,56 @@ Measured 2026-09-03: the file regrew 34,848 characters in the two working days a
 2026-09-01 condensation - twelve commits, mean +2,913 each, `###` subsections 39 -> 47 with
 none removed - because the working convention was "land a module, add a section describing
 it". A condensation buys two days; only moving the detail out changes the slope.
+
+## a-refused-revision-held-the-whole-project
+
+Found 2026-10-20 by the Ren break test (`data/vep-ren-breaktest/findings.md`,
+D5), which ran twelve ordinary edit requests through `ren revise` on a
+scratch copy of one reel.
+
+**What happened.** Eight of the twelve revisions were refused. A refusal
+translated the note but never recorded it, so the note's spec sat in the
+handshake area with no ledger row under it - and `edit_spec.pending_note_states`
+reads exactly that as "resolved edit spec has not been recorded exactly in
+the ledger", which is a HOLD. The next run of the editing pipeline refused
+before it started:
+
+```
+the edit pipeline is held because a natural-language note has no fully
+resolved, recorded edit spec:
+note ...: resolved edit spec has not been recorded exactly in the ledger
+  resolve it with `ren spec resolve <project> --id <id>`
+```
+
+Every one of the eight had to be released by hand, one at a time, and the
+refusal that created the block never said it would block later runs. The
+break test's own summary called it "a refused revision leaves the whole
+project blocked".
+
+**The rule.** A REFUSAL is a DECISION, not a gap. The translation was
+understood and the front door declined to carry it out, so the note is
+SETTLED with the refusal: it holds nothing, it reaches no planning step,
+and a later run is not blocked by it. The refusal says so in the same
+breath, because a refusal that silently blocked the next run is the
+defect.
+
+**Where it is.** `edit_spec.record_refusal` records the refusal beside the
+spec it settles (`pipeline_output/llm_requests/refused/`), with the reason
+the front door gave; `edit_spec.pending_note_states` reads it back as the
+settled state `refused`, and the runner (`run_pipeline`) holds on the
+pending states only. `marker_routing` routes a settled note away from
+planning (`BASIS_EDIT_SPEC_REFUSED`).
+
+**What it deliberately does NOT do.** It does not put the refused edit in
+the EDIT LEDGER. That store is what the build REPLAYS, so a refused edit
+recorded there would make the ledger declare a change nobody asked for -
+and `ren spec resolve`, the remedy the hold used to name, did exactly
+that: it recorded the refused translation as a declared edit. The ledger
+stays clean, and `ren spec resolve` now refuses to record a translation
+that was refused.
+
+**What it does not fix.** A spec the ledger ALREADY holds is a declared
+edit, whatever became of it afterwards, and there is nothing to settle:
+`ren revise` records the spec before it executes, so a failed execution
+leaves the declaration in place. That is a separate question about what a
+declared edit means when its execution fails.

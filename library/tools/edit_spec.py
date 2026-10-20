@@ -28,6 +28,19 @@ STATUSES = ("resolved", "needs_clarification")
 SOURCES = edit_ledger.STATED_BY
 PROXY_PREVIEW = "proxy preview is available: `ren spec preview` computes affected spans, before/after values and duration change from the recorded generation"
 
+REFUSAL_FORMAT = "edit_spec_refusal/1"
+REFUSED_SUBDIR = "refused"
+"""Where a refused translation is recorded, beside the request it settles.
+
+A REFUSAL is a decision, not a gap: the translation was understood and
+the front door declined to carry it out. The note is therefore SETTLED -
+it must not hold the edit pipeline, and it must not reach a planning
+step. The record lives beside the spec it settles and NOT in the edit
+ledger, which the build REPLAYS: a refused edit is not a declared edit,
+and writing one there would make the ledger claim a change nobody asked
+for. [why](docs/RULE_EVIDENCE.md#a-refused-revision-held-the-whole-project)
+"""
+
 OP_OWNERS = edit_operations.OP_OWNERS
 _NON_DIRECT_LEDGER_OPS = {"plan_change", "edit_program"}
 _DIRECT_LEDGER_OPS = set(edit_ledger.OPS) - _NON_DIRECT_LEDGER_OPS
@@ -598,6 +611,70 @@ def record_spec(project_folder: str, spec: dict) -> list[tuple[dict, str]]:
     return edit_ledger.record_rows(
         project_folder, rows,
         replace_source_note_id=spec.get("source_note_id") or None)
+
+
+def refusal_path(project_folder: str, request_id: str) -> Path:
+    """Where the refusal of one translated spec is recorded."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return ProjectLayout(project_folder).write_path(
+        Area.LLM_REQUESTS, REFUSED_SUBDIR, f"{request_id}.refused.json")
+
+
+def spec_is_recorded(project_folder: str, spec: dict) -> bool:
+    """Whether this spec's exact operations are already in the ledger.
+
+    A spec the ledger already holds is a DECLARED EDIT, whatever happened
+    to it afterwards. A spec it does not hold is either still pending or
+    refused, and the two are told apart by the refusal record. A spec the
+    ledger cannot compile is not in the ledger, and answers False.
+    """
+    try:
+        rows = edit_ledger.load_rows(project_folder)
+    except edit_ledger.EditLedgerError:
+        return False
+    note_id = spec.get("source_note_id") or ""
+    recorded = [row for row in rows if row.get("source_note_id") == note_id]
+    try:
+        return _matches_recorded_rows(spec, recorded)
+    except EditSpecError:
+        return False
+
+
+def record_refusal(project_folder: str, request_id: str, reason: str,
+                   *, detail: dict | None = None) -> dict:
+    """Record that a translated spec was REFUSED, with its reason.
+
+    The spec is settled by this. `pending_note_states` stops holding the
+    edit pipeline for the note, `ren spec resolve` refuses to record it,
+    and the note is routed away from planning - so one refusal cannot
+    block the next run, and a refused edit never becomes a declared edit
+    the build would replay.
+    """
+    request_id = _nonempty_string(request_id, "request id")
+    reason = _nonempty_string(reason, "refusal reason")
+    payload = {
+        "format": REFUSAL_FORMAT,
+        "request_id": request_id,
+        "reason": reason,
+        "refused_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+        "detail": dict(detail or {}),
+    }
+    _atomic_json(refusal_path(project_folder, request_id), payload)
+    return payload
+
+
+def read_refusal(project_folder: str, request_id: str) -> dict | None:
+    """The refusal recorded for this spec, or None when it carries none."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    path = ProjectLayout(project_folder).read_path(
+        Area.LLM_REQUESTS, REFUSED_SUBDIR, f"{request_id}.refused.json")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def preview_spec(project_folder: str, spec_id: str) -> dict:
@@ -1642,7 +1719,9 @@ def pending_note_states(project_folder: str, rows: list | None = None,
     diagnostic without allowing the pipeline to execute that guess. A note
     the current edit answers comes back with state `answered` in both
     modes (`marker_resolution.answered_release`): released from the hold,
-    and kept out of planning.
+    and kept out of planning. A translation the front door REFUSED comes
+    back with state `refused` (`record_refusal`): settled, so it holds
+    nothing, and kept out of planning.
     """
     from library.tools import llm_handshake, marker_routing
 
@@ -1746,6 +1825,20 @@ def pending_note_states(project_folder: str, rows: list | None = None,
                     "reason": (
                         "this note's ledger operation was superseded by a "
                         "later declared edit"),
+                    "questions": [],
+                }
+                continue
+            # A translation the front door REFUSED is settled, not pending:
+            # it was understood and declined, so it will never reach the
+            # ledger. Holding the edit pipeline for it would let one
+            # refusal block every later run (D5, the break test).
+            refusal = read_refusal(project_folder, request_id)
+            if refusal:
+                pending[note_id] = {
+                    "state": "refused",
+                    "request_id": request_id,
+                    "reason": ("this note's edit spec was refused and is "
+                               f"settled: {refusal.get('reason', '')}"),
                     "questions": [],
                 }
                 continue
@@ -1878,6 +1971,23 @@ def main(argv=None) -> int:
                                   "questions": questions}, indent=2,
                                  ensure_ascii=False))
                 return 4
+            # A translation the front door REFUSED is settled, not
+            # pending. Recording it would put a refused edit into the
+            # ledger the build replays - a declared edit nobody asked
+            # for - so it is refused here too.
+            refusal = read_refusal(args.project, args.id)
+            if refusal:
+                revise_id = (refusal.get("detail") or {}).get("revise_id")
+                remedy = (f"ren revise {os.path.abspath(args.project)} --id "
+                          f"{revise_id} --retranslate" if revise_id else
+                          "ren revise <project> --id <revise_id> "
+                          "--retranslate")
+                raise EditSpecError(
+                    "this translation was refused and is settled: "
+                    f"{refusal.get('reason', '')}. Recording it would "
+                    "declare an edit the front door refused. Re-translate "
+                    f"it with `{remedy}` if the change should still be "
+                    "made.")
             recorded = record_spec(args.project, spec)
             routes = routes_for(spec, [action for _row, action in recorded])
             print(json.dumps({

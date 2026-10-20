@@ -45,7 +45,10 @@ translation or superseded by a later ledger decision holds the note back
 from planning (`BASIS_EDIT_SPEC_PENDING`, `BASIS_EDIT_SPEC_SUPERSEDED`).
 A note the current edit already answers, proven by a check the project
 measures itself, is held back the same way (`BASIS_ANSWERED`,
-`marker_resolution.answered_release`).
+`marker_resolution.answered_release`), and so is a translation the front
+door REFUSED (`BASIS_EDIT_SPEC_REFUSED`, `edit_spec.record_refusal`): a
+refusal is a decision, so the note is settled - it holds nothing and it
+reaches no planner.
 Otherwise, three bases, in this order:
 
 * `declared` - the note says which step, either as a line
@@ -585,6 +588,10 @@ BASIS_EDIT_SPEC_SUPERSEDED = "edit_spec_superseded"
 it - `library/tools/timeline_decisions.py`, the producer side of this
 loop.  It ranks BELOW the words on purpose; `STAMP_RANKS_BELOW_THE_WORDS`
 there has the captain's own note that measures why."""
+BASIS_EDIT_SPEC_REFUSED = "edit_spec_refused"
+"""A translation the front door REFUSED was understood and declined. The
+note is settled - it holds nothing and it must not reach planning - but
+it is not a declared edit either: the edit ledger stays clean."""
 
 OUTCOME_ROUTED = "routed"
 OUTCOME_AMBIGUOUS = "ambiguous"
@@ -1034,6 +1041,15 @@ def route_note(raw: dict, timeline: str = "", pull_file: str = "",
             routed.evidence = {"answered": pending_edit_spec}
             routed.reason = (
                 "this note is " + str(pending_edit_spec.get("reason", ""))
+                + "; it must not reach planning again")
+            return routed
+        if pending_edit_spec.get("state") == "refused":
+            routed.basis = BASIS_EDIT_SPEC_REFUSED
+            routed.outcome = OUTCOME_UNROUTED
+            routed.evidence = {"refused_edit_spec": pending_edit_spec}
+            routed.reason = (
+                "this note's edit spec was refused and is settled: "
+                + str(pending_edit_spec.get("reason", ""))
                 + "; it must not reach planning again")
             return routed
         routed.basis = BASIS_EDIT_SPEC_PENDING

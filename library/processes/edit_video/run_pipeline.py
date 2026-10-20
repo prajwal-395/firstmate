@@ -2544,9 +2544,14 @@ def run_pipeline(
     try:
         from library.tools import edit_spec
         pending_specs = edit_spec.pending_note_states(project_dir)
+        # A settled note holds nothing: it was superseded by a later
+        # declared edit, answered by the current edit, or REFUSED by the
+        # front door. A refusal is a decision - it must not block the
+        # next run (D5, the break test).
         pending_specs = {
             note_id: state for note_id, state in pending_specs.items()
-            if state.get("state") not in ("superseded", "answered")}
+            if state.get("state") not in ("superseded", "answered",
+                                          "refused")}
     except (OSError, ValueError) as exc:
         pending_specs = {"edit_spec_state": {
             "reason": f"edit spec state cannot be read: {exc}",
