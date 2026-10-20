@@ -8204,3 +8204,48 @@ entry by FAMILY, because the CLI spells the family `resolve-axi` and the router 
 still refused under production routing, and the evidence that would promote it belongs to the
 live qualification lane. This change fixes the route that was recorded, not the qualification
 that has not been earned.
+
+## the-corpus-database-two-runs-shared
+
+**The rule:** one `mfa align` run gets its OWN MFA root, inside that run's own scratch. MFA
+writes everything a run produces under one root, and it names the corpus database after the
+CORPUS DIRECTORY, so two runs whose corpus directories share a name share one database file -
+and MFA's `--clean` removes that directory at the start of a run. The machine's DOWNLOADED
+models are the one thing that stays shared, and they are LINKED into the run root rather than
+copied or used as a working directory.
+
+**What happened.** The E2E speech-evidence lane on the scratch project `vep-live-workflows-e2e`
+lost every source it transcribed: all seven transcript records came back
+`untranscribed-mfa_run_failed`, and the detail carried MFA's own error -
+
+```
+sqlite3.OperationalError: attempt to write a readonly database
+[SQL: UPDATE dictionary SET max_disambiguation_symbol=? WHERE dictionary.id = ?]
+```
+
+The transcript lane names every corpus directory `corpus`, and the lane transcribes several
+sources AT ONCE, so several `mfa align` processes ran at once over corpus directories of the
+same name. MFA derives the corpus database from that name (`<root>/<corpus name>/<corpus
+name>.db`), so the runs collided on one database in the machine's shared MFA root
+(`~/Documents/MFA/corpus/corpus.db`), and the second run's `--clean` removed it from under the
+first. The same sharing had a second face: MFA deletes and re-extracts the acoustic model on
+every run, so a concurrent run could delete the model under a run that was still loading it -
+`AcousticModelError: Could not find final.mdl`.
+
+**Measured.** On this machine, two `mfa align` runs over corpus directories both called
+`corpus`: the first died with `attempt to write a readonly database` while the second
+succeeded; a third pairing died with `Could not find final.mdl`. Through the fixed code path
+the same two concurrent runs both succeeded, and the scratch project's seven transcript records
+went from `untranscribed-mfa_run_failed` to `transcribed` (70-1,285 utterances, 583-13,156
+words per source).
+
+**Where it is.** `library/tools/mfa_align.py` owns the run's root (`_run_root`), the
+invocation it is made with (`mfa_invocation`), and the reason in its own module docstring.
+`library/tools/shared_environment.py` owns the machine's MFA root, and now honours MFA's own
+`MFA_ROOT_DIR` so the root this code reports and the root MFA writes to cannot drift;
+`scripts/install_mfa.sh` exports it for the model download so the models land where the code
+looks for them.
+
+**What it does not fix.** The other E2E-009 blocker - the queued AXI scratch open refusing a
+stale `Ren Scratch - breaktest` origin receipt - belongs to the lane that owns that origin.
+This change is only about the speech evidence the transcript lane could not produce.

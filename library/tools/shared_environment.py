@@ -497,6 +497,18 @@ No `conda init`, no shell profile touched - every command uses the
 explicit binary path, per the measurement report.
 """
 
+MFA_ROOT_ENVIRONMENT_VARIABLE = "MFA_ROOT_DIR"
+"""MFA's own root variable - the directory MFA keeps its models, its
+side-state and its per-corpus databases in.
+
+The NAME is MFA's, not ours: `mfa` reads `MFA_ROOT_DIR` itself, so a
+root this module reports and a root MFA writes to can only agree if
+this module honours the same variable. Measured 2026-10-20: the
+per-corpus database is the file two concurrent alignments collided
+on, and it lives under this root - so the root is a correctness
+concern, not a tidiness one.
+"""
+
 MFA_ENV_NAME = "mfa"
 """The conda env inside the micromamba root that carries MFA."""
 
@@ -658,13 +670,18 @@ def mfa_binary(directory: Optional[str | Path] = None) -> Path:
 def mfa_models_dir() -> Path:
     """Where MFA keeps its config, model cache and temp DB.
 
-    `PIPELINE_MFA_MODELS` names it outright. Otherwise MFA's own
-    default, `~/Documents/MFA` - that default is MFA's choice rather
-    than a path of ours, which is why it is read here and not moved.
+    `PIPELINE_MFA_MODELS` names it outright, then MFA's own
+    `MFA_ROOT_DIR` (the variable `mfa` itself reads), and otherwise
+    MFA's default, `~/Documents/MFA` - that default is MFA's choice
+    rather than a path of ours, which is why it is read here and not
+    moved.
     """
     explicit = os.environ.get("PIPELINE_MFA_MODELS")
     if explicit:
         return Path(explicit).expanduser()
+    ambient = os.environ.get(MFA_ROOT_ENVIRONMENT_VARIABLE)
+    if ambient:
+        return Path(ambient).expanduser()
     return Path.home() / "Documents" / "MFA"
 
 

@@ -140,6 +140,12 @@ fi
 
 # ── 3. the pinned models ─────────────────────────────────────────────
 echo "  models          : downloading $ACOUSTIC $ACOUSTIC_VERSION + $DICTIONARY $DICTIONARY_VERSION + g2p $G2P_VERSION"
+# MFA puts the models under its own root, and `MFA_ROOT_DIR` is the
+# variable it reads for it. Without this the download lands in MFA's
+# default root while shared_environment reports another one, and the
+# run then looks for models that were never downloaded there.
+MFA_ROOT_DIR="$MFA_MODELS"
+export MFA_ROOT_DIR
 "$MFA_BINARY" model download acoustic "$ACOUSTIC" --version "$ACOUSTIC_VERSION"
 "$MFA_BINARY" model download dictionary "$DICTIONARY" --version "$DICTIONARY_VERSION"
 "$MFA_BINARY" model download g2p "$G2P_MODEL" --version "$G2P_VERSION"

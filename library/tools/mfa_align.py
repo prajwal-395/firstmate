@@ -70,6 +70,25 @@ answers silence or refuses loudly. Nothing here raises anything else,
 and nothing here falls through to a second transcriber: the full
 WhisperX arm went the same day.
 
+Where the run's files go
+------------------------
+MFA writes EVERYTHING a run produces under one root, and it names the
+corpus database after the CORPUS DIRECTORY. Two runs whose corpus
+directories share a name share one database - and MFA's `--clean`
+deletes that directory at the start of a run. Measured 2026-10-20 on
+this machine: two concurrent runs over corpus directories both called
+`corpus` produced `sqlite3.OperationalError: attempt to write a
+readonly database` (the second run had removed the first run's
+database), and a concurrent run could delete the acoustic model under
+a run that was loading it (`Could not find final.mdl`). In the
+pipeline that arrives as every transcript record refused with
+`untranscribed-mfa_run_failed`.
+
+So each run gets its own MFA root, inside the run's own scratch
+(`_run_root`), and the machine's downloaded models are linked into it
+rather than copied or shared as a working directory. Nothing MFA
+writes or deletes is reachable from another run.
+
 What adopting this costs
 ------------------------
 MFA emits no per-word score, so words timed here carry no
@@ -114,6 +133,28 @@ MFA_COVERED_LANGUAGES = ("en", "eng", "english")
 Tight on purpose: claiming a language MFA would align with a model
 that is not downloaded is how confident nonsense gets timed.
 """
+
+# ── The run's own MFA root ─────────────────────────────────────────
+#
+# MFA keeps EVERYTHING a run writes under one root, and the corpus
+# database inside it is named after the CORPUS DIRECTORY, not after
+# the run: MFA 3.4.2 puts it at `<root>/<corpus dir name>/<corpus
+# dir name>.db`. Two runs whose corpus directories share a name
+# therefore share one database file, and MFA's `--clean` (which this
+# module passes) removes that directory at the start of a run.
+#
+# So each run gets its OWN root, inside the run's own scratch: the
+# corpus database, the alignment working directory, the extracted
+# model, the config and the command history are then unreachable from
+# any other run. The models are the one thing that must stay shared -
+# they are a per-machine download, read-only in use - so the machine's
+# model store is LINKED into the run root rather than copied into it.
+
+MFA_ROOT_DIRNAME = "mfa_root"
+"""The per-run MFA root, beside the corpus it belongs to."""
+
+PRETRAINED_MODELS_DIRNAME = "pretrained_models"
+"""MFA's downloaded models, inside its root. Read-only in use."""
 
 _MFA_TIMEOUT_SECONDS = 3600
 """One `mfa align` run over a speaker's whole rebuilt audio.
@@ -361,8 +402,38 @@ def _write_chunk(corpus_dir: Path, name: str, window: dict, audio: dict) -> None
     )
 
 
-def _run_mfa(corpus_dir: Path, out_dir: Path) -> None:
-    """One `mfa align` over the corpus. Failure DECLINES, never crashes."""
+def _run_root(corpus_dir: Path) -> Path:
+    """The MFA root for ONE corpus run: ours, and shared with nobody.
+
+    MFA's root holds everything a run writes - the corpus database
+    above all, then the alignment working directory, the extracted
+    acoustic model, the config and the command history. Giving each
+    run its own root is what keeps two concurrent runs off each
+    other's files (see the note above `MFA_ROOT_DIRNAME`).
+
+    The machine's DOWNLOADED models are the one thing that stays
+    shared: they are a per-machine install, read-only in use, and
+    copying them per run would cost 90 MB and a second of unpacking
+    for nothing. They are linked in, so MFA resolves a model name
+    through the run root and finds the machine's copy.
+    """
+    root = Path(corpus_dir).parent / MFA_ROOT_DIRNAME / Path(corpus_dir).name
+    root.mkdir(parents=True, exist_ok=True)
+    models = (shared_environment.mfa_models_dir()
+              / PRETRAINED_MODELS_DIRNAME)
+    link = root / PRETRAINED_MODELS_DIRNAME
+    if models.is_dir() and not os.path.lexists(link):
+        os.symlink(models, link, target_is_directory=True)
+    return root
+
+
+def mfa_invocation(corpus_dir: Path, out_dir: Path) -> tuple:
+    """The `(command, environment)` one `mfa align` run is made with.
+
+    Exposed so the run's ISOLATION can be read without running MFA:
+    the environment names the run's own MFA root, and the root is
+    where the corpus database for this corpus will be written.
+    """
     binary = shared_environment.mfa_binary()
     cmd = [
         str(binary),
@@ -381,6 +452,16 @@ def _run_mfa(corpus_dir: Path, out_dir: Path) -> None:
     # elsewhere keeps working - its own directory simply leads instead.
     env = dict(os.environ)
     env["PATH"] = str(binary.parent) + os.pathsep + env.get("PATH", "")
+    # The run's own MFA root, so the corpus database this run writes
+    # is not the corpus database another run writes.
+    env[shared_environment.MFA_ROOT_ENVIRONMENT_VARIABLE] = str(
+        _run_root(Path(corpus_dir)))
+    return cmd, env
+
+
+def _run_mfa(corpus_dir: Path, out_dir: Path) -> None:
+    """One `mfa align` over the corpus. Failure DECLINES, never crashes."""
+    cmd, env = mfa_invocation(corpus_dir, out_dir)
     try:
         proc = subprocess.run(
             cmd,

@@ -27,6 +27,12 @@ What these pin, and why each is here
   2026-09-24 there is no wav2vec2 second chance behind a decline:
   the decline travels up to the seam, which answers silence or
   refuses loudly.
+- Each run gets its OWN MFA root. MFA names the corpus database after
+  the corpus DIRECTORY and deletes that directory on `--clean`, so two
+  runs whose corpus directories share a name shared one database:
+  measured 2026-10-20, `sqlite3.OperationalError: attempt to write a
+  readonly database`, and every transcript record in the E2E speech
+  evidence run refused with `untranscribed-mfa_run_failed`.
 """
 
 from __future__ import annotations
@@ -532,3 +538,82 @@ def test_the_refusal_names_the_install_script(monkeypatch, tmp_path):
     usable, detail = se.mfa_available()
     assert usable is False
     assert se.MFA_INSTALL_SCRIPT in detail
+
+
+# ── 9. the run's own files: two runs, two corpus databases ──────────
+
+
+def _corpus_database(root: Path, corpus_name: str) -> Path:
+    """Where MFA 3.4.2 writes the corpus database for `corpus_name`.
+
+    MFA names it after the CORPUS DIRECTORY, under its root - not
+    after the run. Measured 2026-10-20 on this machine: two
+    concurrent `mfa align` runs whose corpus directories were both
+    called `corpus` shared this file, and the second run's `--clean`
+    removed it from under the first, which then failed with
+    `sqlite3.OperationalError: attempt to write a readonly database`.
+    """
+    return root / corpus_name / f"{corpus_name}.db"
+
+
+def test_two_concurrent_alignments_never_share_one_corpus_database(tmp_path):
+    """The defect, by its name: two runs must not write to one MFA
+    corpus database. The pipeline transcribes several sources at
+    once, and every corpus directory is called `corpus`."""
+    first_corpus = tmp_path / "run-a" / "corpus"
+    second_corpus = tmp_path / "run-b" / "corpus"
+    first_corpus.mkdir(parents=True)
+    second_corpus.mkdir(parents=True)
+
+    _, first_env = mfa_align.mfa_invocation(
+        first_corpus, tmp_path / "run-a" / "out")
+    _, second_env = mfa_align.mfa_invocation(
+        second_corpus, tmp_path / "run-b" / "out")
+
+    first_root = Path(first_env[se.MFA_ROOT_ENVIRONMENT_VARIABLE])
+    second_root = Path(second_env[se.MFA_ROOT_ENVIRONMENT_VARIABLE])
+    assert first_root != second_root
+    assert (_corpus_database(first_root, "corpus")
+            != _corpus_database(second_root, "corpus"))
+
+
+def test_a_run_writes_nothing_into_the_machine_shared_mfa_root(
+        monkeypatch, tmp_path):
+    """The run's root is inside the run's own scratch. The machine's
+    DOWNLOADED models are linked into it - read-only in use - and
+    never a working directory another run can delete."""
+    machine_root = tmp_path / "machine-mfa"
+    (machine_root / "pretrained_models" / "acoustic").mkdir(parents=True)
+    monkeypatch.setattr(se, "mfa_models_dir", lambda: machine_root)
+
+    corpus = tmp_path / "scratch" / "corpus"
+    corpus.mkdir(parents=True)
+    _, env = mfa_align.mfa_invocation(corpus, tmp_path / "scratch" / "out")
+    root = Path(env[se.MFA_ROOT_ENVIRONMENT_VARIABLE])
+
+    assert root.is_relative_to(tmp_path / "scratch")
+    assert machine_root not in root.parents
+    link = root / "pretrained_models"
+    assert link.is_symlink()
+    assert link.resolve() == (machine_root / "pretrained_models").resolve()
+    # The machine's root holds the models and nothing a run left in it.
+    assert sorted(p.name for p in machine_root.iterdir()) == [
+        "pretrained_models"]
+
+
+def test_the_run_root_overrides_the_ambient_mfa_root(monkeypatch, tmp_path):
+    """`MFA_ROOT_DIR` is where MFA would otherwise put the corpus
+    database, so a run must name its own root rather than inherit
+    the machine's."""
+    ambient = tmp_path / "ambient-mfa"
+    ambient.mkdir()
+    monkeypatch.setenv(se.MFA_ROOT_ENVIRONMENT_VARIABLE, str(ambient))
+
+    corpus = tmp_path / "scratch" / "corpus"
+    corpus.mkdir(parents=True)
+    _, env = mfa_align.mfa_invocation(corpus, tmp_path / "scratch" / "out")
+    root = Path(env[se.MFA_ROOT_ENVIRONMENT_VARIABLE])
+
+    assert root != ambient
+    assert root.is_relative_to(tmp_path / "scratch")
+
