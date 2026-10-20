@@ -85,10 +85,20 @@ def test_a_real_reel_build_writes_a_linked_model(tmp_path):
     # The move arrives on the step 4.03 mint (PR 2263), already
     # shaped: target and interval off the post-migration model. The
     # writer carries it verbatim and never mints a second copy.
+    #
+    # The target is a clip use id, and a clip use id is derived from
+    # the CONTENT it plays - not from its position in the placement
+    # list - so the producer has to READ it off a model rather than
+    # guess it.  The probe below mints the same rows the build will,
+    # and the move targets the first of them.
+    probe = rpm.blank_model("project-probe")
+    probe_ids = rpm.clip_uses_from_placements(
+        probe, "reel-01", "Reel 01", rows,
+        {("video", 1): "a_roll"}, transcript)["use_ids"]
     spec = {"move_effects": [
         {"id": "effect:reel-01:vfx_001",
          "class_id": "move.slow_zoom_in",
-         "target_id": "use:reel-01:0000",
+         "target_id": probe_ids[0],
          "interval": {"clock_id": "clock:reel:reel-01",
                       "start": 0, "end": 600_000},
          "parameters": {"zoom_start": 1.0, "zoom_end": 1.15},

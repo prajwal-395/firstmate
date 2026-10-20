@@ -213,6 +213,100 @@ def _sha16(*parts: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def _use_token(asset_id: str, role: str,
+               source_span: tuple[int, int], ordinal: int = 0) -> str:
+    """The durable id of one use of one asset in one role.
+
+    `library.tools.editorial_identity` owns the identity; this is the
+    model's spelling of it.  The model passes its PLAN role, which is
+    richer than the media type a live read can compute - the two name
+    the same thing at different resolutions, and the model's is the
+    authority.
+    """
+    from library.tools.editorial_identity import use_token_of
+
+    return use_token_of(asset_id, role, source_span, ordinal)
+
+
+def _ordinal_of(seen: dict[tuple, int], asset_id: str, role: str,
+                source_span: tuple[int, int]) -> int:
+    """How many times this exact content has already been placed.
+
+    One material can play twice in the same role over the same passage;
+    the passage cannot separate those two uses, so their order does.
+    """
+    return seen.get((asset_id, role, tuple(source_span)), 0)
+
+
+def _carried_use_id(model: dict[str, Any], asset_id: str, role: str,
+                    source_span: tuple[int, int],
+                    reel_prefix: str) -> str | None:
+    """The id of the clip use this placement CONTINUES, when exactly one.
+
+    A trim changes a clip's passage, so a content-derived id would change
+    with it.  The clip use the trim came from is still in the model and
+    the trimmed passage OVERLAPS it: that is the same editorial moment
+    over a different extent, so its id is carried and its interval
+    follows the placement.
+
+    The search is scoped to this reel: another reel's use of the same
+    footage is a different editorial moment on a different timeline, and
+    carrying its id would move that reel's clip.
+
+    More than one candidate is ambiguous, and minting fresh is the
+    honest answer: two candidates mean the model cannot say which one
+    this placement continues.
+    """
+    candidates = []
+    for row in model.get("clip_uses") or []:
+        if not isinstance(row, dict) or row.get("id") is None:
+            continue
+        if not str(row["id"]).startswith(reel_prefix):
+            continue
+        if row.get("asset_id") != asset_id or row.get("role") != role:
+            continue
+        interval = row.get("source_interval")
+        if not isinstance(interval, dict):
+            continue
+        try:
+            start = int(interval["start"])
+            end = int(interval["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # Half-open overlap, the same shape the model speaks in.
+        if start < int(source_span[1]) and int(source_span[0]) < end:
+            candidates.append(str(row["id"]))
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+def _refresh_clip_use_extent(model: dict[str, Any], use_id: str,
+                             reel_clock: str, reel_span: tuple[int, int],
+                             source_clock: str, source_span: tuple[int, int],
+                             entity_links: list[str],
+                             role: str) -> None:
+    """Move a clip use's extent to where the placement put it.
+
+    The same content at a different place on the reel is the same
+    editorial moment, moved: its identity is its content, and only its
+    extent follows the placement.  A rebuild that moved or trimmed a
+    clip must not leave the model describing the old extent.
+    """
+    for row in model.get("clip_uses") or []:
+        if not isinstance(row, dict) or row.get("id") != use_id:
+            continue
+        row["timeline_interval"] = {"clock_id": reel_clock,
+                                    "start": reel_span[0], "end": reel_span[1]}
+        row["source_interval"] = {"clock_id": source_clock,
+                                  "start": source_span[0], "end": source_span[1]}
+        if entity_links:
+            row["entity_links"] = list(entity_links)
+        if role:
+            row["role"] = role
+        return
+
+
 def _finite_number(value: Any) -> bool:
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
             and math.isfinite(value))
@@ -723,6 +817,8 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
     use_ids: list[str] = []
     evidence_ids: list[str] = []
     skipped: list[dict[str, Any]] = []
+    use_id_by_index: dict[int, str] = {}
+    seen_content: dict[tuple, int] = {}
     total_master = 0.0
     total_reel = 0.0
     for index, place in enumerate(placements):
@@ -812,7 +908,27 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
                     _link(model, candidate["entity_id"], obs_id,
                           "on_screen_coverage",
                           confidence=candidate.get("confidence"))
-        use_id = f"use:{reel_slug}:{index:04d}"
+        # The clip use's id is derived from the CONTENT it plays - the
+        # asset, the role and the passage - and NOT from the clip's
+        # position in the placement list.  A positional id renames every
+        # later clip when one is inserted in front of them, and because
+        # the minting SKIPS an id it already holds, that rename left the
+        # model describing the clip that used to be there: the model
+        # said "clip use 0003 is the interview at 0:12" while 0003 was
+        # now a different shot.  A content-derived id keeps every other
+        # clip's identity when one is inserted, and gives the inserted
+        # clip its own.
+        #
+        # A TRIM changes the passage, so the id this placement CONTINUES
+        # is carried when the model still holds it: the same editorial
+        # moment over a different extent keeps its identity.
+        ordinal = _ordinal_of(seen_content, asset_id, use_role, source)
+        seen_content[(asset_id, use_role, source)] = ordinal + 1
+        use_id = _carried_use_id(model, asset_id, use_role, source,
+                                 f"use:{reel_slug}:")
+        if use_id is None or use_id in use_ids:
+            use_id = (f"use:{reel_slug}:"
+                      f"{_use_token(asset_id, use_role, source, ordinal)}")
         present = {row["id"] for row in model.get("clip_uses") or []
                    if isinstance(row, dict) and "id" in row}
         if use_id not in present:
@@ -827,7 +943,15 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
                 "role": use_role,
                 "intent_id": None,
             })
+        else:
+            # The same content at a different place on the reel is the
+            # same editorial moment, moved.  Its extent follows the
+            # placement; its identity does not change.
+            _refresh_clip_use_extent(
+                model, use_id, reel_clock, reel_span, source_clock, source,
+                entity_links, use_role)
         use_ids.append(use_id)
+        use_id_by_index[index] = use_id
         try:
             total_master += max(float(place.get("master_end", 0.0))
                                 - float(place.get("master_start", 0.0)), 0.0)
@@ -850,7 +974,7 @@ def clip_uses_from_placements(model: dict[str, Any], reel_slug: str,
             "after": {"reel_seconds": round(total_reel, 3)},
         })
     return {"use_ids": use_ids, "evidence_ids": sorted(set(evidence_ids)),
-            "skipped": skipped}
+            "skipped": skipped, "use_id_by_index": use_id_by_index}
 
 
 def static_transforms_from_placements(
@@ -957,6 +1081,7 @@ def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
     use_ids: list[str] = []
     effect_ids: list[str] = []
     skipped: list[dict[str, Any]] = []
+    overlay_seen: dict[tuple, int] = {}
     for index, record in enumerate(records):
         if not isinstance(record, dict):
             skipped.append({"index": index, "reason": "not an overlay placement record"})
@@ -996,7 +1121,14 @@ def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
                 else "subtitle_overlay" if "caption" in kind or "subtitle" in kind
                 else "frame_overlay" if "frame" in kind
                 else "motion_graphic")
-        use_id = f"use:{reel_slug}:overlay:{index:04d}"
+        # The overlay's id is derived from its CONTENT and its role, for
+        # the same reason the clip uses' ids are: a positional id
+        # renames every later overlay when one is inserted in front of
+        # them.
+        ordinal = _ordinal_of(overlay_seen, asset_id, role, source)
+        overlay_seen[(asset_id, role, tuple(source))] = ordinal + 1
+        use_id = (f"use:{reel_slug}:overlay:"
+                  f"{_use_token(asset_id, role, source, ordinal)}")
         if not any(isinstance(row, dict) and row.get("id") == use_id
                    for row in model.get("clip_uses") or []):
             model.setdefault("clip_uses", []).append({
@@ -1007,6 +1139,10 @@ def overlay_uses_from_records(model: dict[str, Any], reel_slug: str,
                                       "start": timeline[0], "end": timeline[1]},
                 "entity_links": [], "role": role, "intent_id": None,
             })
+        else:
+            _refresh_clip_use_extent(
+                model, use_id, reel_clock, timeline, source_clock, source,
+                [], role)
         use_ids.append(use_id)
         overlay_transform = record.get("transform")
         native_scale = record.get("native_scale")
@@ -1362,12 +1498,18 @@ def build_reel_fragment(model: dict[str, Any], reel_name: str,
                                      placements, roles, transcript, fps)
     report["clip_uses"] = len(uses["use_ids"])
     report["clip_uses_skipped"] = uses["skipped"]
-    valid_use_ids = set(uses["use_ids"])
+    # The mapping comes from the minting itself.  Re-deriving it from
+    # the placement INDEX was wrong twice over: the id scheme is the
+    # minting's business, and an index is not a placement - a placement
+    # the minting skipped (no source span, no reel span) shifted every
+    # later placement's index, so the mapping pointed at the wrong clip
+    # or at nothing at all.
     use_id_by_placement = {
-        id(place): f"use:{reel_slug}:{index:04d}"
+        id(place): use_id
         for index, place in enumerate(placements)
         if isinstance(place, dict)
-        and f"use:{reel_slug}:{index:04d}" in valid_use_ids
+        for use_id in [uses["use_id_by_index"].get(index)]
+        if use_id
     }
     ducking = word_gap_ducking_effects(
         model, reel_slug, reel_clock, placements, use_id_by_placement,
@@ -2003,7 +2145,12 @@ def show(project_folder: str, reel: str | int | None = None,
     for use in model.get("clip_uses") or []:
         if not isinstance(use, dict):
             continue
-        match = re.match(r"^use:(.+):\d{4}$", str(use.get("id", "")))
+        # The clip use's id is `use:<reel>:<token>`, where the token is
+        # derived from the content.  The POSITIONAL scheme
+        # (`use:<reel>:0000`) is still read, because a project built
+        # before the ids became content-derived still carries those rows.
+        match = re.match(r"^use:([^:]+):(?:overlay:)?(?:[0-9a-f]{16}|\d{4})$",
+                         str(use.get("id", "")))
         name = match.group(1) if match else "unscoped"
         entry = reels.setdefault(name, {
             "reel": name, "uses": 0, "a_roll": 0, "effects": 0,

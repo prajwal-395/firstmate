@@ -69,8 +69,8 @@ def test_link_manifest_resolves_rows_by_source():
     assert report["skipped"] == []
     slugs = links.slug_for_timeline("Reel 01")
     first, second = linked["tracks"]["V1"]["clips"]
-    assert first["clip_use_id"] == f"use:{slugs}:0000"
-    assert second["clip_use_id"] == f"use:{slugs}:0001"
+    assert first["clip_use_id"] == model["clip_uses"][0]["id"]
+    assert second["clip_use_id"] == model["clip_uses"][1]["id"]
     assert first["edit_ids"] == [f"edit:{slugs}:assemble"]
     assert first["effect_ids"] == []
     # The input manifest is never mutated.
@@ -123,7 +123,7 @@ def test_match_clip_use_refuses_what_cannot_be_a_span():
 def test_effect_ids_follow_the_effect_target():
     model = _model()
     slugs = links.slug_for_timeline("Reel 01")
-    use_id = f"use:{slugs}:0000"
+    use_id = model["clip_uses"][0]["id"]
     model["effects"].append({
         "id": f"effect:{slugs}:grade000", "class_id": "color.grade",
         "target_id": use_id,
@@ -302,10 +302,10 @@ def test_resolve_clip_use_at_seconds_walks_the_frame_map():
     model = _model()
     slug = links.slug_for_timeline("Reel 01")
     use_id, basis = links.resolve_clip_use_at_seconds(model, slug, 1.0)
-    assert use_id == f"use:{slug}:0000"
+    assert use_id == model["clip_uses"][0]["id"]
     assert "map:" in basis
     use_id, _ = links.resolve_clip_use_at_seconds(model, slug, 6.0)
-    assert use_id == f"use:{slug}:0001"
+    assert use_id == model["clip_uses"][1]["id"]
     assert links.resolve_clip_use_at_seconds(
         model, slug, 99.0)[0] is None
     assert links.resolve_clip_use_at_seconds(
@@ -346,7 +346,7 @@ def test_anchor_resolution_reads_only_projection_collections():
 
     slug = links.slug_for_timeline("Reel 01")
     use_id, _ = links.resolve_clip_use_at_seconds(_Strict(), slug, 1.0)
-    assert use_id == f"use:{slug}:0000"
+    assert use_id == model["clip_uses"][0]["id"]
     assert read <= allowed
 
 
@@ -356,8 +356,7 @@ def test_annotate_pulled_note_resolves_and_reports():
             "note_id": "nt_abc", "text": "fix this"}
     out = links.annotate_pulled_note(
         note, model, timeline_fps=30.0, timeline_start_frame=108000)
-    slug = links.slug_for_timeline("Reel 01")
-    assert out["clip_use_id"] == f"use:{slug}:0000"
+    assert out["clip_use_id"] == model["clip_uses"][0]["id"]
     assert out["note_id"] == "nt_abc"
     assert "clip_use_id" not in note
     unplaced = links.annotate_pulled_note({"timeline": "Reel 01"}, model)
@@ -374,8 +373,7 @@ def test_route_note_with_model_resolves_the_anchor():
     routed = marker_routing.route_note(
         raw, timeline="Reel 01", pull_file="Reel 01.pull.json",
         timeline_fps=30.0, timeline_start_frame=108000, model=model)
-    slug = links.slug_for_timeline("Reel 01")
-    assert routed.clip_use_id == f"use:{slug}:0000"
+    assert routed.clip_use_id == model["clip_uses"][0]["id"]
     assert routed.clip_use_reason != ""
     plain = marker_routing.route_note(
         raw, timeline="Reel 01", pull_file="Reel 01.pull.json",

@@ -1840,6 +1840,7 @@ class FakeTimelineItem:
         has_media=True,
         nodes=1,
         inert_media_in=False,
+        fades=None,
     ) -> None:
         FakeTimelineItem._next_id += 1
         self._uid = uid or f"item-{FakeTimelineItem._next_id}"
@@ -1883,6 +1884,12 @@ class FakeTimelineItem:
         self.refuse_properties: frozenset = frozenset()
         self._speed = 100.0
         self._keyframes: dict = {}
+        #: The native fades `GetFades` reports, in frames. Resolve 21.1
+        #: documents the method, so the double answers it; an item with
+        #: no fades reads as a fade of no frames, which is a VALUE and
+        #: not the same claim as a Resolve that cannot report fades at
+        #: all.
+        self._fades = dict(fades) if fades else {"FadeIn": 0, "FadeOut": 0}
         self._fusion_comps = list(fusion_comps)
         # Imported authored comps keep their serialized read-back so tests
         # can compare the actual node and spline content Resolve carries.
@@ -2106,6 +2113,13 @@ class FakeTimelineItem:
 
     def GetFlagList(self):
         return []
+
+    def GetFades(self):
+        return dict(self._fades)
+
+    def SetFades(self, values):
+        self._fades = dict(values)
+        return True
 
     @property
     def comps(self):

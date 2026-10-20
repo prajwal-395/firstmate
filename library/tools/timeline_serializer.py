@@ -56,6 +56,20 @@ def _clean_dict(d: dict) -> dict:
             result[k] = v
     return result
 
+
+def _read_property(properties, key: str, default):
+    """One property's value, or `None` where the read established nothing.
+
+    Resolve always reports an item's transform properties, so an EMPTY
+    property dictionary means the read did not answer.  Returning the
+    default for it would hand a consumer a value nobody measured - a
+    clip that cannot be read would come back as a clip at 0.0 / 1.0 /
+    100.0 (PRES-005).
+    """
+    if not properties:
+        return None
+    return properties.get(key, default)
+
 # ─── Serializer ──────────────────────────────────────────────
 
 def _transform_unit_resolution(resolve) -> Optional[list]:
@@ -177,6 +191,15 @@ def serialize_timeline_state(
                 detail = clip_detail(item, track_type, t, track_name)
                 properties = detail["transform"]
 
+                # A read that established NOTHING is not a clip at its
+                # defaults. Resolve always reports an item's transform
+                # properties, so an empty property dictionary means the
+                # read failed - and reporting 0.0 / 1.0 / 100.0 for it
+                # would hand a consumer a default nobody measured
+                # (PRES-005). The unreadable value is `null` here, and
+                # `resolve_property_inventory` carries the full
+                # per-property surface for a reader that wants the
+                # status rather than the number.
                 clip_data = {
                     "unique_id": detail["unique_id"],
                     "name": detail["name"],
@@ -195,51 +218,59 @@ def serialize_timeline_state(
 
                 # Transform
                 clip_data["transform"] = {
-                    "Pan": properties.get("Pan", 0.0),
-                    "Tilt": properties.get("Tilt", 0.0),
-                    "ZoomX": properties.get("ZoomX", 1.0),
-                    "ZoomY": properties.get("ZoomY", 1.0),
-                    "RotationAngle": properties.get("RotationAngle", 0.0),
-                    "AnchorPointX": properties.get("AnchorPointX", 0.0),
-                    "AnchorPointY": properties.get("AnchorPointY", 0.0),
-                    "Pitch": properties.get("Pitch", 0.0),
-                    "Yaw": properties.get("Yaw", 0.0),
-                    "FlipX": properties.get("FlipX", False),
-                    "FlipY": properties.get("FlipY", False),
+                    "Pan": _read_property(properties, "Pan", 0.0),
+                    "Tilt": _read_property(properties, "Tilt", 0.0),
+                    "ZoomX": _read_property(properties, "ZoomX", 1.0),
+                    "ZoomY": _read_property(properties, "ZoomY", 1.0),
+                    "RotationAngle": _read_property(
+                        properties, "RotationAngle", 0.0),
+                    "AnchorPointX": _read_property(
+                        properties, "AnchorPointX", 0.0),
+                    "AnchorPointY": _read_property(
+                        properties, "AnchorPointY", 0.0),
+                    "Pitch": _read_property(properties, "Pitch", 0.0),
+                    "Yaw": _read_property(properties, "Yaw", 0.0),
+                    "FlipX": _read_property(properties, "FlipX", False),
+                    "FlipY": _read_property(properties, "FlipY", False),
                 }
 
                 # Crop
                 clip_data["crop"] = {
-                    "CropLeft": properties.get("CropLeft", 0.0),
-                    "CropRight": properties.get("CropRight", 0.0),
-                    "CropTop": properties.get("CropTop", 0.0),
-                    "CropBottom": properties.get("CropBottom", 0.0),
-                    "CropSoftness": properties.get("CropSoftness", 0.0),
+                    "CropLeft": _read_property(properties, "CropLeft", 0.0),
+                    "CropRight": _read_property(properties, "CropRight", 0.0),
+                    "CropTop": _read_property(properties, "CropTop", 0.0),
+                    "CropBottom": _read_property(properties, "CropBottom", 0.0),
+                    "CropSoftness": _read_property(
+                        properties, "CropSoftness", 0.0),
                 }
 
                 # Composite
                 clip_data["composite"] = {
-                    "Opacity": properties.get("Opacity", 100.0),
-                    "CompositeMode": properties.get("CompositeMode", "Normal"),
+                    "Opacity": _read_property(properties, "Opacity", 100.0),
+                    "CompositeMode": _read_property(
+                        properties, "CompositeMode", "Normal"),
                 }
 
                 # Retime (mocking/extracting if available)
                 speed_percent = detail["speed"]
                 clip_data["retime"] = {
-                    "process": properties.get("RetimeProcess", ""),
-                    "motion_estimation": properties.get("MotionEstimation", ""),
+                    "process": _read_property(
+                        properties, "RetimeProcess", ""),
+                    "motion_estimation": _read_property(
+                        properties, "MotionEstimation", ""),
                     "speed_ratio": (
                         float(speed_percent) / 100.0
                         if speed_percent is not None
-                        else properties.get("Speed", 1.0)),
+                        else _read_property(properties, "Speed", 1.0)),
                 }
 
                 # Audio
                 if track_type == "audio":
                     clip_data["audio"] = {
-                        "Volume": properties.get("Volume", 0.0),
-                        "Pan": properties.get("Pan", 0.0),
-                        "AudioSyncOffset": properties.get("AudioSyncOffset", 0),
+                        "Volume": _read_property(properties, "Volume", 0.0),
+                        "Pan": _read_property(properties, "Pan", 0.0),
+                        "AudioSyncOffset": _read_property(
+                            properties, "AudioSyncOffset", 0),
                     }
 
                 clip_data["color"] = {

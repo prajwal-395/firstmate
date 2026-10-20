@@ -485,11 +485,17 @@ def _call(obj, name: str, default, *args):
     return _safe(default, fn, *args)
 
 
-def _node_luts(item) -> list[dict] | None:
-    """Read every assigned node LUT; `None` means Resolve did not expose it."""
+def _node_graph(item):
+    """The item's color node graph and its node count.
+
+    ``(None, None)`` means Resolve did not expose a graph at all.  A
+    graph whose count cannot be read is a REFUSAL, not an absence:
+    reporting "no nodes" for a graph that could not be counted would be
+    a default read as a measurement.
+    """
     graph = _call(item, "GetNodeGraph", None)
     if graph is None:
-        return None
+        return None, None
     try:
         count = int(graph.GetNumNodes())
     except Exception as unreadable:
@@ -500,6 +506,13 @@ def _node_luts(item) -> list[dict] | None:
     if count < 0:
         raise ReelReadError(
             f"the node graph on {item.GetName()!r} reported {count} nodes.")
+    return graph, count
+
+
+def _node_luts(item, graph, count) -> list[dict] | None:
+    """Read every assigned node LUT; `None` means Resolve did not expose it."""
+    if graph is None:
+        return None
     luts = []
     for node in range(1, count + 1):
         try:
@@ -512,6 +525,56 @@ def _node_luts(item) -> list[dict] | None:
         if path:
             luts.append({"node": node, "path": str(path)})
     return luts
+
+
+def _item_fades(item) -> dict | None:
+    """The item's native fades, or `None` where Resolve does not expose them.
+
+    `GetFades` is Resolve 21.1's documented method.  Where the method is
+    absent the fade state is UNAVAILABLE - never zero, because zero is
+    "a fade of no frames", a value somebody could have set, and reading
+    an absent API as zero would restore a silence nobody approved.
+    """
+    fades = _call(item, "GetFades", None)
+    if not isinstance(fades, dict):
+        return None
+    return {str(key): value for key, value in fades.items()}
+
+
+def _linked_clip_details(linked, native_id) -> list[dict]:
+    """The linked partners' own state, as plain data.
+
+    The link group's MEMBERS are one read (`linked_unique_ids`); this is
+    the state each member carries.  A linked audio item's enablement,
+    its source window and its fades are the state a replacement of the
+    picture would lose, so the group is not a list of ids.
+    """
+    details = []
+    for partner in linked:
+        if partner is None:
+            continue
+        partner_id = str(_call(partner, "GetUniqueId", "") or "")
+        if not partner_id or partner_id == native_id:
+            continue
+        track_type, track_index = _call(partner, "GetTrackTypeAndIndex",
+                                         ("", 0))
+        try:
+            track_index = int(track_index or 0)
+        except (TypeError, ValueError):
+            track_index = 0
+        details.append({
+            "unique_id": partner_id,
+            "name": str(_call(partner, "GetName", "") or ""),
+            "track_type": str(track_type or ""),
+            "track_index": track_index,
+            "record_in": _call(partner, "GetStart", None),
+            "record_out": _call(partner, "GetEnd", None),
+            "source_in_frame": _call(partner, "GetSourceStartFrame", None),
+            "source_out_frame": _call(partner, "GetSourceEndFrame", None),
+            "enabled": _call(partner, "GetClipEnabled", None),
+            "fades": _item_fades(partner),
+        })
+    return details
 
 
 def clip_detail(item, track_type: str, track_index: int,
@@ -547,19 +610,22 @@ def clip_detail(item, track_type: str, track_index: int,
         pool_item_id = _call(pool_item, "GetMediaId", "")
         media_type = _call(pool_item, "GetClipProperty", None, "Type")
     comp_names = list(_call(item, "GetFusionCompNameList", []) or [])
+    native_id = str(_call(item, "GetUniqueId", "") or "")
     try:
-        linked_unique_ids = sorted({
-            str(linked_id) for linked in (item.GetLinkedItems() or [])
-            if linked is not None
-            for linked_id in [_call(linked, "GetUniqueId", "")]
-            if linked_id
-        })
+        linked = list(item.GetLinkedItems() or [])
     except Exception as unreadable:
         raise ReelReadError(
             f"the linked-item group on {name!r} could not be read "
             f"({unreadable}); refusing a partial timeline identity.") from unreadable
+    linked_unique_ids = sorted({
+        str(linked_id) for linked_item in linked
+        if linked_item is not None
+        for linked_id in [_call(linked_item, "GetUniqueId", "")]
+        if linked_id
+    })
+    graph, node_count = _node_graph(item)
     return {
-        "unique_id": _call(item, "GetUniqueId", ""),
+        "unique_id": native_id,
         "name": name or "",
         # Resolve's own item kind: video, audio, generator or transition.
         # A transition is an ITEM on the track, and the media pool says
@@ -582,6 +648,10 @@ def clip_detail(item, track_type: str, track_index: int,
         "source_frames": pool_frames,
         "media_pool_item_id": pool_item_id,
         "linked_unique_ids": linked_unique_ids,
+        # The linked PARTNERS' own state, not just the group's members.
+        # A linked audio item's enablement and fades are state a
+        # replacement of the picture would otherwise lose silently.
+        "linked_clips": _linked_clip_details(linked, native_id),
         "clip_color": _call(item, "GetClipColor", ""),
         "flags": list(_call(item, "GetFlagList", []) or []),
         # Unknown stays unknown. A replacement snapshot must not turn a
@@ -590,6 +660,9 @@ def clip_detail(item, track_type: str, track_index: int,
         "enabled": _call(item, "GetClipEnabled", None),
         "speed": _speed_percent(item),
         "keyframes": _item_keyframes(item),
+        # The native fades, or None where Resolve does not expose
+        # `GetFades`. None is UNAVAILABLE, never "no fades".
+        "fades": _item_fades(item),
         "transform": _item_transform(item),
         "fusion": {
             "comp_count": _call(item, "GetFusionCompCount", 0),
@@ -610,7 +683,8 @@ def clip_detail(item, track_type: str, track_index: int,
         "color": {
             "cdl": dict(_call(item, "GetCDL", {}) or {}),
             "color_group": _call(item, "GetColorGroup", ""),
-            "luts": _node_luts(item),
+            "node_count": node_count,
+            "luts": _node_luts(item, graph, node_count),
         },
         "markers": [
             {

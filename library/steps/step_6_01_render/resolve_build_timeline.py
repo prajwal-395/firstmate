@@ -4646,6 +4646,25 @@ def _build_timeline_under_lease(
                     "Resolve timeline generation was recorded, but its Project Model "
                     "link needs reconciliation: "
                     + results["project_model"].get("reason", "unknown refusal"))
+            else:
+                # The rendered timeline's COMPOSITION is committed beside
+                # its generation: which clip uses the timeline holds, and
+                # the binding that joins each of them to the live Resolve
+                # item playing it.  A `timeline_states` row with an
+                # empty `clip_use_ids` says nothing about the timeline,
+                # so nothing could be reconciled against it (PRES-007).
+                from library.tools import timeline_state_reconcile
+
+                results["project_model_reconcile"] = (
+                    timeline_state_reconcile.commit_reconciled_state(
+                        project_folder,
+                        snapshot=timeline_shadow.ShadowStore().snapshot(
+                            generation),
+                        timeline_id=generation.timeline_id,
+                        generation=generation.generation,
+                        project_identity=generation.project,
+                        timeline_identity=generation.timeline_name,
+                        expected_revision=results["project_model"]["revision"]))
         except Exception as exc:  # noqa: BLE001 - do not disguise a built timeline
             results["project_model"] = {"status": "refused", "reason": repr(exc)}
             results["warnings"].append(

@@ -160,7 +160,9 @@ def test_declared_word_gap_ducking_targets_music_clip_use():
     assert len(report["word_gap_ducking_effects"]) == 1
     effect = model["effects"][0]
     assert effect["class_id"] == "audio.ducking"
-    assert effect["target_id"] == "use:reel-01:0001"
+    assert effect["target_id"] == model["clip_uses"][1]["id"], (
+        "the ducking targets the MUSIC clip use, by the model's own "
+        "id rather than by its position in the placement list")
     assert effect["interval"]["start"] == 120_000
     assert effect["interval"]["end"] == 240_000
     assert effect["parameters"] == {
@@ -274,7 +276,8 @@ def test_transform_migration_keeps_placement_identity_after_a_skipped_use():
                                      _track_plan())
     assert report["clip_uses"] == 1
     assert len(report["static_transforms"]) == 1
-    assert model["effects"][0]["target_id"] == "use:reel-01:0001"
+    assert model["effects"][0]["target_id"] == \
+        model["clip_uses"][0]["id"]
 
 
 def test_fragment_migrates_measured_overlay_clip_and_position_effect():
@@ -287,7 +290,7 @@ def test_fragment_migrates_measured_overlay_clip_and_position_effect():
     report = rpm.build_reel_fragment(
         model, "Reel 01", [], _track_plan(), overlay_placements=[record],
         fps=24.0)
-    assert report["overlay_uses"] == ["use:reel-01:overlay:0000"]
+    assert report["overlay_uses"] == [model["clip_uses"][0]["id"]]
     assert report["overlay_transforms_skipped"] == []
     assert len(report["overlay_transform_effects"]) == 2
     use = next(row for row in model["clip_uses"]
@@ -321,7 +324,7 @@ def test_overlay_transforms_get_distinct_effect_ids_and_targets():
     assert len(positions) == 3
     assert len({row["id"] for row in positions}) == 3
     assert {row["target_id"] for row in positions} == {
-        f"use:reel-01:overlay:{index:04d}" for index in range(3)}
+        row["id"] for row in model["clip_uses"]}
 
 
 def test_fractional_rate_overlay_frames_meet_without_rounding_overlap():
@@ -434,9 +437,9 @@ def test_face_only_person_reaches_a_roll_and_renders():
     out = rpm.clip_uses_from_placements(
         model, "reel-01", "Reel 01", placements,
         {("video", 1): "a_roll"}, None)
-    assert out["use_ids"] == ["use:reel-01:0000"]
+    assert len(out["use_ids"]) == 1
     use = next(row for row in model["clip_uses"]
-               if row["id"] == "use:reel-01:0000")
+               if row["id"] == out["use_ids"][0])
     assert use["role"] == "a_roll"
     assert use["entity_links"] == ["person_001"]
     assert "obs-on-screen-1" in out["evidence_ids"]
@@ -466,11 +469,11 @@ def test_face_only_person_reaches_a_roll_and_renders():
     validate_project_model(model)
     resolved = evidence.resolve_person(model, "person_001")
     assert resolved is not None
-    assert [row["id"] for row in resolved["clip_uses"]] == [
-        "use:reel-01:0000"]
+    assert [row["id"] for row in resolved["clip_uses"]] == \
+        out["use_ids"]
     assert len(resolved["rendered_ranges"]) == 1
     assert (resolved["rendered_ranges"][0]["clip_use_id"]
-            == "use:reel-01:0000")
+            == out["use_ids"][0])
 
 
 def test_ambiguous_on_screen_cover_links_both_persons():
@@ -531,7 +534,7 @@ def test_ambiguous_on_screen_cover_links_both_persons():
         model, "reel-01", "Reel 01", placements,
         {("video", 1): "a_roll"}, None)
     use = next(row for row in model["clip_uses"]
-               if row["id"] == "use:reel-01:0000")
+               if row["id"] == out["use_ids"][0])
     assert sorted(use["entity_links"]) == ["person_001", "person_002"]
     assert sorted(out["evidence_ids"]) == [
         "obs-on-screen-1", "obs-on-screen-2"]
@@ -732,7 +735,7 @@ def test_two_source_frame_map_resolves_per_segment_clock():
     out = rpm.clip_uses_from_placements(
         model, "reel-01", "Reel 01", _two_source_placements(),
         {("video", 1): "a_roll"}, None)
-    assert out["use_ids"] == ["use:reel-01:0000", "use:reel-01:0001"]
+    assert len(out["use_ids"]) == 2
     map_id = rpm.frame_map_for_reel(
         model, "reel-01", "clock:reel:reel-01", out["use_ids"])
     frame_map = next(row for row in model["frame_maps"]

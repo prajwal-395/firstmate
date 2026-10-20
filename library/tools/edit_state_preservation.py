@@ -48,6 +48,7 @@ def capture_clip_metadata(item) -> dict:
         markers = dict(item.GetMarkers() or {})
         pool_item = item.GetMediaPoolItem()
         pool_uid = str(pool_item.GetUniqueId() or "") if pool_item else ""
+        media_id = str(_pool_media_id(pool_item) or "")
         source_file = (str(pool_item.GetClipProperty("File Path") or "")
                        if pool_item else "")
         native_id = str(item.GetUniqueId() or "")
@@ -67,6 +68,10 @@ def capture_clip_metadata(item) -> dict:
     if markers and not callable(getattr(item, "AddMarker", None)):
         raise StatePreservationError(
             "the item's clip markers cannot be restored by this path")
+    identity = _editorial_identity(
+        source_file=source_file, media_id=media_id,
+        track_type=str(track_type), track_index=int(track_index),
+        source_span=source_span, record_span=record_span)
     return {"enabled": enabled, "clip_color": color or "", "flags": flags,
             "markers": _normalize_markers(markers), "pool_uid": pool_uid,
             "native_object_id": native_id,
@@ -76,11 +81,69 @@ def capture_clip_metadata(item) -> dict:
                 "track_index": int(track_index),
                 "source_span": tuple(int(value) for value in source_span),
                 "record_span": tuple(int(value) for value in record_span),
+                # The DURABLE identity of the editorial moment this item
+                # is: what it plays and the role it plays it in, and
+                # NOT where it sits or what Resolve calls it.  A
+                # replacement carries it, so the new item stands in for
+                # the same moment (PRES-006).
+                **({"token": identity.token,
+                    "passage_id": identity.passage_id,
+                    "material_id": identity.material_id,
+                    "role": identity.role}
+                   if identity is not None else {}),
             },
             "linked_item_ids": sorted({
                 str(partner.GetUniqueId()) for partner in linked
                 if partner is not None and partner.GetUniqueId()
                 and str(partner.GetUniqueId()) != native_id})}
+
+
+def _pool_media_id(pool_item) -> str:
+    """The media pool item's MEDIA id, or its unique id.
+
+    `reel_read` records the media id (`GetMediaId`) and the replace
+    guard builds its source identity from it, so the editorial identity
+    has to read the same one - two spellings of "which media" would be
+    two materials.
+    """
+    if pool_item is None:
+        return ""
+    getter = getattr(pool_item, "GetMediaId", None)
+    if callable(getter):
+        try:
+            media_id = getter()
+        except Exception:  # noqa: BLE001 - Resolve proxy errors vary.
+            media_id = None
+        if media_id:
+            return str(media_id)
+    try:
+        return str(pool_item.GetUniqueId() or "")
+    except Exception:  # noqa: BLE001 - Resolve proxy errors vary.
+        return ""
+
+
+def _editorial_identity(*, source_file: str, media_id: str, track_type: str,
+                        track_index: int, source_span, record_span):
+    """The durable editorial identity of a timeline item, or None.
+
+    `library.tools.editorial_identity` owns the identity; this is the
+    replacement path's use of it.  An item with no media and no path
+    names no editorial moment, and that is reported as None rather than
+    as an identity over nothing.
+    """
+    from library.tools.editorial_identity import identity_of
+
+    return identity_of({
+        "source_file": source_file,
+        "media_pool_item_id": media_id,
+        "unique_id": "",
+        "track_type": track_type,
+        "track_index": track_index,
+        "track_name": "",
+        "name": "",
+        "source_in_frame": int(source_span[0]),
+        "source_out_frame": int(source_span[1]),
+    })
 
 
 def capture(item, *, picture: bool = True) -> dict:

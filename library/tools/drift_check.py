@@ -151,6 +151,12 @@ def keyed_transforms(document) -> dict:
             transform = clip.get("transform") or {}
             if not all(axis in transform for axis in AXES):
                 continue
+            # An axis the read did not establish is `null`, not a
+            # number (PRES-005). A placement whose transform could not
+            # be read is skipped, exactly like a placement whose
+            # transform is absent: there is nothing to compare.
+            if any(transform.get(axis) is None for axis in AXES):
+                continue
             try:
                 start = int(clip["record_in"])
             except (KeyError, TypeError, ValueError):

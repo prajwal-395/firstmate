@@ -1335,6 +1335,7 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
         patch={**patch.to_dict(), "operations": recorded_operations},
         receipt=receipt)
     model_commit = {"status": "not_required", "revision": None}
+    reconcile_commit = {"status": "not_required", "revision": None}
     if model_revision is not None:
         from library.tools import project_model_editorial
         try:
@@ -1347,8 +1348,21 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
         except Exception as exc:  # noqa: BLE001 - durable Resolve write remains recorded
             model_commit = {"status": "failed",
                             "error": f"{type(exc).__name__}: {exc}"}
+        # The read-back is the live timeline, and the model now holds the
+        # edit that produced it.  Reconciling the two commits what the
+        # timeline HOLDS - the clip uses on it and the binding that joins
+        # them to the live Resolve items - so the next comparison has a
+        # baseline instead of an empty composition (PRES-007).
+        if model_commit["status"] == "committed":
+            reconcile_commit = _reconcile_timeline_state(
+                project_folder, snapshot=store.snapshot(generation),
+                timeline_id=timeline_id, timeline_name=timeline_name,
+                project_name=project_name,
+                generation=generation.generation,
+                expected_revision=model_commit["revision"])
     receipt = {**receipt, "resolve_write_status": receipt["status"],
                "project_model_commit": model_commit,
+               "project_model_reconcile": reconcile_commit,
                "status": ("project_model_commit_failed"
                           if model_commit["status"] == "failed"
                           else receipt["status"]),
@@ -1367,6 +1381,35 @@ def commit_execution(patch: EditPatch, *, receipt: dict, snapshot: dict,
         required=False)
     _emit_patch_event(project_folder, receipt, generation.generation)
     return receipt
+
+
+def _reconcile_timeline_state(project_folder, *, snapshot, timeline_id,
+                              timeline_name, project_name, generation,
+                              expected_revision) -> dict:
+    """Commit what the live timeline HOLDS, beside the edit that made it.
+
+    The Project Model's `timeline_states` row used to carry a generation
+    number and no composition: `clip_use_ids` and `edit_operation_ids`
+    were empty, so the model could not say which clips the timeline
+    holds and nothing could be reconciled against it.  This commits the
+    composition and the `nle_bindings` row that joins each clip use to
+    the live Resolve item playing it (PRES-007).
+
+    A failure here never undoes the edit: the Resolve write is durable
+    and the edit is committed, and the reconciliation is recorded as
+    needing attention rather than as a failure of the edit.
+    """
+    from library.tools import timeline_state_reconcile
+
+    try:
+        return timeline_state_reconcile.commit_reconciled_state(
+            project_folder, snapshot=snapshot, timeline_id=timeline_id,
+            generation=generation, project_identity=project_name,
+            timeline_identity=timeline_name,
+            expected_revision=expected_revision)
+    except Exception as exc:  # noqa: BLE001 - the edit itself already landed
+        return {"status": "failed", "revision": None,
+                "error": f"{type(exc).__name__}: {exc}"}
 
 
 def _emit_patch_event(project_folder: str | None, receipt: dict,
