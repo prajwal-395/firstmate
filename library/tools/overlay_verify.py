@@ -453,30 +453,23 @@ def verify_rendered_boxes(resolve, project, timeline, records: Sequence[dict],
                 "output_dir": output_dir}
 
     def asset_alpha_bounds(record, source_frame, destination):
-        """Alpha box of the exact asset frame that plays at the sample."""
+        """Alpha box of the exact asset frame that plays at the sample.
+
+        One instrument, `overlay_media`'s, so the box this verification
+        expects and the canvas the projection lowered are read off the
+        same asset by the same code.
+        """
+        from library.tools import overlay_media
+
         path = record.get("overlay_path")
         if not path:
             return None
-        if os.path.splitext(path)[1].lower() == ".png":
-            with Image.open(path) as image:
-                alpha = image.convert("RGBA").getchannel("A")
-                return alpha.point(
-                    lambda value: 255
-                    if value >= RENDERED_BOX_INK_THRESHOLD else 0
-                ).getbbox()
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-i", path,
-             "-vf", f"select=eq(n\\,{int(source_frame)})",
-             "-fps_mode", "passthrough", "-frames:v", "1", destination],
-            capture_output=True, timeout=30, check=False)
-        if result.returncode != 0 or not os.path.isfile(destination):
+        kind = overlay_media.kind_for_path(path)
+        if kind is None:
             return None
-        with Image.open(destination) as image:
-            alpha = image.convert("RGBA").getchannel("A")
-            return alpha.point(
-                lambda value: 255
-                if value >= RENDERED_BOX_INK_THRESHOLD else 0
-            ).getbbox()
+        return overlay_media.alpha_ink_box(
+            kind, path, source_frame, destination=destination,
+            threshold=RENDERED_BOX_INK_THRESHOLD)
 
     def item_asset_name(item):
         """Resolve's returned pool item name, or empty when it cannot read it."""

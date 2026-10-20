@@ -3375,14 +3375,14 @@ _ROUTE_EVALUATION = {
     "overlay.resize": {
         "inspected": ["Resolve 21.1 TimelineItem.SetProperties/GetProperties and documented Pan/Tilt/ZoomX/ZoomY", "Fusion scripting", "layout_model", "overlay_verify", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
         "available": ["protected reel_touchup lowers output-pixel dimensions through layout_model, writes Pan/Tilt/ZoomX/ZoomY on staging, and verifies an enabled/disabled rendered pixel diff with overlay_verify before promotion", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
-        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
+        "gaps": ["limited to a native PNG still or a rendered movie overlay on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; a rendered movie overlay must play at normal speed, so its frame that draws can be located; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
         "next": "Run the deferred geometry qualification on disposable Resolve timelines, including preservation, recovery, clipping and rendered dimensions, before enabling normal routing.",
         "not_yet_evaluated": [],
     },
     "overlay.position": {
         "inspected": ["Resolve 21.1 TimelineItem.SetProperties/GetProperties and documented Pan/Tilt/ZoomX/ZoomY", "Fusion scripting", "layout_model", "overlay_verify", "OTIO", "Blackmagic MCP tools/list", "Fairlight UI/API coverage", "Resolve Workflow Integration"],
         "available": ["protected reel_touchup translates the output-pixel box through layout_model, writes Pan/Tilt/ZoomX/ZoomY on staging, and verifies an enabled/disabled rendered pixel diff with overlay_verify before promotion", "Blackmagic MCP run_script is arbitrary Python, not a semantic operation backend"],
-        "gaps": ["limited to PNG stills with transparency on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; size and timing preserved, translated box must stay inside the delivery frame and safe area; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
+        "gaps": ["limited to a native PNG still or a rendered movie overlay on V3+ without drawing Fusion comps, rotation, crop, or non-native Scaling; a rendered movie overlay must play at normal speed, so its frame that draws can be located; size and timing preserved, translated box must stay inside the delivery frame and safe area; live Resolve qualification remains deferred", "MCP script tools bypass operation-specific authorization, verification and recovery"],
         "next": "Run the deferred geometry qualification on disposable Resolve timelines, including preservation, recovery, safe-area placement and rendered position, before enabling normal routing.",
         "not_yet_evaluated": [],
     },
@@ -3551,9 +3551,9 @@ _IMPLEMENTATION_EVIDENCE = {
 
 _BACKEND_OPERATION_LIMITATIONS = {
     ("overlay.resize", "reel_touchup"):
-        ("one transparent PNG still on V3+; no drawing Fusion comp, rotation, crop or non-native Scaling; dimensions are delivery pixels; preserve center; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
+        ("one transparent PNG still or one rendered movie overlay on V3+; a rendered movie overlay carries an alpha plane and plays at normal speed; no drawing Fusion comp, rotation, crop or non-native Scaling; dimensions are delivery pixels; preserve center; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
     ("overlay.position", "reel_touchup"):
-        ("one transparent PNG still on V3+; no drawing Fusion comp, rotation, crop or non-native Scaling; dx/dy are signed output pixels (dx positive right, dy positive down); size and timing preserved; translated box must stay inside the delivery frame; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
+        ("one transparent PNG still or one rendered movie overlay on V3+; a rendered movie overlay carries an alpha plane and plays at normal speed; no drawing Fusion comp, rotation, crop or non-native Scaling; dx/dy are signed output pixels (dx positive right, dy positive down); size and timing preserved; translated box must stay inside the delivery frame; an enabled/disabled rendered pixel diff verifies the requested box within 2px; approved timeline is retained until promotion",),
     ("clip.split", "reel_touchup"):
         ("one normal-speed video item without links, Fusion comps, markers, flags, keyframes or color state; exact interior record-frame boundary and readable source bounds; carries native transform properties to the second half; candidate verifies both source/record spans and collateral timeline",),
     ("clip.slide", "reel_touchup"):

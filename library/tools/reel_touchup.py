@@ -1470,13 +1470,52 @@ def _op_resize_still(edit, position, tracks, spans, changes, insertions,
     return True
 
 
+def _overlay_media_kind(clip: Mapping, position: int, op: str) -> str:
+    """The media kind of one overlay target, or a refusal by name.
+
+    The route covers a native PNG still AND a rendered movie overlay -
+    the engine's own lower thirds are `.mov` files - and both draw
+    through the same transform chain, so the geometry of a move or a
+    resize is the same for both. The kind is decided by the media's OWN
+    kind and its own container, never by its file name.
+    """
+    from library.tools import overlay_media
+
+    kind, why = overlay_media.classify(clip)
+    if kind is None:
+        raise TouchupRefused(
+            f"edit {position} (`{op}`) targets unsupported media "
+            f"{str(clip.get('source_file') or '')!r}",
+            "this route covers a native PNG still or a rendered movie "
+            f"overlay, and {why}",
+            "use a native PNG still or a rendered movie overlay without a "
+            "Fusion treatment")
+    if kind == overlay_media.RENDERED_VIDEO:
+        speed = clip.get("speed")
+        try:
+            normal = speed is not None and abs(float(speed) - 100.0) <= 1e-6
+        except (TypeError, ValueError):
+            normal = False
+        if not normal:
+            raise TouchupRefused(
+                f"edit {position} (`{op}`) targets an overlay whose speed "
+                f"is {speed!r}",
+                "a retimed overlay's source window does not map one to one "
+                "onto the asset's frames, so the frame that draws it "
+                "cannot be located",
+                "use an overlay playing at normal speed")
+    return kind
+
+
 def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
                        removals, moves, exclude, notes, in_place) -> bool:
-    """Declare output-pixel geometry for one untreated PNG overlay.
+    """Declare output-pixel geometry for one untreated overlay.
 
-    Native transform lowering happens against the live staged item in
-    ``_apply_in_place`` so it can use that timeline's resolution and proxy
-    units. Promotion is gated by a rendered enabled/disabled pixel diff.
+    The target is a native PNG still or a rendered movie overlay - both
+    draw through the same transform chain. Native transform lowering
+    happens against the live staged item in ``_apply_in_place`` so it can
+    use that timeline's resolution and proxy units. Promotion is gated by
+    a rendered enabled/disabled pixel diff.
     """
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
@@ -1496,12 +1535,14 @@ def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
             "address one overlay row item and provide positive width/height")
     clip = _find_clip(tracks, row, int(item_index))
     source = str(clip.get("source_file") or "")
-    if (clip.get("media_type") != "Still" or not source.lower().endswith(".png")
-            or _ce.treatment_comps(clip)):
+    kind = _overlay_media_kind(clip, position, "resize_overlay")
+    if _ce.treatment_comps(clip):
         raise TouchupRefused(
-            f"edit {position} (`resize_overlay`) targets unsupported media {source!r}",
-            "the first route is limited to a native PNG still without a drawing Fusion comp",
-            "use a native PNG overlay without a Fusion treatment")
+            f"edit {position} (`resize_overlay`) targets {row}[{item_index}] "
+            "with a drawing Fusion comp",
+            "the comp draws the overlay itself, so the native transform is "
+            "not what places it",
+            "use an overlay without a Fusion treatment")
     if clip.get("enabled") is not True:
         raise TouchupRefused(
             f"edit {position} (`resize_overlay`) target {row}[{item_index}] "
@@ -1512,6 +1553,7 @@ def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
                      "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
                      "width": width, "height": height,
+                     "media_kind": kind,
                      "source_file": source})
     notes.append(f"edit {position}: resize {row}[{item_index}] to "
                  f"{width}x{height} output pixels; verify rendered box")
@@ -1520,13 +1562,15 @@ def _op_resize_overlay(edit, position, tracks, spans, changes, insertions,
 
 def _op_position_overlay(edit, position, tracks, spans, changes, insertions,
                          removals, moves, exclude, notes, in_place) -> bool:
-    """Declare an output-pixel translation for one untreated PNG overlay.
+    """Declare an output-pixel translation for one untreated overlay.
 
-    Native transform lowering happens against the live staged item in
-    ``_apply_in_place`` so it can use that timeline's resolution and proxy
-    units. Size and timing are preserved; only the box centre moves by the
-    signed (dx, dy) output-pixel delta. Promotion is gated by a rendered
-    enabled/disabled pixel diff, the same evidence the resize path uses.
+    The target is a native PNG still or a rendered movie overlay - both
+    draw through the same transform chain. Native transform lowering
+    happens against the live staged item in ``_apply_in_place`` so it can
+    use that timeline's resolution and proxy units. Size and timing are
+    preserved; only the box centre moves by the signed (dx, dy)
+    output-pixel delta. Promotion is gated by a rendered enabled/disabled
+    pixel diff, the same evidence the resize path uses.
     """
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
@@ -1548,12 +1592,14 @@ def _op_position_overlay(edit, position, tracks, spans, changes, insertions,
             "address one overlay row item and provide a non-zero dx/dy")
     clip = _find_clip(tracks, row, int(item_index))
     source = str(clip.get("source_file") or "")
-    if (clip.get("media_type") != "Still" or not source.lower().endswith(".png")
-            or _ce.treatment_comps(clip)):
+    kind = _overlay_media_kind(clip, position, "position_overlay")
+    if _ce.treatment_comps(clip):
         raise TouchupRefused(
-            f"edit {position} (`position_overlay`) targets unsupported media {source!r}",
-            "the first route is limited to a native PNG still without a drawing Fusion comp",
-            "use a native PNG overlay without a Fusion treatment")
+            f"edit {position} (`position_overlay`) targets {row}[{item_index}] "
+            "with a drawing Fusion comp",
+            "the comp draws the overlay itself, so the native transform is "
+            "not what places it",
+            "use an overlay without a Fusion treatment")
     if clip.get("enabled") is not True:
         raise TouchupRefused(
             f"edit {position} (`position_overlay`) target {row}[{item_index}] "
@@ -1564,6 +1610,7 @@ def _op_position_overlay(edit, position, tracks, spans, changes, insertions,
                      "item_index": int(item_index),
                      "record_frame": int(clip["record_in"]),
                      "dx": dx, "dy": dy,
+                     "media_kind": kind,
                      "source_file": source})
     notes.append(f"edit {position}: position {row}[{item_index}] by "
                  f"({dx:g}, {dy:g}) output pixels; verify rendered box")
@@ -3175,14 +3222,25 @@ def _audio_fades(timeline: Any) -> dict:
     return fades
 
 
-def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
-                               entry: Mapping) -> tuple[dict, dict]:
-    """Lower output-pixel size to native properties and a pixel-QA record."""
-    from PIL import Image
+def _overlay_asset_mode(source_size: tuple[int, int],
+                       frame: tuple[int, int]) -> str:
+    """Whether the overlay fills the delivery frame or is a tight box."""
+    return "full_frame" if tuple(source_size) == tuple(frame) else "tight"
 
+
+def _overlay_source_geometry(item: Any, timeline: Any, project: Any,
+                             entry: Mapping, op: str):
+    """The target overlay's own canvas, its native transform, the model.
+
+    The SAME geometry for both media kinds: an item's own source canvas
+    and its native transform decide where it draws, so a native PNG still
+    and a rendered movie overlay move and resize through one chain. Only
+    the MEASUREMENT of the canvas differs between them, and that
+    measurement is `overlay_media`'s - the same instrument the
+    rendered-pixel verification reads the asset with.
+    """
+    from library.tools import overlay_media
     from library.tools.layout_model import (
-        GeometryDescriptor,
-        LayoutItem,
         LayoutModel,
         Transform,
         current_proxy_units,
@@ -3191,37 +3249,59 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
     pool_item = item.GetMediaPoolItem()
     if pool_item is None:
         raise TouchupRefused(
-            "overlay.resize target has no media-pool item",
+            f"{op} target has no media-pool item",
             "the source canvas and identity must be measured before a transform write",
-            "re-read the exact still overlay")
+            "re-read the exact overlay")
     path = str(pool_item.GetClipProperty("File Path") or "")
     if not path or os.path.realpath(path) != os.path.realpath(
             str(entry["source_file"])):
         raise TouchupRefused(
-            "overlay.resize source identity changed on staging",
+            f"{op} source identity changed on staging",
             "the candidate must still contain the exact targeted asset",
             "discard the stale candidate and re-address the overlay")
+    kind, why = overlay_media.classify({
+        "source_file": path,
+        "media_type": str(pool_item.GetClipProperty("Type") or ""),
+    })
+    if kind is None:
+        raise ValueError(f"unsupported media {path!r}: {why}")
+    qualified = str(entry.get("media_kind") or "")
+    if qualified and qualified != kind:
+        raise ValueError(
+            f"the staged media is a {kind} where the request qualified a "
+            f"{qualified}")
     try:
-        with Image.open(path) as asset:
-            source_size = tuple(map(int, asset.size))
-            alpha = asset.convert("RGBA").getchannel("A")
-            if alpha.getbbox() is None:
-                raise ValueError("asset has no alpha ink")
-            if alpha.getextrema()[0] == 255:
-                raise ValueError("asset has no transparent pixels")
-        frame = (int(timeline.GetSetting("timelineResolutionWidth")),
-                 int(timeline.GetSetting("timelineResolutionHeight")))
-        stored = item.GetProperty() or {}
-        if not isinstance(stored, Mapping):
-            raise TypeError("native transform properties are unreadable")
-        units = current_proxy_units(project)
-        current = Transform.from_dict({**dict(stored),
-                                       "pan_units": units,
-                                       "tilt_units": units})
-        if abs(current.rotation) > 1e-7 or abs(current.scaling - 1.0) > 1e-7:
-            raise ValueError(
-                "rotation or non-native Scaling has no qualified resize projection")
-        model = LayoutModel(*frame, units, units)
+        media = overlay_media.measure(kind, path, pool_item=pool_item)
+    except overlay_media.OverlayMediaError as exc:
+        raise ValueError(str(exc)) from exc
+    frame = (int(timeline.GetSetting("timelineResolutionWidth")),
+             int(timeline.GetSetting("timelineResolutionHeight")))
+    stored = item.GetProperty() or {}
+    if not isinstance(stored, Mapping):
+        raise TypeError("native transform properties are unreadable")
+    units = current_proxy_units(project)
+    current = Transform.from_dict({**dict(stored),
+                                   "pan_units": units,
+                                   "tilt_units": units})
+    if abs(current.rotation) > 1e-7 or abs(current.scaling - 1.0) > 1e-7:
+        raise ValueError(
+            f"rotation or non-native Scaling has no qualified {op} projection")
+    model = LayoutModel(*frame, units, units)
+    return media.canvas, current, model, frame, path
+
+
+def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
+                               entry: Mapping) -> tuple[dict, dict]:
+    """Lower output-pixel size to native properties and a pixel-QA record."""
+    from library.tools.layout_model import (
+        GeometryDescriptor,
+        LayoutItem,
+    )
+
+    source_size, current, model, frame, path = (), None, None, (), ""
+    try:
+        source_size, current, model, frame, path = _overlay_source_geometry(
+            item, timeline, project, entry, "overlay.resize")
         current_item = LayoutItem(*source_size, current)
         centre = model.local_to_canvas(
             current_item, source_size[0] * current.anchor_x,
@@ -3245,7 +3325,8 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
         descriptor = GeometryDescriptor(
             frame=frame, box=box, canvas=source_size,
             anchor=(current.anchor_x, current.anchor_y),
-            source_size=source_size, asset_mode="tight")
+            source_size=source_size,
+            asset_mode=_overlay_asset_mode(source_size, frame))
         record = {
             "label": f"{entry['row']}@{entry['record_frame']}",
             "overlay_path": path, "absolute_box": box,
@@ -3254,6 +3335,7 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
             "duration_frames": int(item.GetDuration()),
             "source_start_frame": int(item.GetSourceStartFrame()),
             "requested_size": [width, height],
+            "media_kind": entry.get("media_kind"),
         }
         return properties, record
     except TouchupRefused:
@@ -3268,50 +3350,15 @@ def _overlay_resize_projection(item: Any, timeline: Any, project: Any,
 def _overlay_position_projection(item: Any, timeline: Any, project: Any,
                                  entry: Mapping) -> tuple[dict, dict]:
     """Lower an output-pixel translation to native properties and pixel-QA."""
-    from PIL import Image
-
     from library.tools.layout_model import (
         GeometryDescriptor,
         LayoutItem,
-        LayoutModel,
-        Transform,
-        current_proxy_units,
     )
 
-    pool_item = item.GetMediaPoolItem()
-    if pool_item is None:
-        raise TouchupRefused(
-            "overlay.position target has no media-pool item",
-            "the source canvas and identity must be measured before a transform write",
-            "re-read the exact still overlay")
-    path = str(pool_item.GetClipProperty("File Path") or "")
-    if not path or os.path.realpath(path) != os.path.realpath(
-            str(entry["source_file"])):
-        raise TouchupRefused(
-            "overlay.position source identity changed on staging",
-            "the candidate must still contain the exact targeted asset",
-            "discard the stale candidate and re-address the overlay")
+    source_size, current, model, frame, path = (), None, None, (), ""
     try:
-        with Image.open(path) as asset:
-            source_size = tuple(map(int, asset.size))
-            alpha = asset.convert("RGBA").getchannel("A")
-            if alpha.getbbox() is None:
-                raise ValueError("asset has no alpha ink")
-            if alpha.getextrema()[0] == 255:
-                raise ValueError("asset has no transparent pixels")
-        frame = (int(timeline.GetSetting("timelineResolutionWidth")),
-                 int(timeline.GetSetting("timelineResolutionHeight")))
-        stored = item.GetProperty() or {}
-        if not isinstance(stored, Mapping):
-            raise TypeError("native transform properties are unreadable")
-        units = current_proxy_units(project)
-        current = Transform.from_dict({**dict(stored),
-                                       "pan_units": units,
-                                       "tilt_units": units})
-        if abs(current.rotation) > 1e-7 or abs(current.scaling - 1.0) > 1e-7:
-            raise ValueError(
-                "rotation or non-native Scaling has no qualified position projection")
-        model = LayoutModel(*frame, units, units)
+        source_size, current, model, frame, path = _overlay_source_geometry(
+            item, timeline, project, entry, "overlay.position")
         current_item = LayoutItem(*source_size, current)
         centre = model.local_to_canvas(
             current_item, source_size[0] * current.anchor_x,
@@ -3337,7 +3384,8 @@ def _overlay_position_projection(item: Any, timeline: Any, project: Any,
         descriptor = GeometryDescriptor(
             frame=frame, box=box, canvas=source_size,
             anchor=(current.anchor_x, current.anchor_y),
-            source_size=source_size, asset_mode="tight")
+            source_size=source_size,
+            asset_mode=_overlay_asset_mode(source_size, frame))
         record = {
             "label": f"{entry['row']}@{entry['record_frame']}",
             "overlay_path": path, "absolute_box": box,
@@ -3346,6 +3394,7 @@ def _overlay_position_projection(item: Any, timeline: Any, project: Any,
             "duration_frames": int(item.GetDuration()),
             "source_start_frame": int(item.GetSourceStartFrame()),
             "requested_delta": [dx, dy],
+            "media_kind": entry.get("media_kind"),
         }
         return properties, record
     except TouchupRefused:
