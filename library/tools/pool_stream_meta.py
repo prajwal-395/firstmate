@@ -10,7 +10,8 @@ renderer change that moves pixels without changing them - the constant
 (`overlay_carriage`) rewrites ProRes bytes as qtrle at the same path by
 design, because the pixels are bit-identical. `import_pool_item`
 (`reel_build`) reuses the pooled item BY PATH and `_carry` refreshes
-clip attributes only; Resolve caches stream dimensions and codec at
+clip attributes only; Resolve caches stream dimensions, codec and frame
+count at
 import in a place the scripting API cannot set. So a pooled item keeps
 its predecessor's metadata forever, and a ProRes decoder at the wrong
 dimensions on qtrle bytes fails the render - measured 2026-09-13 as 13
@@ -25,7 +26,10 @@ through here, so the check cannot drift into two definitions of stale.
 What is compared
 ----------------
 Resolution always: the pool's `Resolution` property against ffprobe's
-`width`/`height`. Codec when the pool exposes one: the disk side is
+`width`/`height`. Frame count when both sides expose one: Resolve's
+`Frames` property against ffprobe's `nb_frames`, so a same-path render
+whose duration changed is refreshed even when dimensions and codec did
+not. Codec when the pool exposes one: the disk side is
 always known (ffprobe `codec_name`), the pool side is read off the
 item's full property dict by NAME SUBSTRING (`codec`, case-insensitive)
 rather than one assumed key, because no caller in this tree has ever
@@ -75,7 +79,7 @@ CODEC_VOCABULARY = {
 
 
 def disk_stream(path: str, timeout: int = 15) -> dict:
-    """`{width, height, codec}` the file on disk actually carries.
+    """`{width, height, codec, frames}` the file on disk actually carries.
 
     Each value is None when there is no video stream to compare
     (audio-only, missing or unreadable) - the caller proves staleness
@@ -93,11 +97,12 @@ def disk_stream(path: str, timeout: int = 15) -> dict:
     landed in #1089 could not fire at all - while 13 genuinely stale
     items sat in the pool.
     """
-    record: dict = {"width": None, "height": None, "codec": None}
+    record: dict = {"width": None, "height": None, "codec": None,
+                    "frames": None}
     try:
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height,codec_name",
+             "-show_entries", "stream=width,height,codec_name,nb_frames",
              "-of", "json", path],
             capture_output=True, check=False, encoding="utf-8",
             errors="replace", timeout=timeout,
@@ -115,6 +120,12 @@ def disk_stream(path: str, timeout: int = 15) -> dict:
     if isinstance(width, int) and isinstance(height, int):
         record["width"] = width
         record["height"] = height
+    try:
+        frames = int(stream.get("nb_frames"))
+    except (TypeError, ValueError):
+        frames = None
+    if frames is not None and frames > 0:
+        record["frames"] = frames
     codec = str(stream.get("codec_name") or "").strip().lower()
     record["codec"] = codec or None
     return record
@@ -171,13 +182,14 @@ def codecs_agree(pool_codec: str, disk_codec: str) -> Optional[bool]:
 
 
 def pool_stream(item) -> dict:
-    """`{width, height, codec}` Resolve's pool metadata claims for this item.
+    """`{width, height, codec, frames}` Resolve's pool metadata claims.
 
     Resolution is parsed off the `Resolution` property (`"904x480"`);
     anything else - missing, unparseable, unreadable - is None. Codec
     comes from `_pool_codec` above.
     """
-    record: dict = {"width": None, "height": None, "codec": None}
+    record: dict = {"width": None, "height": None, "codec": None,
+                    "frames": None}
     try:
         raw = item.GetClipProperty("Resolution")
     except Exception:  # noqa: BLE001 - live API, judged by what returns
@@ -190,6 +202,12 @@ def pool_stream(item) -> dict:
         except ValueError:
             pass
     record["codec"] = _pool_codec(item)
+    try:
+        frames = int(item.GetClipProperty("Frames"))
+    except Exception:  # noqa: BLE001 - an unreadable property is unknown
+        frames = None
+    if frames is not None and frames > 0:
+        record["frames"] = frames
     return record
 
 
@@ -208,30 +226,41 @@ def stream_disagreement(pool_sig: dict, disk_sig: dict) -> Optional[dict]:
     transcoded underneath) is the transcode migration with no
     re-render, which a resolution-only check would wave through.
     """
-    comparable = (
+    resolution_comparable = (
         pool_sig.get("width") is not None
         and disk_sig.get("width") is not None
     )
-    if not comparable:
-        return None
     mismatches = []
-    if (pool_sig.get("width"), pool_sig.get("height")) != (
-            disk_sig.get("width"), disk_sig.get("height")):
+    if (resolution_comparable
+            and (pool_sig.get("width"), pool_sig.get("height")) !=
+            (disk_sig.get("width"), disk_sig.get("height"))):
         mismatches.append("resolution")
+    frames_compared = (pool_sig.get("frames") is not None
+                       and disk_sig.get("frames") is not None)
+    if frames_compared and pool_sig["frames"] != disk_sig["frames"]:
+        mismatches.append("frames")
     agree = None
     if pool_sig.get("codec") and disk_sig.get("codec"):
         agree = codecs_agree(pool_sig["codec"], disk_sig["codec"])
     codec_compared = agree is not None
     if agree is False:
         mismatches.append("codec")
-    if not mismatches:
+    comparable = resolution_comparable or frames_compared or agree is not None
+    if not comparable or not mismatches:
         return None
     return {
         "mismatches": mismatches,
         "comparable": True,
         "codec_compared": codec_compared,
-        "pool_resolution": f"{pool_sig['width']}x{pool_sig['height']}",
-        "disk_resolution": f"{disk_sig['width']}x{disk_sig['height']}",
+        "frames_compared": frames_compared,
+        "pool_frames": pool_sig.get("frames"),
+        "disk_frames": disk_sig.get("frames"),
+        "pool_resolution": (
+            f"{pool_sig['width']}x{pool_sig['height']}"
+            if resolution_comparable else None),
+        "disk_resolution": (
+            f"{disk_sig['width']}x{disk_sig['height']}"
+            if resolution_comparable else None),
         "pool_codec": pool_sig.get("codec"),
         "disk_codec": disk_sig.get("codec"),
     }

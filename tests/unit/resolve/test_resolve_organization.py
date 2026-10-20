@@ -668,6 +668,19 @@ def test_stream_disagreement_fires_each_leg_and_never_on_ignorance():
     assert found["mismatches"] == ["codec"]
     assert found["codec_compared"] is True
 
+    # A same-path card can be re-rendered to a different duration while
+    # resolution and codec remain identical. Resolve caches the old
+    # `Frames` value, so the build must bind a fresh pool item before a
+    # short Fusion MediaIn window reaches the longer card.
+    found = pool_stream_meta.stream_disagreement(
+        {"width": 1080, "height": 1920, "codec": "animation",
+         "frames": 10},
+        {"width": 1080, "height": 1920, "codec": "qtrle",
+         "frames": 48})
+    assert found["mismatches"] == ["frames"]
+    assert found["pool_frames"] == 10
+    assert found["disk_frames"] == 48
+
     unknown = {"width": None, "height": None, "codec": None}
     assert pool_stream_meta.stream_disagreement(
         {"width": 866, "height": 480, "codec": None}, unknown) is None
@@ -728,7 +741,7 @@ def test_disk_stream_reads_a_real_file_by_name_not_by_position(tmp_path):
          "-c:v", "qtrle", str(made)],
         check=True, capture_output=True, encoding="utf-8")
     assert pool_stream_meta.disk_stream(str(made)) == {
-        "width": 904, "height": 480, "codec": "qtrle"}
+        "width": 904, "height": 480, "codec": "qtrle", "frames": 6}
 
 
 # ── The build refresh ───────────────────────────────────────────
@@ -736,15 +749,17 @@ def test_disk_stream_reads_a_real_file_by_name_not_by_position(tmp_path):
 class _Clip:
     """A pooled overlay item with readable stream metadata."""
 
-    def __init__(self, path, resolution="904x480", codec=None):
+    def __init__(self, path, resolution="904x480", codec=None, frames=6):
         self._path = path
         self._resolution = resolution
         self._codec = codec
+        self._frames = frames
 
     def GetClipProperty(self, key=None):
         table = {"File Path": self._path,
                  "Clip Name": os.path.basename(self._path),
-                 "Resolution": self._resolution}
+                 "Resolution": self._resolution,
+                 "Frames": str(self._frames)}
         if key is None:
             if self._codec is not None:
                 table = dict(table, **{"Audio Codec": "Linear PCM",
@@ -801,10 +816,10 @@ def _overlay(tmp_path, name="sub_speakertwo_162243-166986_e135147f.mov"):
     return path
 
 
-def _disk_as(width, height, codec):
+def _disk_as(width, height, codec, frames=6):
     return patch.object(pool_stream_meta, "disk_stream",
                         return_value={"width": width, "height": height,
-                                      "codec": codec})
+                                      "codec": codec, "frames": frames})
 
 
 def test_stale_hit_imports_fresh_and_never_deletes(tmp_path):
@@ -819,6 +834,23 @@ def test_stale_hit_imports_fresh_and_never_deletes(tmp_path):
     stale = _Clip(path, resolution="866x480", codec="Apple ProRes 4444")
     pool.root._clips.append(stale)
     with _disk_as(904, 480, "qtrle"):
+        placed = import_pool_item(pool, path)
+    assert placed is not stale
+    assert pool.imports == [[path]]
+    assert pool.deletes == []
+    assert stale in pool.root._clips
+
+
+def test_same_stream_with_stale_frame_count_imports_fresh(tmp_path):
+    """A longer rerender at the same path must not reuse Resolve's old
+    frame extent just because dimensions and codec stayed constant."""
+    from library.tools.reel_build import import_pool_item
+
+    path = _overlay(tmp_path)
+    pool = _Pool()
+    stale = _Clip(path, resolution="904x480", codec="Animation", frames=10)
+    pool.root._clips.append(stale)
+    with _disk_as(904, 480, "qtrle", frames=48):
         placed = import_pool_item(pool, path)
     assert placed is not stale
     assert pool.imports == [[path]]

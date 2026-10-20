@@ -8345,6 +8345,9 @@ def _say_refreshed(filepath: str, record: dict) -> None:
     if "codec" in record["mismatches"]:
         legs.append(f"pool says {record['pool_codec']!r}, "
                     f"disk carries {record['disk_codec']!r}")
+    if "frames" in record["mismatches"]:
+        legs.append(f"pool says {record['pool_frames']} frames, "
+                    f"disk carries {record['disk_frames']}")
     print(f"  pool metadata for {os.path.basename(filepath)} went stale "
           f"({'; '.join(legs)}) - staging binds a fresh import; the "
           f"stale item is left for the archive that still plays it, "
