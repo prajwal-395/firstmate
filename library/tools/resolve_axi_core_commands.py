@@ -4425,6 +4425,30 @@ def cmd_edit_place(args) -> int:
         if args.media not in ("both", "video", "audio"):
             return fail(f"bad --media {args.media!r}: both|video|audio.",
                         f"{TOOL} edit place --help")
+        if args.track is not None:
+            # The row is NAMED, so the row must exist. Resolve answers an
+            # out-of-range track index by placing the clip on a row the
+            # request never named, which is a silent substitution of the
+            # edit - the thing the punch list forbids.
+            track_kind = "audio" if args.media == "audio" else "video"
+            try:
+                count = int(timeline.GetTrackCount(track_kind) or 0)
+            except Exception as exc:
+                return fail(f"the {track_kind} rows would not read ({exc}) "
+                            "- nothing was placed.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
+            if args.track < 1 or args.track > count:
+                return fail(
+                    f"place names {track_kind} track {args.track}, and this "
+                    f"timeline has {count} {track_kind} row(s) - nothing "
+                    "was placed.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if args.record is not None and args.record < 0:
+            return fail(f"place names record frame {args.record}, which is "
+                        "before the start of the timeline - nothing was "
+                        "placed.",
+                        f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         payload: dict = {"mediaPoolItem": clip}
         if args.source_in is not None:
             payload["startFrame"] = args.source_in

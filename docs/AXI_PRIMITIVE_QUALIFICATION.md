@@ -1,0 +1,94 @@
+# AXI-010..023: the per-item qualification statement
+
+The captain's punch list, section "1. Resolve AXI: Make Existing Editing
+Capabilities Production-Usable", asks for fourteen editing primitives to
+carry an explicit, generalizable qualification boundary.  This file
+states, for each item, what is ALREADY qualified, what this lane adds,
+and what cannot be qualified and why.
+
+The scenarios live in `tests/live/axi_primitive_qualification.py`.  The
+live lane (`vep-axc-live2`) runs them on the private scratch timeline
+(`Ren Qualification` / `fm-scratch qualify`) and imports the evidence
+through the existing registry tool:
+
+```sh
+REN_LIVE_RESOLVE=1 bin/vep tests/live/axi_primitive_qualification.py
+python3 -m library.tools.axi_qualification \
+    --import-result tests/live/reports/registry/<operation>__<backend>.json
+```
+
+The run writes one `ren-axi-qualification-result/v1` document per
+(operation, backend) pair the passing scenarios earned.  A pair that
+already has a registry row is NEVER overwritten: the new evidence is
+written beside it and the report names both, so a promotion stays a
+deliberate act on a file the operator chose.
+
+## What a row means
+
+A qualification row is keyed on ONE operation and ONE backend - the
+executor path that ran.  A row is only written for a pair that HAS an
+executor, because promoting a pair without one would route production
+work to a path that cannot run it.  Two operations therefore carry two
+rows for two reasons: the same operation reached through two different
+production entries, or the same operation earned by two different
+scenarios (the merged checks live in one row).
+
+Four scenarios have no row to write, and the harness says so by name in
+the report's `promotion_gaps` rather than dropping them:
+
+| Scenario | Why there is no row |
+| --- | --- |
+| `insert_to_absent_track_refused` | `clip.insert` has no executor on the AXI verb path (`edit place` is a command, not an algebra executor). The pair that carries an insertion is `clip.insert::edit_patch`, exercised by `insert_at_frame_on_track`. This scenario proves the verb's own refusal, and a refusal is not a qualification |
+| `move_keeps_unrelated_state` | `clip.move` has no executor on the AXI verb path: the move re-places the clip, so the item's identity changes and it cannot be one patch operation. The pair that can carry it is `clip.move::reel_touchup` |
+| `transition_at_cut` | `transition` has no executor on the AXI verb path. The pair that can carry it is `transition::reel_touchup` |
+| `audio_automation_refused` | `audio.automation` has no executor at all: only the `volume` parameter has a measured spelling, and the OTIO mix path writes it at build time |
+
+## The items
+
+| Item | What it asks | Operations | State before this lane | This lane adds | What cannot be qualified, and why |
+| --- | --- | --- | --- | --- | --- |
+| AXI-010 | Insertion at exact frame positions and designated tracks | `clip.insert` | implemented, unqualified on every backend | `insert_at_frame_on_track` (the EditPatch placement, `clip.insert::edit_patch`), `insert_to_absent_track_refused` (the AXI verb refuses a row the timeline does not have) | none |
+| AXI-011 | Removal with explicit ripple and non-ripple semantics | `clip.remove`, `clip.delete` | `clip.remove::resolve_axi` and `clip.delete::edit_patch` are ALREADY production-enabled | `remove_ripple_closes_gap` (the gap closes), `remove_leaves_gap` (the gap stays) - the two semantics side by side, which the existing evidence did not show | none |
+| AXI-012 | Trimming, in/out preservation and source-range validation | `clip.trim` | implemented on `resolve_axi`, unqualified | `trim_narrows_source_range` (the in/out points narrow, the duration and the shifted record start are read back), `trim_past_handles_refused` (a trim past the handles is refused and the timeline does not move) | none |
+| AXI-013 | Moving without loss of unrelated timeline state | `clip.move` | implemented on `reel_touchup` only, unqualified | `move_keeps_unrelated_state` (the production verb `edit move`, with the other row and the other clip read back unchanged) | the QUALIFICATION ROW cannot be written for the AXI verb: `clip.move` has no executor on that path, because the move re-places the clip and the item's identity changes, so it cannot be one patch operation. The pair that can carry it is `clip.move::reel_touchup` (the built-reel touch-up) |
+| AXI-014 | Source replacement preserving authorized clip-level adjustments | `clip.replace` | implemented on `edit_patch`, unqualified | `replace_source_keeps_transform` (the source is re-pointed and the Pan the request had already authorized is read back) | none for the operation. The LIMITATION is recorded: the write re-points the MEDIA POOL ITEM, so every clip drawing from that item changes with it |
+| AXI-015 | Exact clip property changes: position, scale, crop, opacity, rotation | `clip.set_property` | `clip.set_property::edit_patch` is production-enabled, with evidence for ONE property (Pan) | `set_property_position`, `set_property_scale`, `set_property_crop`, `set_property_opacity`, `set_property_rotation` - the five families, each read back through `GetProperty()` | none. The measured property set is the transform and its modes; a key outside it is refused, never rounded |
+| AXI-016 | Adding and removing video/audio tracks | `track.add`, `track.delete` | `track.add::edit_patch` is production-enabled; `track.delete` was implemented with no guard | `add_video_and_audio_tracks`, `remove_empty_track`, `remove_occupied_track_refused` | none. This lane ADDS the guard `track.delete` needed to be qualifyable at all: Resolve's `DeleteTrack` destroys every clip on the row, so a row that still carries clips is now refused before the write |
+| AXI-017 | Track-scoped ripple operations | `clip.remove` | ALREADY production-enabled (`clip.remove::resolve_axi`), with the evidence naming the track-scoped ripple | `ripple_is_track_scoped` - the other track read back UNCHANGED, which the existing evidence did not show | none |
+| AXI-018 | B-roll insertion and replacement over dialogue | `broll.insert`, `clip.replace` | `broll.insert::resolve_axi` is ALREADY production-enabled | `broll_insert_keeps_dialogue` (the cover and the dialogue's linked audio read back), `broll_replace_keeps_dialogue` (the cover's source is re-pointed and the dialogue is untouched) | none |
+| AXI-019 | Multicam angle replacement on synchronized source ranges | `multicam.select_angle` | implemented on `resolve_axi`, unqualified; the safety class still refuses it under VC-11 | `multicam_angle_switch` (the production verb `edit switch-camera`, with the assigned camera's source and the record span read back) | the router still refuses the operation under `SAFETY_UNREPRESENTABLE`, so the QUALIFICATION ROW cannot promote a route the router will not take. The verb itself is exercised and its read-back recorded |
+| AXI-020 | Caption text, timing and style as SEPARATE semantic operations | `caption.style`, `caption_fix` | `caption.style::resolve_axi` is ALREADY production-enabled, with the text and the timing preserved | `caption_text_refused` (a caption TEXT change is refused by the router) | TEXT: `caption_fix` refuses before mutation, because a rendered caption card's text does not read back off the timeline inventory, and there is no independent read-back to judge it by. TIMING: it is not an AXI operation at all - it is the build's declaration path (`library/tools/caption_timing.py`). STYLE is qualified |
+| AXI-021 | Lower-third and overlay insertion, replacement, positioning and removal | `clip.insert`, `clip.replace`, `clip.set_property`, `clip.delete` | the four clip primitives behind the overlay work are implemented; `overlay.add`/`overlay.replace`/`overlay.position`/`overlay.remove` are the built-reel touch-up wrappers and are unqualified | `overlay_insert`, `overlay_replace`, `overlay_position`, `overlay_remove` - the four operations, each on a cover row | the `overlay.*` wrappers are only reachable through a BUILT reel (the touch-up stages a duplicate and promotes by rename), so they are qualified by the live lane's built-reel rows, not on the scratch timeline. The primitives an agent actually needs are the clip ones, and those are qualified here |
+| AXI-022 | Audio gain, mute, fades and supported automation | `clip.set_enabled`, `audio.gain`, `audio.fade`, `audio.automation` | `audio.gain` and `audio.fade` are implemented on `reel_touchup`; `audio.automation` has no executor | `audio_mute` (the clip's contribution is switched off and read back through `GetClipEnabled()`), `audio_gain_refused`, `audio_automation_refused` | GAIN: Resolve's scripting API cannot set an audio level at all - an audio item has no property dictionary, so every spelling returns False. The gain is an OTIO-build value, not a timeline write. FADES: `TimelineItem.SetFades` exists, but the only production entry that reaches it is the built-reel touch-up. AUTOMATION: no executor, and only the `volume` parameter has a measured spelling |
+| AXI-023 | Retiming, transitions, Fusion compositions and graded clips | `retime.segments`, `transition`, `mask.create`, `grade.node_set` | `retime.segments` (EditPatch), `mask.create` and `grade.node_set` (EditPatch) are implemented and unqualified; `transition` is implemented on `reel_touchup` | `retime_speed_change` (the speed reads back), `fusion_matte_placed` (the matte comp reads back by name), `graded_clip_node_set` (the CDL reads back on the node) | the QUALIFICATION ROW for `transition` cannot be written for the AXI verb, because `transition` has no executor on that path - the pair that can carry it is `transition::reel_touchup`. `grade` and `clip_lut` have no executor at all: the Graph API has no AddNode and no LUT call, so only an EXISTING node can be graded and a LUT is not a timeline write |
+
+## The two additions to the machinery
+
+Both are the smallest change that makes a primitive qualifyable, and
+both are refusals rather than new behaviour:
+
+* `track.delete` refuses a row that carries clips
+  (`library/tools/edit_algebra.py`).  Resolve's `DeleteTrack` destroys
+  every clip on the row with no undo of its own; a row removal that
+  took editorial work with it would destroy work the request never
+  named.
+* `resolve-axi edit place` refuses a track index the timeline does not
+  have (`library/tools/resolve_axi_core_commands.py`).  Resolve answers
+  an out-of-range track index by placing the clip on a row the request
+  never named, which is exactly the silent substitution the punch list
+  forbids.
+
+## The harness's own rules
+
+* One broker borrow, one private scratch timeline, one scenario at a
+  time, each cleaned up before the next starts.
+* The media a scenario RE-POINTS is copied out of the shared fixture
+  pool into `/tmp` first, because a replacement writes to the pool item
+  it re-points.  The shared fixture pool is never re-pointed.
+* A scenario that did not commit on its first attempt is a failed row.
+  There are no retries.
+* A check that could not be read is `False`.  A qualification result
+  whose predicates could not be measured is written as `failed`, which
+  the registry records without enabling anything.
+* A refusal is a recorded outcome, never a qualification: a scenario
+  that EXPECTS a refusal produces no registry row.

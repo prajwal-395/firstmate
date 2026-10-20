@@ -1754,6 +1754,33 @@ def _apply_track_reorder(op, tl, _item, _project=None):
     return bool(tl.SetTrackName(track_type, to_index, name))
 
 
+def _apply_track_delete(op, tl, _item, _project=None):
+    """Delete a row, but never one that still carries clips.
+
+    Resolve's ``DeleteTrack`` destroys every clip on the row with no
+    undo of its own. A row removal that took the clips with it would
+    destroy editorial work the request never named, so the row is
+    refused while it holds anything. The refusal happens BEFORE the
+    write, so a refused removal leaves the timeline exactly as it was.
+    """
+    track_type = str(op["track_type"])
+    track_index = int(op["track_index"])
+    try:
+        items = tl.GetItemListInTrack(track_type, track_index) or ()
+    except Exception as exc:
+        raise RuntimeError(
+            f"track.delete cannot read {track_type}{track_index} ({exc}) - "
+            "nothing was deleted.") from exc
+    if items:
+        raise RuntimeError(
+            f"track.delete refuses to delete {track_type}{track_index}: it "
+            f"carries {len(items)} clip(s). Resolve's DeleteTrack destroys "
+            "them, and a row removal that took editorial work with it would "
+            "destroy work the request never named. Remove or move the "
+            "clips first, then remove the row.")
+    return tl.DeleteTrack(track_type, track_index)
+
+
 def _apply_track_add(op, tl, _item, _project=None):
     """Append a row, then name it using Resolve's measured API surface."""
     track_type = op["track_type"]
@@ -2521,12 +2548,15 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="track.delete", domain="timeline_structure",
         required=("track_type", "track_index"),
         span=_track_span,
-        apply=lambda op, tl, _item, _project=None: tl.DeleteTrack(
-            op["track_type"], int(op["track_index"])),
+        apply=_apply_track_delete,
         verify=_verify_track_present(False),
         key=lambda op: ("track", op["track_type"],
                         int(op["track_index"])), merge="exclusive",
-        inverse=_pair("track.add", "re-adds the row with its name")),
+        inverse=_pair("track.add", "re-adds the row with its name"),
+        note="Remove an EMPTY row. Resolve's DeleteTrack destroys every "
+             "clip on the row with no undo of its own, so a row that still "
+             "carries clips is REFUSED: a row removal that took editorial "
+             "work with it would destroy work the request never named."),
     "track.rename": AlgebraOp(
         id="track.rename", domain="timeline_structure",
         required=("track_type", "track_index", "name"),
@@ -3564,6 +3594,24 @@ _BACKEND_OPERATION_LIMITATIONS = {
         ("same-row overlay items only; cross-row moves require remove plus add",),
     ("overlay.add", "reel_touchup"):
         ("native PNG stills use still_placement exact-duration routing; staging must re-read the requested span",),
+    ("clip.insert", "edit_patch"):
+        ("one pool item placed at one stated record span on one named row; the source range is the pool item's own; the placed item reads back under the Resolve-assigned unique id, which is NOT the id the request named",),
+    ("clip.replace", "edit_patch"):
+        ("re-points the MEDIA POOL ITEM the clip draws from, so every clip on every timeline that draws from that item changes with it; the clip's own record span, transform and Fusion keys are preserved and read back; a replacement onto a shared pool item is the caller's decision, not the engine's",),
+    ("track.delete", "edit_patch"):
+        ("an EMPTY row only: Resolve's DeleteTrack destroys every clip on the row with no undo of its own, so a row that still carries clips is refused before the write",),
+    ("track.add", "edit_patch"):
+        ("appends one row and names it with Resolve's measured API; the existing rows keep their names, order and contents",),
+    ("clip.set_property", "edit_patch"):
+        ("the picture transform and its modes only: Pan, Tilt, Scaling, ZoomX, ZoomY, ZoomGang, RotationAngle, AnchorPointX, AnchorPointY, Pitch, Yaw, FlipX, FlipY, CropLeft, CropRight, CropTop, CropBottom, CropSoftness, CropRetain, Opacity; a key outside that set is refused, never rounded; the write is judged by GetProperty() read back on the same item",),
+    ("clip.set_enabled", "edit_patch"):
+        ("one item's enabled state: the clip's contribution is switched off, which is how Resolve mutes an audio item; the record span and the source range are untouched; the state reads back through GetClipEnabled()",),
+    ("retime.segments", "edit_patch"):
+        ("Resolve carries no speed-curve API, so a ramp reaches the timeline as stepped constant-speed segments: one split per boundary and one constant SetSpeed per piece; the clip's duration changes and every later clip on the row moves with it",),
+    ("mask.create", "edit_patch"):
+        ("the fusion_matte provider places a full-frame Fusion matte comp and claims it by read-back; the two Magic Mask providers are named so a request that claims one fails loudly instead of silently getting a Fusion matte",),
+    ("grade.node_set", "edit_patch"):
+        ("one named node of an EXISTING graph - the Graph API has no AddNode, so a node that does not exist is refused; the write is judged by GetCDL read back on the same node, because a SetCDL that answered True is not evidence the grade landed",),
 }
 
 # Live evidence is intentionally enumerated by exact op and executor. A

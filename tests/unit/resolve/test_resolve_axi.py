@@ -2629,6 +2629,12 @@ _REFUSALS = [
      _place_ns(clip="a.mov"), 1, ["names 2 clips", "--bin"], None),
     ("place-foreign-cursor", "edit", _foreign_cursor, cmd_edit_place,
      _place_ns(apply=True), 1, ["cursor sits on"], _untouched),
+    # A row that does not exist must be REFUSED, not silently answered
+    # with another row: Resolve places an out-of-range track index on a
+    # row the request never named.
+    ("place-absent-track", "edit", None, cmd_edit_place,
+     _place_ns(apply=True, track=9), 1,
+     ["this timeline has", "nothing was placed"], _untouched),
     ("delete-persistent-failure", "edit",
      _set(lambda env: env["timeline"], _delete_fail_always=True),
      cmd_edit_delete, _item_ns(apply=True), 1,
