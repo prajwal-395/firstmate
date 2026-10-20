@@ -643,7 +643,9 @@ def compile_to_edit_request(graph: DecisionGraph, *,
         project=project,
         timeline=timeline,
         operations=tuple(operations),
-        expected_base_generation=expected_base_generation,
+        expected_base_generation=(
+            None if expected_base_generation is None
+            else int(expected_base_generation)),
         expected_model_revision=expected_model_revision,
         originator=request_originator,
         idempotency_key=resolved_key,

@@ -82,6 +82,15 @@ def test_a_valid_graph_has_no_problems():
     assert ed.validate_graph(_graph()) == []
 
 
+def test_compile_normalizes_string_base_generation_from_edit_spec():
+    """EDIT-016: the edit_spec wire format stores generations as strings."""
+    request = ed.compile_to_edit_request(
+        _graph(), project="Ren Scratch", timeline="reel",
+        intent=_intent(), expected_base_generation="4")
+
+    assert request.expected_base_generation == 4
+
+
 # ── The five layers stay apart (EDIT-009) ──────────────────────────────
 
 def test_a_candidate_decision_does_not_compile():
