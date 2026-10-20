@@ -1,0 +1,414 @@
+{
+ "schema_version": 1,
+ "benchmark": "adaptive-evidence-acquisition",
+ "split_policy": "fit on calibration only; report held_out once",
+ "calibration": {
+  "calibration_task_ids": [
+   "E03-LC4931",
+   "E03-LCATL0012",
+   "E08-LC4931",
+   "E08-LCATL0012",
+   "E12-absent",
+   "E13-absent"
+  ],
+  "by_lane": {
+   "speech": {
+    "config": "default",
+    "calibration": {
+     "status": "measured",
+     "task_count": 4,
+     "mean_utility": 0.3591,
+     "miss_rate": 0.0,
+     "mean_cost_seconds": 2.6e-05,
+     "quality_per_second": 13681.027967,
+     "peak_rss_mb": 515.21,
+     "budget_refusals": 0,
+     "paired_baseline": "fixed_dense",
+     "paired_baseline_utility": 0.1952,
+     "paired_baseline_cost_seconds": 5.1e-05,
+     "paired_task_ids": [
+      "E03-LC4931",
+      "E03-LCATL0012",
+      "E08-LC4931",
+      "E08-LCATL0012"
+     ]
+    },
+    "baseline_utility": {
+     "status": "measured",
+     "task_count": 4,
+     "mean_utility": 0.1952,
+     "miss_rate": 0.0,
+     "mean_cost_seconds": 5.1e-05,
+     "quality_per_second": 3866.30219,
+     "peak_rss_mb": 515.21,
+     "budget_refusals": 0
+    },
+    "noninferiority_margin": 0.02
+   }
+  }
+ },
+ "held_out_task_ids": [
+  "E08-LC4930",
+  "E08-LCATL0011",
+  "H09-absent"
+ ],
+ "held_out": {
+  "adaptive": {
+   "status": "measured",
+   "task_count": 2,
+   "mean_utility": 0.6429,
+   "miss_rate": 0.0,
+   "mean_cost_seconds": 2.1e-05,
+   "quality_per_second": 31358.885017,
+   "peak_rss_mb": 515.21,
+   "budget_refusals": 0
+  },
+  "fixed_dense": {
+   "status": "measured",
+   "task_count": 3,
+   "mean_utility": 0.5733,
+   "miss_rate": 0.0,
+   "mean_cost_seconds": 2.2e-05,
+   "quality_per_second": 26060.606061,
+   "peak_rss_mb": 515.21,
+   "budget_refusals": 0
+  },
+  "fixed_sparse": {
+   "status": "measured",
+   "task_count": 3,
+   "mean_utility": 0.5185,
+   "miss_rate": 0.0,
+   "mean_cost_seconds": 8e-06,
+   "quality_per_second": 67632.850242,
+   "peak_rss_mb": 515.21,
+   "budget_refusals": 0
+  }
+ },
+ "held_out_paired_task_ids": [
+  "E08-LC4930",
+  "E08-LCATL0011"
+ ],
+ "held_out_comparison": {
+  "baseline_policy": "fixed_dense",
+  "baseline": {
+   "status": "measured",
+   "task_count": 2,
+   "mean_utility": 0.36,
+   "miss_rate": 0.0,
+   "mean_cost_seconds": 3.3e-05,
+   "quality_per_second": 10909.090909,
+   "peak_rss_mb": 515.21,
+   "budget_refusals": 0
+  },
+  "adaptive": {
+   "status": "measured",
+   "task_count": 2,
+   "mean_utility": 0.6429,
+   "miss_rate": 0.0,
+   "mean_cost_seconds": 2.1e-05,
+   "quality_per_second": 31358.885017,
+   "peak_rss_mb": 515.21,
+   "budget_refusals": 0
+  }
+ },
+ "held_out_by_lane": {
+  "speech": {
+   "adaptive": {
+    "status": "measured",
+    "task_count": 2,
+    "mean_utility": 0.6429,
+    "miss_rate": 0.0,
+    "mean_cost_seconds": 2.1e-05,
+    "quality_per_second": 31358.885017,
+    "peak_rss_mb": 515.21,
+    "budget_refusals": 0
+   },
+   "fixed_dense": {
+    "status": "measured",
+    "task_count": 3,
+    "mean_utility": 0.5733,
+    "miss_rate": 0.0,
+    "mean_cost_seconds": 2.2e-05,
+    "quality_per_second": 26060.606061,
+    "peak_rss_mb": 515.21,
+    "budget_refusals": 0
+   },
+   "fixed_sparse": {
+    "status": "measured",
+    "task_count": 3,
+    "mean_utility": 0.5185,
+    "miss_rate": 0.0,
+    "mean_cost_seconds": 8e-06,
+    "quality_per_second": 67632.850242,
+    "peak_rss_mb": 515.21,
+    "budget_refusals": 0
+   }
+  }
+ },
+ "held_out_task_metrics": {
+  "adaptive": [
+   {
+    "task_id": "E08-LC4930",
+    "lane": "speech",
+    "utility": 0.5714285714285715,
+    "precision": 0.4,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 2.3e-05,
+    "quality_per_second": 24844.720496894413,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   },
+   {
+    "task_id": "E08-LCATL0011",
+    "lane": "speech",
+    "utility": 0.7142857142857143,
+    "precision": 0.5555555555555556,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 1.8e-05,
+    "quality_per_second": 39682.53968253968,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   }
+  ],
+  "fixed_dense": [
+   {
+    "task_id": "E08-LC4930",
+    "lane": "speech",
+    "utility": 0.32,
+    "precision": 0.19047619047619047,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 3.7e-05,
+    "quality_per_second": 8648.64864864865,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   },
+   {
+    "task_id": "E08-LCATL0011",
+    "lane": "speech",
+    "utility": 0.4,
+    "precision": 0.25,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 2.9e-05,
+    "quality_per_second": 13793.103448275862,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   },
+   {
+    "task_id": "H09-absent",
+    "lane": "speech",
+    "utility": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 0.0,
+    "quality_per_second": 999999999.9999999,
+    "peak_rss_mb": 62.75,
+    "budget_refused": false,
+    "status": "completed"
+   }
+  ],
+  "fixed_sparse": [
+   {
+    "task_id": "E08-LC4930",
+    "lane": "speech",
+    "utility": 0.22222222222222224,
+    "precision": 0.2,
+    "recall": 0.25,
+    "miss": false,
+    "cost_seconds": 9e-06,
+    "quality_per_second": 24691.35802469136,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   },
+   {
+    "task_id": "E08-LCATL0011",
+    "lane": "speech",
+    "utility": 0.3333333333333333,
+    "precision": 0.2857142857142857,
+    "recall": 0.4,
+    "miss": false,
+    "cost_seconds": 1.4e-05,
+    "quality_per_second": 23809.52380952381,
+    "peak_rss_mb": 515.21,
+    "budget_refused": false,
+    "status": "completed"
+   },
+   {
+    "task_id": "H09-absent",
+    "lane": "speech",
+    "utility": 1.0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "miss": false,
+    "cost_seconds": 0.0,
+    "quality_per_second": 999999999.9999999,
+    "peak_rss_mb": 62.75,
+    "budget_refused": false,
+    "status": "completed"
+   }
+  ]
+ },
+ "modality_coverage": {
+  "motion": {
+   "calibrated": false,
+   "held_out_task_count": 0
+  },
+  "objects": {
+   "calibrated": false,
+   "held_out_task_count": 0
+  },
+  "ocr": {
+   "calibrated": false,
+   "held_out_task_count": 0
+  },
+  "semantics": {
+   "calibrated": false,
+   "held_out_task_count": 0
+  },
+  "speech": {
+   "calibrated": true,
+   "held_out_task_count": 3
+  }
+ },
+ "calibrated_producer_types": 1,
+ "acceptance": {
+  "verdict": "failure: fewer than three producer types calibrated",
+  "three_producer_types_calibrated": false,
+  "held_out_quality_noninferior_at_lower_cost": true,
+  "budget_refusals_reported": true
+ },
+ "dropped": [
+  {
+   "query_id": "E09",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "E10",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "E11",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "E14",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "E15",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "E16",
+   "asset": "LC4932",
+   "reason": "no query-relevant evidence sits inside the labelled moment"
+  },
+  {
+   "query_id": "E16",
+   "asset": "LCATL0013",
+   "reason": "no query-relevant evidence sits inside the labelled moment"
+  },
+  {
+   "query_id": "H01",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H02",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H03",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H04",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H05",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H06",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H07",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H08",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H10",
+   "reason": "the lane is not the speech lane"
+  },
+  {
+   "query_id": "H11",
+   "reason": "the category has no labels yet"
+  },
+  {
+   "query_id": "H12",
+   "reason": "the category has no labels yet"
+  },
+  {
+   "query_id": "H13",
+   "reason": "the category has no labels yet"
+  },
+  {
+   "query_id": "H14",
+   "reason": "the category has no labels yet"
+  },
+  {
+   "query_id": "H15",
+   "reason": "the category has no labels yet"
+  }
+ ],
+ "calibration_choice": {
+  "lane": "speech",
+  "config": "default",
+  "detail": {
+   "config": "default",
+   "calibration": {
+    "status": "measured",
+    "task_count": 4,
+    "mean_utility": 0.3591,
+    "miss_rate": 0.0,
+    "mean_cost_seconds": 2.6e-05,
+    "quality_per_second": 13681.027967,
+    "peak_rss_mb": 515.21,
+    "budget_refusals": 0,
+    "paired_baseline": "fixed_dense",
+    "paired_baseline_utility": 0.1952,
+    "paired_baseline_cost_seconds": 5.1e-05,
+    "paired_task_ids": [
+     "E03-LC4931",
+     "E03-LCATL0012",
+     "E08-LC4931",
+     "E08-LCATL0012"
+    ]
+   },
+   "baseline_utility": {
+    "status": "measured",
+    "task_count": 4,
+    "mean_utility": 0.1952,
+    "miss_rate": 0.0,
+    "mean_cost_seconds": 5.1e-05,
+    "quality_per_second": 3866.30219,
+    "peak_rss_mb": 515.21,
+    "budget_refusals": 0
+   },
+   "noninferiority_margin": 0.02
+  }
+ }
+}

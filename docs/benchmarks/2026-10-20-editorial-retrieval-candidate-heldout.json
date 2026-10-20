@@ -1,0 +1,5995 @@
+{
+ "eval_set": "editorial-retrieval-held-out-2026-10-20",
+ "ran_at": "2026-10-20T21:53:41Z",
+ "project": "ren-scratch-retrieval-bench",
+ "assets_missing_from_project": [],
+ "candidate_shipped": {
+  "results": [
+   {
+    "id": "H01",
+    "family": "editorial",
+    "query": "a shot of the open laptop on the desk",
+    "editorial_need": "the picture that goes under the pricing line",
+    "lane": "visual",
+    "category": "object",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 130.213,
+      "end": 209.793,
+      "score": 0.2507,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 30.113,
+      "end": 30.113,
+      "score": 0.2413,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2889.97,
+      "end": 2889.97,
+      "score": 0.2378,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 1879.961,
+      "end": 1879.961,
+      "score": 0.2368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0011",
+      "start": 40.123,
+      "end": 90.173,
+      "score": 0.2359,
+      "dense": null,
+      "text": "",
+      "hit": true
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 43,
+    "moments_found": 14,
+    "recall": 0.3256,
+    "precision": 0.4,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 449.02,
+     "covered_seconds": 81.51,
+     "missing_seconds": 367.51,
+     "coverage_fraction": 0.1815,
+     "shadowing": false,
+     "false_positive_windows": 3,
+     "false_positive_seconds": 0.0,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2507,
+      "hit": true
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2413,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2378,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2368,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2359,
+      "hit": true
+     }
+    ],
+    "seconds": 5.787,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "open"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "open"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "laptop",
+        "desk"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H02",
+    "family": "editorial",
+    "query": "the laptop with its lid up",
+    "editorial_need": "the open state, not merely the object",
+    "lane": "visual",
+    "category": "object_state",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 179.763,
+      "end": 209.793,
+      "score": 0.2375,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2889.97,
+      "end": 2889.97,
+      "score": 0.231,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 30.113,
+      "end": 30.113,
+      "score": 0.2295,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 600.183,
+      "end": 610.193,
+      "score": 0.218,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2309.891,
+      "end": 2309.891,
+      "score": 0.218,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 43,
+    "moments_found": 4,
+    "recall": 0.093,
+    "precision": 0.2,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 449.02,
+     "covered_seconds": 32.0,
+     "missing_seconds": 417.02,
+     "coverage_fraction": 0.0713,
+     "shadowing": false,
+     "false_positive_windows": 4,
+     "false_positive_seconds": 10.01,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2375,
+      "hit": true
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.231,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2295,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.218,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.218,
+      "hit": false
+     }
+    ],
+    "seconds": 0.48,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the laptop",
+       "terms": [
+        "laptop",
+        "lid"
+       ],
+       "cues": [
+        "laptop",
+        "lid"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "clauses": [
+        "the laptop",
+        "its lid up"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the laptop",
+       "terms": [
+        "laptop",
+        "lid"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "clauses": [
+        "the laptop",
+        "its lid up"
+       ],
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H03",
+    "family": "editorial",
+    "query": "the shot of the woman wearing glasses, the host",
+    "editorial_need": "the host's camera, for a two-shot edit",
+    "lane": "visual",
+    "category": "identity",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LC4932",
+      "start": 3620.2,
+      "end": 3620.2,
+      "score": 0.2565,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3960.039,
+      "end": 3970.049,
+      "score": 0.2546,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 2970.05,
+      "end": 2970.05,
+      "score": 0.2539,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 4829.908,
+      "end": 4849.928,
+      "score": 0.2535,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3719.799,
+      "end": 3719.799,
+      "score": 0.2525,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 22,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 0.0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 229.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 229.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 30.03,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2565,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2546,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2539,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2535,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2525,
+      "hit": false
+     }
+    ],
+    "seconds": 0.23,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses",
+        "host"
+       ],
+       "cues": [
+        "woman",
+        "host"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the shot of the woman wearing glasses",
+        "the host"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "wearing"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "glasses"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the host",
+       "terms": [
+        "host"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H04",
+    "family": "editorial",
+    "query": "the shot of the man behind the laptop in the studio",
+    "editorial_need": "the guest's camera, to cut against the host",
+    "lane": "visual",
+    "category": "identity",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 169.753,
+      "end": 209.793,
+      "score": 0.2724,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 0.083,
+      "end": 30.113,
+      "score": 0.2631,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 70.153,
+      "end": 80.163,
+      "score": 0.2501,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 610.193,
+      "end": 610.193,
+      "score": 0.2481,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 269.853,
+      "end": 279.863,
+      "score": 0.2453,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 21,
+    "moments_found": 5,
+    "recall": 0.2381,
+    "precision": 0.2,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 219.51,
+     "covered_seconds": 42.0,
+     "missing_seconds": 177.51,
+     "coverage_fraction": 0.1913,
+     "shadowing": false,
+     "false_positive_windows": 4,
+     "false_positive_seconds": 50.05,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2724,
+      "hit": true
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2631,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2501,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2481,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2453,
+      "hit": false
+     }
+    ],
+    "seconds": 0.34,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "man"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "studio"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "laptop"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H05",
+    "family": "editorial",
+    "query": "the dark geometric studio set behind the speaker",
+    "editorial_need": "the location, for an establishing shot",
+    "lane": "visual",
+    "category": "location",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3259.84,
+      "end": 3289.87,
+      "score": 0.196,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 540.123,
+      "end": 560.143,
+      "score": 0.1836,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3970.049,
+      "end": 3990.069,
+      "score": 0.1831,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 819.902,
+      "end": 819.902,
+      "score": 0.1829,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 389.973,
+      "end": 389.973,
+      "score": 0.1822,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 21,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 30.03,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 219.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 219.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 70.07,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.196,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1836,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1831,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1829,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1822,
+      "hit": false
+     }
+    ],
+    "seconds": 0.422,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [
+        "speaker"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [
+        "studio"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H06",
+    "family": "editorial",
+    "query": "the table with the plant behind it in the host's shot",
+    "editorial_need": "the other location, in the host's camera",
+    "lane": "visual",
+    "category": "location",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LC4932",
+      "start": 1729.811,
+      "end": 1729.811,
+      "score": 0.2388,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 1289.872,
+      "end": 1289.872,
+      "score": 0.2372,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3829.909,
+      "end": 3849.929,
+      "score": 0.2306,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 169.753,
+      "end": 169.753,
+      "score": 0.2296,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 1950.031,
+      "end": 2000.081,
+      "score": 0.2284,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 22,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 0.0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 229.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 229.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 70.07,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2388,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2372,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2306,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2296,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2284,
+      "hit": false
+     }
+    ],
+    "seconds": 0.262,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the table",
+       "terms": [
+        "table",
+        "plant",
+        "behind",
+        "host's",
+        "shot"
+       ],
+       "cues": [
+        "plant",
+        "table"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the table",
+        "the plant behind it in the host's shot"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the table",
+       "terms": [
+        "table"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      },
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the plant behind it in the host's shot",
+       "terms": [
+        "plant",
+        "behind",
+        "host's",
+        "shot"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H07",
+    "family": "editorial",
+    "query": "a shot of a dog lying on the floor",
+    "editorial_need": "a cutaway that this corpus does not contain",
+    "lane": "visual",
+    "category": "absent_event",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3679.759,
+      "end": 3689.769,
+      "score": 0.1299,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3970.049,
+      "end": 3990.069,
+      "score": 0.1285,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3239.82,
+      "end": 3289.87,
+      "score": 0.1284,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 4140.219,
+      "end": 4140.219,
+      "score": 0.1242,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0011",
+      "start": 209.793,
+      "end": 209.793,
+      "score": 0.123,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": false,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 10.01,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 80.08,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "a wrong window outranks every right one, so the first pick is the wrong one"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1299,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1285,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1284,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1242,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.123,
+      "hit": false
+     }
+    ],
+    "seconds": 0.294,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of a dog lying on the floor",
+       "terms": [
+        "shot",
+        "dog",
+        "lying",
+        "floor"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of a dog lying on the floor",
+       "terms": [
+        "shot",
+        "dog",
+        "lying",
+        "floor"
+       ],
+       "cues": [
+        "floor",
+        "dog"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H08",
+    "family": "editorial",
+    "query": "a shot of a whiteboard covered in handwriting",
+    "editorial_need": "a cutaway that this corpus does not contain",
+    "lane": "visual",
+    "category": "absent_event",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3249.83,
+      "end": 3289.87,
+      "score": 0.1447,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3189.77,
+      "end": 3189.77,
+      "score": 0.1444,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 550.133,
+      "end": 560.143,
+      "score": 0.1403,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3060.14,
+      "end": 3090.17,
+      "score": 0.1368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 389.973,
+      "end": 420.003,
+      "score": 0.1368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": false,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 40.04,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 110.11,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "a wrong window outranks every right one, so the first pick is the wrong one"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1447,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1444,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1403,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1368,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1368,
+      "hit": false
+     }
+    ],
+    "seconds": 0.232,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "covered"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "whiteboard"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H09",
+    "family": "editorial",
+    "query": "the part where he explains how to train a puppy to sit",
+    "editorial_need": "a warm-up line this episode does not have",
+    "lane": "text",
+    "category": "absent_event",
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "textual"
+     ],
+     "decomposed": [
+      "textual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": true,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 0,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": false,
+     "false_positive_windows": 0,
+     "false_positive_seconds": 0,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "every returned window holds something that was asked for"
+     ]
+    },
+    "calibration_samples": [],
+    "seconds": 0.319,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      }
+     },
+     "lanes_ran": [
+      "text"
+     ],
+     "answer_status": "inconclusive",
+     "answer_state": "inconclusive",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the part where he explains how to train a puppy to sit",
+       "terms": [
+        "part",
+        "explains",
+        "train",
+        "puppy",
+        "sit"
+       ],
+       "cues": [
+        "explains"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 0,
+      "output": 0,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 0,
+      "with_frames": 0,
+      "with_word_timings": 0,
+      "with_source_digest": 0,
+      "fully_supported": 0
+     },
+     "plan_modalities": [
+      "textual"
+     ],
+     "plan_lanes": [
+      "text"
+     ]
+    }
+   },
+   {
+    "id": "H10",
+    "family": "editorial",
+    "query": "a person gesturing with both hands",
+    "editorial_need": "an action, which this lane answers by refusing",
+    "lane": "visual",
+    "category": "action",
+    "kind": "refusal",
+    "refused": true,
+    "abstained": true,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+    "seconds": 0.273,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "found",
+       "returned": 3,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": false,
+       "returned": 0,
+       "error": null,
+       "refused": {
+        "matched": "gesturing",
+        "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+        "hint": "the event pipeline measures actions and gestures: ren search <project> --person <name> --predicate <predicate> --verify \"<what you see>\" (candidate predicates: hand_near_mouth, hand_raise, nod, object_pickup, person_enters, person_leaves); or retry with --include-actions to rank anyway"
+       }
+      }
+     },
+     "lanes_ran": [
+      "text"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [
+        "person"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "refused"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [
+        "gesturing"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "refused"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 3,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 3,
+      "output": 3,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 3,
+      "with_frames": 1,
+      "with_word_timings": 2,
+      "with_source_digest": 3,
+      "fully_supported": 1
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H11",
+    "family": "editorial",
+    "query": "the moment she opens the box",
+    "editorial_need": "an action with a real interval, for a cutaway",
+    "lane": "visual",
+    "category": "action",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 2.683,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [
+        "opens"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [
+        "box"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H12",
+    "family": "editorial",
+    "query": "the cup that has been emptied",
+    "editorial_need": "a state change with a real interval",
+    "lane": "visual",
+    "category": "object_state",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.515,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the cup that has been emptied",
+       "terms": [
+        "cup",
+        "emptied"
+       ],
+       "cues": [
+        "cup"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the cup that has been emptied",
+       "terms": [
+        "cup",
+        "emptied"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H13",
+    "family": "editorial",
+    "query": "the shot where Akshita is speaking and Craig is off camera",
+    "editorial_need": "a per-moment identity, not a per-asset one",
+    "lane": "visual",
+    "category": "identity",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.257,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the shot where Akshita is speaking",
+       "terms": [
+        "shot",
+        "kshita",
+        "speaking"
+       ],
+       "cues": [
+        "speaking"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 0,
+       "status": "partial_coverage"
+      },
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot where Akshita is speaking",
+       "terms": [
+        "shot",
+        "kshita",
+        "speaking",
+        "raig",
+        "off",
+        "camera"
+       ],
+       "cues": [
+        "camera",
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the shot where Akshita is speaking",
+        "Craig is off camera"
+       ],
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H14",
+    "family": "editorial",
+    "query": "the moment the scene changes to a different room",
+    "editorial_need": "a location CHANGE, with intervals",
+    "lane": "visual",
+    "category": "location",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.322,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the moment the scene changes to a different room",
+       "terms": [
+        "moment",
+        "scene",
+        "changes",
+        "different",
+        "room"
+       ],
+       "cues": [
+        "scene",
+        "room"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment the scene changes to a different room",
+       "terms": [
+        "moment",
+        "scene",
+        "changes",
+        "different",
+        "room"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   },
+   {
+    "id": "H15",
+    "family": "editorial",
+    "query": "the moment where nobody speaks for a full minute",
+    "editorial_need": "an absent event with an explicit negative assertion",
+    "lane": "text",
+    "category": "absent_event",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "textual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "visual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.417,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "found",
+       "returned": 5,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment where nobody speaks for a full minute",
+       "terms": [
+        "moment",
+        "nobody",
+        "speaks",
+        "full",
+        "minute"
+       ],
+       "cues": [
+        "speaks"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "the moment where nobody speaks for a full minute",
+       "terms": [
+        "moment",
+        "nobody",
+        "speaks",
+        "full",
+        "minute"
+       ],
+       "cues": [
+        "full"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 10,
+      "output": 10,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 10,
+      "with_frames": 8,
+      "with_word_timings": 4,
+      "with_source_digest": 10,
+      "fully_supported": 8
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ]
+    }
+   }
+  ],
+  "summary": {
+   "editorial": {
+    "queries_present": 6,
+    "queries_absent": 3,
+    "queries_unlabelled": 5,
+    "queries_refused": 1,
+    "refusals_correct": 1,
+    "macro_recall": 0.1095,
+    "macro_precision": 0.1333,
+    "absent_abstained": 1,
+    "requirement_recall": 1.0,
+    "requirement_agreement": 15,
+    "requirement_queries": 15,
+    "declared_modalities_missed": [],
+    "false_positive_consequence": {
+     "queries": 9,
+     "wrong_seconds_selected": 80.08,
+     "missing_seconds": 1640.57,
+     "ground_truth_seconds": 1796.08,
+     "coverage_fraction": 0.0866,
+     "shadowing_queries": 5,
+     "false_positive_windows": 36,
+     "false_positive_seconds": 420.42
+    }
+   },
+   "calibration": {
+    "visual": {
+     "reliability": {
+      "bins": [
+       {
+        "low": 0.0,
+        "high": 0.1,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.1,
+        "high": 0.2,
+        "count": 15,
+        "mean_score": 0.151,
+        "observed": 0.0
+       },
+       {
+        "low": 0.2,
+        "high": 0.3,
+        "count": 25,
+        "mean_score": 0.242,
+        "observed": 0.16
+       },
+       {
+        "low": 0.3,
+        "high": 0.4,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.4,
+        "high": 0.5,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.5,
+        "high": 0.6,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.6,
+        "high": 0.7,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.7,
+        "high": 0.8,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.8,
+        "high": 0.9,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.9,
+        "high": 1.0,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       }
+      ],
+      "samples": 40,
+      "positives": 4,
+      "negatives": 36,
+      "expected_calibration_error": 0.1079,
+      "uncalibratable": [],
+      "status": "measured",
+      "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+     },
+     "abstention": {
+      "cutoff": 0.23345,
+      "balanced_accuracy": 0.8056,
+      "present_retained_rate": 1.0,
+      "absent_abstained_rate": 0.6111,
+      "not_found_precision": 1.0,
+      "not_found_recall": 0.6111,
+      "not_found_true_positives": 22,
+      "not_found_false_positives": 0,
+      "status": "measured candidate; requires review before policy change",
+      "samples": 40,
+      "positives": 4,
+      "negatives": 36,
+      "method": "balanced accuracy over labelled windows",
+      "uncalibratable": []
+     },
+     "expected_calibration_error": 0.1079,
+     "verdict": "poorly calibrated: the score overstates its confidence",
+     "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+    }
+   },
+   "latency_seconds": {}
+  }
+ },
+ "candidate_planned": {
+  "results": [
+   {
+    "id": "H01",
+    "family": "editorial",
+    "query": "a shot of the open laptop on the desk",
+    "editorial_need": "the picture that goes under the pricing line",
+    "lane": "visual",
+    "category": "object",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 130.213,
+      "end": 209.793,
+      "score": 0.2507,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 30.113,
+      "end": 30.113,
+      "score": 0.2413,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2889.97,
+      "end": 2889.97,
+      "score": 0.2378,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 1879.961,
+      "end": 1879.961,
+      "score": 0.2368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0011",
+      "start": 40.123,
+      "end": 90.173,
+      "score": 0.2359,
+      "dense": null,
+      "text": "",
+      "hit": true
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 43,
+    "moments_found": 14,
+    "recall": 0.3256,
+    "precision": 0.4,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 449.02,
+     "covered_seconds": 81.51,
+     "missing_seconds": 367.51,
+     "coverage_fraction": 0.1815,
+     "shadowing": false,
+     "false_positive_windows": 3,
+     "false_positive_seconds": 0.0,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2507,
+      "hit": true
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2413,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2378,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2368,
+      "hit": false
+     },
+     {
+      "query_id": "H01",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2359,
+      "hit": true
+     }
+    ],
+    "seconds": 5.787,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "open"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "open"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of the open laptop on the desk",
+       "terms": [
+        "shot",
+        "open",
+        "laptop",
+        "desk"
+       ],
+       "cues": [
+        "laptop",
+        "desk"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H02",
+    "family": "editorial",
+    "query": "the laptop with its lid up",
+    "editorial_need": "the open state, not merely the object",
+    "lane": "visual",
+    "category": "object_state",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 179.763,
+      "end": 209.793,
+      "score": 0.2375,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2889.97,
+      "end": 2889.97,
+      "score": 0.231,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 30.113,
+      "end": 30.113,
+      "score": 0.2295,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 600.183,
+      "end": 610.193,
+      "score": 0.218,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 2309.891,
+      "end": 2309.891,
+      "score": 0.218,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 43,
+    "moments_found": 4,
+    "recall": 0.093,
+    "precision": 0.2,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 449.02,
+     "covered_seconds": 32.0,
+     "missing_seconds": 417.02,
+     "coverage_fraction": 0.0713,
+     "shadowing": false,
+     "false_positive_windows": 4,
+     "false_positive_seconds": 10.01,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2375,
+      "hit": true
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.231,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2295,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.218,
+      "hit": false
+     },
+     {
+      "query_id": "H02",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.218,
+      "hit": false
+     }
+    ],
+    "seconds": 0.48,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the laptop",
+       "terms": [
+        "laptop",
+        "lid"
+       ],
+       "cues": [
+        "laptop",
+        "lid"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "clauses": [
+        "the laptop",
+        "its lid up"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the laptop",
+       "terms": [
+        "laptop",
+        "lid"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "clauses": [
+        "the laptop",
+        "its lid up"
+       ],
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H03",
+    "family": "editorial",
+    "query": "the shot of the woman wearing glasses, the host",
+    "editorial_need": "the host's camera, for a two-shot edit",
+    "lane": "visual",
+    "category": "identity",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LC4932",
+      "start": 3620.2,
+      "end": 3620.2,
+      "score": 0.2565,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3960.039,
+      "end": 3970.049,
+      "score": 0.2546,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 2970.05,
+      "end": 2970.05,
+      "score": 0.2539,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 4829.908,
+      "end": 4849.928,
+      "score": 0.2535,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3719.799,
+      "end": 3719.799,
+      "score": 0.2525,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 22,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 0.0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 229.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 229.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 30.03,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2565,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2546,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2539,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2535,
+      "hit": false
+     },
+     {
+      "query_id": "H03",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2525,
+      "hit": false
+     }
+    ],
+    "seconds": 0.23,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses",
+        "host"
+       ],
+       "cues": [
+        "woman",
+        "host"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the shot of the woman wearing glasses",
+        "the host"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "wearing"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the shot of the woman wearing glasses",
+       "terms": [
+        "shot",
+        "woman",
+        "wearing",
+        "glasses"
+       ],
+       "cues": [
+        "glasses"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the host",
+       "terms": [
+        "host"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H04",
+    "family": "editorial",
+    "query": "the shot of the man behind the laptop in the studio",
+    "editorial_need": "the guest's camera, to cut against the host",
+    "lane": "visual",
+    "category": "identity",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0011",
+      "start": 169.753,
+      "end": 209.793,
+      "score": 0.2724,
+      "dense": null,
+      "text": "",
+      "hit": true
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 0.083,
+      "end": 30.113,
+      "score": 0.2631,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 70.153,
+      "end": 80.163,
+      "score": 0.2501,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 610.193,
+      "end": 610.193,
+      "score": 0.2481,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0012",
+      "start": 269.853,
+      "end": 279.863,
+      "score": 0.2453,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 21,
+    "moments_found": 5,
+    "recall": 0.2381,
+    "precision": 0.2,
+    "first_hit_rank": 1,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 1,
+     "ground_truth_seconds": 219.51,
+     "covered_seconds": 42.0,
+     "missing_seconds": 177.51,
+     "coverage_fraction": 0.1913,
+     "shadowing": false,
+     "false_positive_windows": 4,
+     "false_positive_seconds": 50.05,
+     "notes": [
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2724,
+      "hit": true
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2631,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2501,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2481,
+      "hit": false
+     },
+     {
+      "query_id": "H04",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2453,
+      "hit": false
+     }
+    ],
+    "seconds": 0.34,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "man"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "studio"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the shot of the man behind the laptop in the studio",
+       "terms": [
+        "shot",
+        "man",
+        "behind",
+        "laptop",
+        "studio"
+       ],
+       "cues": [
+        "laptop"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H05",
+    "family": "editorial",
+    "query": "the dark geometric studio set behind the speaker",
+    "editorial_need": "the location, for an establishing shot",
+    "lane": "visual",
+    "category": "location",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3259.84,
+      "end": 3289.87,
+      "score": 0.196,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 540.123,
+      "end": 560.143,
+      "score": 0.1836,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3970.049,
+      "end": 3990.069,
+      "score": 0.1831,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 819.902,
+      "end": 819.902,
+      "score": 0.1829,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 389.973,
+      "end": 389.973,
+      "score": 0.1822,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 21,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 30.03,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 219.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 219.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 70.07,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.196,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1836,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1831,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1829,
+      "hit": false
+     },
+     {
+      "query_id": "H05",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1822,
+      "hit": false
+     }
+    ],
+    "seconds": 0.422,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [
+        "speaker"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [
+        "studio"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the dark geometric studio set behind the speaker",
+       "terms": [
+        "dark",
+        "geometric",
+        "studio",
+        "set",
+        "behind",
+        "speaker"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H06",
+    "family": "editorial",
+    "query": "the table with the plant behind it in the host's shot",
+    "editorial_need": "the other location, in the host's camera",
+    "lane": "visual",
+    "category": "location",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LC4932",
+      "start": 1729.811,
+      "end": 1729.811,
+      "score": 0.2388,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 1289.872,
+      "end": 1289.872,
+      "score": 0.2372,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 3829.909,
+      "end": 3849.929,
+      "score": 0.2306,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 169.753,
+      "end": 169.753,
+      "score": 0.2296,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 1950.031,
+      "end": 2000.081,
+      "score": 0.2284,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "present",
+    "moments": 22,
+    "moments_found": 0,
+    "recall": 0.0,
+    "precision": 0.0,
+    "first_hit_rank": null,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 0.0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 229.51,
+     "covered_seconds": 0.0,
+     "missing_seconds": 229.51,
+     "coverage_fraction": 0.0,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 70.07,
+     "notes": [
+      "a wrong window outranks every right one, so the first pick is the wrong one",
+      "the selection leaves part of the wanted moment out"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2388,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2372,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2306,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2296,
+      "hit": false
+     },
+     {
+      "query_id": "H06",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.2284,
+      "hit": false
+     }
+    ],
+    "seconds": 0.262,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the table",
+       "terms": [
+        "table",
+        "plant",
+        "behind",
+        "host's",
+        "shot"
+       ],
+       "cues": [
+        "plant",
+        "table"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the table",
+        "the plant behind it in the host's shot"
+       ],
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the table",
+       "terms": [
+        "table"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      },
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the plant behind it in the host's shot",
+       "terms": [
+        "plant",
+        "behind",
+        "host's",
+        "shot"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H07",
+    "family": "editorial",
+    "query": "a shot of a dog lying on the floor",
+    "editorial_need": "a cutaway that this corpus does not contain",
+    "lane": "visual",
+    "category": "absent_event",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3679.759,
+      "end": 3689.769,
+      "score": 0.1299,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3970.049,
+      "end": 3990.069,
+      "score": 0.1285,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3239.82,
+      "end": 3289.87,
+      "score": 0.1284,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LC4932",
+      "start": 4140.219,
+      "end": 4140.219,
+      "score": 0.1242,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0011",
+      "start": 209.793,
+      "end": 209.793,
+      "score": 0.123,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": false,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 10.01,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 80.08,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "a wrong window outranks every right one, so the first pick is the wrong one"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1299,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1285,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1284,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1242,
+      "hit": false
+     },
+     {
+      "query_id": "H07",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.123,
+      "hit": false
+     }
+    ],
+    "seconds": 0.294,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of a dog lying on the floor",
+       "terms": [
+        "shot",
+        "dog",
+        "lying",
+        "floor"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of a dog lying on the floor",
+       "terms": [
+        "shot",
+        "dog",
+        "lying",
+        "floor"
+       ],
+       "cues": [
+        "floor",
+        "dog"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H08",
+    "family": "editorial",
+    "query": "a shot of a whiteboard covered in handwriting",
+    "editorial_need": "a cutaway that this corpus does not contain",
+    "lane": "visual",
+    "category": "absent_event",
+    "returned": 5,
+    "rows": [
+     {
+      "asset": "LCATL0013",
+      "start": 3249.83,
+      "end": 3289.87,
+      "score": 0.1447,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3189.77,
+      "end": 3189.77,
+      "score": 0.1444,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 550.133,
+      "end": 560.143,
+      "score": 0.1403,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0013",
+      "start": 3060.14,
+      "end": 3090.17,
+      "score": 0.1368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     },
+     {
+      "asset": "LCATL0014",
+      "start": 389.973,
+      "end": 420.003,
+      "score": 0.1368,
+      "dense": null,
+      "text": "",
+      "hit": false
+     }
+    ],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "visual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": false,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 1,
+     "wrong_windows_selected": 1,
+     "wrong_seconds_selected": 40.04,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": true,
+     "false_positive_windows": 5,
+     "false_positive_seconds": 110.11,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "a wrong window outranks every right one, so the first pick is the wrong one"
+     ]
+    },
+    "calibration_samples": [
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1447,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1444,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1403,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1368,
+      "hit": false
+     },
+     {
+      "query_id": "H08",
+      "family": "editorial",
+      "lane": "visual",
+      "signal": "frame_cosine",
+      "score": 0.1368,
+      "hit": false
+     }
+    ],
+    "seconds": 0.232,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "covered"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "a shot of a whiteboard covered in handwriting",
+       "terms": [
+        "shot",
+        "whiteboard",
+        "covered",
+        "handwriting"
+       ],
+       "cues": [
+        "whiteboard"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "visual"
+     ],
+     "plan_lanes": [
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H09",
+    "family": "editorial",
+    "query": "the part where he explains how to train a puppy to sit",
+    "editorial_need": "a warm-up line this episode does not have",
+    "lane": "text",
+    "category": "absent_event",
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "textual"
+     ],
+     "decomposed": [
+      "textual"
+     ],
+     "missing": [],
+     "extra": [],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "error": null,
+    "degraded": null,
+    "kind": "absent",
+    "abstained": true,
+    "consequence": {
+     "selection_k": 1,
+     "selection_note": "the downstream consequence is priced as if the editor took the first window the search returned, because that is the window they take",
+     "selected": 0,
+     "wrong_windows_selected": 0,
+     "wrong_seconds_selected": 0,
+     "right_windows_selected": 0,
+     "ground_truth_seconds": 0,
+     "covered_seconds": 0,
+     "missing_seconds": 0.0,
+     "coverage_fraction": null,
+     "shadowing": false,
+     "false_positive_windows": 0,
+     "false_positive_seconds": 0,
+     "notes": [
+      "nothing was wanted here; every window is a false positive",
+      "every returned window holds something that was asked for"
+     ]
+    },
+    "calibration_samples": [],
+    "seconds": 0.319,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      }
+     },
+     "lanes_ran": [
+      "text"
+     ],
+     "answer_status": "inconclusive",
+     "answer_state": "inconclusive",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the part where he explains how to train a puppy to sit",
+       "terms": [
+        "part",
+        "explains",
+        "train",
+        "puppy",
+        "sit"
+       ],
+       "cues": [
+        "explains"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 0,
+      "output": 0,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 0,
+      "with_frames": 0,
+      "with_word_timings": 0,
+      "with_source_digest": 0,
+      "fully_supported": 0
+     },
+     "plan_modalities": [
+      "textual"
+     ],
+     "plan_lanes": [
+      "text"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H10",
+    "family": "editorial",
+    "query": "a person gesturing with both hands",
+    "editorial_need": "an action, which this lane answers by refusing",
+    "lane": "visual",
+    "category": "action",
+    "kind": "refusal",
+    "refused": true,
+    "abstained": true,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+    "seconds": 0.273,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "found",
+       "returned": 3,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": false,
+       "returned": 0,
+       "error": null,
+       "refused": {
+        "matched": "gesturing",
+        "reason": "frame search covers objects, people and scenes; 'gesturing' is an action/gesture query, which this signal does not resolve (measured at chance)",
+        "hint": "the event pipeline measures actions and gestures: ren search <project> --person <name> --predicate <predicate> --verify \"<what you see>\" (candidate predicates: hand_near_mouth, hand_raise, nod, object_pickup, person_enters, person_leaves); or retry with --include-actions to rank anyway"
+       }
+      }
+     },
+     "lanes_ran": [
+      "text"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "person",
+       "lane": "visual",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [
+        "person"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "refused"
+      },
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [
+        "gesturing"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "refused"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "a person gesturing",
+       "terms": [
+        "person",
+        "gesturing"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 3,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 3,
+      "output": 3,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 3,
+      "with_frames": 1,
+      "with_word_timings": 2,
+      "with_source_digest": 3,
+      "fully_supported": 1
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H11",
+    "family": "editorial",
+    "query": "the moment she opens the box",
+    "editorial_need": "an action with a real interval, for a cutaway",
+    "lane": "visual",
+    "category": "action",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 3,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 2.683,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "action",
+       "lane": "visual",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [
+        "opens"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [
+        "box"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment she opens the box",
+       "terms": [
+        "moment",
+        "opens",
+        "box"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H12",
+    "family": "editorial",
+    "query": "the cup that has been emptied",
+    "editorial_need": "a state change with a real interval",
+    "lane": "visual",
+    "category": "object_state",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.515,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_found",
+       "returned": 0,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "object",
+       "lane": "visual",
+       "description": "the cup that has been emptied",
+       "terms": [
+        "cup",
+        "emptied"
+       ],
+       "cues": [
+        "cup"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the cup that has been emptied",
+       "terms": [
+        "cup",
+        "emptied"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H13",
+    "family": "editorial",
+    "query": "the shot where Akshita is speaking and Craig is off camera",
+    "editorial_need": "a per-moment identity, not a per-asset one",
+    "lane": "visual",
+    "category": "identity",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 0,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.257,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the shot where Akshita is speaking",
+       "terms": [
+        "shot",
+        "kshita",
+        "speaking"
+       ],
+       "cues": [
+        "speaking"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 0,
+       "status": "partial_coverage"
+      },
+      {
+       "modality": "visual",
+       "kind": "composition",
+       "lane": "visual",
+       "description": "the shot where Akshita is speaking",
+       "terms": [
+        "shot",
+        "kshita",
+        "speaking",
+        "raig",
+        "off",
+        "camera"
+       ],
+       "cues": [
+        "camera",
+        "shot"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "clauses": [
+        "the shot where Akshita is speaking",
+        "Craig is off camera"
+       ],
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H14",
+    "family": "editorial",
+    "query": "the moment the scene changes to a different room",
+    "editorial_need": "a location CHANGE, with intervals",
+    "lane": "visual",
+    "category": "location",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "visual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "textual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 2,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.322,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "not_analysed",
+       "returned": 0,
+       "error": "not analysed: this index has no visual evidence coverage"
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "visual",
+       "kind": "scene",
+       "lane": "visual",
+       "description": "the moment the scene changes to a different room",
+       "terms": [
+        "moment",
+        "scene",
+        "changes",
+        "different",
+        "room"
+       ],
+       "cues": [
+        "scene",
+        "room"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment the scene changes to a different room",
+       "terms": [
+        "moment",
+        "scene",
+        "changes",
+        "different",
+        "room"
+       ],
+       "cues": [],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 0,
+       "status": "partial_coverage"
+      }
+     ],
+     "dedup": {
+      "input": 5,
+      "output": 5,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 5,
+      "with_frames": 5,
+      "with_word_timings": 0,
+      "with_source_digest": 5,
+      "fully_supported": 5
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   },
+   {
+    "id": "H15",
+    "family": "editorial",
+    "query": "the moment where nobody speaks for a full minute",
+    "editorial_need": "an absent event with an explicit negative assertion",
+    "lane": "text",
+    "category": "absent_event",
+    "kind": "unlabelled",
+    "scored": false,
+    "abstained": null,
+    "returned": 0,
+    "rows": [],
+    "requirements": {
+     "declared": [
+      "textual"
+     ],
+     "decomposed": [
+      "textual",
+      "visual"
+     ],
+     "missing": [],
+     "extra": [
+      "visual"
+     ],
+     "unambiguous_extra": [],
+     "ambiguous_requirements": 1,
+     "requirement_recall": 1.0,
+     "agrees": true
+    },
+    "reason": "no ground truth exists for this category yet; the entry is reported and NOT scored, because an unscored query must never be counted as a miss",
+    "seconds": 0.417,
+    "candidate": {
+     "lanes": {
+      "text": {
+       "lane": "text",
+       "answer_status": "found",
+       "returned": 5,
+       "error": null
+      },
+      "visual": {
+       "lane": "visual",
+       "ran": true,
+       "returned": 5,
+       "error": null,
+       "refused": null
+      }
+     },
+     "lanes_ran": [
+      "text",
+      "visual"
+     ],
+     "answer_status": "present",
+     "answer_state": "present",
+     "requirements": [
+      {
+       "modality": "textual",
+       "kind": "speech_content",
+       "lane": "text",
+       "description": "the moment where nobody speaks for a full minute",
+       "terms": [
+        "moment",
+        "nobody",
+        "speaks",
+        "full",
+        "minute"
+       ],
+       "cues": [
+        "speaks"
+       ],
+       "mandatory": true,
+       "ambiguous": false,
+       "hits": 5,
+       "status": "answered"
+      },
+      {
+       "modality": "visual",
+       "kind": "state",
+       "lane": "visual",
+       "description": "the moment where nobody speaks for a full minute",
+       "terms": [
+        "moment",
+        "nobody",
+        "speaks",
+        "full",
+        "minute"
+       ],
+       "cues": [
+        "full"
+       ],
+       "mandatory": true,
+       "ambiguous": true,
+       "hits": 5,
+       "status": "answered"
+      }
+     ],
+     "dedup": {
+      "input": 10,
+      "output": 10,
+      "merged": 0,
+      "redundant_pairs": [],
+      "overlap_fraction": 0.5,
+      "merge_gap_seconds": 0.0
+     },
+     "support": {
+      "hits": 10,
+      "with_frames": 8,
+      "with_word_timings": 4,
+      "with_source_digest": 10,
+      "fully_supported": 8
+     },
+     "plan_modalities": [
+      "textual",
+      "visual"
+     ],
+     "plan_lanes": [
+      "text",
+      "visual"
+     ],
+     "dropped_windows": 0
+    }
+   }
+  ],
+  "summary": {
+   "editorial": {
+    "queries_present": 6,
+    "queries_absent": 3,
+    "queries_unlabelled": 5,
+    "queries_refused": 1,
+    "refusals_correct": 1,
+    "macro_recall": 0.1095,
+    "macro_precision": 0.1333,
+    "absent_abstained": 1,
+    "requirement_recall": 1.0,
+    "requirement_agreement": 15,
+    "requirement_queries": 15,
+    "declared_modalities_missed": [],
+    "false_positive_consequence": {
+     "queries": 9,
+     "wrong_seconds_selected": 80.08,
+     "missing_seconds": 1640.57,
+     "ground_truth_seconds": 1796.08,
+     "coverage_fraction": 0.0866,
+     "shadowing_queries": 5,
+     "false_positive_windows": 36,
+     "false_positive_seconds": 420.42
+    }
+   },
+   "calibration": {
+    "visual": {
+     "reliability": {
+      "bins": [
+       {
+        "low": 0.0,
+        "high": 0.1,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.1,
+        "high": 0.2,
+        "count": 15,
+        "mean_score": 0.151,
+        "observed": 0.0
+       },
+       {
+        "low": 0.2,
+        "high": 0.3,
+        "count": 25,
+        "mean_score": 0.242,
+        "observed": 0.16
+       },
+       {
+        "low": 0.3,
+        "high": 0.4,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.4,
+        "high": 0.5,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.5,
+        "high": 0.6,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.6,
+        "high": 0.7,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.7,
+        "high": 0.8,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.8,
+        "high": 0.9,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       },
+       {
+        "low": 0.9,
+        "high": 1.0,
+        "count": 0,
+        "mean_score": null,
+        "observed": null
+       }
+      ],
+      "samples": 40,
+      "positives": 4,
+      "negatives": 36,
+      "expected_calibration_error": 0.1079,
+      "uncalibratable": [],
+      "status": "measured",
+      "note": "the score is the RAW signal the floor judged on, not the fused rank; a fused score is not on a probability scale and cannot be calibrated"
+     },
+     "abstention": {
+      "cutoff": 0.23345,
+      "balanced_accuracy": 0.8056,
+      "present_retained_rate": 1.0,
+      "absent_abstained_rate": 0.6111,
+      "not_found_precision": 1.0,
+      "not_found_recall": 0.6111,
+      "not_found_true_positives": 22,
+      "not_found_false_positives": 0,
+      "status": "measured candidate; requires review before policy change",
+      "samples": 40,
+      "positives": 4,
+      "negatives": 36,
+      "method": "balanced accuracy over labelled windows",
+      "uncalibratable": []
+     },
+     "expected_calibration_error": 0.1079,
+     "verdict": "poorly calibrated: the score overstates its confidence",
+     "note": "calibration says how well the score reads; the threshold says whether it separates.  Both are needed and neither is the other"
+    }
+   },
+   "latency_seconds": {}
+  }
+ }
+}
