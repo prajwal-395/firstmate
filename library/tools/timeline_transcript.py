@@ -223,6 +223,31 @@ def _run(cmd: Sequence[str], what: str) -> None:
             f"{(proc.stderr or '').strip()[-400:]}")
 
 
+def _has_audio_stream(path: str) -> bool:
+    """Whether a media file carries an audio stream at all.
+
+    A freeze-frame card, a still and a title graphic have none, and the
+    timeline plays NOTHING where they sit. ffmpeg exits 234 on such a
+    file ("Output file does not contain any stream"), which failed the
+    whole transcription of a reel that carries a freeze frame - measured
+    2026-10-20 on Reel 13 of the Ren Scratch - breaktest project.
+
+    An unreadable probe is not an answer: the extraction is tried anyway,
+    so a real failure still speaks.
+    """
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index", "-of", "csv=p=0", path],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", check=False)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if probe.returncode != 0:
+        return True
+    return bool(probe.stdout.strip())
+
+
 def span_cache_key(source_file: str, source_in: float,
                    source_out: float) -> str:
     """A stable name for one extracted span.
@@ -379,8 +404,16 @@ def build_speaker_audio(clips: Sequence, out_path: Path,
         # and the track telescopes to the timeline exactly. Extracting
         # GetSourceEndFrame()'s length instead drifts a frame on every
         # clip where the two disagree, which is 50 of 167 here.
-        pieces.append(extract_span(clip.source_file, clip.source_in,
-                                   clip.source_out, cache_dir))
+        #
+        # A clip whose media carries NO audio - a freeze frame, a still,
+        # a title graphic - plays nothing where it sits, so its slot is
+        # silence rather than a failed extraction.
+        if _has_audio_stream(clip.source_file):
+            pieces.append(extract_span(clip.source_file, clip.source_in,
+                                       clip.source_out, cache_dir))
+        else:
+            pieces.append(_silence(clip.timeline_end - clip.timeline_start,
+                                    cache_dir))
         cursor = clip.timeline_end
         if progress:
             progress(index + 1, len(ordered))
