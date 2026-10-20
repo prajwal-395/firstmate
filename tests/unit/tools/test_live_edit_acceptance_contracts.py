@@ -25,7 +25,7 @@ def test_acceptance_tasks_are_the_ten_ordinary_editorial_requests():
 
     levels = {row["level"]: row for row in catalog()}
     assert set(levels) == {1, 2, 3, 4}
-    assert levels[4]["evidence_status"] == "not_measured_no_editorial_brief_scorer"
+    assert levels[4]["evidence_status"] == "scorer_implemented_judgment_run_pending"
 
 
 def test_acceptance_runner_requires_observed_receipt_and_first_attempt():

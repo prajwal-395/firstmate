@@ -26,6 +26,13 @@
     "record_case_id_and_fixture_fingerprint": true
   },
   "fixture_requirements": {
+    "factory": "tests/live/matrix_fixture_factory.py",
+    "timeline_profile_count": 12,
+    "native_topology_recipes": [
+      "renamed_tracks", "complex_linked_av", "graded_project",
+      "fusion_composition", "ambiguous_targets", "stale_snapshots",
+      "approved_revision", "staged_promotion"
+    ],
     "isolate_timeline_settings": true,
     "resolution_frame_rate_source_dimensions_are_measured": true,
     "include_real_prores_mov_and_audio_only_wav": true,

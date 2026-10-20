@@ -24,8 +24,8 @@ def catalog() -> list[dict[str, object]]:
     coverage = {
         1: "live_backend_qualification_suites",
         2: "evaluator_directed_semantic_acceptance",
-        3: "blind_runner_available_agent_driver_required",
-        4: "not_measured_no_editorial_brief_scorer",
+        3: "blind_runner_implemented_live_agent_run_pending",
+        4: "scorer_implemented_judgment_run_pending",
     }
     return [{"level": number, **definition,
              "evidence_status": coverage[number]}

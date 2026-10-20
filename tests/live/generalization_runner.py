@@ -57,10 +57,10 @@ UNCOVERED: dict[str, str] = {
                             "immutable; needs an isolated scratch project"),
     "frame_rate": ("shared qualification timeline settings are immutable; "
                    "needs an isolated scratch project"),
-    "source_3840x2160": "no 4K source in the qualification media pool",
-    "source_1080x1920": "no portrait source in the qualification pool",
-    "source_prores_mov": "no ProRes source in the qualification pool",
-    "source_wav_only": "no audio-only WAV in the pool; linked AAC AV covered",
+    "source_3840x2160": "factory generates 4K media; live runner does not yet import isolated fixtures",
+    "source_1080x1920": "factory generates portrait media; live runner does not yet import isolated fixtures",
+    "source_prores_mov": "factory generates ProRes media; live runner does not yet import isolated fixtures",
+    "source_wav_only": "factory generates audio-only WAV; live runner does not yet import isolated fixtures",
     "timeline_resolution_values": "shared qualification timeline settings are immutable; no isolated resolution fixtures",
     "frame_rate_values": "shared qualification timeline settings are immutable; no isolated frame-rate fixtures",
     "approved_revision": "needs revise machinery; not a live verb",
@@ -790,10 +790,27 @@ def _run_store() -> str:
 def main() -> int:
     """List cases dry, or run the live generalization matrix."""
     import sys
+    if "--prepare-fixtures" in sys.argv[1:]:
+        from tests.live.matrix_fixture_factory import create_fixture
+        manifest = create_fixture()
+        print(json.dumps({"fixture_manifest": str(manifest)}, indent=2))
+        return 0
+    if "--cleanup-fixtures" in sys.argv[1:]:
+        from tests.live.matrix_fixture_factory import cleanup_fixture
+        index = sys.argv.index("--cleanup-fixtures")
+        try:
+            manifest = Path(sys.argv[index + 1])
+        except IndexError as exc:
+            raise SystemExit("--cleanup-fixtures requires a manifest path") from exc
+        print(json.dumps(cleanup_fixture(manifest), indent=2))
+        return 0
     if "--list" in sys.argv[1:]:
         cases = pairwise_cases()
         print(json.dumps({
             "cases": len(cases),
+            "fixture_assets": "tests/live/matrix_fixture_factory.py",
+            "fixture_prepare_command": "python -m tests.live.generalization_runner --prepare-fixtures",
+            "fixture_cleanup_command": "python -m tests.live.generalization_runner --cleanup-fixtures <manifest>",
             "uncovered_dimensions": UNCOVERED,
             "invariants": INVARIANTS,
             "case_ids": [case["case_id"] for case in cases],
