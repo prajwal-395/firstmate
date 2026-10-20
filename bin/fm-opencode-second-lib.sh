@@ -27,9 +27,10 @@
 # unpinned. The pin applies only to launches that actually bill a Go
 # workspace (bin/fm-opencode-ladder-lib.sh fm_opencode_model_bills_go owns
 # that test): the free model and every other non-Go model launch exactly as
-# before, pinned to nothing, so discovering or requiring a workspace never
-# blocks them. A home with no second workspace runs the main workspace
-# exactly as today.
+# before outside the workspace pin flow, so discovering or requiring a
+# workspace never blocks them. Unpinned standalone launches receive an empty
+# per-task database for their event data. A home with no second workspace
+# runs the main workspace without a workspace pin.
 #
 # Verified 2026-10-06 on opencode 1.18.34: a main-pinned launch resolves the
 # main console config (`main / OpenCode`) while the machine-wide active
@@ -53,9 +54,10 @@
 # needs it, then refreshes it on every later pinned launch. Builders for one
 # config directory serialize on an advisory lock. OpenCode processes never use
 # these shared pins directly: each standalone task receives a private writable
-# database at `state/<task-id>.opencode.db`, seeded from the verified pin and
-# retired with the task by teardown, and each shared server
-# (bin/fm-opencode-server.sh) gets one the same way.
+# database at `state/<task-id>.opencode.db`, seeded from the verified pin when
+# workspace-pinned, or created empty when unpinned, and retired with the task
+# by teardown. Each shared server (bin/fm-opencode-server.sh) gets one the same
+# way.
 #
 # FRESHNESS. The live login refreshes its token, so a pin copied once would
 # go stale: after a rotation the pinned copy diverges and a secondary
@@ -81,8 +83,8 @@
 # cannot be rewritten behind the fleet.
 #
 # ABSENCE IS TODAY. Every secondary predicate below fails closed when its
-# config file is absent: no marker is written, no OPENCODE_DB prefix is
-# added, and the ladder keeps its three rungs byte-for-byte. The main
+# config file is absent: no workspace marker or workspace pin is added, and
+# the ladder keeps its three rungs byte-for-byte. The main
 # workspace id is discovered from the console login and recorded on first
 # use when no file holds it, so pinning main needs no hand setup; a login
 # that names no main workspace refuses the launch instead.
