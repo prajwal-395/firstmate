@@ -23,6 +23,31 @@ already has a registry row is NEVER overwritten: the new evidence is
 written beside it and the report names both, so a promotion stays a
 deliberate act on a file the operator chose.
 
+## The fixtures the lane needs
+
+The live lane runs against `Ren Qualification`, on the timeline
+`fm-scratch qualify`.  A qualification RESET empties that project, so
+the setup-created fixtures - the qualification media in the media pool,
+the `Q Spine` source and the EMPTY scratch timeline the lane seeds - go
+with it, while the protected proof timelines (`Q Promotion Proof R5`
+and the rest) have to be restored from `.drt` backups by hand.
+
+`ren qualification ensure` is the non-destructive half.  It creates
+ONLY what is missing and never deletes, renames, replaces or empties
+anything that exists:
+
+```sh
+ren qualification ensure
+```
+
+It renders the synthetic clips that are absent on disk, imports the
+qualification media the pool does not hold, restores the declared
+`Q Spine` source onto an EMPTY `Q Spine`, creates the scratch
+timeline EMPTY when it is absent, saves the project and reads the
+fixtures back.  A populated timeline - the scratch timeline the lane
+has already seeded, the proof fixtures - is left exactly as it is and
+reported, so an absent fixture is named rather than assumed present.
+
 ## What a row means
 
 A qualification row is keyed on ONE operation and ONE backend - the

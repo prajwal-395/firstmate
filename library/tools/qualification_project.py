@@ -7,6 +7,7 @@ is the other half: the project itself, built from synthetic media into
 KNOWN timelines, so a test can assert exact frames and names.
 
     ren qualification media      # FREE: render the synthetic clips
+    ren qualification ensure     # borrow Resolve, create ONLY what is missing
     ren qualification reset      # borrow Resolve, rebuild the project
     ren qualification qualify    # reset, then qualify ren-resolved live
     ren qualification workflow   # two full real-footage editing/export runs
@@ -23,6 +24,21 @@ Known timelines
 `TIMELINES` declares each timeline's clips and markers; `verify` reads
 the built project back against it and names every difference. A rebuild
 is DELETE + CREATE, so a reset can never inherit a previous run's edits.
+
+Ensuring, not rebuilding
+------------------------
+`ensure` is the non-destructive half: it creates ONLY what is MISSING
+in `QUALIFICATION_PROJECT` and never deletes, renames, replaces or
+empties anything that exists. `reset` deletes the project and rebuilds
+it, which is what a qualification run wants and what a project holding
+the captain's proof timelines cannot have. `ensure` is for the case
+where the project survives but its fixtures do not: the media pool
+items, the `Q Spine` source and the empty scratch timeline the live
+lane seeds. Every fixture it declines to touch is REPORTED, so a
+missing one is named rather than assumed present.
+
+`tests/unit/resolve/test_qualification_project.py`,
+`tests/unit/resolve/test_qualification_ensure.py`.
 
 Borrowing Resolve
 -----------------
@@ -86,6 +102,20 @@ TIMELINES = (
 )
 
 MEDIA_ROOT_ENV = "REN_QUALIFICATION_MEDIA"
+
+#: The live lane's scratch timeline. The AXI fixtures seed it and
+#: assert it was EMPTY before they did (tests/live/
+#: editorial_live_adapter.py), so `ensure` creates it EMPTY and never
+#: clears one that exists - it is a protected fixture name
+#: (library/tools/proof_cleanup.py).
+SCRATCH_TIMELINE = "fm-scratch qualify"
+
+#: The timelines `ensure` guarantees, in order: the declared known
+#: timeline whose SOURCE the live fixtures read, then the scratch
+#: timeline the lane owns. `ensure` creates a missing one and restores
+#: the declared source of an EMPTY one; a populated timeline is left
+#: exactly as it is.
+ENSURED_TIMELINES = ("Q Spine", SCRATCH_TIMELINE)
 
 
 class QualificationError(RuntimeError):
@@ -732,13 +762,33 @@ def _create_qualification_project(manager):
     return project
 
 
+def _declared_timeline_spec(name: str):
+    """The `TIMELINES` declaration for `name`, or None."""
+    return next((spec for spec in TIMELINES if spec["name"] == name), None)
+
+
+def _place_declared_clips(project, pool, timeline, spec, items: dict) -> list:
+    """Place a declared timeline's clips (and markers) onto it.
+
+    ONE placement path: `rebuild` and `ensure` both land their clips
+    here, so a fixture cannot be built two ways and read two ways.
+    """
+    from library.tools.resolve_lock import assert_current_timeline
+    assert_current_timeline(project, timeline)
+    if not pool.AppendToTimeline([items[c] for c in spec["clips"]]):
+        raise QualificationError(f"could not place {spec['name']!r}")
+    for marker in spec["markers"]:
+        timeline.AddMarker(marker["frame"], marker["color"],
+                           marker["name"], "", 1, "")
+    return list(spec["clips"])
+
+
 def rebuild(resolve, media: dict):
     """DELETE + CREATE the qualification project; returns it, open.
 
     Called inside `borrowed`, while the captain's project is still the
     open one - Resolve cannot delete the project it has open.
     """
-    from library.tools.resolve_lock import assert_current_timeline
     manager = resolve.GetProjectManager()
     project = _create_qualification_project(manager)
     for key, value in (("timelineFrameRate", str(FPS)),
@@ -756,47 +806,276 @@ def rebuild(resolve, media: dict):
         timeline = pool.CreateEmptyTimeline(spec["name"])
         if not timeline:
             raise QualificationError(f"could not create {spec['name']!r}")
-        assert_current_timeline(project, timeline)
-        if not pool.AppendToTimeline([by_name[c] for c in spec["clips"]]):
-            raise QualificationError(f"could not place {spec['name']!r}")
-        for marker in spec["markers"]:
-            timeline.AddMarker(marker["frame"], marker["color"],
-                               marker["name"], "", 1, "")
+        _place_declared_clips(project, pool, timeline, spec, by_name)
     if not manager.SaveProject():
         raise QualificationError(f"could not save {QUALIFICATION_PROJECT!r}")
     return project
+
+
+def _timeline_problems(project, spec) -> list:
+    """Every way one timeline differs from its declaration."""
+    try:
+        timeline = _timeline_by_name(project, spec["name"])
+    except QualificationError as exc:
+        return [str(exc)]
+    problems = []
+    items = timeline.GetItemListInTrack("video", 1) or []
+    names = [Path(item.GetName()).stem for item in items]
+    if names != spec["clips"]:
+        problems.append(f"{spec['name']}: V1 holds {names}, "
+                        f"declared {spec['clips']}")
+    # GetEndFrame is EXCLUSIVE: measured live on Resolve 21.1
+    # (2026-10-02), a 216-frame timeline read end - start = 216.
+    length = timeline.GetEndFrame() - timeline.GetStartFrame()
+    declared = sum(frames(clip) for clip in spec["clips"])
+    if length != declared:
+        problems.append(f"{spec['name']}: {length} frames, "
+                        f"declared {declared}")
+    marks = {int(frame): data for frame, data in
+             (timeline.GetMarkers() or {}).items()}
+    wanted = {m["frame"]: m for m in spec["markers"]}
+    if sorted(marks) != sorted(wanted) or any(
+            marks[f].get("name") != wanted[f]["name"] for f in wanted
+            if f in marks):
+        problems.append(f"{spec['name']}: markers {sorted(marks)}, "
+                        f"declared {sorted(wanted)}")
+    return problems
 
 
 def verify(project) -> list:
     """Every way the open project differs from `TIMELINES`; [] is built."""
     problems = []
     for spec in TIMELINES:
-        try:
-            timeline = _timeline_by_name(project, spec["name"])
-        except QualificationError as exc:
-            problems.append(str(exc))
-            continue
-        items = timeline.GetItemListInTrack("video", 1) or []
-        names = [Path(item.GetName()).stem for item in items]
-        if names != spec["clips"]:
-            problems.append(f"{spec['name']}: V1 holds {names}, "
-                            f"declared {spec['clips']}")
-        # GetEndFrame is EXCLUSIVE: measured live on Resolve 21.1
-        # (2026-10-02), a 216-frame timeline read end - start = 216.
-        length = timeline.GetEndFrame() - timeline.GetStartFrame()
-        declared = sum(frames(clip) for clip in spec["clips"])
-        if length != declared:
-            problems.append(f"{spec['name']}: {length} frames, "
-                            f"declared {declared}")
-        marks = {int(frame): data for frame, data in
-                 (timeline.GetMarkers() or {}).items()}
-        wanted = {m["frame"]: m for m in spec["markers"]}
-        if sorted(marks) != sorted(wanted) or any(
-                marks[f].get("name") != wanted[f]["name"] for f in wanted
-                if f in marks):
-            problems.append(f"{spec['name']}: markers {sorted(marks)}, "
-                            f"declared {sorted(wanted)}")
+        problems.extend(_timeline_problems(project, spec))
     return problems
+
+
+# ── RESOLVE: ENSURING the missing fixtures, without destroying ────────
+
+def _pool_items_by_stem(pool) -> dict:
+    """Every media pool item's file stem -> the item, across folders.
+
+    The pool is a TREE, and a qualification clip may sit in any bin:
+    the name alone says the item exists, wherever it was filed.
+    """
+    items = {}
+    stack = [pool.GetRootFolder()]
+    while stack:
+        folder = stack.pop()
+        for item in (folder.GetClipList() or ()):
+            items.setdefault(Path(str(item.GetName())).stem, item)
+        stack.extend(folder.GetSubFolderList() or ())
+    return items
+
+
+def _timeline_clip_names(timeline) -> list:
+    """Every clip the timeline holds, on every video and audio track."""
+    names = []
+    for kind in ("video", "audio"):
+        try:
+            count = int(timeline.GetTrackCount(kind) or 0)
+        except Exception:  # noqa: BLE001, S112 - a timeline that cannot
+            # say is treated as holding nothing; the READ is what failed.
+            continue
+        for index in range(1, count + 1):
+            for item in (timeline.GetItemListInTrack(kind, index) or ()):
+                names.append(str(item.GetName()))
+    return names
+
+
+def _find_project_folder(manager, name: str, path: tuple = ()) -> list | None:
+    """The Project Manager folder path that HOLDS `name`, or None.
+
+    The project list is folder-scoped, so a qualification project filed
+    below the root is invisible from the root. This walks the folder
+    tree and names the folder that holds it.
+    """
+    projects = manager.GetProjectListInCurrentFolder() or []
+    if name in projects:
+        return list(path)
+    folders = manager.GetFoldersInCurrentFolder() or []
+    folders = (list(folders.values()) if isinstance(folders, dict)
+               else list(folders))
+    for folder in folders:
+        if not manager.OpenFolder(folder):
+            continue
+        found = _find_project_folder(manager, name, (*path, folder))
+        manager.GotoParentFolder()
+        if found is not None:
+            return found
+    return None
+
+
+def _ensure_pool_items(pool, media: dict) -> dict:
+    """Import ONLY the qualification media the pool does not hold.
+
+    A pool item already named like a qualification clip is LEFT ALONE:
+    it may be the captain's own file, and this command never replaces
+    what exists.
+    """
+    existing = _pool_items_by_stem(pool)
+    present, imported = [], []
+    for name, *_ in MEDIA:
+        if name in existing:
+            present.append(name)
+            continue
+        items = pool.ImportMedia([str(media[name])])
+        if not items:
+            raise QualificationError(
+                f"Resolve did not import the missing qualification media "
+                f"{name!r}")
+        for item in items:
+            existing.setdefault(Path(str(item.GetName())).stem, item)
+        imported.append(name)
+    missing = [name for name, *_ in MEDIA if name not in existing]
+    if missing:
+        raise QualificationError(
+            f"the qualification media {missing} is still absent from the "
+            f"media pool after importing it")
+    return {"present": present, "imported": imported, "items": existing}
+
+
+def _find_timeline(project, name: str):
+    """The project's timeline named exactly `name`, or None."""
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if candidate is not None and candidate.GetName() == name:
+            return candidate
+    return None
+
+
+def _ensure_timeline(project, pool, name: str, items: dict) -> dict:
+    """Create ONE missing fixture timeline; touch nothing that exists.
+
+    A timeline that exists is never emptied, renamed or replaced. A
+    declared timeline that exists but holds NO clips gets its declared
+    SOURCE placed back - it held nothing, so nothing is replaced - and a
+    populated one is left exactly as it is and reported.
+    """
+    spec = _declared_timeline_spec(name)
+    timeline = _find_timeline(project, name)
+    if timeline is None:
+        timeline = pool.CreateEmptyTimeline(name)
+        if not timeline:
+            raise QualificationError(f"could not create {name!r}")
+        if spec:
+            placed = _place_declared_clips(project, pool, timeline, spec,
+                                           items)
+            return {"name": name, "status": "created", "clips": placed}
+        return {"name": name, "status": "created", "clips": []}
+    clips = _timeline_clip_names(timeline)
+    if spec and not clips:
+        placed = _place_declared_clips(project, pool, timeline, spec, items)
+        return {"name": name, "status": "source_restored", "clips": placed}
+    return {"name": name, "status": "present", "clips": clips}
+
+
+def ensure_fixtures(project, media: dict) -> dict:
+    """Create ONLY the missing qualification fixtures in this project.
+
+    Never deletes, renames, replaces or empties anything that exists:
+    a media pool item already named like a qualification clip is left
+    alone, a populated timeline keeps every clip it has, and the scratch
+    timeline is never cleared. Every fixture it did not create is
+    REPORTED, so an absent one is named rather than assumed present.
+    """
+    pool = project.GetMediaPool()
+    media_report = _ensure_pool_items(pool, media)
+    timelines = []
+    for name in ENSURED_TIMELINES:
+        timelines.append(_ensure_timeline(project, pool, name,
+                                          media_report["items"]))
+    readback = []
+    for name in ENSURED_TIMELINES:
+        timeline = _find_timeline(project, name)
+        readback.append({"name": name,
+                         "clips": _timeline_clip_names(timeline)
+                         if timeline is not None else None})
+    return {"media": {"present": media_report["present"],
+                      "imported": media_report["imported"]},
+            "timelines": timelines, "readback": readback}
+
+
+def _open_qualification_project(manager):
+    """Open `QUALIFICATION_PROJECT` from wherever the manager holds it."""
+    if manager.GotoRootFolder() is False:
+        raise QualificationError(
+            "Resolve refused to navigate to the Project Manager root "
+            f"while opening {QUALIFICATION_PROJECT!r}")
+    path = _find_project_folder(manager, QUALIFICATION_PROJECT)
+    if path is None:
+        raise QualificationError(
+            f"{QUALIFICATION_PROJECT!r} is not in the Project Manager - "
+            f"there is nothing to ensure fixtures in. Restore it first "
+            f"(`ren qualification reset` rebuilds it from scratch).")
+    if path:
+        _open_project_folder_path(manager, tuple(path))
+    return switch_project(manager, QUALIFICATION_PROJECT)
+
+
+@under_lease("ren qualification ensure")
+def ensure() -> dict:
+    """Borrow Resolve and create ONLY what is missing in Qualification.
+
+    The non-destructive sibling of `reset`: the qualification project
+    keeps every timeline it holds - the protected proof fixtures and
+    the captain's own included - and only the absent fixtures are
+    created. The captain's project and timeline are put back with a
+    read-back, exactly as `borrowed` does for every other borrow.
+    """
+    from library.tools.marker_feedback import connect_resolve
+    media = ensure_media()
+    resolve = connect_resolve()
+    manager = resolve.GetProjectManager()
+    _require_live_manager(manager, "ensuring the qualification fixtures")
+    current = manager.GetCurrentProject()
+    already = bool(current and current.GetName() == QUALIFICATION_PROJECT)
+    if already:
+        with borrowed(resolve, qualification_only=True):
+            project = current
+            before = project.GetCurrentTimeline()
+            report = ensure_fixtures(project, media)
+            _restore_cursor(project, before)
+        _save_qualification(manager)
+        return {"project": QUALIFICATION_PROJECT, "restored": None,
+                **report}
+    with borrowed(resolve) as found:
+        project = _open_qualification_project(manager)
+        before = project.GetCurrentTimeline()
+        report = ensure_fixtures(project, media)
+        _restore_cursor(project, before)
+        _save_qualification(manager)
+    return {"project": QUALIFICATION_PROJECT, "restored": found, **report}
+
+
+def _save_qualification(manager) -> None:
+    """Persist the qualification project after an ensure.
+
+    A fixture that was created but not saved is a fixture the next
+    reader cannot find, so the save is part of the write, not a
+    courtesy.
+    """
+    if not manager.SaveProject():
+        raise QualificationError(f"could not save {QUALIFICATION_PROJECT!r}")
+
+
+def _restore_cursor(project, timeline) -> None:
+    """Put the cursor back on the timeline it was on before the ensure.
+
+    Creating a fixture moves Resolve's cursor; the lane that runs next
+    must find the timeline it left, not the one this command made.
+    """
+    if timeline is None:
+        return
+    try:
+        project.SetCurrentTimeline(timeline)
+    except Exception:  # noqa: BLE001 - a read-back failure is not a write
+        return
+    current = project.GetCurrentTimeline()
+    if current is None or current.GetUniqueId() != timeline.GetUniqueId():
+        raise QualificationError(
+            f"the ensure left the cursor on {current.GetName() if current else None!r} "
+            f"instead of {timeline.GetName()!r}; reopen it by hand")
 
 
 @under_lease("ren qualification reset")
@@ -1230,8 +1509,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren qualification",
         description=f"The {QUALIFICATION_PROJECT!r} project live tests use.")
-    parser.add_argument("verb", choices=("media", "reset", "qualify", "workflow",
-                                         "pm-e2e"))
+    parser.add_argument("verb", choices=("media", "ensure", "reset", "qualify",
+                                         "workflow", "pm-e2e"))
     parser.add_argument("--pin-failure", action="store_true",
                         help="retain failed qualification broker files")
     parser.add_argument("--unpin-failure",
@@ -1249,6 +1528,8 @@ def main(argv=None) -> int:
         return 0
     if args.verb == "media":
         report = {name: str(path) for name, path in ensure_media().items()}
+    elif args.verb == "ensure":
+        report = ensure()
     elif args.verb == "reset":
         report = reset()
     else:
