@@ -7876,6 +7876,7 @@ def cmd_edit_transform(args) -> int:
                     operations=axi_operations,
                     conflict_domains=("picture_transform",),
                     idempotency_key=f"resolve-axi.transform:{uuid.uuid4().hex}",
+                    project_folder=args.project_folder or None,
                     preconditions=[{
                         "kind": "clip_transform_equals", "unique_id": args.item,
                         "properties": {key: before[key]
@@ -8501,6 +8502,11 @@ def build_parser() -> Parser:
                    help="require native transform read-back verification")
     q.add_argument("--apply", action="store_true",
                    help="apply through one EditPatch; dry-run is the default")
+    q.add_argument("--project-folder", default="",
+                   help="pipeline project folder: the transform write log "
+                        "records Pan/Tilt/Zoom writes there (without this "
+                        "the log resolves it from the cwd or registry, "
+                        "and a fixture run with neither refuses)")
     q.set_defaults(func=cmd_edit_transform)
 
     q = esubs.add_parser("delete", help="delete one item, verified by "

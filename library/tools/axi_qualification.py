@@ -152,10 +152,14 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
                    for check in record["preservation_checks"]):
             continue
         records[(op_id, backend)] = {
+            "result": record["result"],
             "evidence": (record["evidence"],),
             "resolve_version": record["resolve_version"],
             "media_types": tuple(record["media_types"]),
             "timeline_conditions": tuple(record["timeline_conditions"]),
+            "expected_state": record["expected_state"],
+            "actual_state": record["actual_state"],
+            "preservation_checks": record["preservation_checks"],
             "preservation_limits": tuple(record["preservation_limits"]),
             "visual_verification": tuple(record["visual_verification"]),
             "audio_verification": tuple(record["audio_verification"]),

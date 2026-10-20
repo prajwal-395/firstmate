@@ -5,8 +5,56 @@
       "result": "failed"
     },
     "track.add::edit_patch": {
-      "evidence": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-axi-live-qual/track-add-qualification.json#evidence.receipt; Resolve 21.1.0.14, EditPatch verification_failed, generation 91; native Timeline.AddTrack(\"video\", \"\") returned false, GetTrackCount remained 1 on same/refetched handles; Blackmagic MCP route unavailable in session; OTIO ImportTimelineFromFile created a 3-video-track candidate (track-add-interchange-route.json), but AXI inventory guard rejected added timeline and it was deleted (track-add-interchange-cleanup.json)",
-      "result": "failed"
+      "actual_state": {
+        "track_counts": {
+          "audio": 1,
+          "subtitle": 0,
+          "video": 3
+        },
+        "track_names": [
+          "Video 1",
+          "V2",
+          "V3"
+        ]
+      },
+      "audio_verification": [
+        "not applicable: track rows have no audio output"
+      ],
+      "evidence": "track-add-rerun-after-2835.json#payload; Resolve page at run: edit; EditPatch status: committed; V2/V3 read back named on the private timeline",
+      "expected_state": {
+        "new_names": [
+          "V2",
+          "V3"
+        ],
+        "video_tracks": 3
+      },
+      "media_types": [
+        "video"
+      ],
+      "preservation_checks": [
+        {
+          "check": "audio_track_untouched",
+          "result": "passed"
+        },
+        {
+          "check": "fixture_items_preserved",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "audio and subtitle rows must keep their counts and items"
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "no fixture items placed (empty baseline)"
+      ],
+      "visual_verification": [
+        "not applicable: track rows have no rendered pixels"
+      ]
     }
   },
   "schema": "ren-axi-qualification-registry/v1"

@@ -157,6 +157,7 @@ def _qualification_batch(script: str) -> dict:
         (root_path / "project.yaml").write_text(
             "project_name: small_edit_qualification\n", encoding="utf-8")
         _initialize_run_store(root_path)
+        script = script.replace("@FM_QUAL_PROJECT_DIR@", str(root_path))
         with tempfile.NamedTemporaryFile(
                 mode="w", encoding="utf-8", suffix=".py",
                 prefix="fm-small-edit-batch-", dir="/tmp",
@@ -253,7 +254,15 @@ def _logo_base_commands() -> list[list[str]]:
 
 
 def _live_batch_script() -> str:
-    """Run production AXI calls and capture direct before/after Resolve state."""
+    """Run production AXI calls and capture direct before/after Resolve state.
+
+    The batch runs unaffiliated with any pipeline project, so transform
+    writes (Pan/Tilt/Zoom, which the write log must anchor to a project
+    folder) target the run store `_qualification_batch` creates. The
+    `@FM_QUAL_PROJECT_DIR@` sentinel is replaced with that store's path
+    when the batch is written; a batch that escapes replacement refuses
+    instead of logging into an unrelated folder.
+    """
     only = os.environ.get("REN_QUAL_ONLY")
     cases = {
         "add_video": [_place_video(),
@@ -364,6 +373,7 @@ from library.tools import resolve_axi
 
 PROJECT = {PROJECT!r}
 TIMELINE = {TIMELINE!r}
+PROJECT_DIR = "@FM_QUAL_PROJECT_DIR@"
 only = {only!r}
 CASES = {cases!r}
 
@@ -387,6 +397,7 @@ def apply_transform_patch(item_id, properties, label):
         timeline=manager.GetCurrentProject().GetCurrentTimeline(),
         capability="reel.touchup", operations=operations,
         conflict_domains=("picture_transform",),
+        project_folder=PROJECT_DIR,
         idempotency_key="small-edit-" + label + "-" + str(time.time_ns()))
     return {{"argv": ["edit_patch.apply_live_patch", label],
             "exit_code": 0 if receipt.get("status") == "committed" else 1,
@@ -597,6 +608,41 @@ def cleanup(expected_items):
     return {{"clean": False, "observations": observations,
             "collateral_changes": collateral}}
 
+# Fixture setup, not the operation under test: the overlay scenarios
+# place onto V3, so the private timeline carries V2/V3 before the batch
+# starts. Plain timeline API, verified by read-back; a leftover fixture
+# from an earlier run is reused, never duplicated.
+if not Path(PROJECT_DIR).is_dir():
+    raise RuntimeError(
+        "batch project dir was not stamped by the runner")
+setup_timeline = manager.GetCurrentProject().GetCurrentTimeline()
+setup_names = []
+for _setup_index in range(
+        1, int(setup_timeline.GetTrackCount("video") or 0) + 1):
+    try:
+        setup_names.append(str(setup_timeline.GetTrackName(
+            "video", _setup_index)))
+    except Exception:
+        setup_names.append("")
+setup_added = []
+for _setup_name in ("V2", "V3"):
+    if _setup_name in setup_names:
+        continue
+    if not setup_timeline.AddTrack("video"):
+        raise RuntimeError(
+            "fixture setup could not add a video track")
+    _setup_count = int(setup_timeline.GetTrackCount("video") or 0)
+    if not setup_timeline.SetTrackName("video", _setup_count, _setup_name):
+        raise RuntimeError(
+            f"fixture setup could not name track {{_setup_name}}")
+    setup_added.append(_setup_name)
+    setup_names.append(_setup_name)
+setup_tracks = {{"track_names": setup_names, "added": setup_added}}
+if setup_tracks["track_names"] != ["Video 1", "V2", "V3"]:
+    raise RuntimeError(
+        "fixture setup did not read back Video 1/V2/V3: "
+        + ",".join(setup_tracks["track_names"]))
+
 baseline = call(["items", "--project", PROJECT, "--timeline", TIMELINE,
                  "--refresh-live"])
 if baseline["exit_code"] or re.search(
@@ -676,7 +722,8 @@ for name, commands in CASES.items():
                       if item["name"] == target_name)
         movement = call(["edit", "transform", "--item", target["unique_id"],
                          "--move-x", "40", "--move-y", "0", "--verify",
-                         "--apply", "--project", PROJECT, "--timeline", TIMELINE])
+                         "--apply", "--project", PROJECT, "--timeline", TIMELINE,
+                         "--project-folder", PROJECT_DIR])
         receipts.append(movement)
         operation_after = live_state()
         render_after = render_rgb_at(
@@ -764,7 +811,8 @@ for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict")
             edited = call(["edit", "transform", "--item", target["unique_id"],
                            "--move-x", "40", "--move-y", "0", "--verify",
                            "--apply", "--project", PROJECT,
-                           "--timeline", TIMELINE])
+                           "--timeline", TIMELINE,
+                           "--project-folder", PROJECT_DIR])
             if edited["exit_code"]:
                 raise RuntimeError("could not apply the pre-rebuild edit: "
                                    + edited["stderr"])
@@ -810,7 +858,7 @@ for name in ("rebuild_after_edit", "verification_failure", "promotion_conflict")
         "operation_after": after, "after": after,
         "operation": operation, "collateral_changes": [],
         "elapsed_seconds": time.perf_counter() - started}})
-result = {{"cases": results}}
+result = {{"cases": results, "setup": setup_tracks}}
 '''
 
 
