@@ -736,9 +736,14 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
         else:
             project = manager.CreateProject(name)
             _settle_after_lifecycle_call()
-            if not project or project.GetName() != name or not _listed(manager, name):
+            current = manager.GetCurrentProject()
+            if (not project or project.GetName() != name
+                    or not current or current.GetName() != name):
                 raise ScratchProjectError(
-                    f"Resolve did not create scratch project {name!r}")
+                    f"Resolve did not open the newly created scratch project "
+                    f"{name!r} (returned {project.GetName() if project else None!r}; "
+                    f"current {current.GetName() if current else None!r})")
+            project = current
             requested = _apply_project_shape(project, name, fps_value, shape)
             pool = project.GetMediaPool()
             if pool is None:

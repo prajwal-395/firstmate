@@ -242,6 +242,28 @@ def test_import_drt_creates_owned_scratch_timeline_and_restores_origin(monkeypat
     assert manager.GetCurrentProject().GetCurrentTimeline().GetUniqueId() == "captain-alt"
 
 
+def test_import_drt_does_not_require_project_list_to_refresh_immediately(monkeypatch, tmp_path):
+    resolve, manager = prepare(monkeypatch, captain())
+    drt = tmp_path / "reel.drt"
+    drt.write_bytes(b"timeline fixture")
+    listed = scratch._listed
+    calls = 0
+
+    def delayed_project_list(manager, name):
+        nonlocal calls
+        calls += 1
+        return listed(manager, name) if calls == 1 else False
+
+    monkeypatch.setattr(scratch, "_listed", delayed_project_list)
+    result = scratch.import_project(
+        resolve, manager, drt, "Ren Scratch - delayed-list",
+        fps="23.976", width=3840, height=2160)
+    assert result["timeline_count"] == 1
+    assert result["fps"] == pytest.approx(23.976)
+    assert result["resolution"] == "3840x2160"
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+
+
 def test_import_drt_requires_shape_before_creating_project(monkeypatch, tmp_path):
     resolve, manager = prepare(monkeypatch, captain())
     drt = tmp_path / "reel.drt"
