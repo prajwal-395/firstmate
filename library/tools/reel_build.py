@@ -12101,10 +12101,23 @@ def cleanup_disposable_candidates(project, project_folder: str) -> list:
 
     from library.tools import reel_replace_guard as _guard
     from library.tools import staging_holds as _candidates
+    from library.tools import event_log as _event_log
+    from library.tools import transaction_receipt as _transactions
 
     records = _candidates.candidate_records(project_folder)
     holds = _candidates.read_holds(project_folder)
     inventory = _promotion_timeline_inventory(project)
+    unresolved_timeline_names = set()
+    unresolved_timeline_ids = set()
+    for transaction in _transactions.interrupted(
+            _event_log.read_events(project_folder)):
+        fields = transaction["last_event"]["fields"]
+        timeline_name = str(fields.get("timeline") or "")
+        timeline_id = str(fields.get("timeline_id") or "")
+        if timeline_name:
+            unresolved_timeline_names.add(timeline_name)
+        if timeline_id:
+            unresolved_timeline_ids.add(timeline_id)
     removed = []
 
     def normalized(snapshot):
@@ -12134,6 +12147,9 @@ def cleanup_disposable_candidates(project, project_folder: str) -> list:
         transaction_id = str(record.get("owning_transaction") or "")
         name = str(record.get("candidate_name") or "")
         parent_id = str(record.get("parent_approved_timeline_id") or "")
+        if (name in unresolved_timeline_names
+                or timeline_id in unresolved_timeline_ids):
+            continue
         entry = holds.get(name) or {}
         if (not timeline_id or not transaction_id or not name or not parent_id
                 or entry.get("candidate_id") != candidate_id
