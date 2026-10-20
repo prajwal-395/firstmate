@@ -8249,3 +8249,45 @@ looks for them.
 **What it does not fix.** The other E2E-009 blocker - the queued AXI scratch open refusing a
 stale `Ren Scratch - breaktest` origin receipt - belongs to the lane that owns that origin.
 This change is only about the speech evidence the transcript lane could not produce.
+## one-scratch-origin-starved-five-lanes
+
+**The rule.** The scratch origin is ONE machine resource, and a machine resource is QUEUED,
+not refused. A writer that needs a Ren-owned scratch project waits for the holder of the
+origin, the way it waits for the instance lease, and the wait is bounded and NAMES the holder
+it is waiting for. A writer never takes another writer's route back to clear a slot.
+
+**What happened.** Measured 2026-10-20: the live lane's `resolve-axi project scratch open`
+refused with "a scratch-project origin is already recorded; restore it before opening another
+scratch project". The record on disk belonged to ANOTHER lane. Five lanes (breaktest,
+bench-e2e, bench-demo, live-evidence, live-workflows) each need their own Ren-owned scratch
+project, and one lane's record decided every other lane's open.
+
+The refusal had two faces and both were the same defect. When the recorded owner had EXITED,
+the next open refused with "the recorded scratch-project origin 'Podcast (field test)' is not
+Ren-owned; restore it by hand before opening another scratch project" - the safety rule that
+an agent must not move the captain's project on its own judgement, applied where it starved
+everybody. And when the recorded owner's pid happened to be ALIVE, the open refused outright.
+The pid was the only liveness signal, and a pid the machine has RECYCLED reads as a live
+holder: the record of a writer that exited days ago looked like a live session.
+
+**The rule.** The route back from a scratch project is recorded per SCRATCH PROJECT - one
+record per scratch project, in one machine-wide ledger beside the instance lease - so opening
+a scratch project never has to clear anybody else's record. A session whose writer has exited
+is TAKEN BACK by the next writer, and the recorded origin is restored only when it is Ren's
+own: a captain project is NAMED and left where it is, because restoring it is the holder's
+act, not another writer's judgement. A live holder is waited for, not refused, and the wait
+runs BEFORE the Resolve lease because the holder needs that lease to restore and release. A
+pid is not an identity: the process's START is recorded with it, so a recycled number reads
+as the writer that exited.
+
+**Where it is.** `library/tools/resolve_scratch_projects.py` owns the ledger
+(`_read_ledger`, `_write_ledger`, `_record_for`), the liveness that survives pid reuse
+(`_owner_alive`, `_process_start`), the queue (`wait_for_origin_slot`) and the take-back
+(`_take_back_abandoned_session`, `recover_stale_origin`). The AXI CLI queues BETWEEN attempts and OUTSIDE the lease
+(`library/tools/resolve_axi_core_commands.py:cmd_project_scratch`), because a wait
+under the lease would hold the very lock the holder needs.
+
+**What it does not fix.** The captain's project is still never moved by another writer's
+judgement: an abandoned session whose origin is the captain's project leaves the machine in a
+Ren-owned scratch project and NAMES that origin, and the route back to the captain's project
+stays recorded until the holder's own restore unwinds it.

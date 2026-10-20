@@ -64,6 +64,18 @@ and refuses when the save fails. Ren never discards anyone's edits. Delete only
 accepts a closed `Ren Scratch - ` project, including an explicit refusal for
 `Podcast (field test)`.
 
+The scratch origin is ONE machine resource, and several lanes may need a
+scratch project at the same time. Each session keeps its OWN record, in one
+machine-wide ledger beside the instance lease, so opening a scratch project
+never clears another writer's route back. An open that finds the origin held
+by a LIVE writer WAITS for it - the way the instance lease queues, with a
+bounded timeout that names the holder - and the wait runs before the lease is
+taken, because the holder needs that lease to restore and release the origin.
+A session whose writer has exited is taken back by the next writer: the
+recorded origin is restored when it is Ren's own, and a captain project is
+named and left in place rather than moved by another writer's judgement.
+`PIPELINE_RESOLVE_SCRATCH_SLOT_TIMEOUT` sets the queue's budget in seconds.
+
 ## Promote a recurring script
 
 After two runs with the same normalized Python syntax or purpose, Ren lists a

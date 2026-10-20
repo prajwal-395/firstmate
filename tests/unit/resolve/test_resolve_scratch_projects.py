@@ -185,6 +185,18 @@ def captain():
     return Resolve(project)
 
 
+def _ledger(tmp_path):
+    """The recorded origins, oldest first."""
+    path = tmp_path / "scratch-origin.json"
+    if not path.exists():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    records = document.get("records")
+    if records is None:
+        return [document]
+    return records
+
+
 def test_create_builds_one_empty_current_timeline_and_restores_origin(monkeypatch):
     resolve, manager = prepare(monkeypatch, captain())
     result = scratch.create(resolve, manager, "Ren Scratch - create-test")
@@ -212,7 +224,7 @@ def test_open_uses_switch_and_reads_back(monkeypatch, tmp_path):
     assert restored["verified"] is True
     assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
     assert manager.GetCurrentProject().GetCurrentTimeline().GetUniqueId() == "captain-alt"
-    assert not (tmp_path / "scratch-origin.json").exists()
+    assert _ledger(tmp_path) == []
 
 
 def test_import_requires_drp_and_restores_origin(monkeypatch, tmp_path):
@@ -711,7 +723,7 @@ def test_ren_owned_origin_without_current_timeline_returns_to_scratch(
     manager.current = qualification
 
     scratch.open_project(resolve, manager, scratch_project.name)
-    recorded = json.loads(origin.read_text(encoding="utf-8"))
+    recorded = _ledger(tmp_path)[-1]
     assert recorded["timeline_id"] is None
 
     # Broker restart returns to the Ren-owned origin, which has no timeline.
@@ -726,14 +738,23 @@ def test_ren_owned_origin_without_current_timeline_returns_to_scratch(
     assert not origin.exists()
 
 
-# ── A receipt whose owner exited ─────────────────────────────────────
+
+
+# ── One scratch origin, several writers ───────────────────────────────
 #
-# The scratch origin receipt is machine-wide and outlives the process
-# that wrote it. Measured 2026-10-20: the queued AXI scratch open for
-# "Ren Scratch - workflows-e2e" refused with "a scratch-project origin
-# is already recorded" because a receipt another lane's dead writer
-# (pid 45907) left behind was still on disk. Every other writer was
-# blocked until a person removed the file by hand.
+# The scratch origin is ONE machine resource: the machine has one
+# current project. Five lanes each need their own Ren-owned scratch
+# project, and one lane's origin record must never decide another
+# lane's open.
+#
+# Measured 2026-10-20: the live lane's `resolve-axi project scratch
+# open` refused with "a scratch-project origin is already recorded;
+# restore it before opening another scratch project", because the
+# record on disk belonged to another lane - and, when that lane's
+# writer had exited, with "the recorded scratch-project origin
+# 'Podcast (field test)' is not Ren-owned; restore it by hand before
+# opening another scratch project". Both refusals starved every other
+# writer until a person removed the file by hand.
 
 
 def _exited_pid() -> int:
@@ -743,16 +764,29 @@ def _exited_pid() -> int:
     return child.pid
 
 
-def _write_receipt(path, state):
-    path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+def _write_ledger(path, records):
+    path.write_text(json.dumps(
+        {"format": scratch.ORIGIN_LEDGER_FORMAT, "records": records},
+        sort_keys=True), encoding="utf-8")
 
 
-def test_the_origin_receipt_records_the_process_that_wrote_it(
-        monkeypatch, tmp_path):
-    """Catches: a receipt that names no owner.
+def _record(scratch_project, origin_project, *, owner="lane-a",
+            pid=None, owner_start=None):
+    """One recorded origin, as the ledger holds it."""
+    return {"project": origin_project, "timeline": "T", "timeline_id": "t",
+            "page": "edit", "scratch_project": scratch_project,
+            "owner": owner, "owner_pid": os.getpid() if pid is None else pid,
+            "owner_host": socket.gethostname(),
+            "owner_start": scratch._process_start(os.getpid())
+            if owner_start is None else owner_start,
+            "recorded_at": 1.0}
 
-    Without an owner on the receipt, a dead writer's receipt and a live
-    writer's receipt are the same file, and only one of them may be
+
+def test_the_origin_record_names_the_process_that_wrote_it(monkeypatch, tmp_path):
+    """Catches: a record that names no owner.
+
+    Without an owner on the record, a dead writer's record and a live
+    writer's record are the same file, and only one of them may be
     cleared by the next writer.
     """
     resolve, manager = prepare(monkeypatch, captain())
@@ -763,40 +797,142 @@ def test_the_origin_receipt_records_the_process_that_wrote_it(
 
     scratch.open_project(resolve, manager, scratch_project.name)
 
-    recorded = json.loads(origin.read_text(encoding="utf-8"))
+    recorded = _ledger(tmp_path)[-1]
     assert recorded["owner_pid"] == os.getpid()
     assert recorded["owner_host"] == socket.gethostname()
+    assert recorded["owner_start"] == scratch._process_start(os.getpid())
 
 
-def test_a_receipt_whose_owner_exited_does_not_block_the_next_scratch_open(
+def test_two_lanes_open_two_scratch_projects_in_turn(monkeypatch, tmp_path):
+    """Catches: one lane's scratch origin starving the next lane.
+
+    Two lanes each need their own Ren-owned scratch project, and each
+    restores its own before the next one opens. The record of the first
+    lane must not decide the second lane's open, and the second lane's
+    restore must not clear the first lane's route back.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    holder = {"name": "lane-a"}
+    monkeypatch.setattr(scratch, "_owner_name", lambda: holder["name"])
+    first = Project("Ren Scratch - lane-a", [Timeline("T", "t1")])
+    second = Project("Ren Scratch - lane-b", [Timeline("T", "t2")])
+    manager.projects[first.name] = first
+    manager.projects[second.name] = second
+
+    scratch.open_project(resolve, manager, first.name)
+    assert manager.GetCurrentProject().GetName() == first.name
+
+    scratch.restore_recorded(resolve, manager)
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+
+    holder["name"] = "lane-b"
+    result = scratch.open_project(resolve, manager, second.name)
+
+    assert result["opened"] is True
+    assert manager.GetCurrentProject().GetName() == second.name
+    records = _ledger(tmp_path)
+    assert [row["scratch_project"] for row in records] == [second.name]
+    assert records[-1]["owner"] == "lane-b"
+    assert records[-1]["project"] == "Podcast (field test)"
+
+    scratch.restore_recorded(resolve, manager)
+    assert manager.GetCurrentProject().GetName() == "Podcast (field test)"
+    assert _ledger(tmp_path) == []
+
+
+def test_a_second_lane_waits_for_a_live_holder_instead_of_being_refused(
         monkeypatch, tmp_path):
-    """Catches: one dead writer's receipt blocking every other writer.
+    """Catches: a live holder's session refused on the first sight.
+
+    The scratch origin is one machine resource, so an open that finds it
+    held by a LIVE writer waits for that writer to release it - the way
+    the instance lease queues - rather than refusing. The wait ends
+    when the holder restores its origin and clears its record.
+    """
+    import threading
+    import time as clock
+
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    holder = {"name": "lane-a"}
+    monkeypatch.setattr(scratch, "_owner_name", lambda: holder["name"])
+    first = Project("Ren Scratch - lane-a", [Timeline("T", "t1")])
+    second = Project("Ren Scratch - lane-b", [Timeline("T", "t2")])
+    manager.projects[first.name] = first
+    manager.projects[second.name] = second
+
+    scratch.open_project(resolve, manager, first.name)
+
+    holder["name"] = "lane-b"
+    outcome = {}
+
+    def waiter():
+        outcome["status"] = scratch.wait_for_origin_slot(timeout=10.0, poll=0.01)
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    clock.sleep(0.05)
+    # It is WAITING, not refusing: the holder is still in its session.
+    assert thread.is_alive()
+    with pytest.raises(scratch.ScratchProjectError, match="held by"):
+        scratch.open_project(resolve, manager, second.name)
+
+    # The holder releases: the wait ends and the second lane opens.
+    holder["name"] = "lane-a"
+    scratch.restore_recorded(resolve, manager)
+    thread.join(10)
+    assert not thread.is_alive()
+    assert outcome["status"]["released"] is True
+
+    holder["name"] = "lane-b"
+    result = scratch.open_project(resolve, manager, second.name)
+    assert result["opened"] is True
+    assert manager.GetCurrentProject().GetName() == second.name
+
+
+def test_the_wait_names_the_holder_it_is_waiting_for(monkeypatch, tmp_path):
+    """Catches: a bounded wait that says nothing about who holds the slot."""
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    holder = {"name": "lane-a"}
+    monkeypatch.setattr(scratch, "_owner_name", lambda: holder["name"])
+    scratch_project = Project("Ren Scratch - lane-a", [Timeline("T", "t1")])
+    manager.projects[scratch_project.name] = scratch_project
+    scratch.open_project(resolve, manager, scratch_project.name)
+
+    holder["name"] = "lane-b"
+    status = scratch.wait_for_origin_slot(timeout=0.05, poll=0.01)
+
+    assert status["timed_out"] is True
+    assert status["holder"] == "lane-a"
+    assert status["released"] is False
+
+
+def test_an_exited_holder_is_taken_back_instead_of_blocking(monkeypatch, tmp_path):
+    """Catches: a dead writer's session blocking every other writer.
 
     Measured 2026-10-20: the queued AXI scratch open for "Ren Scratch -
     workflows-e2e" exited 1 with "a scratch-project origin is already
     recorded; restore it before opening another scratch project",
     because the receipt of an exited writer (pid 45907) was still on
     disk. The next open now puts the machine back on the recorded
-    Ren-owned origin and clears the receipt the only safe way - by
+    Ren-owned origin and clears the record the only safe way - by
     restoring it, never by deleting it.
     """
     resolve, manager = prepare(monkeypatch, captain())
-    origin = tmp_path / "scratch-origin.json"
-    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
     breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
     dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
     next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
     for project in (breaktest, dead_scratch, next_scratch):
         manager.projects[project.name] = project
-    _write_receipt(origin, {
-        "project": breaktest.name,
-        "timeline": "Reel 13",
-        "timeline_id": "t13",
-        "page": "edit",
-        "scratch_project": dead_scratch.name,
-        "owner_pid": _exited_pid(),
-        "owner_host": socket.gethostname(),
-    })
+    _write_ledger(tmp_path / "scratch-origin.json", [
+        _record(dead_scratch.name, breaktest.name, pid=_exited_pid())])
     # The dead writer left its scratch project open in Resolve.
     manager.current = dead_scratch
 
@@ -805,131 +941,235 @@ def test_a_receipt_whose_owner_exited_does_not_block_the_next_scratch_open(
     assert result["opened"] is True
     assert result["recovered_origin"]["project"] == breaktest.name
     assert manager.GetCurrentProject().GetName() == next_scratch.name
-    recorded = json.loads(origin.read_text(encoding="utf-8"))
-    assert recorded["project"] == breaktest.name
-    assert recorded["scratch_project"] == next_scratch.name
-    assert recorded["owner_pid"] == os.getpid()
+    records = _ledger(tmp_path)
+    assert [row["scratch_project"] for row in records] == [next_scratch.name]
+    assert records[-1]["project"] == breaktest.name
 
 
-def test_a_receipt_whose_owner_is_alive_still_refuses_the_next_open(
-        monkeypatch, tmp_path):
-    """Catches: the stale-owner recovery clearing a LIVE writer's receipt.
+def test_a_recycled_pid_does_not_read_as_a_live_holder(monkeypatch, tmp_path):
+    """Catches: a pid the machine reused reading as a live writer.
 
-    The receipt is the only route back from a scratch project, so a
-    receipt a live process holds is never touched.
+    Measured 2026-10-20: the live lane's open was refused with "a
+    scratch-project origin is already recorded" while the recorded
+    owner pid was alive - a number the machine had since given to
+    another process. A pid alone cannot answer "is this the same
+    writer", so the process's start is recorded with it.
     """
     resolve, manager = prepare(monkeypatch, captain())
-    origin = tmp_path / "scratch-origin.json"
-    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
     breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
+    dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
     next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
-    for project in (breaktest, next_scratch):
+    for project in (breaktest, dead_scratch, next_scratch):
         manager.projects[project.name] = project
-    _write_receipt(origin, {
-        "project": breaktest.name,
-        "timeline": "Reel 13",
-        "timeline_id": "t13",
-        "page": "edit",
-        "scratch_project": "Ren Scratch - live-owner",
-        "owner_pid": os.getpid(),
-        "owner_host": socket.gethostname(),
-    })
+    _write_ledger(tmp_path / "scratch-origin.json", [
+        _record(dead_scratch.name, breaktest.name,
+                owner_start="Mon Jan  1 00:00:00 2024")])
+    manager.current = dead_scratch
 
-    with pytest.raises(scratch.ScratchProjectError, match="already recorded"):
-        scratch.open_project(resolve, manager, next_scratch.name)
-    assert origin.exists()
+    result = scratch.open_project(resolve, manager, next_scratch.name)
+
+    assert result["opened"] is True
+    assert result["recovered_origin"]["project"] == breaktest.name
 
 
-def test_a_dead_owner_receipt_refuses_by_name_when_the_origin_is_not_ren_owned(
+def test_a_captain_origin_is_named_and_never_restored_by_judgement(
         monkeypatch, tmp_path):
-    """Catches: the recovery moving a project that is not Ren's own.
+    """Catches: another writer moving the captain's project on its own.
 
-    The captain's project is where the machine was, and an agent does
-    not put it back on a judgement of its own: the refusal NAMES the
-    origin, so the caller can act on it.
+    The recorded origin of an abandoned session is the captain's
+    project. Restoring it is the HOLDER's act, not another writer's
+    judgement, so the origin is NAMED and left where it is - and the
+    open proceeds instead of refusing, because a refusal is what
+    starved every other writer.
     """
     resolve, manager = prepare(monkeypatch, captain())
-    origin = tmp_path / "scratch-origin.json"
-    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
     next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
-    manager.projects[next_scratch.name] = next_scratch
-    _write_receipt(origin, {
-        "project": "Podcast (field test)",
-        "timeline": "Alt",
-        "timeline_id": "captain-alt",
-        "page": "edit",
-        "scratch_project": "Ren Scratch - dead-owner",
-        "owner_pid": _exited_pid(),
-        "owner_host": socket.gethostname(),
-    })
+    for project in (dead_scratch, next_scratch):
+        manager.projects[project.name] = project
+    _write_ledger(tmp_path / "scratch-origin.json", [
+        _record(dead_scratch.name, "Podcast (field test)", pid=_exited_pid())])
+    manager.current = dead_scratch
 
-    with pytest.raises(scratch.ScratchProjectError,
-                       match="Podcast \\(field test\\)"):
-        scratch.open_project(resolve, manager, next_scratch.name)
-    # Never cleared blindly: the receipt is still there to be restored.
-    assert origin.exists()
+    result = scratch.open_project(resolve, manager, next_scratch.name)
+
+    assert result["opened"] is True
+    assert result["held_origin"]["origin"] == "Podcast (field test)"
+    assert manager.GetCurrentProject().GetName() == next_scratch.name
+    # The captain's project was never switched onto, and the abandoned
+    # session's route back is still recorded.
+    records = _ledger(tmp_path)
+    assert [row["scratch_project"] for row in records] == [
+        dead_scratch.name, next_scratch.name]
+    assert records[-1]["project"] == dead_scratch.name
 
 
-def test_a_dead_owner_receipt_is_kept_when_the_origin_cannot_be_reopened(
+def test_an_abandoned_record_that_cannot_be_reopened_is_kept(
         monkeypatch, tmp_path):
-    """Catches: the recovery clearing a receipt it could not restore.
+    """Catches: the recovery clearing a record it could not restore.
 
-    A receipt that cannot be restored is still the only route back, so
+    A record that cannot be restored is still the only route back, so
     it stays on disk and the refusal names the origin.
     """
     resolve, manager = prepare(monkeypatch, captain())
-    origin = tmp_path / "scratch-origin.json"
-    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    gone = Project("Ren Scratch - gone", [Timeline("T", "t")])
+    dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
     next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
-    manager.projects[next_scratch.name] = next_scratch
-    _write_receipt(origin, {
-        "project": "Ren Scratch - gone",
-        "timeline": "T",
-        "timeline_id": "t-gone",
-        "page": "edit",
-        "scratch_project": "Ren Scratch - dead-owner",
-        "owner_pid": _exited_pid(),
-        "owner_host": socket.gethostname(),
-    })
+    for project in (gone, dead_scratch, next_scratch):
+        manager.projects[project.name] = project
+    _write_ledger(tmp_path / "scratch-origin.json", [
+        _record(dead_scratch.name, gone.name, pid=_exited_pid())])
+    manager.current = dead_scratch
 
     def refuse(current_manager, name):
         raise QualificationError(f"{name!r} did not read back after the switch")
 
     monkeypatch.setattr(scratch, "switch_project", refuse)
 
-    with pytest.raises(scratch.ScratchProjectError,
-                       match="Ren Scratch - gone"):
+    with pytest.raises(scratch.ScratchProjectError, match="Ren Scratch - gone"):
         scratch.open_project(resolve, manager, next_scratch.name)
-    assert origin.exists()
+    assert _ledger(tmp_path)
 
 
-def test_a_dead_owner_receipt_waits_for_another_writer(
-        monkeypatch, tmp_path):
+def test_an_abandoned_record_waits_for_another_writer(monkeypatch, tmp_path):
     """Catches: the recovery moving Resolve while another writer holds it.
 
-    The instance lease is the fence between writers, so a receipt is
-    only recovered when nobody else is inside Resolve.
+    The instance lease is the fence between writers, so an abandoned
+    session is only taken back when nobody else is inside Resolve.
     """
     resolve, manager = prepare(monkeypatch, captain())
-    origin = tmp_path / "scratch-origin.json"
-    monkeypatch.setattr(scratch, "_origin_path", lambda: origin)
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
     breaktest = Project("Ren Scratch - breaktest", [Timeline("Reel 13", "t13")])
+    dead_scratch = Project("Ren Scratch - dead-owner", [Timeline("T", "t2")])
     next_scratch = Project("Ren Scratch - next", [Timeline("T", "t3")])
-    for project in (breaktest, next_scratch):
+    for project in (breaktest, dead_scratch, next_scratch):
         manager.projects[project.name] = project
-    _write_receipt(origin, {
-        "project": breaktest.name,
-        "timeline": "Reel 13",
-        "timeline_id": "t13",
-        "page": "edit",
-        "scratch_project": "Ren Scratch - dead-owner",
-        "owner_pid": _exited_pid(),
-        "owner_host": socket.gethostname(),
-    })
+    _write_ledger(tmp_path / "scratch-origin.json", [
+        _record(dead_scratch.name, breaktest.name, pid=_exited_pid())])
+    manager.current = dead_scratch
     monkeypatch.setattr(scratch, "_instance_lease_is_ours_or_free",
                         lambda: False)
 
-    with pytest.raises(scratch.ScratchProjectError,
-                       match="held by another writer"):
+    with pytest.raises(scratch.ScratchProjectError, match="held by another writer"):
         scratch.open_project(resolve, manager, next_scratch.name)
-    assert origin.exists()
+    assert _ledger(tmp_path)
+
+
+def test_the_origin_ledger_lives_beside_the_instance_lease(
+        monkeypatch, tmp_path):
+    """Catches: a per-broker ledger hiding one broker's session.
+
+    The ledger protects the one Resolve's current project, so every
+    broker driving that Resolve has to see the same ledger.
+    """
+    monkeypatch.setenv("PIPELINE_RESOLVE_INSTANCE_DIR", str(tmp_path / "instance"))
+    monkeypatch.setenv("PIPELINE_RESOLVE_LOCK_DIR", str(tmp_path / "broker"))
+
+    assert scratch._origin_path().parent == tmp_path / "instance"
+
+
+def test_the_cli_queues_for_the_scratch_origin_between_attempts(
+        monkeypatch, capsys):
+    """Catches: the CLI refusing a queued open instead of waiting for it.
+
+    The queue runs BETWEEN attempts and OUTSIDE the Resolve lease: the
+    holder of the scratch origin has to be able to take that lease to
+    restore and release it. A wait that ran under the lease would hold
+    the very lock the holder needs.
+    """
+    events = []
+    monkeypatch.setattr(scratch, "wait_for_origin_slot",
+                        lambda timeout=None, poll=1.0: events.append(("wait",))
+                        or {"released": True})
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: (events.append(("lease", exclusive))
+                                           or nullcontext()))
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: (events.append(("connect",)) or captain()))
+    monkeypatch.setattr(
+        scratch, "open_project",
+        lambda resolve, manager, name: events.append(("open",)) or {"opened": True})
+    args = SimpleNamespace(scratch_command="open", apply=True,
+                           name="Ren Scratch - cli-queue")
+    assert resolve_axi.cmd_project_scratch(args) == 0
+    assert events == [("lease", True), ("connect",), ("open",)]
+
+
+def test_the_cli_waits_and_retries_until_the_holder_releases(
+        monkeypatch, capsys):
+    """Catches: one refusal ending a queue that had not finished."""
+    attempts = []
+
+    def refuse_then_open(resolve, manager, name):
+        attempts.append(name)
+        if len(attempts) == 1:
+            raise scratch.ScratchProjectError(
+                "the scratch origin is held by 'lane-a' (pid 1); wait for it "
+                "to be released before opening another scratch project")
+        return {"opened": True}
+
+    waits = []
+    monkeypatch.setattr(scratch, "wait_for_origin_slot",
+                        lambda timeout=None, poll=1.0: waits.append(timeout)
+                        or {"released": True})
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: nullcontext())
+    monkeypatch.setattr(resolve_axi, "_connect", lambda: captain())
+    monkeypatch.setattr(scratch, "open_project", refuse_then_open)
+    monkeypatch.setattr(scratch, "slot_timeout", lambda: 30.0)
+    args = SimpleNamespace(scratch_command="open", apply=True,
+                           name="Ren Scratch - cli-retry")
+    assert resolve_axi.cmd_project_scratch(args) == 0
+    assert attempts == ["Ren Scratch - cli-retry"] * 2
+    assert len(waits) == 1
+
+
+def test_the_cli_refuses_when_the_holder_never_releases(monkeypatch, capsys):
+    """Catches: a queue with no end."""
+    monkeypatch.setattr(scratch, "wait_for_origin_slot",
+                        lambda timeout=None, poll=1.0: {"released": False,
+                                                         "timed_out": True})
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: nullcontext())
+    monkeypatch.setattr(resolve_axi, "_connect", lambda: captain())
+    monkeypatch.setattr(
+        scratch, "open_project",
+        lambda resolve, manager, name: (_ for _ in ()).throw(
+            scratch.ScratchProjectError(
+                "the scratch origin is held by 'lane-a' (pid 1); wait for it "
+                "to be released before opening another scratch project")))
+    monkeypatch.setattr(scratch, "slot_timeout", lambda: 0.0)
+    args = SimpleNamespace(scratch_command="open", apply=True,
+                           name="Ren Scratch - cli-refuse")
+    assert resolve_axi.cmd_project_scratch(args) == 1
+    assert "held by" in capsys.readouterr().out
+
+
+def test_a_verb_that_moves_the_machine_refuses_while_another_writer_holds(
+        monkeypatch, tmp_path):
+    """Catches: create yanking the machine out of a live holder's session.
+
+    The holder's next command runs in whatever project the machine is
+    in, so a verb that moves the machine waits for the slot instead of
+    pulling it out from under that writer.
+    """
+    resolve, manager = prepare(monkeypatch, captain())
+    monkeypatch.setattr(scratch, "_origin_path",
+                        lambda: tmp_path / "scratch-origin.json")
+    holder = {"name": "lane-a"}
+    monkeypatch.setattr(scratch, "_owner_name", lambda: holder["name"])
+    scratch_project = Project("Ren Scratch - lane-a", [Timeline("T", "t1")])
+    manager.projects[scratch_project.name] = scratch_project
+    scratch.open_project(resolve, manager, scratch_project.name)
+
+    holder["name"] = "lane-b"
+    with pytest.raises(scratch.ScratchProjectError, match="held by"):
+        scratch.create(resolve, manager, "Ren Scratch - lane-b-project")
+    assert manager.GetCurrentProject().GetName() == scratch_project.name

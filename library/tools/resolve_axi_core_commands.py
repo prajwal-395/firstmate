@@ -7623,6 +7623,44 @@ def cmd_project_checkpoint(args) -> int:
         return fail(f"project checkpoint failed: {exc}", f"{TOOL} project")
 
 
+def _scratch_apply(args, scratch) -> dict:
+    """One scratch lifecycle operation, under the exclusive lease."""
+    with _lease(exclusive=True):
+        resolve = _connect()
+        manager = resolve.GetProjectManager()
+        if manager is None:
+            raise AxiError("Resolve returned no live Project Manager")
+        if args.scratch_command == "create":
+            return scratch.create(
+                resolve, manager, args.name,
+                fps=getattr(args, "fps", None),
+                width=getattr(args, "width", None),
+                height=getattr(args, "height", None))
+        if args.scratch_command == "import":
+            return scratch.import_project(resolve, manager,
+                                          args.source, args.name,
+                                          fps=getattr(args, "fps", None),
+                                          width=getattr(args, "width", None),
+                                          height=getattr(args, "height", None))
+        if args.scratch_command == "open":
+            return scratch.open_project(resolve, manager, args.name)
+        if args.scratch_command == "restore":
+            return scratch.restore_recorded(
+                resolve, manager,
+                timeline_drts=getattr(args, "timeline_drt", ()) or ())
+        if args.scratch_command == "collect":
+            if args.apply:
+                if not args.manifest:
+                    raise AxiError("scratch collection apply needs --manifest")
+                return scratch.apply_collection(resolve, manager, args.manifest)
+            manifest = scratch.plan_collection(manager)
+            return {"planned": True, "manifest": str(manifest),
+                    "note": "review and select exact project rows before --apply"}
+        if args.scratch_command == "delete":
+            return scratch.delete(resolve, manager, args.name)
+        raise AxiError("choose a scratch lifecycle operation")
+
+
 def cmd_project_scratch(args) -> int:
     """Operate on Ren-owned scratch projects under the exclusive lease."""
     if not getattr(args, "apply", False) and args.scratch_command != "collect":
@@ -7631,43 +7669,28 @@ def cmd_project_scratch(args) -> int:
             f"{TOOL} project scratch --help")
     try:
         from library.tools import resolve_scratch_projects as scratch
-        with _lease(exclusive=True):
-            resolve = _connect()
-            manager = resolve.GetProjectManager()
-            if manager is None:
-                raise AxiError("Resolve returned no live Project Manager")
-            if args.scratch_command == "create":
-                result = scratch.create(
-                    resolve, manager, args.name,
-                    fps=getattr(args, "fps", None),
-                    width=getattr(args, "width", None),
-                    height=getattr(args, "height", None))
-            elif args.scratch_command == "import":
-                result = scratch.import_project(resolve, manager,
-                                                args.source, args.name,
-                                                fps=getattr(args, "fps", None),
-                                                width=getattr(args, "width", None),
-                                                height=getattr(args, "height", None))
-            elif args.scratch_command == "open":
-                result = scratch.open_project(resolve, manager, args.name)
-            elif args.scratch_command == "restore":
-                result = scratch.restore_recorded(
-                    resolve, manager,
-                    timeline_drts=getattr(args, "timeline_drt", ()) or ())
-            elif args.scratch_command == "collect":
-                if args.apply:
-                    if not args.manifest:
-                        raise AxiError("scratch collection apply needs --manifest")
-                    result = scratch.apply_collection(
-                        resolve, manager, args.manifest)
-                else:
-                    manifest = scratch.plan_collection(manager)
-                    result = {"planned": True, "manifest": str(manifest),
-                              "note": "review and select exact project rows before --apply"}
-            elif args.scratch_command == "delete":
-                result = scratch.delete(resolve, manager, args.name)
-            else:
-                raise AxiError("choose a scratch lifecycle operation")
+        if args.scratch_command in ("create", "import", "open", "delete"):
+            # The scratch origin is ONE machine resource, so a verb that
+            # moves the machine QUEUES for it the way the instance lease
+            # queues - it does not refuse on the first sight. The queue
+            # runs BETWEEN attempts and OUTSIDE the lease, because the
+            # holder has to be able to take that lease to restore and
+            # release the origin.
+            deadline = _time.time() + scratch.slot_timeout()
+            attempts = 0
+            while True:
+                try:
+                    result = _scratch_apply(args, scratch)
+                    break
+                except scratch.ScratchProjectError as exc:
+                    attempts += 1
+                    if ("the scratch origin is held by" not in str(exc)
+                            or attempts >= 3 or _time.time() >= deadline):
+                        raise
+                    scratch.wait_for_origin_slot(
+                        timeout=max(0.0, deadline - _time.time()))
+        else:
+            result = _scratch_apply(args, scratch)
         emit([kv_block("project_scratch", result),
               help_block([f"{TOOL} project scratch restore --apply",
                           f"{TOOL} project scratch delete <scratch-name> --apply"])])

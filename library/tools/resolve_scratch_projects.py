@@ -9,6 +9,26 @@ because the scripting bridge answers `GetIsProjectDirty` with None
 (measured 2026-10-13, see `timeline_ingest`), so any such check would
 refuse every project on this Resolve, forever. A failed save refuses
 before any switch, exactly like `borrowed`.
+
+One machine has ONE Resolve and one current project, and it can have
+SEVERAL writers: five lanes that each need their own Ren-owned scratch
+project. The route back from a scratch project is therefore recorded per
+SCRATCH PROJECT - one record per scratch project, in one machine-wide
+ledger - so opening a scratch project never has to clear anybody else's
+record, and a session nested inside another one unwinds one link at a
+time.
+
+The scratch origin is also a SLOT the machine can only fill once, so an
+open that finds it held by a LIVE writer QUEUES for it the way the
+instance lease queues, with a bounded timeout that names the holder -
+it does not refuse on the first sight. The queue runs BEFORE the
+Resolve lease, because the holder has to be able to take that lease to
+restore and release the origin.
+
+A session whose writer has exited is taken back by the next writer: the
+recorded origin is restored when it is Ren's own, and a captain project
+is never switched onto because another writer decided to - that origin
+is NAMED and left where it is.
 """
 
 from __future__ import annotations
@@ -19,6 +39,7 @@ import json
 import math
 import os
 import socket
+import subprocess
 import time
 import uuid
 from datetime import UTC, datetime
@@ -51,6 +72,20 @@ name it writes.
 
 class ScratchProjectError(RuntimeError):
     pass
+
+
+ORIGIN_LEDGER_FORMAT = "ren-resolve-scratch-origins/2"
+"""The format of the scratch-origin ledger.
+
+The ledger holds ONE record per scratch project, not one record per
+machine. A record is the route back from ONE scratch project, so a
+writer that needs its own scratch project never has to clear another
+writer's record to get it.
+
+A file written by the earlier single-receipt format is read as a ledger
+of ONE record: a receipt left on disk by an older writer stays readable
+instead of becoming a refusal.
+"""
 
 
 def _lifecycle_log_path() -> Path:
@@ -144,28 +179,141 @@ def _starting_state(resolve, manager) -> dict:
 
 
 def _origin_path() -> Path:
+    """Where the scratch-origin ledger lives: one file, one record per project.
+
+    MACHINE-WIDE, beside the instance lease: the ledger protects the one
+    Resolve's current project, so two brokers driving that one Resolve
+    have to see each other's sessions. A per-broker directory would let
+    each broker believe the machine was free.
+    """
+    from library.tools.resolve_lock import instance_lock_dir
+    return instance_lock_dir() / "resolve_axi_scratch_origin.json"
+
+
+def _legacy_origin_path() -> Path:
+    """Where the ledger used to live: beside the broker's own state."""
     from library.tools.resolve_lock import lock_dir
     return lock_dir() / "resolve_axi_scratch_origin.json"
 
 
-def _write_origin(state: dict) -> None:
-    """Write the receipt, with the process that owns it.
+def _read_ledger() -> list[dict]:
+    """Every recorded origin, oldest first.
 
-    The owner is stamped on every write, so a receipt left behind by a
-    process that exited can be told from one a live writer still holds.
-    The stamp is the ONLY way to tell them apart: the receipt file is
-    machine-wide and outlives the process that wrote it.
+    A ledger nobody can read is refused by name: it may be a
+    half-written file, and guessing at its contents is how a scratch
+    project gets left behind with no route back.
     """
     path = _origin_path()
+    if not path.exists():
+        legacy = _legacy_origin_path()
+        if legacy != path and legacy.exists():
+            path = legacy
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        raise ScratchProjectError(
+            "the recorded scratch-project origin could not be read; "
+            "remove it by hand once you have checked what it says") from exc
+    if not isinstance(document, dict):
+        raise ScratchProjectError(
+            "the recorded scratch-project origin is not a receipt; "
+            "remove it by hand once you have checked what it says")
+    records = document.get("records")
+    if records is None:
+        # The single-receipt format: one route back, written by one writer.
+        records = [document]
+    if (not isinstance(records, list)
+            or not all(isinstance(record, dict) for record in records)):
+        raise ScratchProjectError(
+            "the recorded scratch-project origin is not a receipt; "
+            "remove it by hand once you have checked what it says")
+    return [dict(record) for record in records]
+
+
+def _write_ledger(records: list[dict]) -> None:
+    """Write the ledger whole: a record is never edited in place.
+
+    An empty ledger is REMOVED, not left behind as an empty file: the
+    file's presence is the signal that a route back is recorded, and a
+    reader must not have to open it to learn that there is none.
+    """
+    path = _origin_path()
+    if not records:
+        path.unlink(missing_ok=True)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    receipt = {**state,
-               "owner_pid": os.getpid(),
-               "owner_host": socket.gethostname(),
-               "owner": _owner_name(),
-               "recorded_at": time.time()}
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(receipt, sort_keys=True), encoding="utf-8")
+    temporary.write_text(
+        json.dumps({"format": ORIGIN_LEDGER_FORMAT, "records": records},
+                   sort_keys=True, indent=2),
+        encoding="utf-8")
     os.replace(temporary, path)
+
+
+def _record_for(records: list[dict], scratch_project: str | None) -> dict | None:
+    """The record of ONE scratch project: the route back from it."""
+    for record in records:
+        if str(record.get("scratch_project") or "") == str(scratch_project or ""):
+            return record
+    return None
+
+
+def _record_for_position(records: list[dict], project: str | None) -> dict | None:
+    """The record that says where THIS project belongs.
+
+    The machine is normally inside the scratch project a record names -
+    that is the session it is in. It is sometimes already back at the
+    ORIGIN a record names, because Resolve reopened it after a restart;
+    that record is then finished, and completing it is the restore.
+    """
+    record = _record_for(records, project)
+    if record is not None:
+        return record
+    for candidate in reversed(records):
+        if str(candidate.get("project") or "") == str(project or ""):
+            return candidate
+    return None
+
+
+def _drop_record(records: list[dict], scratch_project: str | None) -> list[dict]:
+    """Every record but the one for this scratch project."""
+    return [record for record in records
+            if str(record.get("scratch_project") or "") != str(scratch_project or "")]
+
+
+def _forget_origin(records: list[dict], state: dict) -> list[dict]:
+    """Drop the record that has just been restored, and write the ledger."""
+    remaining = _drop_record(records, state.get("scratch_project"))
+    _write_ledger(remaining)
+    return remaining
+
+
+def _write_origin(state: dict, records: list[dict] | None = None) -> None:
+    """Record the route back from one scratch project.
+
+    The owner is stamped on every write, so a record left behind by a
+    process that exited can be told from one a live writer still holds.
+    The stamp is the ONLY way to tell them apart: the ledger is
+    machine-wide and outlives the process that wrote it. The process's
+    START TIME is stamped with it, because a pid alone says nothing
+    once the machine has reused the number - and a reused pid read as a
+    live holder on 2026-10-20, which starved every other writer.
+
+    The record replaces any record for the SAME scratch project and
+    leaves every other record alone: another writer's route back is
+    never cleared to make room for this one.
+    """
+    current = _read_ledger() if records is None else records
+    remaining = _drop_record(current, state.get("scratch_project"))
+    remaining.append({**state,
+                      "owner_pid": os.getpid(),
+                      "owner_start": _process_start(os.getpid()),
+                      "owner_host": socket.gethostname(),
+                      "owner": _owner_name(),
+                      "recorded_at": time.time()})
+    _write_ledger(remaining)
 
 
 def _owner_name() -> str:
@@ -174,36 +322,48 @@ def _owner_name() -> str:
     return default_owner()
 
 
-def _read_origin(path: Path) -> dict:
-    """The recorded origin, read as written.
+def _held_by_us(record: dict) -> bool:
+    """Whether THIS writer is the one that recorded this route back.
 
-    A receipt nobody can read is refused by name: it may be a
-    half-written file, and guessing at its contents is how a scratch
-    project gets left behind with no route back.
+    The holder is the writer's own name: the lane in a fleet, the run
+    owner, or the process when neither is set. Two writers with
+    different names are two writers, and one writer's session is never
+    taken back by another.
+    """
+    return str(record.get("owner") or "") == _owner_name()
+
+
+def _process_start(pid: int) -> str:
+    """The wall-clock start of `pid`, empty when the pid is gone.
+
+    `ps -o lstart=` is stable across a boot and distinct across pid
+    reuse: a row whose recorded start differs from the live pid's start
+    is a different process wearing a recycled number. The same reading
+    `library/tools/resource_scheduler.py` takes.
     """
     try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise
-    except (OSError, ValueError) as exc:
-        raise ScratchProjectError(
-            "the recorded scratch-project origin could not be read; "
-            "remove it by hand once you have checked what it says") from exc
-    if not isinstance(state, dict):
-        raise ScratchProjectError(
-            "the recorded scratch-project origin is not a receipt; "
-            "remove it by hand once you have checked what it says")
-    return state
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "lstart="],
+            capture_output=True, encoding="utf-8", timeout=3,
+            check=False).stdout.strip()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+    return " ".join(out.split())
 
 
 def _owner_alive(state: dict) -> bool:
     """Whether the process that recorded this origin may still be working.
 
-    Fail-closed. A receipt that records no pid, or one recorded on
-    another machine, counts as ALIVE: "we could not prove the owner is
-    gone" must never be read as "the owner is gone", because clearing
-    such a receipt would take the route back from a live writer's
-    scratch project.
+    Fail-closed. A record that names no pid, or one recorded on another
+    machine, counts as ALIVE: "we could not prove the owner is gone"
+    must never be read as "the owner is gone", because taking such a
+    record would take the route back from a live writer's scratch
+    project.
+
+    A pid whose START no longer matches the recorded one counts as
+    GONE: the number was reused, and the process wearing it now is not
+    the writer that recorded the origin. Reading a reused pid as a live
+    holder is what starved four other lanes on 2026-10-20.
     """
     try:
         pid = int(state.get("owner_pid") or 0)
@@ -222,6 +382,11 @@ def _owner_alive(state: dict) -> bool:
         return True  # alive, owned by somebody else
     except OSError:
         return True
+    recorded_start = str(state.get("owner_start") or "")
+    if recorded_start:
+        live_start = _process_start(pid)
+        if live_start and live_start != recorded_start:
+            return False
     return True
 
 
@@ -280,15 +445,18 @@ def _missing_recorded_timeline(error: ScratchProjectError) -> bool:
             or "cannot recover timeline" in message)
 
 
-def recover_stale_origin(resolve, manager, state: dict, path: Path) -> dict:
-    """Put the machine back on a receipt whose owner process has exited.
+def recover_stale_origin(resolve, manager, state: dict,
+                         records: list[dict]) -> tuple[dict, list[dict]]:
+    """Put the machine back on a record whose owner process has exited.
 
-    The receipt is the only route back from a scratch project, so it is
+    The record is the only route back from a scratch project, so it is
     never cleared blindly: the machine goes back to the recorded origin
-    and READS BACK there before the receipt goes. A recorded origin
+    and READS BACK there before the record goes. A recorded origin
     that is not Ren's own is refused BY NAME - a name the caller can
     act on - because an agent must not move the captain's project on
     its own judgement.
+
+    Returns the restored state and the ledger without that record.
     """
     origin_name = str(state.get("project") or "")
     if not _ren_owned_origin(origin_name):
@@ -339,25 +507,35 @@ def recover_stale_origin(resolve, manager, state: dict, path: Path) -> dict:
                   "verified": False,
                   "timeline_restored": False,
                   "reason": str(exc)}
-    path.unlink(missing_ok=True)
-    return result
+    records = _forget_origin(records, state)
+    return result, records
 
 
 def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
-    """Restore the origin recorded by `open`, then clear its receipt.
+    """Restore the origin recorded for the OPEN scratch project.
+
+    The record is the one for the project the machine is in: the
+    session that put it there. Every writer keeps its own record, so
+    one writer's session never decides another writer's restore, and a
+    session nested inside another unwinds one link at a time.
 
     A DRT re-import creates a new Resolve timeline identity. For Ren-owned
     projects only, `restore` may recover the uniquely named timeline after
     verifying its identity changed; captain projects remain UID-only.
     """
-    path = _origin_path()
-    try:
-        state = _read_origin(path)
-    except FileNotFoundError as exc:
-        raise ScratchProjectError("there is no recorded scratch-project origin to restore") from exc
+    records = _read_ledger()
+    if not records:
+        raise ScratchProjectError("there is no recorded scratch-project origin to restore")
     current = manager.GetCurrentProject()
     if current is None:
         raise ScratchProjectError("Resolve has no current project to restore from")
+    state = _record_for_position(records, current.GetName())
+    if state is None:
+        expected = ", ".join(repr(str(record.get("scratch_project") or ""))
+                             for record in records)
+        raise ScratchProjectError(
+            f"cannot restore recorded origin: expected {expected} open, "
+            f"found {current.GetName()!r}")
     imported = []
     if timeline_drts:
         origin_name = str(state.get("project") or "")
@@ -397,7 +575,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
                     resolve, manager, state,
                     "origin had no current timeline; reopened the recorded "
                     f"scratch project {state['scratch_project']!r}")
-                path.unlink(missing_ok=True)
+                _forget_origin(records, state)
                 return {**result, "imported_timeline_drts": imported}
             try:
                 result = restore(resolve, manager, state)
@@ -437,7 +615,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
                         "reason": (f"origin timeline is gone; reopened recorded "
                                    f"scratch project {scratch_name!r}"),
                     }
-                    path.unlink(missing_ok=True)
+                    _forget_origin(records, state)
                     return result
                 # The ORIGIN's project is open and its recorded timeline
                 # is gone - the reel was rebuilt since. The machine is
@@ -450,7 +628,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
                           "verified": False,
                           "timeline_restored": False,
                           "reason": str(exc)}
-            path.unlink(missing_ok=True)
+            _forget_origin(records, state)
             return {**result, "imported_timeline_drts": imported}
         raise ScratchProjectError(
             f"cannot restore recorded origin: expected {state.get('scratch_project')!r} open, "
@@ -466,7 +644,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
             resolve, manager, state,
             "origin had no current timeline; kept the recorded scratch "
             f"project {state['scratch_project']} open")
-        path.unlink(missing_ok=True)
+        _forget_origin(records, state)
         return {**result, "imported_timeline_drts": imported}
     try:
         result = restore(resolve, manager, state)
@@ -478,7 +656,7 @@ def restore_recorded(resolve, manager, *, timeline_drts=()) -> dict:
             resolve, manager, state,
             "origin timeline is gone; reopened the recorded "
             f"scratch project {state['scratch_project']!r}")
-    path.unlink()
+    _forget_origin(records, state)
     return {**result, "imported_timeline_drts": imported}
 
 
@@ -813,6 +991,7 @@ def create(resolve, manager, name: str, fps=None, width=None, height=None) -> di
     shape = _parse_shape(width, height)
     if _listed(manager, name):
         raise ScratchProjectError(f"project {name!r} already exists in the current folder")
+    _refuse_if_another_writer_holds(resolve, manager)
     with _preserve_origin(resolve, manager) as state:
         created = manager.CreateProject(name)
         _settle_after_lifecycle_call()
@@ -873,6 +1052,7 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
             "the new project matches the source timeline")
     if _listed(manager, name):
         raise ScratchProjectError(f"project {name!r} already exists in the current folder")
+    _refuse_if_another_writer_holds(resolve, manager)
     with _preserve_origin(resolve, manager) as state:
         if suffix == ".drp":
             imported = manager.ImportProject(str(artifact), name)
@@ -948,46 +1128,172 @@ def import_project(resolve, manager, source: str | Path, name: str, *,
                              "page": state["page"], "verified": True}}
 
 
-def open_project(resolve, manager, name: str) -> dict:
-    name = _name(name)
-    path = _origin_path()
+SLOT_TIMEOUT_ENV = "PIPELINE_RESOLVE_SCRATCH_SLOT_TIMEOUT"
+SLOT_POLL_SECONDS = 1.0
+
+
+def slot_timeout() -> float:
+    """How long a writer waits for the scratch-origin slot.
+
+    The instance lease's own budget by default: the scratch origin is
+    queued like the lease, so it waits like the lease.
+    """
+    raw = os.environ.get(SLOT_TIMEOUT_ENV)
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+    from library.tools.resolve_lock import default_timeout
+    return default_timeout()
+
+
+def _slot_holder(records: list[dict]) -> dict | None:
+    """The record that fills the machine's scratch-origin slot.
+
+    The slot is the INNERMOST session: the one the machine is inside.
+    The newest record is that session, because every session is opened
+    and restored through this module - a restore clears its own record.
+    """
+    return records[-1] if records else None
+
+
+def wait_for_origin_slot(timeout: float | None = None,
+                         poll: float = SLOT_POLL_SECONDS) -> dict:
+    """Wait for the scratch-origin slot, the way the instance lease queues.
+
+    A writer that finds the slot held by a LIVE holder waits for that
+    holder to release it - restore the origin and clear its record -
+    instead of being refused on the first sight. The wait is bounded and
+    names the holder it is waiting for.
+
+    It ends when the record is released, when the holder's process is
+    gone (the next writer takes that session back), or at the timeout.
+    It reads the ledger only: no Resolve connection, so it runs BEFORE
+    the lease - the holder needs that lease to restore and release.
+
+    A timeout is REPORTED, not raised: only the machine knows whether
+    the session it waits for is the one it is inside, and the open
+    under the lease is what decides that.
+    """
+    limit = slot_timeout() if timeout is None else float(timeout)
+    started = time.time()
+    deadline = started + limit
+    while True:
+        records = _read_ledger()
+        record = _slot_holder(records)
+        if record is None:
+            return {"waited": time.time() - started, "holder": "",
+                    "released": True, "stale": False, "timed_out": False}
+        holder = str(record.get("owner") or "another writer")
+        if _held_by_us(record):
+            return {"waited": time.time() - started, "holder": holder,
+                    "released": False, "stale": False, "timed_out": False}
+        if not _owner_alive(record):
+            return {"waited": time.time() - started, "holder": holder,
+                    "released": False, "stale": True, "timed_out": False}
+        if time.time() >= deadline:
+            return {"waited": time.time() - started, "holder": holder,
+                    "released": False, "stale": False, "timed_out": True}
+        time.sleep(poll)
+
+
+def _refuse_if_another_writer_holds(resolve, manager) -> None:
+    """Refuse to move the machine while another writer is inside Resolve.
+
+    A live holder's session is the machine's current project. Switching
+    away from it puts that writer's next command in the wrong project,
+    so a verb that moves the machine waits for the slot instead - the
+    AXI CLI queues for it before taking the lease.
+    """
+    records = _read_ledger()
+    current = manager.GetCurrentProject()
+    current_name = current.GetName() if current else None
+    record = _record_for(records, current_name)
+    if record is None or _held_by_us(record):
+        return
+    if _owner_alive(record):
+        raise ScratchProjectError(
+            f"the scratch origin is held by {record.get('owner')!r} "
+            f"(pid {record.get('owner_pid')}); wait for it to be released "
+            "before moving the machine")
+
+
+def _take_back_abandoned_session(resolve, manager, records: list[dict]):
+    """Move the machine out of a session whose writer has exited.
+
+    A session nobody is in any more is not left to block the machine,
+    and it is not taken back by judgement either: the recorded origin
+    is restored only when it is Ren's own. A captain project is never
+    switched onto because another writer decided to - that origin is
+    NAMED, left where it is, and the new session nests inside the
+    abandoned one so the route back stays whole.
+    """
     recovered = None
-    if path.exists():
-        recorded = _read_origin(path)
-        if _owner_alive(recorded):
+    held = None
+    while True:
+        current = manager.GetCurrentProject()
+        current_name = current.GetName() if current else None
+        record = _record_for(records, current_name)
+        if record is None:
+            break
+        if _held_by_us(record):
+            # This writer's own session: the new one nests inside it.
+            break
+        if _owner_alive(record):
             raise ScratchProjectError(
-                "a scratch-project origin is already recorded; restore it "
+                f"the scratch origin is held by {record.get('owner')!r} "
+                f"(pid {record.get('owner_pid')}); wait for it to be released "
                 "before opening another scratch project")
+        origin_name = str(record.get("project") or "")
+        if not _ren_owned_origin(origin_name):
+            held = {"origin": origin_name,
+                    "scratch_project": str(record.get("scratch_project") or ""),
+                    "reason": ("the recorded origin is not Ren-owned, so it "
+                               "is named and left in place rather than "
+                               "restored by judgement")}
+            break
         if not _instance_lease_is_ours_or_free():
             raise ScratchProjectError(
                 "the recorded scratch-project origin belongs to a process "
                 "that has exited, but the Resolve instance is held by "
                 "another writer; wait for it to finish")
-        # The writer that recorded this receipt has exited. Left alone,
-        # its receipt blocks every other writer until a person removes
-        # it by hand, so the next open puts the machine back on the
-        # recorded origin and clears the receipt the only safe way.
-        recovered = recover_stale_origin(resolve, manager, recorded, path)
+        # The writer that recorded this session has exited. Left alone,
+        # its record blocks every other writer until a person removes it
+        # by hand, so the next open puts the machine back on the
+        # recorded origin and clears the record the only safe way.
+        result, records = recover_stale_origin(resolve, manager, record, records)
+        recovered = result
+    return records, recovered, held
+
+
+def open_project(resolve, manager, name: str) -> dict:
+    name = _name(name)
+    records, recovered, held = _take_back_abandoned_session(
+        resolve, manager, _read_ledger())
     state = _starting_state(resolve, manager)
     if name == state["project"]:
         raise ScratchProjectError(f"scratch project {name!r} is already open")
     if not _listed(manager, name):
         raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
-    _write_origin({**state, "scratch_project": name})
+    _write_origin({**state, "scratch_project": name}, records)
     try:
         project = switch_project(manager, name)
     except Exception:
-        # Keep the receipt when Resolve may have partially switched. It
+        # Keep the record when Resolve may have partially switched. It
         # remains the only safe route back after a failed switch.
         raise
     timeline = project.GetCurrentTimeline()
-    return {"project": project.GetName(),
-            "timeline": timeline.GetName() if timeline else None,
-            "opened": True,
-            "origin": {"project": state["project"], "timeline": state["timeline"],
-                       "page": state["page"]},
-            "recovered_origin": recovered,
-            "restore_with": "resolve-axi project scratch restore --apply"}
+    result = {"project": project.GetName(),
+              "timeline": timeline.GetName() if timeline else None,
+              "opened": True,
+              "origin": {"project": state["project"], "timeline": state["timeline"],
+                         "page": state["page"]},
+              "recovered_origin": recovered,
+              "restore_with": "resolve-axi project scratch restore --apply"}
+    if held:
+        result["held_origin"] = held
+    return result
 
 
 def _scratch_backup_name(safe_name: str) -> str:
@@ -1056,6 +1362,7 @@ def delete(resolve, manager, name: str, *, artifact_id: str = "") -> dict:
         raise ScratchProjectError(f"refusing to delete the open project {name!r}")
     if not _listed(manager, name):
         raise ScratchProjectError(f"scratch project {name!r} is not in the current folder")
+    _refuse_if_another_writer_holds(resolve, manager)
     lifecycle = artifact_lifecycle
     log_path = _lifecycle_log_path()
     candidates = [row for row in lifecycle.resolve_artifacts(log_path)
@@ -1115,6 +1422,12 @@ def delete(resolve, manager, name: str, *, artifact_id: str = "") -> dict:
         _settle_after_lifecycle_call()
         if _listed(manager, name):
             raise ScratchProjectError(f"deleted project {name!r} remains in the project folder")
+        # The project is gone, so its route back is gone with it: a
+        # record naming a project that no longer exists is a slot
+        # nobody can fill and a wait nobody can end.
+        records = _read_ledger()
+        if _record_for(records, name) is not None:
+            _write_ledger(_drop_record(records, name))
         # The project is already gone, so bounding its exports must not
         # fail the retirement: a prune that cannot run is reported, not
         # raised over a deletion that already happened.
