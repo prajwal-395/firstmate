@@ -59,7 +59,8 @@ One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the
 - **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
 - **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source.
 - **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
-- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of every producer and checks BOTH directions.
+- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of every producer and checks BOTH directions. The harvest reads a metric named POSITIONALLY as well as one named by keyword, because four of `render_qa`'s are named positionally and two of those had no reader at all. [why](docs/RULE_EVIDENCE.md#the-harvest-that-could-not-see-half-the-metrics)
+- **A finding is MEASURABLE or SUBJECTIVE, and the report says which.** A measurement is a number against a stated bound, and a gate may act on it. A judgement about taste is neither, and a gate may not: nobody can reproduce it. `SUBJECTIVE_METRICS` is the small set that says so, and everything else with a reader is a measurement by construction. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. **Step 3.03's own `handoff.md` defines every field and states plainly that a finding is not grounds to reject a rough cut** - the prose carries it since the freeze lifted 2026-09-09, so nothing ships a legend beside the table.
 - `tests/contracts/test_qa_findings_reach_a_reader.py`.
 """
@@ -93,11 +94,59 @@ _SEVERITY_RANK = {name: i for i, name in enumerate(SEVERITIES)}
 BLOCKING_SEVERITY = "error"
 """The one severity a gate is entitled to act on.  Reading never gates."""
 
+DETERMINISTIC = "deterministic"
+"""A MEASURABLE technical failure: a number against a stated bound.
+
+The same word `library/tools/creative_qa.py` uses for the same
+distinction, on the delivery path.  One vocabulary for both surfaces:
+a finding that is a measurement is a measurement, whichever report it
+is read in.
+"""
+
+SUBJECTIVE = "subjective"
+"""An AESTHETIC concern: a judgement about taste, not a measurement.
+
+It is not a smaller kind of failure.  It is a different KIND of
+finding: nobody can reproduce it, so no gate may act on it, and the
+reader of a subjective finding asks a human rather than a threshold.
+"""
+
+UNCLASSIFIED = "unclassified"
+"""A metric no reader claims.  It has no kind because nothing owns it."""
+
+SUBJECTIVE_METRICS = frozenset({"broll_correspondence"})
+"""The metrics whose finding is a JUDGEMENT rather than a measurement.
+
+`broll_correspondence` asks whether a placed cutaway illustrates the
+speech it covers, and the answer comes from a model that looked at the
+picture.  That is a judgement, and it is reported to the same reader as
+every other finding while being marked so a reader knows a human is
+being asked.
+
+Everything else in `FINDING_READERS` is a MEASUREMENT: a number, read
+off the delivered file or off the plan, against a bound somebody
+declared.  A metric that is not in this set and has a reader is
+DETERMINISTIC by construction - which is why the set is the small one
+and not the large one, and why adding a measurement does not mean
+changing a list.
+"""
+
 REPORT_ONLY_METRICS = frozenset({"chroma_presence", "speech_above_bed",
                                  "music_levels", "punch_in_face",
                                  "caption_legibility", "caption_obscuring",
                                  "transition_render", "vfx_render",
-                                 "graphics_render"})
+                                 "graphics_render",
+                                 # The perceptual readings of the delivered
+                                 # file (`library/tools/render_perception.py`).
+                                 # They measure a number against a bound
+                                 # nobody has measured on real footage yet,
+                                 # so they report their miss in their
+                                 # severity and pass.  Each one names the
+                                 # boolean that would promote it.
+                                 "cut_motivation", "dialogue_integrity",
+                                 "visual_continuity", "flash_frames",
+                                 "section_levels", "caption_consistency",
+                                 "narrative_coverage", "brief_pacing"})
 """The checks that measure a number, miss a target and do not gate.
 
 `render_qa.CHROMA_PRESENCE_GATES` and `render_qa.CAPTION_QUALITY_GATES`
@@ -346,6 +395,97 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "where, so an overlay absent from the render means the "
         "placement or the render missed it. REPORTED, not gated: "
         "promoting it is render_qa.GRAPHICS_RENDER_GATES."),
+    # ── render_perception.py ──
+    #
+    # The PERCEPTUAL readings of the delivered file: what a viewer sees,
+    # measured on that file and compared against what the plan
+    # declared.  They are all REPORTED and none of them gates - see
+    # `library/tools/render_perception.py`, whose `*_GATES` booleans
+    # are what promoting one would cost.
+    FindingReader(
+        "grade_delivery", "color_grade",
+        "The DIRECTION half of the grade: whether a graded span's "
+        "exported pixels still say what its CDL says. The grade is the "
+        "colorist's decision (`color_grade`), and a span whose pixels "
+        "contradict it means the write did not reach the picture. "
+        "REPORTED, not gated: a direction failure is always a magnitude "
+        "failure too, and `grade_landing` is the half that decides."),
+    FindingReader(
+        "grade_landing", "color_grade",
+        "The MAGNITUDE half of the grade: whether a graded span's "
+        "exported pixels land as far from the source as its CDL demands. "
+        "The direction half cannot ask how far the grade landed, "
+        "because a shortfall there confounds the grade with the "
+        "pipeline and the encode; this asks it against the CDL's own "
+        "demanded output, which the confound cannot touch. GATES "
+        "(render_qa.GRADE_LANDING_GATES, captain 2026-10-05)."),
+    FindingReader(
+        "cut_motivation", "compile_manifest",
+        "A cut in the delivered picture that no declared seam "
+        "explains. The manifest carries every seam the plan wrote, so a "
+        "change of picture in the render with no seam behind it is a "
+        "change the conform made and the plan never asked for. The "
+        "plan's own picture order is the conform's business, and this "
+        "is the render-side backstop."),
+    FindingReader(
+        "dialogue_integrity", "compile_manifest",
+        "A seam that lands inside a spoken word. The word is cut off "
+        "mid-word, and every decision placed on that word's timing - "
+        "its caption, its karaoke highlight, its take boundary - is "
+        "placed against a word the listener never heard whole. The "
+        "word timings are the spine's (`speech_sequence`); the seam "
+        "that damaged one is the conform's."),
+    FindingReader(
+        "visual_continuity", "compile_manifest",
+        "A join that was meant to be invisible and is not, or a flash "
+        "frame nobody planned. A declared split is one shot cut in "
+        "two, and the frames either side of it should be consecutive "
+        "frames of the same footage; a visible join means the conform "
+        "put the wrong source range back together. The UNEXPECTED "
+        "FRAMING CHANGE is not this row's business: "
+        "`render_qa.measure_frame_occupancy` already holds one "
+        "geometry per declared framing."),
+    FindingReader(
+        "flash_frames", "render",
+        "A single frame far brighter or darker than both of its "
+        "neighbours. A flash is one frame, not a shot, and it is the one "
+        "visual defect a viewer cannot mistake for a cut. No plan asks "
+        "for one, so it needs no owner beyond the render that carried "
+        "it. REPORTED, not gated: promoting it is "
+        "render_perception.FLASH_FRAMES_GATES."),
+    FindingReader(
+        "section_levels", "audio_mix",
+        "Two adjacent sections delivered at very different levels. The "
+        "master as a whole is `lufs`'s business and the bed's own curve "
+        "is `music_levels`'s; this asks whether the mix STEPS between "
+        "one section and the next, which is what the ear hears as a "
+        "jump. A section the plan marked `silent` is exempt, because "
+        "that step is the plan's."),
+    FindingReader(
+        "caption_consistency", "plan_subtitles",
+        "Caption cards drawn at different sizes from one another. The "
+        "other three caption questions have their own rows - "
+        "`caption_legibility` for whether a card can be read, "
+        "`subtitle_qa` for its timing, `qa/subtitle_qa` for whether it "
+        "is clipped - and this one is whether the reel's captions look "
+        "like they came from the same reel. The card's type size is "
+        "the plan's declaration (`subtitle_style`)."),
+    FindingReader(
+        "narrative_coverage", "compile_manifest",
+        "A piece of the plan that is not in the deliverable: a declared "
+        "cut the render does not show, or a deliverable that ends "
+        "before the plan's last section. The CONTENT half - whether "
+        "the deliverable SAYS what the plan said - is "
+        "`reel_hearing`'s, and it is a different row because it is "
+        "measured by transcribing the master."),
+    FindingReader(
+        "brief_pacing", "mesh_spine",
+        "The delivered pace is not the pace the plan wrote: a declared "
+        "seam the render puts somewhere else. The brief is prose and "
+        "the spine is what the pipeline made of it, so the spine's own "
+        "seams are the pace the brief asked for. The spine sets every "
+        "block's place on the timeline, and a seam that drifts means "
+        "the reel runs at a pace nobody chose."),
 )
 
 
@@ -362,6 +502,32 @@ class Finding:
     value: Any = None
     threshold: Any = None
     evidence_ids: List[str] = field(default_factory=list)
+    declared_kind: str = ""
+    """The kind the report itself carried, when it carried one.
+
+    Empty means the report said nothing about it, and the kind is then
+    READ OFF THE METRIC - a metric with a reader is a measurement
+    unless it is one of the `SUBJECTIVE_METRICS`.  A report that says
+    otherwise is believed: the three readings, and the report is the
+    one that was written last.
+    """
+
+    @property
+    def kind(self) -> str:
+        """DETERMINISTIC, SUBJECTIVE or UNCLASSIFIED.
+
+        The question this answers is QA-016's: is this finding a
+        MEASURABLE technical failure or a subjective aesthetic
+        concern?  A gate may act on the first.  The second is asked of
+        a human, because nobody can reproduce a judgement about taste.
+        """
+        if self.declared_kind in (DETERMINISTIC, SUBJECTIVE):
+            return self.declared_kind
+        if self.reader is None:
+            return UNCLASSIFIED
+        if self.metric in SUBJECTIVE_METRICS:
+            return SUBJECTIVE
+        return DETERMINISTIC
 
     @property
     def verdict(self) -> str:
@@ -394,6 +560,7 @@ class Finding:
         reader = self.reader
         return {
             "metric": self.metric,
+            "kind": self.kind,
             "severity": self.severity,
             "verdict": self.verdict,
             "owned_by": reader.owner if reader else "",
@@ -458,16 +625,50 @@ class QAFindings:
         return sorted((f for f in self.findings if f.verdict != CLEAN),
                       key=_sort_key)
 
+    @property
+    def deterministic(self) -> List[Finding]:
+        """The MEASURABLE findings - a number against a stated bound.
+
+        These are the findings a gate may act on, because a gate can
+        reproduce them.  QA-016's question, asked of the whole report.
+        """
+        return [f for f in self.findings if f.kind == DETERMINISTIC]
+
+    @property
+    def subjective(self) -> List[Finding]:
+        """The AESTHETIC findings - a judgement, not a measurement.
+
+        These are asked of a human.  A gate may not act on one: nobody
+        can reproduce a judgement about taste, so a threshold that
+        "reproduced" it would be reproducing itself.
+        """
+        return [f for f in self.findings if f.kind == SUBJECTIVE]
+
     def __bool__(self) -> bool:
         return bool(self.findings or self.edit_verifications)
 
     def counts(self) -> Dict[str, int]:
+        """The VERDICT counts - how many passed, failed, advised.
+
+        The kind counts are a separate question and a separate method:
+        `counts()` is the verdict of a check and `kind_counts()` is what
+        KIND of finding it is, and the two are not the same axis.
+        """
         return {
             "total": len(self.findings),
             FAILING: len(self.failing),
             ADVISORY: len(self.advisory),
             CLEAN: len(self.clean),
             "unrouted": len(self.unrouted),
+        }
+
+    def kind_counts(self) -> Dict[str, int]:
+        """The KIND counts - measurable against a judgement."""
+        return {
+            DETERMINISTIC: len(self.deterministic),
+            SUBJECTIVE: len(self.subjective),
+            UNCLASSIFIED: len(self.findings) - len(self.deterministic)
+                         - len(self.subjective),
         }
 
 
@@ -505,6 +706,7 @@ def read_qa_report(rows: Optional[Sequence[Mapping[str, Any]]],
             value=row.get("value"),
             threshold=row.get("threshold"),
             evidence_ids=list(row.get("evidence_ids") or []),
+            declared_kind=str(row.get("kind", "") or ""),
         ))
     if not findings and not verifications:
         return QAFindings()
@@ -619,10 +821,17 @@ def summary_lines(qa: QAFindings) -> List[str]:
         return [NOTHING_TO_READ]
 
     counts = qa.counts()
+    kinds = qa.kind_counts()
     lines = [f"  QA findings: {counts['total']} checks, "
              f"{counts[FAILING]} failing, {counts[ADVISORY]} advisory, "
              f"{counts[CLEAN]} clean"]
     lines.append(f"      source: {qa.source_detail}")
+    # The KIND of finding is a different axis from its verdict, and
+    # QA-016 asks for it explicitly: a measurable technical failure is
+    # something a gate can act on, and a subjective aesthetic concern
+    # is something a human is asked about.
+    lines.append(f"      kind: {kinds[DETERMINISTIC]} measurable, "
+                 f"{kinds[SUBJECTIVE]} subjective")
     for verification in qa.edit_verifications:
         refs = ", ".join(verification["evidence_ids"]) or "none"
         lines.append(f"      edit {verification['category']}: "
@@ -675,6 +884,7 @@ def findings_for_review(qa: QAFindings) -> Dict[str, Any]:
         "source": qa.source,
         "source_detail": qa.source_detail,
         "counts": qa.counts(),
+        "kind_counts": qa.kind_counts(),
         "unrouted_metrics": [f.metric for f in qa.unrouted],
         "findings": [f.as_dict() for f in ordered],
         "edit_verifications": qa.edit_verifications,

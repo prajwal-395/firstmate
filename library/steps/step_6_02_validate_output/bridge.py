@@ -35,6 +35,7 @@ from library.tools.render_qa import (
     run_full_render_qa,
 )
 from library.tools import render_qa, render_watch
+from library.tools import render_perception
 from library.tools.broll_correspondence import measure_broll_correspondence
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
@@ -855,6 +856,16 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             music_over_speech_overrides=(
                 assembly_manifest.get("music_over_speech_overrides")
                 or []),
+            # What the PLAN declared, read into the form the perceptual
+            # readings take.  These are the readings that compare the
+            # DELIVERED picture against the plan's own structure: a cut
+            # nobody wrote, a word a seam damaged, a join that should be
+            # invisible and is not, a level that steps between sections,
+            # captions drawn unlike one another, a piece of the plan
+            # that is not in the deliverable, and a pace that is not the
+            # pace the plan wrote.  All seven REPORT and do not gate.
+            perception_plan=render_perception.perception_plan(
+                assembly_manifest),
         )
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)

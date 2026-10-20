@@ -4729,7 +4729,8 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
                          transition_spans: Optional[Sequence["TransitionSpan"]] = None,
                          vfx_spans: Optional[Sequence["VfxSpan"]] = None,
                          graphics_spans: Optional[Sequence["GraphicsSpan"]] = None,
-                         music_over_speech_overrides: Optional[Sequence[dict]] = None
+                         music_over_speech_overrides: Optional[Sequence[dict]] = None,
+                         perception_plan: Optional[Any] = None,
                          ) -> List[RenderQAResult]:
     """Run every render QA check.
 
@@ -4805,6 +4806,18 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     `measure_graphics_render` and their `*_GATES` booleans.  None for
     any of them means nobody established that layer, which is reported
     rather than guessed at.
+
+    `perception_plan` is what the PLAN declared - its seams, its
+    sections, its words and its captions - and it is read by
+    `library/tools/render_perception.py`, which owns the readings that
+    compare the delivered picture against it: a cut nobody wrote, a
+    word a seam damaged, a join that should be invisible and is not, a
+    level that steps between sections, captions drawn unlike one
+    another, a piece of the plan that is not in the deliverable, and a
+    pace that is not the pace the plan wrote.  All seven REPORT and do
+    not gate.  None means nobody established the plan for this render,
+    and the readings say they were NOT MEASURED rather than passing
+    because there was nothing to check.
     """
     results = []
 
@@ -4887,6 +4900,19 @@ def run_full_render_qa(video_path: str, expected_duration: float = None,
     results.append(measure_transition_render(video_path, transition_spans))
     results.append(measure_vfx_render(video_path, vfx_spans))
     results.append(measure_graphics_render(video_path, graphics_spans))
+
+    # Perceptual verification of the DELIVERED picture: what a viewer
+    # sees, measured on the file.  A `perception_plan` is what the plan
+    # declared - its seams, its sections, its words, its captions - and
+    # it is read by `library/tools/render_perception.py`, which is the
+    # one owner of these readings.  None means nobody established the
+    # plan for this render, and every reading then says it was NOT
+    # MEASURED rather than passing because there was nothing to check.
+    if perception_plan is not None:
+        from library.tools import render_perception
+
+        results.extend(render_perception.verify_render_perception(
+            video_path, plan=perception_plan))
 
     return results
 

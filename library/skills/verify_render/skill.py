@@ -127,6 +127,21 @@ def run(video_path: str,
             results.append(render_qa.detect_freeze_frames(video_path))
             results.append(render_qa.measure_silence_under_picture(
                 video_path, declared_spans=declared_silence_spans))
+            # The PERCEPTUAL readings of the delivered file: what a
+            # viewer sees, measured against what the plan declared.
+            # They REPORT and do not gate, so they never move this
+            # skill's verdict - they are here so the receipt names them,
+            # because a measurement the receipt does not carry is a
+            # measurement nobody can find.
+            #
+            # Only on the WHOLE file: a scoped re-check is about the
+            # frames a touch changed, and these read the whole picture.
+            if assembly_manifest is not None:
+                from library.tools import render_perception
+
+                results.extend(render_perception.verify_render_perception(
+                    video_path, assembly_manifest=assembly_manifest,
+                    render_duration=expected_duration))
         else:
             from library.tools.dirty_regions import AUDIO, describe
             scope = f"scoped to the touch: {describe(dirty)}"

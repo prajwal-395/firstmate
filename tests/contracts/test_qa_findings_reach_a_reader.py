@@ -28,6 +28,7 @@ from library.tools import qa_findings as qa
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RENDER_QA = PROJECT_ROOT / "library" / "tools" / "render_qa.py"
+RENDER_PERCEPTION = PROJECT_ROOT / "library" / "tools" / "render_perception.py"
 SUBTITLE_QA = PROJECT_ROOT / "library" / "tools" / "subtitle_qa.py"
 RUN_PIPELINE = (PROJECT_ROOT / "library" / "processes" / "edit_video"
                 / "run_pipeline.py")
@@ -93,6 +94,7 @@ def _project(tmp_path: Path, rows) -> Path:
 #: class here, never by a second harvesting rule.
 FINDING_CONSTRUCTORS = {
     RENDER_QA: "RenderQAResult",
+    RENDER_PERCEPTION: "RenderQAResult",
     SUBTITLE_QA: "RenderQAResult",
     REEL_HEARING: "Finding",
 }
@@ -110,6 +112,14 @@ def _emitted_metrics(source_path: Path) -> set:
     whose value is a Name is resolved against the module's own top-level
     string constants rather than skipped, which would have silently
     harvested nothing at all from it.
+
+    The metric may be named POSITIONALLY or by keyword, and both count.
+    The harvest used to read only the keyword, which left four metrics
+    unharvested - `caption_legibility`, `caption_obscuring`,
+    `grade_delivery` and `grade_landing` - and two of those had no
+    reader at all, which is the exact failure this test exists to
+    prevent.  A producer may name its metric however it likes; the
+    contract is that a reader is declared for it.
     """
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -127,6 +137,11 @@ def _emitted_metrics(source_path: Path) -> set:
         func = node.func
         if getattr(func, "id", getattr(func, "attr", None)) != wanted:
             continue
+        # The metric is the FIRST field of every one of these
+        # constructors, so a string in first position names it.
+        if node.args and isinstance(node.args[0], ast.Constant) \
+                and isinstance(node.args[0].value, str):
+            names.add(node.args[0].value)
         for kw in node.keywords:
             if kw.arg != "metric":
                 continue

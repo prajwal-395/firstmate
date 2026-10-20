@@ -8063,3 +8063,42 @@ edit, whatever became of it afterwards, and there is nothing to settle:
 `ren revise` records the spec before it executes, so a failed execution
 leaves the declaration in place. That is a separate question about what a
 declared edit means when its execution fails.
+
+## the-harvest-that-could-not-see-half-the-metrics
+
+**The rule:** AGENTS.md §10.4, "Every QA finding has a reader".
+
+**What happened.** The contract test that enforces the rule
+(`tests/contracts/test_qa_findings_reach_a_reader.py`) harvests the metric names a producer can
+construct, by reading the producer's source.  It read only the `metric=` KEYWORD.  Four metrics
+are named POSITIONALLY in `render_qa.py` - `caption_legibility`, `caption_obscuring`,
+`grade_delivery` and `grade_landing` - and the harvest could not see any of them:
+
+```
+render_qa.py
+  keyword:   audio_streams, black_frames, caption_legibility, chroma_presence, ...
+  positional: caption_legibility, caption_obscuring, grade_delivery, grade_landing, ...
+  positional-not-in-keyword: caption_legibility, caption_obscuring, grade_delivery, grade_landing
+```
+
+Two of the four had no row in `FINDING_READERS` at all.  `grade_delivery` and `grade_landing` are
+measured on every render, by the colour half of the P11 checks, and NOTHING read them - which is
+precisely the defect the test was written to prevent, arriving through the test's own blind spot.
+A gate that cannot fail is worse than no gate, because it reads as coverage; so is a gate that
+cannot SEE.
+
+**The rule.** A producer may name its metric however it likes.  The contract is that a READER is
+declared for every metric a producer can construct, and the harvest must see every way of
+naming one.  The first field of every one of these constructors is the metric, so a string in
+first position names it.
+
+**Where it is.** `_emitted_metrics` in
+`tests/contracts/test_qa_findings_reach_a_reader.py` reads the positional first argument as well
+as the keyword, and `FINDING_READERS` carries rows for `grade_delivery` and `grade_landing`.  The
+new perceptual producer (`library/tools/render_perception.py`) is harvested by the same rule, and
+its eight metrics are in the same table.
+
+**What it does not fix.** The harvest reads the SOURCE, so it sees the metrics a producer can
+construct and not the ones it constructs on a path the source does not show.  A producer that
+builds its rows through a helper the harvest does not name is still invisible; the enumeration of
+producers is `FINDING_CONSTRUCTORS`, and adding one is a line there.
