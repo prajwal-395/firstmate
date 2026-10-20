@@ -227,23 +227,40 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     )
     receipts: list[dict] = []
 
-    def refused(category: str, reason: str,
-                *, evidence: Mapping | None = None) -> dict:
+    def refused(category: str, reason: str, *, failed_index: int,
+                evidence: Mapping | None = None) -> dict:
         refusal = ExecutionRefusal(
             category, reason, retryable=False,
             recovery={"status": "required" if receipts else "not_required",
                       "completed_operations": len(receipts)},
         ).as_dict()
         return {
-            "status": "partial_failure" if receipts else "failed",
+            "status": ("partial_failure" if receipts
+                       or (evidence or {}).get("mutated") else "failed"),
             "request_id": request.id, "backend": backend,
-            "atomic": False,
+            "atomic": False, "atomicity": "sequential_non_atomic",
             "mutated": bool(receipts or (evidence or {}).get("mutated")),
+            "completion_claimed": False,
+            "partial_result_preserved": bool(
+                receipts or (evidence or {}).get("mutated")),
             "completed_operations": receipts,
-            "refusal": refusal, "failed_operation_index": len(receipts),
-            "failed_operation": (operations[len(receipts)]
-                                 if len(receipts) < len(operations) else None),
+            "refusal": refusal, "failed_operation_index": failed_index,
+            "failed_operation": (operations[failed_index]
+                                 if failed_index < len(operations) else None),
             "failure_evidence": dict(evidence or {}),
+            "recovery": {
+                "status": "required" if receipts or (evidence or {}).get("mutated")
+                else "not_required",
+                "completed_operation_indices": [row["operation_index"]
+                                                  for row in receipts],
+                "failed_operation_index": failed_index,
+                "failure": reason,
+                "evidence": [row["receipt"].get("execution_contract", {}).get(
+                    "recovery", {}) for row in receipts]
+                    + ([dict((evidence or {}).get("adapter_receipt", {}).get(
+                        "execution_contract", {}).get("recovery", {}))]
+                       if (evidence or {}).get("adapter_receipt") else []),
+            },
             "execution_routing": decision,
         }
 
@@ -257,12 +274,13 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             result = executor(context)
         except Exception as exc:  # noqa: BLE001 - preserve partial result
             return refused("backend_failure",
-                           f"{type(exc).__name__}: {exc}")
+                           f"{type(exc).__name__}: {exc}",
+                           failed_index=index)
         if not isinstance(result, Mapping):
             return refused(
                 "verification_failed",
                 f"adapter for {operations[index]['op']} on {backend_id} "
-                "did not return a receipt mapping")
+                "did not return a receipt mapping", failed_index=index)
         receipt = (dict(result) if result.get("execution_contract")
                    else standardize_receipt(result))
         verification = (receipt.get("execution_contract") or {}).get(
@@ -272,15 +290,23 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 "verification_failed",
                 f"adapter for {operations[index]['op']} on {backend_id} "
                 "returned without verified read-back evidence",
+                failed_index=index,
                 evidence={"adapter_receipt": receipt,
                           "mutated": receipt.get("mutated", True)},
             )
-        receipts.append(receipt)
+        receipts.append({"operation_index": index,
+                         "operation": operations[index],
+                         "target_identity": {
+                             key: operations[index][key]
+                             for key in ("unique_id", "client_unique_id")
+                             if key in operations[index]},
+                         "receipt": receipt})
 
     return {
         "status": "committed", "request_id": request.id,
         "project": request.project, "timeline": request.timeline,
-        "backend": backend, "atomic": False, "mutated": True,
+        "backend": backend, "atomic": False,
+        "atomicity": "sequential_non_atomic", "mutated": True,
         "operations": receipts,
         "execution_routing": decision,
     }

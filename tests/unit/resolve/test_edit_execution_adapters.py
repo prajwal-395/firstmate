@@ -77,6 +77,18 @@ def test_target_identity_must_resolve_exactly_once():
         adapters._target_position(snapshot, "duplicate")
 
 
+def test_prepared_position_is_refused_after_prior_structural_mutation():
+    context = _context({"op": "clip.trim", "unique_id": "clip-17"})
+    context.compiled = SimpleNamespace(operations=(
+        {"op": "clip.delete", "unique_id": "clip-99"},
+        context.operation,
+    ))
+    context.operation_index = 1
+
+    with pytest.raises(ValueError, match="cannot safely reuse a prepared"):
+        adapters._target_position_for_context(context, "clip-17")
+
+
 def test_p0_adapters_register_only_the_implemented_operation_backend_pairs():
     from library.tools import resolve_axi_core
 

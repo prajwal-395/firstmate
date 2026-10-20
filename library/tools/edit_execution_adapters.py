@@ -10,6 +10,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 
+# These operations can change the positional address of a later item. Until
+# this adapter has a fresh live read-back after each command, a subsequent
+# positional write must refuse rather than reuse the prepared index.
+_POSITION_INVALIDATING_OPERATIONS = frozenset({
+    "clip.delete", "clip.move", "clip.split", "clip.slide", "clip.roll",
+    "clip.ripple", "track.add", "overlay.add", "overlay.remove",
+})
+
+
+def _target_position_for_context(context, unique_id: str) -> tuple[str, int]:
+    operation_index = int(getattr(context, "operation_index", 0))
+    compiled = getattr(context, "compiled", None)
+    prior = (compiled.operations[:operation_index] if compiled is not None
+             else ())
+    invalidators = [str(operation["op"]) for operation in prior
+                    if str(operation["op"]) in _POSITION_INVALIDATING_OPERATIONS]
+    if invalidators:
+        raise ValueError(
+            "cannot safely reuse a prepared track/index after positional "
+            f"mutation(s) {invalidators}; refresh target identity before "
+            "the next mutation")
+    return _target_position(context.snapshot, unique_id)
+
+
 def _target_position(snapshot: Mapping, unique_id: str) -> tuple[str, int]:
     hits = []
     for track in snapshot["tracks"]:
@@ -41,6 +65,12 @@ def _verified_command(context, command: list[str], operation_id: str,
         "mutated": True,
         "operation_id": operation_id,
         "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            key: context.operation[key]
+            for key in ("unique_id", "client_unique_id")
+            if key in context.operation
+        },
         "readback": {"stdout": result.stdout},
         "execution_contract": {
             "verification": {
@@ -56,7 +86,7 @@ def _verified_command(context, command: list[str], operation_id: str,
 def _trim(context) -> dict:
     operation = context.operation
     unique_id = str(operation["unique_id"])
-    row, index = _target_position(context.snapshot, unique_id)
+    row, index = _target_position_for_context(context, unique_id)
     clips = context.snapshot["tracks"]
     clip = next(
         clip for track in clips for clip in track["clips"]
@@ -76,8 +106,8 @@ def _trim(context) -> dict:
 
 
 def _delete(context) -> dict:
-    row, index = _target_position(
-        context.snapshot, str(context.operation["unique_id"]))
+    row, index = _target_position_for_context(
+        context, str(context.operation["unique_id"]))
     return _verified_command(context, [
         "edit", "delete", "--track", row, "--index", str(index),
         "--apply", "--project", context.request.project,
@@ -88,8 +118,8 @@ def _delete(context) -> dict:
 
 def _caption_fix(context) -> dict:
     operation = context.operation
-    row, index = _target_position(
-        context.snapshot, str(operation["unique_id"]))
+    row, index = _target_position_for_context(
+        context, str(operation["unique_id"]))
     return _verified_command(context, [
         "edit", "title", "--track", row, "--index", str(index),
         "--text", str(operation["text"]), "--apply", "--project",
@@ -107,8 +137,8 @@ def _audio_gain(context) -> dict:
     if len(context.request.operations) != 1:
         raise ValueError(
             "audio.gain currently requires a single-operation request")
-    row, _index = _target_position(
-        context.snapshot, str(operation["unique_id"]))
+    row, _index = _target_position_for_context(
+        context, str(operation["unique_id"]))
     if not row.startswith("A"):
         raise ValueError("audio.gain target must be an audio-track item")
     clip = next(
@@ -246,14 +276,14 @@ def _touchup(context) -> dict:
             if key in operation:
                 edit[key] = operation[key]
     elif operation_id == "overlay.resize":
-        row, index = _target_position(
-            context.snapshot, str(operation["unique_id"]))
+        row, index = _target_position_for_context(
+            context, str(operation["unique_id"]))
         edit = {"op": "resize_overlay", "row": row, "item": index,
                 "width": int(operation["width"]),
                 "height": int(operation["height"])}
     else:
-        row, index = _target_position(
-            context.snapshot, str(operation["unique_id"]))
+        row, index = _target_position_for_context(
+            context, str(operation["unique_id"]))
         if operation_id == "audio.fade":
             import math
 
