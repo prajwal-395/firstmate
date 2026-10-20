@@ -44,6 +44,12 @@ def main(argv=None) -> int:
     result = verbs.add_parser("result", help="a job's receipt")
     result.add_argument("id")
     result.add_argument("--wait", type=float, default=0.0)
+    result.add_argument("--until-done", action="store_true",
+                        help="keep waiting until the job reaches a terminal "
+                             "state (done, failed, rejected, cancelled), or "
+                             "--deadline seconds pass")
+    result.add_argument("--deadline", type=float, default=300.0,
+                        help="how long --until-done waits, in seconds")
     kpi = verbs.add_parser("kpi", help="what Resolve cost, off the receipts")
     window = kpi.add_mutually_exclusive_group()
     window.add_argument("--hours", type=float,
@@ -115,7 +121,11 @@ def main(argv=None) -> int:
             else:
                 print(json.dumps(submitted))
         else:
-            print(json.dumps(client.result(args.id, args.wait), indent=2))
+            print(json.dumps(
+                client.result(args.id, args.wait,
+                              until_done=args.until_done,
+                              deadline=args.deadline),
+                indent=2))
     except (ConnectionError, client.BrokerError) as exc:
         print(f"ren resolved: {exc}", file=sys.stderr)
         return 1

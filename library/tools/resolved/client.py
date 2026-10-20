@@ -565,10 +565,34 @@ def report_progress(job_id: str, progress: str, path=None) -> dict:
     return call({"op": "progress", "id": job_id, "progress": progress}, path)
 
 
-def result(job_id: str, wait: float = 0.0, path=None) -> dict:
-    reply = call({"op": "result", "id": job_id, "wait": wait}, path,
-                 timeout=wait + 30.0)
-    return reply["job"]
+def result(job_id: str, wait: float = 0.0, path=None,
+           until_done: bool = False, deadline: float = 300.0) -> dict:
+    """The job's receipt.
+
+    With `until_done`, the wait is the PROCEDURE the caller used to run
+    by hand: ask again while the state is `queued` or `running`.  The
+    infrastructure can perform that, so the caller is not asked to
+    remember to poll - a model told to "repeat the command if the state
+    is still queued or running" had to know the procedure at all.
+    """
+    if not until_done:
+        reply = call({"op": "result", "id": job_id, "wait": wait}, path,
+                     timeout=wait + 30.0)
+        return reply["job"]
+    from library.tools.resolved.store import TERMINAL
+
+    end = time.monotonic() + max(0.0, deadline)
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return result(job_id, 0.0, path)
+        # The broker returns as soon as the job is terminal, so a longer
+        # wait costs nothing when the job finishes early - and it keeps
+        # the polling from becoming a chatty loop.
+        round_wait = min(max(wait, 5.0), remaining)
+        job = result(job_id, round_wait, path)
+        if job is None or job.get("state") in TERMINAL:
+            return job
 
 
 @contextmanager

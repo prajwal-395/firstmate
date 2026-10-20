@@ -69,6 +69,33 @@ def test_ops_json_lists_every_operation(capsys):
     assert listing["count"] == len(names) >= 53
 
 
+def test_every_group_is_one_block_in_the_verb_table():
+    """`ren --help` prints a group's header ONCE.
+
+    The defect: the registry listed a group's verbs in more than one
+    place, so the help rendered `Setup:` twice and cut the Reels block
+    in half with `Maintenance:` in the middle - a reader could not tell
+    where a group ended.  The groups are the help's table of contents,
+    so each is one block.
+    """
+    groups = [verb.group for verb in VERBS]
+    blocks = [group for index, group in enumerate(groups)
+              if index == 0 or groups[index - 1] != group]
+    assert len(blocks) == len(set(blocks)), (
+        f"a group is rendered in more than one block: {blocks}")
+    assert blocks == ["Setup", "Projects", "Reels", "Maintenance", "Resolve",
+                      "Footage", "Eval", "Fabric"]
+
+
+def test_the_help_renders_every_group_header_once(monkeypatch, capsys):
+    """The rendered help agrees with the registry: one header per group."""
+    monkeypatch.setenv("REN_ENGINE_ROOT", str(REPO))
+    assert ren_cli.main(["--help"]) == 0
+    usage = capsys.readouterr().out
+    for group in {verb.group for verb in VERBS}:
+        assert usage.count(f"\n{group}:\n") == 1, group
+
+
 def _native_rows() -> list:
     source = (NATIVE / "commands.rs").read_text(encoding="utf-8")
     return re.findall(r'Verb \{ name: "([^"]+)", group: "([^"]+)", summary: "((?:[^"\\]|\\.)*)" \}',

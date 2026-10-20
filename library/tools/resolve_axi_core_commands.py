@@ -547,12 +547,12 @@ def cmd_capabilities(args) -> int:
             }),
         }
 
-    def render(payload: dict) -> int:
+    def render(payload: dict, code: int = 0) -> int:
         if as_json:
             sys.stdout.write(json.dumps(payload, sort_keys=True) + "\n")
         else:
             sys.stdout.write(_capabilities_toon(payload) + "\n")
-        return 0
+        return code
 
     def search_text(op) -> str:
         words = [op.id, op.domain, op.note, *op.required]
@@ -566,6 +566,166 @@ def cmd_capabilities(args) -> int:
         if op.id.startswith("caption"):
             words.extend(("subtitle", "text", "styling"))
         return " ".join(words).casefold()
+
+    def production_enabled_ids() -> list:
+        """Every operation id this build may route in production.
+
+        Both vocabularies, because a caller who asks for an unknown id
+        does not know which one it meant: the edit algebra's operation
+        ids and the AXI command names that carry them.
+        """
+        algebra = [status.id for status in edit_algebra.OP_STATUS.values()
+                   if status.production_enabled]
+        axi = [name for name, ids in edit_algebra.AXI_OPERATION_MAP.items()
+               if ids and all(edit_algebra.status(op_id).production_enabled
+                              for op_id in ids)]
+        return sorted(set(algebra) | set(axi))
+
+    def domain_alternatives(op_id: str) -> list:
+        """The production-enabled operations in the same domain.
+
+        The answer to "what CAN I do instead" is not a guess: it is the
+        operations of the same domain that carry live qualification
+        evidence, read off the registry.
+        """
+        entry = edit_algebra.status(op_id)
+        if entry is not None:
+            domain = edit_algebra.ALGEBRA[op_id].domain
+            rows = []
+            for status in edit_algebra.OP_STATUS.values():
+                if not status.production_enabled or status.id == op_id:
+                    continue
+                if edit_algebra.ALGEBRA[status.id].domain != domain:
+                    continue
+                rows.append({"id": status.id,
+                             "summary": concise_purpose(
+                                 edit_algebra.ALGEBRA[status.id]),
+                             "verdict": "production_enabled"})
+            rows.sort(key=lambda row: row["id"])
+            return rows
+        # An AXI command name with no algebra operation of its own: the
+        # alternatives are the commands of the same family that ARE
+        # production-enabled.
+        prefix = op_id.split(".")[0]
+        rows = []
+        for name, ids in edit_algebra.AXI_OPERATION_MAP.items():
+            if not name.startswith(prefix + ".") or not ids:
+                continue
+            if not all(edit_algebra.status(op_id).production_enabled
+                       for op_id in ids):
+                continue
+            rows.append({"id": name, "summary": "AXI command",
+                         "verdict": "production_enabled"})
+        rows.sort(key=lambda row: row["id"])
+        return rows
+
+    def support_level(requested: str) -> str:
+        """The operation's support band, from the ONE reading.
+
+        `operation_map.support_level` is the canonical band - production
+        enabled, context qualified, implemented, or unsupported - and
+        the map is what the canonical operation record publishes.  This
+        answer uses the same four bands, so a caller reading both
+        surfaces sees one vocabulary.
+
+        An AXI command name is read through the algebra operations it
+        carries, and the WEAKEST of them is the command's band: a
+        command whose operations are not all production-enabled is not
+        production-enabled.
+        """
+        from library.tools import operation_map
+        entry = edit_algebra.status(requested)
+        if entry is not None:
+            return operation_map.support_level(entry)
+        if requested.startswith("native_mcp."):
+            # Blackmagic's own MCP tools are implemented mechanisms with
+            # no live qualification - and they are explicitly not a
+            # timeline-edit backend.
+            return operation_map.SUPPORT_IMPLEMENTED
+        op_ids = edit_algebra.AXI_OPERATION_MAP.get(requested, ())
+        if not op_ids:
+            return operation_map.SUPPORT_UNSUPPORTED
+        levels = []
+        for op_id in op_ids:
+            status = edit_algebra.status(op_id)
+            if status is None:
+                return operation_map.SUPPORT_UNSUPPORTED
+            levels.append(operation_map.support_level(status))
+        order = (operation_map.SUPPORT_PRODUCTION,
+                 operation_map.SUPPORT_CONTEXT,
+                 operation_map.SUPPORT_IMPLEMENTED,
+                 operation_map.SUPPORT_UNSUPPORTED)
+        return min(levels, key=order.index)
+
+    def guidance_for(payload: dict, requested: str) -> dict | None:
+        """Structured guidance for an operation this build cannot route.
+
+        None when the operation is production-enabled: there is nothing
+        to guide about.  Otherwise the record names the gap, the
+        operations that ARE available, and the exact next step - the
+        same shape the `ren` interface answers an unknown id with, so a
+        host reads one answer whichever interface produced it.
+        """
+        from library.tools import capability_guidance, operation_map
+        level = payload.get("support_level") or support_level(requested)
+        if level == operation_map.SUPPORT_PRODUCTION:
+            return None
+        alternatives = domain_alternatives(requested)
+        supported = production_enabled_ids()
+        if level == operation_map.SUPPORT_CONTEXT:
+            status = capability_guidance.NOT_PRODUCTION_ENABLED
+            what = (f"{requested!r} is qualified only inside the context "
+                    f"its evidence was earned in, so ordinary production "
+                    f"routing does not reach it.")
+            fix = ("use an operation that is production-enabled, or reach "
+                   "for this one inside the context the operation map "
+                   "names")
+        elif level == operation_map.SUPPORT_IMPLEMENTED:
+            status = capability_guidance.UNQUALIFIED
+            what = (f"{requested!r} is implemented but carries no live "
+                    f"qualification evidence, so it may not be routed.")
+            fix = ("use an operation that is production-enabled, or record "
+                   "the live qualification this one needs")
+        else:
+            status = capability_guidance.UNAVAILABLE
+            what = (f"{requested!r} is not supported for any executor "
+                    f"this build knows.")
+            fix = ("use one of the operations listed as available instead, "
+                   "or ask for the qualification that would enable this one")
+        return capability_guidance.guidance(
+            status, requested, what,
+            "the registry distinguishes production enabled, context "
+            "qualified, implemented and unsupported, and production "
+            "routing fails closed",
+            fix,
+            next_action=(f"{TOOL} capabilities --search \"{requested}\""),
+            alternatives=alternatives,
+            supported=supported,
+        )
+
+    def unknown_guidance(requested: str) -> dict:
+        """Guidance for an id the registry does not hold."""
+        from library.tools import capability_guidance
+        known = list(edit_algebra.OP_STATUS)
+        nearest = capability_guidance.closest_ids(requested, known)
+        alternatives = [{"id": name,
+                         "summary": concise_purpose(
+                             edit_algebra.ALGEBRA[name]),
+                         "verdict": ("production_enabled"
+                                     if edit_algebra.status(name).production_enabled
+                                     else edit_algebra.status(name).qualification_status)}
+                        for name in nearest]
+        return capability_guidance.guidance(
+            capability_guidance.UNKNOWN, requested,
+            f"{requested!r} is not an operation this build knows.",
+            "the operation vocabulary is the edit algebra's ids; the "
+            "nearest ids are listed below",
+            "ask for one of the nearest ids instead, or search the "
+            "registry for the effect you want",
+            next_action=f"{TOOL} capabilities --search \"{requested}\"",
+            alternatives=alternatives,
+            supported=production_enabled_ids(),
+        )
 
     if query:
         stop_words = {"a", "an", "and", "existing", "for", "in",
@@ -617,6 +777,7 @@ def cmd_capabilities(args) -> int:
             "id": requested, "documented": True, "available": True,
             "implemented": True, "live_qualified": True,
             "production_enabled": True,
+            "support_level": "production_enabled",
             "supported_backend": ["resolve_axi"],
             "requires": ["recorded lifecycle ownership", "disposable state",
                          "exact project and timeline IDs", "exclusive Resolve lease",
@@ -664,8 +825,13 @@ def cmd_capabilities(args) -> int:
     elif requested:
         payload = edit_algebra.capability(requested)
         if payload is None:
-            return fail(f"unknown capability {requested!r}",
-                        f"{TOOL} capabilities")
+            guidance = unknown_guidance(requested)
+            return render({"id": requested, "documented": False,
+                           "available": False, "implemented": False,
+                           "live_qualified": False,
+                           "production_enabled": False,
+                           "support_level": "unsupported",
+                           "guidance": guidance}, code=1)
     if requested in edit_algebra.OP_STATUS:
         payload = operation_detail(requested)
     elif requested in edit_algebra.AXI_OPERATION_MAP:
@@ -674,6 +840,10 @@ def cmd_capabilities(args) -> int:
             payload = operation_detail(op_ids[0])
             payload["id"] = requested
             payload["algebra_operations"] = list(op_ids)
+    # The ONE support band, from the canonical operation map, so this
+    # answer and the map never disagree about what an operation is.
+    payload["support_level"] = support_level(requested)
+    payload["guidance"] = guidance_for(payload, requested)
     return render(payload)
 
 
@@ -714,7 +884,21 @@ def _capabilities_toon(payload: dict) -> str:
                                                 sort_keys=True, separators=(",", ":")),
         }))
     else:
-        parts.append(kv_block("details", payload))
+        details = {key: value for key, value in payload.items()
+                   if key != "guidance"}
+        parts.append(kv_block("details", details))
+    guidance = payload.get("guidance")
+    if guidance:
+        alternatives = ", ".join(str(row.get("id"))
+                                 for row in guidance.get("alternatives", []))
+        parts.append(kv_block("guidance", {
+            "status": guidance.get("status", ""),
+            "what": guidance.get("what", ""),
+            "why": guidance.get("why", ""),
+            "fix": guidance.get("fix", ""),
+            "available_instead": alternatives or "none",
+            "next_action": guidance.get("next_action", ""),
+        }))
     return "\n".join(parts)
 
 

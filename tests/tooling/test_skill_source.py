@@ -87,3 +87,49 @@ def test_resolve_axi_capability_references_match_the_registry_byte_for_byte():
             f"{refs / name} drifts from edit_algebra.OP_STATUS; regenerate "
             "with `bin/vep -m library.tools.operations "
             "--emit-resolve-axi-references`")
+
+
+def test_the_co_editor_capability_reference_matches_the_registry():
+    """The capability roster the co-editor reads is GENERATED.
+
+    A hand-written list of what Ren can do is a second list, and a
+    second list drifts - the defect the generated `pipeline_operations`
+    skill already had, in the other direction: the shipped table
+    omitted two operations the registry held, so no agent could choose
+    them.
+    """
+    from library.tools import capability_discovery
+
+    reference = SOURCE / "ren-co-editor" / "references" / "capabilities.md"
+    assert reference.is_file(), (
+        "the co-editor's generated capability reference is missing")
+    assert reference.read_text(encoding="utf-8") == \
+        capability_discovery.emit_reference(), (
+            f"{reference} drifts from the capability registry; regenerate "
+            "it with `python3 -m library.tools.capability_discovery "
+            "--emit-reference`")
+
+
+def test_a_skill_that_lists_the_capability_roster_is_generated():
+    """A skill may NAME a capability in context; it may not LIST them.
+
+    The roster is generated - one list, derived from the registry.  A
+    skill that lists the ids itself is a second list, and a second list
+    drifts silently: the generated `pipeline_operations` skill shipped
+    missing two operations the registry held, so no agent could choose
+    them.  Naming a few ids in prose is not a roster; listing them is.
+    """
+    from library.tools import machine_needs
+
+    known = set(machine_needs.CAPABILITY_NEEDS)
+    roster = 10
+    for skill_md in sorted(SOURCE.glob("*/SKILL.md")):
+        text = skill_md.read_text(encoding="utf-8")
+        named = {token.strip("`.,;:()[]") for token in text.split()
+                 if token.strip("`.,;:()[]") in known}
+        if len(named) <= roster:
+            continue
+        assert "GENERATED" in text, (
+            f"{skill_md} lists {len(named)} capability ids by hand; the "
+            "roster is generated, so a hand-written list is a second one "
+            "that drifts")
