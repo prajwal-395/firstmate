@@ -123,6 +123,9 @@ ROUTE_MUTATION_SCOPE: Mapping[str, str] = {
     "resolve_axi": "targeted",
     "reel_touchup": "targeted",
     "composed_edit.structural": "targeted",
+    # Semantic AXI adapters perform a narrowly authorized request and own
+    # their live read-back.  They are a targeted route, never a rebuild.
+    "resolve_axi": "targeted",
     "full_rebuild": "full_rebuild",
 }
 
@@ -179,6 +182,8 @@ ROUTE_TRANSACTION_OWNERSHIP: Mapping[str, Mapping[str, object]] = {
                                writes=True),
     "composed_edit.structural": _ownership("timeline.semantic_edit",
                                             lease="exclusive", writes=True),
+    "resolve_axi": _ownership("timeline.semantic_edit", lease="exclusive",
+                               writes=True),
     "incremental": _ownership("", lease="exclusive", writes=True),
     "full_rebuild": _ownership("", lease="exclusive", writes=True),
 }
@@ -1127,6 +1132,38 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
     _enforce_qualification_policy(gaps, context)
     statuses = _statuses(edit_algebra, ids)
     gap_reasons = _gap_reasons(gaps)
+
+    # Registered Resolve AXI adapters are a real semantic backend. Keep the
+    # adapter choice inside the router, and make it eligible only when every
+    # operation has a production-enabled AXI row whose recorded predicates
+    # match the inspected live state. The adapter owns the command, lease,
+    # transaction receipt and operation-specific read-back.
+    axi_rows = [edit_algebra.status(op_id).for_backend("resolve_axi")
+                for op_id in ids]
+    if (axi_rows and all(row is not None and row.compilable
+                         and row.production_enabled
+                         for row in axi_rows)
+            and all(_qualification_matches(row, context.get(
+                "qualification_state")) for row in axi_rows)):
+        blockers = edit_algebra.direct_blockers(ids, "resolve_axi")
+        return ExecutionDecision(
+            backend="resolve_axi",
+            reasons=("every operation has a production-enabled Resolve AXI adapter",
+                     "live qualification predicates match the inspected project state",
+                     *checked, *gap_reasons,
+                     *_proof_reasons(request_class, blockers)),
+            rejected_alternatives=(
+                RejectedBackend("edit_patch", "the registered AXI adapter owns this semantic operation"),
+                RejectedBackend("full_rebuild", "a qualified targeted adapter is available"),
+            ),
+            verification=("verify the adapter receipt and fresh operation-specific read-back",
+                          "verify timeline state outside the declared targets is unchanged",
+                          *_proof_verification(blockers)),
+            algebra_status=statuses,
+            mode=_mode_for("resolve_axi", blockers=blockers, context=context),
+            qualification_gaps=gaps,
+            selection=_selection_basis(operations, context, "resolve_axi"),
+        )
 
     protected_compound = (
         len(ids) == 2

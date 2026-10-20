@@ -81,11 +81,14 @@ def test_capabilities_query_is_derived_from_algebra_and_qualification_evidence(c
     assert cmd_capabilities(SimpleNamespace(
         operation="clip.move_across_tracks", json=True)) == 0
     answer = json.loads(capsys.readouterr().out)
+    assert answer["type"] == "command_only"
+    assert answer["control_kind"] == "timeline_command"
+    assert answer["command"] == "resolve-axi edit move"
     assert answer["algebra_operations"] == []
-    assert answer["available"] is False
+    assert answer["available"] is True
     assert answer["live_qualified"] is False
     assert answer["production_enabled"] is False
-    assert "same-row only" in answer["limitations"][0]
+    assert answer["edit_request_routable"] is False
 
 
 def test_capabilities_include_native_mcp_delegation_and_restrictions(capsys):

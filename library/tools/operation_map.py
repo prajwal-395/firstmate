@@ -114,6 +114,47 @@ SUPPORT_LEVELS = (
 #: The repository root, for resolving implementation evidence.
 ROOT = Path(__file__).resolve().parents[2]
 
+# Resolve commands that intentionally have no EditRequest algebra operation.
+# Their identities, types and parser paths are still discoverable here;
+# these entries must never be treated as timeline-edit semantics.
+AXI_COMMAND_CONTROL_SPECS: dict[str, dict[str, str]] = {
+    "clip.move_across_tracks": {
+        "control_kind": "timeline_command", "handler": "cmd_edit_move"},
+    "clip.title": {
+        "control_kind": "timeline_command", "handler": "cmd_edit_title"},
+    "clip.transition": {
+        "control_kind": "timeline_command", "handler": "cmd_edit_transition"},
+    "clip.speed": {
+        "control_kind": "timeline_command", "handler": "cmd_edit_speed"},
+    "color.lut": {
+        "control_kind": "color_command", "handler": "cmd_color_lut"},
+    "audio.isolate": {
+        "control_kind": "audio_command", "handler": "cmd_audio_isolate"},
+    "multicam.build": {
+        "control_kind": "multicam_command", "handler": "cmd_multicam_build"},
+    "multicam.sync": {
+        "control_kind": "multicam_command", "handler": "cmd_multicam_sync"},
+    "timeline.duplicate": {
+        "control_kind": "timeline_lifecycle_command",
+        "handler": "cmd_timeline_duplicate"},
+    "timeline.checkpoint": {
+        "control_kind": "timeline_lifecycle_command",
+        "handler": "cmd_timeline_checkpoint"},
+    "timeline.delete": {
+        "control_kind": "timeline_lifecycle_command",
+        "handler": "cmd_timeline_retire_owned"},
+    "media.ingest": {
+        "control_kind": "media_command", "handler": "cmd_ingest"},
+    "media.relink": {
+        "control_kind": "media_command", "handler": "cmd_relink"},
+    "render.queue": {
+        "control_kind": "render_command", "handler": "cmd_render_queue"},
+    "render.start": {
+        "control_kind": "render_command", "handler": "cmd_render_start"},
+    "render.stop": {
+        "control_kind": "render_command", "handler": "cmd_render_stop"},
+}
+
 #: The router's backend set, computed once on first use.
 _ROUTER_BACKENDS: tuple[str, ...] | None = None
 
@@ -368,6 +409,15 @@ def axi_verbs() -> dict[str, dict[str, str]]:
             cli = paths.get(symbol)
             if cli:
                 record(op_id, f"resolve_axi_core_commands.py:{symbol}", cli)
+
+    # UI recipes are requested as a broker-owned resolve.ui_transaction,
+    # rather than as native edit commands. Publish that AXI request surface
+    # beside the recipe so discovery does not strand implemented UI adapters
+    # with no way to request their qualified path.
+    from library.tools.resolved.ui_transaction import UI_OPERATION_ADAPTERS
+    for op_id in sorted(UI_OPERATION_ADAPTERS):
+        record(op_id, "resolved/ui_transaction.py:UI_OPERATION_ADAPTERS",
+               "ren resolved submit resolve.ui_transaction '<json params>'")
     return verbs
 
 
@@ -660,6 +710,8 @@ def operation_entry(op_id: str, *, declared: Mapping[str, set[str]],
         if backend in router_backends()
         and (edit_algebra.status(op_id).for_backend(backend) is not None))
     command_paths = sorted(verbs.get(op_id, {}))
+    from library.tools.resolved.ui_transaction import ui_operation_adapter
+    ui_adapter = ui_operation_adapter(op_id)
     return {
         "id": op_id,
         "semantics": {
@@ -713,6 +765,7 @@ def operation_entry(op_id: str, *, declared: Mapping[str, set[str]],
             "edit_request_routable": bool(routable),
             "routable_backends": routable,
             "commands": command_paths,
+            "ui_transaction": ui_adapter,
             "note": ("an operation with no routable backend and no command "
                      "has no AXI surface at all; one with a command and no "
                      "routable backend is executed by that command, not by "
@@ -748,6 +801,45 @@ def _control_rows() -> dict:
                 for op_id in ids),
             "limitation": list(
                 edit_algebra.AXI_OPERATION_LIMITATIONS.get(name, ())),
+        }
+    return rows
+
+
+def command_control_rows() -> dict[str, dict]:
+    """Typed AXI command controls that do not name algebra operations.
+
+    Command paths come from the parsed CLI, so an inventory row cannot
+    claim a surface that the user cannot invoke. These controls execute
+    through AXI's brokered command path and never route as EditRequests.
+    """
+    paths = _command_paths()
+    rows = {}
+    for name, spec in sorted(AXI_COMMAND_CONTROL_SPECS.items()):
+        handler = spec["handler"]
+        command_path = paths.get(handler, "")
+        limitations = [
+            "This is an AXI command control, not an edit-algebra operation.",
+            "Use its listed command; it is not eligible for EditRequest routing.",
+        ]
+        if name == "timeline.delete":
+            limitations.append(
+                "Retires only a job-owned disposable timeline whose identity, "
+                "ownership and content fingerprint still match.")
+        rows[name] = {
+            "id": name,
+            "type": "command_only",
+            "support_level": "command_only",
+            "control_kind": spec["control_kind"],
+            "command": f"resolve-axi {command_path}" if command_path else None,
+            "command_handler": handler,
+            "command_available": bool(command_path),
+            "algebra_operations": [],
+            "edit_request_routable": False,
+            "request_surface": {
+                "kind": "resolve_axi_argv",
+                "broker_owned": True,
+            },
+            "limitations": limitations,
         }
     return rows
 
@@ -794,6 +886,7 @@ def operation_map() -> dict:
                             for path in EXECUTION_PATHS},
         "backends": exposure,
         "axi_controls": _control_rows(),
+        "command_controls": command_control_rows(),
         "operations": entries,
         "audit": audit(),
     }
@@ -918,6 +1011,11 @@ def audit() -> dict:
     outside_the_registry = _implemented_outside_the_registry()
     planning_only = _planning_only_rows()
     adapters_without_a_route = _adapters_without_a_route()
+    command_control_surface_gaps = [
+        {"control": name, "handler": row["command_handler"]}
+        for name, row in command_control_rows().items()
+        if not row["command_available"]
+    ]
 
     return {
         "declared_without_adapter": declared_without_adapter,
@@ -927,6 +1025,7 @@ def audit() -> dict:
         "implemented_outside_axi": implemented_outside_axi,
         "implemented_outside_the_registry": outside_the_registry,
         "axi_controls_without_adapter": controls_without_adapter,
+        "command_control_surface_gaps": command_control_surface_gaps,
         "unresolved_implementation_evidence": unresolved_evidence,
         "planning_only": planning_only,
         "counts": {
@@ -937,6 +1036,8 @@ def audit() -> dict:
             "implemented_outside_axi": len(implemented_outside_axi),
             "implemented_outside_the_registry": len(outside_the_registry),
             "axi_controls_without_adapter": len(controls_without_adapter),
+            "command_control_surface_gaps": len(
+                command_control_surface_gaps),
             "unresolved_implementation_evidence": len(unresolved_evidence),
             "planning_only": len(planning_only),
         },

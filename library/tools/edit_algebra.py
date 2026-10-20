@@ -3902,39 +3902,13 @@ AXI_OPERATION_MAP: dict[str, tuple[str, ...]] = {
     "clip.place": ("clip.insert",),
     "clip.trim": ("clip.trim",),
     "clip.move": ("clip.move",),
-    # The existing clip.move contract is same-row only. Do not alias it to
-    # a cross-track request: that would silently change editorial semantics.
-    "clip.move_across_tracks": (),
     "clip.delete": ("clip.delete",),
     "clip.remove": ("clip.remove",),
-    "clip.title": (),
-    "clip.transition": (),
-    "clip.speed": (),
     "marker.add": ("marker.add",),
     "marker.delete": ("marker.delete",),
-    "color.lut": (),
-    "audio.isolate": (),
-    "multicam.build": (),
-    "multicam.sync": (),
-    "timeline.duplicate": (),
-    "timeline.checkpoint": (),
-    "timeline.delete": (),
-    "media.ingest": (),
-    "media.relink": (),
-    "render.queue": (),
-    "render.start": (),
-    "render.stop": (),
 }
 
 AXI_OPERATION_LIMITATIONS = {
-    "clip.move_across_tracks": (
-        "No matching algebra operation is currently declared; clip.move is same-row only.",),
-    "clip.transition": ("No matching algebra operation is currently declared.",),
-    "color.lut": ("No matching algebra operation is currently declared.",),
-    "audio.isolate": ("No matching algebra operation is currently declared.",),
-    "timeline.delete": (
-        ("Guarded lifecycle retirement only: exact Resolve ID, recorded owner, "
-         "disposable state, recovery/fingerprint checks, and exclusive lease."),),
 }
 
 
@@ -4281,6 +4255,7 @@ _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
 _ROUTER_BACKEND_PROOF: dict[str, str] = {
     "edit_patch": "edit_patch",
     "edit_patch.property": "edit_patch",
+    "resolve_axi": "resolve_axi",
 }
 
 

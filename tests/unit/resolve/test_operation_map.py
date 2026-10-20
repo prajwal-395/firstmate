@@ -67,6 +67,43 @@ def test_the_map_declares_no_operation_of_its_own():
             edit_algebra.AXI_OPERATION_MAP[name])
 
 
+def test_command_only_controls_remain_typed_and_have_real_axi_paths():
+    """Defect: command controls with no algebra operation were either
+    omitted from discovery or falsely represented as timeline edits."""
+    payload = _map()
+    expected = {
+        "clip.move_across_tracks", "clip.title", "clip.transition",
+        "clip.speed", "color.lut", "audio.isolate", "multicam.build",
+        "multicam.sync", "timeline.duplicate", "timeline.checkpoint",
+        "timeline.delete", "media.ingest", "media.relink", "render.queue",
+        "render.start", "render.stop",
+    }
+    assert set(payload["command_controls"]) == expected
+    assert payload["audit"]["command_control_surface_gaps"] == []
+    for row in payload["command_controls"].values():
+        assert row["type"] == "command_only"
+        assert row["control_kind"]
+        assert row["command_available"] is True
+        assert row["command"].startswith("resolve-axi ")
+        assert row["algebra_operations"] == []
+        assert row["edit_request_routable"] is False
+
+
+def test_ui_recipes_have_a_discoverable_broker_owned_axi_surface():
+    """Defect: Resolve UI recipes were implemented behind the broker,
+    but operation-map discovery gave agents no AXI request surface."""
+    payload = _map()
+    for operation in ("color.window.create", "color.window.modify",
+                      "color.window.track"):
+        row = payload["operations"][operation]
+        assert "ren resolved submit resolve.ui_transaction '<json params>'" in row["axi_verbs"]
+        assert "resolve.ui" in {
+            backend["backend"] for backend in row["backend_capabilities"]
+        }
+        assert row["how_to_request"]["ui_transaction"]["provider"] == "resolve.ui"
+        assert row["how_to_request"]["ui_transaction"]["production_enabled"] is False
+
+
 def test_the_audit_cannot_miss_a_declared_backend_without_an_adapter():
     """Defect: the registry declared `marker.add` and `clip.smart_reframe`
     on the `resolve_axi` backend, and no dispatch table provided either -
@@ -88,17 +125,14 @@ def test_the_audit_cannot_miss_a_declared_backend_without_an_adapter():
     assert ("clip.smart_reframe", "resolve_axi") in reported
 
 
-def test_a_registered_adapter_the_router_cannot_select_is_reported():
-    """Defect: eight operations had a registered semantic adapter on the
-    `resolve_axi` backend, and the execution router names no such
-    backend - so a semantic request could not reach them, while the
-    registry said they were implemented.  An agent that read the
-    registry would pick a route the router never takes."""
+def test_a_registered_resolve_axi_adapter_is_reachable_from_the_router():
+    """Defect: the algebra declared semantic Resolve AXI adapters, but
+    the router had no `resolve_axi` route and could never select them."""
     rows = {row["backend"]: row
             for row in operation_map.audit()["adapters_without_a_route"]}
-    assert "resolve_axi" in rows
-    assert "clip.trim" in rows["resolve_axi"]["operations"]
-    assert "resolve_axi" not in operation_map.router_backends()
+    assert "resolve_axi" not in rows
+    assert "clip.trim" in operation_map.implemented_coverage()
+    assert "resolve_axi" in operation_map.router_backends()
 
 
 def test_an_operation_with_two_writers_is_reported_as_a_duplicate():

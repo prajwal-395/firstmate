@@ -426,11 +426,17 @@ def cmd_operation_map(args) -> int:
         if requested:
             entry = payload["operations"].get(requested)
             if entry is None:
-                return fail(f"unknown operation {requested!r}",
-                            f"{TOOL} operation-map --list-operations")
-            payload = {"schema": payload["schema"],
-                       "operation": entry,
-                       "audit": payload["audit"]}
+                control = payload["command_controls"].get(requested)
+                if control is None:
+                    return fail(f"unknown operation or command control {requested!r}",
+                                f"{TOOL} operation-map")
+                payload = {"schema": payload["schema"],
+                           "command_control": control,
+                           "audit": payload["audit"]}
+            else:
+                payload = {"schema": payload["schema"],
+                           "operation": entry,
+                           "audit": payload["audit"]}
 
     if as_toon:
         sys.stdout.write(_operation_map_toon(payload) + "\n")
@@ -463,6 +469,15 @@ def _operation_map_toon(payload: dict) -> str:
             ["id", "path", "implemented", "production_enabled",
              "qualification"]))
         return "\n".join(parts)
+    if "command_control" in payload:
+        control = payload["command_control"]
+        return kv_block("command_control", {
+            "id": control["id"],
+            "type": control["type"],
+            "control_kind": control["control_kind"],
+            "command": control["command"] or "unavailable",
+            "edit_request_routable": str(control["edit_request_routable"]),
+        })
     if "counts" in payload:
         return kv_block("audit_counts", payload["counts"])
     return kv_block("map", {
@@ -473,7 +488,7 @@ def _operation_map_toon(payload: dict) -> str:
 
 def cmd_capabilities(args) -> int:
     """Discover operations and answer focused questions from registry evidence."""
-    from library.tools import edit_algebra
+    from library.tools import edit_algebra, operation_map
     from library.tools.native_mcp import capabilities as native_capabilities
 
     requested = getattr(args, "operation", "") or ""
@@ -740,12 +755,28 @@ def cmd_capabilities(args) -> int:
             score = sum(matches)
             if score and all(matches):
                 rows.append((score, op.id, status, op))
+        command_rows = operation_map.command_control_rows()
+        command_matches = []
+        for control_name, control in command_rows.items():
+            haystack = (control_name + " " + control["control_kind"]
+                        + " " + str(control["command"] or "")).casefold()
+            matches = [term in haystack for term in terms]
+            score = sum(matches)
+            if score and all(matches):
+                command_matches.append((score, control_name, control))
         if not rows:
             for op in edit_algebra.ops():
                 status = edit_algebra.status(op.id)
                 score = sum(term in search_text(op) for term in terms)
                 if score:
                     rows.append((score, op.id, status, op))
+        if not rows and not command_matches:
+            for control_name, control in command_rows.items():
+                haystack = (control_name + " " + control["control_kind"]
+                            + " " + str(control["command"] or "")).casefold()
+                score = sum(term in haystack for term in terms)
+                if score:
+                    command_matches.append((score, control_name, control))
         rows.sort(key=lambda row: (-row[0], row[1]))
         result_rows = [{
             "id": op.id,
@@ -753,6 +784,15 @@ def cmd_capabilities(args) -> int:
             "implemented": status.compilable,
             "production_enabled": status.production_enabled,
         } for _, _, status, op in rows[:10]]
+        result_rows.extend({
+            "id": f"axi-command:{name}",
+            "purpose": f"Command-only AXI control: {control['control_kind']}",
+            "type": "command_only",
+            "command": control["command"],
+            "implemented": control["command_available"],
+            "production_enabled": False,
+        } for _, name, control in sorted(
+            command_matches, key=lambda row: (-row[0], row[1]))[:10])
         return render({"query": query, "matches": result_rows})
 
     if getattr(args, "references", False):
@@ -797,16 +837,31 @@ def cmd_capabilities(args) -> int:
             "production_enabled": name == "timeline.delete" or (bool(ids) and all(
                 edit_algebra.status(op_id).production_enabled for op_id in ids)),
         } for name, ids in edit_algebra.AXI_OPERATION_MAP.items())
+        rows.extend({
+            "id": f"axi-command:{name}",
+            "purpose": f"Command-only AXI control: {control['control_kind']}",
+            "type": "command_only",
+            "command": control["command"],
+            "implemented": control["command_available"],
+            "production_enabled": False,
+        } for name, control in operation_map.command_control_rows().items())
         rows.sort(key=lambda row: row["id"])
         return render({"operations": rows})
 
     if requested == "timeline.delete":
         return render({
-            "id": requested, "documented": True, "available": True,
-            "implemented": True, "live_qualified": True,
-            "production_enabled": True,
-            "support_level": "production_enabled",
+            "id": requested, "documented": True,
+            "available": operation_map.command_control_rows()[requested][
+                "command_available"],
+            "implemented": operation_map.command_control_rows()[requested][
+                "command_available"],
+            "live_qualified": False,
+            "production_enabled": False,
+            "support_level": "command_only",
             "supported_backend": ["resolve_axi"],
+            "type": "command_only",
+            "algebra_operations": [],
+            "command": operation_map.command_control_rows()[requested]["command"],
             "requires": ["recorded lifecycle ownership", "disposable state",
                          "exact project and timeline IDs", "exclusive Resolve lease",
                          "verified plan and post-delete census"],
@@ -822,6 +877,16 @@ def cmd_capabilities(args) -> int:
             return fail(f"unknown native MCP capability {requested!r}",
                         f"{TOOL} capabilities")
         payload = {"id": requested, **result}
+    elif requested in operation_map.command_control_rows():
+        payload = dict(operation_map.command_control_rows()[requested])
+        payload.update({
+            "documented": True,
+            "available": payload["command_available"],
+            "implemented": payload["command_available"],
+            "live_qualified": False,
+            "production_enabled": False,
+            "support_level": "command_only",
+        })
     elif requested in edit_algebra.AXI_OPERATION_MAP:
         ids = edit_algebra.AXI_OPERATION_MAP[requested]
         payload = {
@@ -862,6 +927,10 @@ def cmd_capabilities(args) -> int:
                            "guidance": guidance}, code=1)
     if requested in edit_algebra.OP_STATUS:
         payload = operation_detail(requested)
+    elif requested in operation_map.command_control_rows():
+        payload["support_level"] = "command_only"
+        payload["guidance"] = None
+        return render(payload)
     elif requested in edit_algebra.AXI_OPERATION_MAP:
         op_ids = edit_algebra.AXI_OPERATION_MAP[requested]
         if len(op_ids) == 1:

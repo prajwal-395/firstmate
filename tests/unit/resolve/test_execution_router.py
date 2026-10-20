@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from library.tools import edit_algebra
@@ -105,6 +107,40 @@ def test_explicit_rebuild_decision_records_incremental_rejection():
 def test_unknown_operation_does_not_guess_a_backend():
     with pytest.raises(RoutingRefused, match="no backend is proven"):
         route_compiled_edit([{"op": "unknown.operation"}])
+
+
+def test_production_resolve_axi_adapter_is_selectable_by_semantic_routing(
+        monkeypatch):
+    """Defect: a qualified AXI adapter existed in the registry but the
+    semantic router could not select its backend."""
+    original_status = edit_algebra.status
+
+    def qualified_status(op_id):
+        status = original_status(op_id)
+        if op_id != "clip.trim" or status is None:
+            return status
+        row = status.for_backend("resolve_axi")
+        assert row is not None
+        qualified_row = replace(
+            row, qualification_status="production_enabled",
+            qualification_predicates=(),
+            qualification_evidence=("disposable verified fixture",))
+        return replace(status, qualification_status="production_enabled",
+                       backends=tuple(
+                           qualified_row if item.backend == "resolve_axi"
+                           else item for item in status.backends))
+
+    monkeypatch.setattr(edit_algebra, "status", qualified_status)
+    decision = route_compiled_edit([{
+        "op": "clip.trim", "unique_id": "clip-1",
+        "in_frame": 10, "out_frame": 42,
+    }], context={
+        "qualification_state": {"inspected": True, "state": {}},
+    })
+
+    assert decision.backend == "resolve_axi"
+    assert decision.selection["mutation_scope"] == "targeted"
+    assert decision.selection["transaction_ownership"]["lease"] == "exclusive"
 
 
 def test_incremental_live_inventory_mismatch_is_a_conflict():
