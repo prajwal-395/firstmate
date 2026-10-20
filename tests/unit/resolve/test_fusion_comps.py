@@ -8,7 +8,7 @@ import time
 import pytest
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.fusion.effects import _reset_counters, fx
-from library.tools.fusion.played_window import played_range
+from library.tools.fusion.played_window import comp_range_frames, played_range
 import hashlib
 import json
 import pathlib
@@ -889,6 +889,69 @@ def test_an_unknown_source_refuses_rather_than_guessing():
             {"vignette": True, "vignette_blend": 0.25,
              "vignette_soft": 0.35},
             CLIP_DUR, source_res=None)
+
+
+def _declared_range(comp: str) -> tuple[int, int]:
+    """The comp's own declared frame range, read off the bytes."""
+    match = re.search(r"GlobalRange\s*=\s*\{\s*(-?\d+)\s*,\s*(-?\d+)\s*\}", comp)
+    assert match, "the comp declared no GlobalRange"
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def _media_in_end(comp: str) -> int:
+    """The last frame the comp's MediaIn covers."""
+    match = re.search(
+        r"MediaIn1\.GlobalEnd\"\]\s*=\s*Input\s*\{\s*Value\s*=\s*(-?\d+)",
+        comp)
+    assert match, "the comp's MediaIn declared no GlobalEnd"
+    return int(match.group(1))
+
+
+def test_a_comp_covers_every_frame_the_item_plays():
+    """The comp's declared range is what PLAYS, never the source alone.
+
+    Measured on a real build (2026-10-20): a span card whose file was
+    re-rendered under the same name left the media pool item
+    reporting the OLD frame count, and the item played the NEW length.
+    A comp sized from the source count then declared GlobalOut 9 for an
+    item that plays 48 frames, and the build refused the whole reel
+    after the placement - `CompWindowUncovered`, "the last 38 of the 48
+    frames this item plays have no media under them". The pixels were
+    on disk and correct; the horizon was not.
+    """
+    effects = {"vignette": True, "vignette_blend": 0.25,
+               "vignette_soft": 0.35}
+    comp = build_effect_comp(dict(effects), 10, source_res=LANDSCAPE,
+                              played_frames=48)
+    first, last = _declared_range(comp)
+    assert first == 0
+    assert last >= 47, (
+        f"the comp declares {last} as its last frame, so the tail of a "
+        "48-frame item is uncovered and Resolve fails the render job")
+    assert _media_in_end(comp) >= 47, (
+        "the MediaIn stops before the frames the item plays")
+
+
+def test_a_source_longer_than_the_play_is_still_the_horizon():
+    """The ordinary case does not move: the source count is the longer.
+
+    A pool clip of 5000 frames cut to 48 keeps the comp's range on the
+    source, exactly as before, so the fix cannot change a reel that
+    already built.
+    """
+    effects = {"vignette": True, "vignette_blend": 0.25,
+               "vignette_soft": 0.35}
+    comp = build_effect_comp(dict(effects), 5000, source_res=LANDSCAPE,
+                              played_frames=48)
+    first, last = _declared_range(comp)
+    assert (first, last) == (0, 4999)
+
+
+def test_the_comp_range_helper_picks_the_played_length():
+    """The horizon is one decision, in one place."""
+    assert comp_range_frames(10, 48) == 48
+    assert comp_range_frames(5000, 48) == 5000
+    assert comp_range_frames(10, None) == 10
 
 
 def test_the_asset_bank_key_changes_with_the_source_frame():

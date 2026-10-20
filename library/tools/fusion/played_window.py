@@ -14,9 +14,26 @@ source frames 654..725 is comp frames 0..71, and a keyframe written at
 ``clip_dur`` is a different quantity and is unchanged by this: it is the
 SOURCE clip's frame count and it sets the comp's declared frame RANGE
 (``GlobalOut`` on every Background node, the MediaIn extent).  It is
-always at least the played length, so a Background sized by it exists for
-every frame that plays - which is the failure AGENTS.md section 5's
+NORMALLY at least the played length, so a Background sized by it exists
+for every frame that plays - which is the failure AGENTS.md section 5's
 "never omit GlobalOut" rule records.
+
+It is not ALWAYS.  Two measured cases put the source count BELOW the
+played length:
+
+* a media pool item whose metadata was read before the file behind it
+  was re-rendered under the same name (the build writes its span cards
+  under one file name every time), so the pool item still reports the
+  OLD length; and
+* an item that HOLDS its media, which plays longer than the media
+  carries.
+
+A comp sized from the source count alone then leaves the tail of the
+item uncovered, and `library/tools/comp_media_window.py` refuses the
+build after a placement that already cost minutes - a reel that cannot
+be built at all, for a card whose pixels are on disk and correct.
+``comp_range_frames`` is the ONE place that decides the horizon: what
+the item PLAYS, never less.
 
 What this replaced, and how it was measured
 -------------------------------------------
@@ -107,6 +124,28 @@ def played_range(
         return (0, max(0, int(clip_dur) - 1))
     span = int(source_out) - int(source_in)
     return (0, max(0, span))
+
+
+def comp_range_frames(source_frames: int,
+                     played_frames: Optional[int] = None) -> int:
+    """The frames a per-clip comp must DECLARE: what plays, never less.
+
+    ``source_frames`` is the SOURCE clip's frame count (``clip_dur``);
+    ``played_frames`` is what the timeline item really renders.  The
+    comp's declared range - ``GlobalOut`` on every Background node, the
+    MediaIn extent, the composition's own ``GlobalRange`` - has to cover
+    every played frame, or Resolve fails the whole render job at the
+    first uncovered frame.
+
+    So the horizon is the LARGER of the two.  In the ordinary case the
+    source is the longer one and nothing changes; the case this exists
+    for is a source count that understates what plays, where sizing the
+    comp from the source alone leaves the tail uncovered and the build
+    refuses the whole reel.
+    """
+    source = int(source_frames or 0)
+    played = int(played_frames or 0)
+    return max(source, played)
 
 
 def played_length(

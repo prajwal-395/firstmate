@@ -38,6 +38,7 @@ keeps the headline and points here.
 
 from .effects import DRIFT_EASING, fx
 from .engine import CompEngine
+from .played_window import comp_range_frames
 
 ZOOM_KEYS = ('zoom_start', 'zoom_mid', 'zoom_end', 'pan_start', 'pan_end',
              'zoom_windows', 'zoom_in_duration_frames',
@@ -140,6 +141,12 @@ def build_effect_comp(effects: dict, clip_dur: int,
     draws: the spline extrapolates flat and the reel silently loses
     its switch-off.  It reaches the power builders, which clamp their
     horizon to it and refuse a ramp the clip has no room for.
+
+    It also reaches the comp's DECLARED range, through
+    ``played_window.comp_range_frames``: the comp has to cover every
+    frame the item plays, and the source's frame count is not always
+    that many (a pool item whose metadata predates a re-render of the
+    file behind it; an item that holds its media).
     """
     if not source_res:
         raise MissingSourceFrame(
@@ -149,6 +156,15 @@ def build_effect_comp(effects: dict, clip_dur: int,
             "and no comp is built."
         )
     res = tuple(source_res)
+    # The horizon the comp DECLARES: every frame the item plays, and
+    # never less.  `clip_dur` is the SOURCE clip's frame count, which
+    # is normally the longer of the two; it is not ALWAYS (a pool item
+    # whose metadata predates a re-render of the file behind it, and an
+    # item that holds its media), and a comp sized from the source alone
+    # leaves the tail of the item uncovered - which fails the whole
+    # render job, not just the treatment.  `played_window.comp_range_frames`
+    # is the ONE place that decides it.
+    clip_dur = comp_range_frames(clip_dur, played_frames)
     engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
 
     # The played segment within the source.  None means "whole source".
