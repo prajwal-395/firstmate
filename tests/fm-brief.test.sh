@@ -514,13 +514,13 @@ test_ship_brief_does_not_invite_project_memory_additions() {
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/$id/brief.md"
   assert_present "$brief" "brief was not scaffolded"
-  assert_grep "For edits to a project's \`AGENTS.md\` or \`CLAUDE.md\`, follow \`AGENTS.md\` section 6." "$brief" \
-    "project-memory section must point to the sole AGENTS.md section 6 contract"
+  assert_grep "Edit a project's \`AGENTS.md\` or \`CLAUDE.md\` only to correct factually wrong information, including information your own change made wrong; never add missing knowledge, and never run \`fm-ensure-agents-md.sh\`." "$brief" \
+    "project-memory section must state the correct-only rule unambiguously"
   assert_no_grep "Record only project knowledge" "$brief" \
     "generated ship brief still invites adding project knowledge to AGENTS.md"
   assert_no_grep "durable project-intrinsic knowledge" "$brief" \
     "generated ship brief still uses durable knowledge as a reason to edit AGENTS.md"
-  assert_no_grep "fm-ensure-agents-md.sh" "$brief" \
+  assert_no_grep "run \`fm-ensure-agents-md.sh .\`" "$brief" \
     "generated ship brief still tells the worker to run fm-ensure-agents-md.sh"
   pass "fm-brief.sh: generated ship brief points to the correct-only project-memory rule"
 }
@@ -564,7 +564,7 @@ test_ship_workspace_vs_home_is_explicit() {
       "$mode brief lost the actionable absolute status path"
     assert_grep "$home/state/$id.inbox" "$brief" \
       "$mode brief lost the actionable absolute inbox path"
-    assert_no_grep "fm-ensure-agents-md.sh" "$brief" \
+    assert_no_grep "run \`fm-ensure-agents-md.sh .\`" "$brief" \
       "$mode brief still tells the worker to run the project-memory helper"
   done
   FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \

@@ -1086,7 +1086,7 @@ $SHARED_INFRA_RULE
 $WAIT_BLOCK$INBOX_SECTION
 
 # Project memory
-For edits to a project's \`AGENTS.md\` or \`CLAUDE.md\`, follow \`AGENTS.md\` section 6.
+Edit a project's \`AGENTS.md\` or \`CLAUDE.md\` only to correct factually wrong information, including information your own change made wrong; never add missing knowledge, and never run \`fm-ensure-agents-md.sh\`.
 
 # Tests
 Size the run before you start it: a changed-file selection can be WIDER than a single lane or family when your change has wide fan-out, so compare both sizes before picking rather than assuming the change-scoped one is smaller.
