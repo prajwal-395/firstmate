@@ -1,9 +1,10 @@
 {
-  "schema": "ren-generalization-result/1",
+  "schema": "ren-generalization-result/2",
+  "evaluation_level": 1,
   "matrix": "tests/live/fixtures/generalization_matrix.json",
   "case_count": 20,
-  "passed": 18,
-  "failed": 2,
+  "passed": 5,
+  "failed": 15,
   "invariants": [
     "same_semantic_target",
     "exact_source_and_record_intervals",
@@ -15,14 +16,21 @@
   "uncovered_dimensions": {
     "timeline_resolution": "shared qualification timeline settings are immutable; needs an isolated scratch project",
     "frame_rate": "shared qualification timeline settings are immutable; needs an isolated scratch project",
-    "source_3840x2160": "no 4K source in the qualification media pool",
-    "source_1080x1920": "no portrait source in the qualification pool",
-    "source_prores_mov": "no ProRes source in the qualification pool",
-    "source_wav_only": "no audio-only WAV in the pool; linked AAC AV covered",
+    "source_3840x2160": "factory generates 4K media; live runner does not yet import isolated fixtures",
+    "source_1080x1920": "factory generates portrait media; live runner does not yet import isolated fixtures",
+    "source_prores_mov": "factory generates ProRes media; live runner does not yet import isolated fixtures",
+    "source_wav_only": "factory generates audio-only WAV; live runner does not yet import isolated fixtures",
+    "timeline_resolution_values": "shared qualification timeline settings are immutable; no isolated resolution fixtures",
+    "frame_rate_values": "shared qualification timeline settings are immutable; no isolated frame-rate fixtures",
     "approved_revision": "needs revise machinery; not a live verb",
-    "staged_revision": "needs touch-up staging; not a live verb"
+    "staged_revision": "needs touch-up staging; not a live verb",
+    "graded_project": "fixture does not seed or compare native grade state",
+    "fusion_composition": "fixture does not seed or compare Fusion state",
+    "complex_linked_av": "fixture covers a linked AAC overlay only, not multi-clip A/V groups",
+    "renamed_picture_and_graphics_tracks": "fixture layouts use fixed names",
+    "cleanup_inventory": "teardown validates known item names but does not inventory every disposable resource"
   },
-  "elapsed_seconds": 21.63203324999995,
+  "elapsed_seconds": 15.48450304200378,
   "results": [
     {
       "case_id": "G01",
@@ -35,20 +43,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "2065dc16a6670278",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": false,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "observed": {
-        "moved_from_uid": "239adef8-962d-49b7-bb50-36c11189e567",
-        "landed_uid": "c865ba63-8b86-45c0-ab6c-48db864a2cc0",
-        "reidentified": true
-      },
       "status": "fail",
-      "elapsed_seconds": 0.5289807080007449
+      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_str",
+      "elapsed_seconds": 0.34264874999644235,
+      "evaluation_level": 1
     },
     {
       "case_id": "G02",
@@ -70,7 +68,8 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.7436161669975263
+      "elapsed_seconds": 0.5623621249978896,
+      "evaluation_level": 1
     },
     {
       "case_id": "G03",
@@ -83,22 +82,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "7f77a4179adbe930",
-      "observed": {
-        "reidentified": true,
-        "landed_pan": 0.0,
-        "held_pan": 0.0,
-        "history_uid": "fbe2238f-6654-46bb-be4b-49fc1d1476bd"
-      },
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "trim_narrowed": true,
-        "approved_edits_preserved": false,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
       "status": "fail",
-      "elapsed_seconds": 0.9105303750002349
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_str",
+      "elapsed_seconds": 0.40155962499557063,
+      "evaluation_level": 1
     },
     {
       "case_id": "G04",
@@ -111,21 +98,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "14786fdac2641d8f",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 336,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.8077912080007081
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.4970060409978032,
+      "evaluation_level": 1
     },
     {
       "case_id": "G05",
@@ -138,21 +114,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "340dec687e862a2b",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.5427012920008565
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.47296325000206707,
+      "evaluation_level": 1
     },
     {
       "case_id": "G06",
@@ -165,21 +130,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "20af8f052702a757",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 216,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.24879929100279696
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.18464554199454142,
+      "evaluation_level": 1
     },
     {
       "case_id": "G07",
@@ -192,15 +146,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "e421f42a379370c4",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 0.2675894169988169
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'still', not one of ['video']; clip_composition is 'still_clip', not 'single_video",
+      "elapsed_seconds": 0.2706126659977599,
+      "evaluation_level": 1
     },
     {
       "case_id": "G08",
@@ -213,20 +162,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "78005aefef4f190d",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "observed": {
-        "moved_from_uid": "e3583fd7-c431-43be-b4cb-f2ff885c0a7e",
-        "landed_uid": "8a2dcfbe-2bf2-4516-bf4e-d4da66202ae3",
-        "reidentified": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 0.40813108300062595
+      "status": "fail",
+      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_str",
+      "elapsed_seconds": 0.4113007919950178,
+      "evaluation_level": 1
     },
     {
       "case_id": "G09",
@@ -247,7 +186,8 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.3630374579988711
+      "elapsed_seconds": 0.5907899169978919,
+      "evaluation_level": 1
     },
     {
       "case_id": "G10",
@@ -260,15 +200,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "1e9dbe629d167b9f",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 0.35824700000011944
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_structure is 'multi_item_timeline'",
+      "elapsed_seconds": 0.3948325000019395,
+      "evaluation_level": 1
     },
     {
       "case_id": "G11",
@@ -281,21 +216,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "bd7573c0390df851",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 216,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.46841466700061574
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.4430232500017155,
+      "evaluation_level": 1
     },
     {
       "case_id": "G12",
@@ -316,7 +240,8 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.5201926669979002
+      "elapsed_seconds": 0.7545882919948781,
+      "evaluation_level": 1
     },
     {
       "case_id": "G13",
@@ -329,21 +254,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "f518c9f6775add8d",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 216,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.31617358299990883
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.25782629100285703,
+      "evaluation_level": 1
     },
     {
       "case_id": "G14",
@@ -356,21 +270,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "d02325be30a43c94",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.6805850829987321
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.639312333005364,
+      "evaluation_level": 1
     },
     {
       "case_id": "G15",
@@ -383,21 +286,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "cc165049462912f1",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.6917467919993214
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.5824112920017797,
+      "evaluation_level": 1
     },
     {
       "case_id": "G16",
@@ -410,21 +302,10 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "5a150e5392bdffd0",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 96,
-        "reidentified": true
-      },
-      "elapsed_seconds": 0.3292552080019959
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; time",
+      "elapsed_seconds": 0.24222141599602764,
+      "evaluation_level": 1
     },
     {
       "case_id": "G17",
@@ -446,7 +327,8 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 0.5084521659991879
+      "elapsed_seconds": 0.5173468749999302,
+      "evaluation_level": 1
     },
     {
       "case_id": "G18",
@@ -459,22 +341,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "f25a51d1aa0db76c",
-      "observed": {
-        "reidentified": true,
-        "landed_pan": 0.0,
-        "held_pan": 0.0,
-        "history_uid": null
-      },
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "trim_narrowed": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 0.6532143750009709
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_str",
+      "elapsed_seconds": 0.5270221669998136,
+      "evaluation_level": 1
     },
     {
       "case_id": "G19",
@@ -487,22 +357,10 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "4c492def830f070e",
-      "observed": {
-        "reidentified": true,
-        "landed_pan": 0.0,
-        "held_pan": 0.0,
-        "history_uid": null
-      },
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "trim_narrowed": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 0.41200129100252525
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'; media_type is 'video + audio', not one of ['video']; timeline_str",
+      "elapsed_seconds": 0.29908370900375303,
+      "evaluation_level": 1
     },
     {
       "case_id": "G00-ambiguous",
@@ -530,7 +388,8 @@
           "assumed"
         ]
       },
-      "elapsed_seconds": 0.016019749997212784
+      "elapsed_seconds": 0.023847208001825493,
+      "evaluation_level": 1
     }
   ]
 }

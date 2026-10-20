@@ -12,12 +12,13 @@
       "production_entry": "edit_patch.apply_live_patch",
       "operation": "overlay.add",
       "proof": true,
+      "evaluation_level": 1,
       "status": "fail",
       "first_attempt": true,
       "collateral_changes": [],
       "checks": {},
-      "error": "RuntimeError: qualification batch failed: step 0 exited 1: staging): NO SPAN PICTURES - no model answer on file (reel_span_01.json), recording span_not_planned\n  Reel 01 - axc-disposable [candidate-8ebcb3d1dcaf4f698f9b763473534a96] (rebuild staging): relinked V1@0 qual_a.mp4\n  Reel 01 - axc-disposable [candidate-8ebcb3d1dcaf4f698f9b763473534a96] (rebuild staging): placed by ONE OTIO import - 1 item(s), 0 deferred transform(s)\n── Link Pass ──\n  ✓ 0 link group(s), 0 caption(s) joined\n  ✗ Empty row VIDEO2 (V3) removed\n  ✗ Empty row AUDIO2 (V3 CH1) removed\n",
-      "elapsed_seconds": 18.79994862499734
+      "error": "RuntimeError: qualification batch failed: step 0 exited 1:  asks the build wrote (reel_semantic_NN.json / reel_motion_NN.json under pipeline_output/llm_requests) and rebuild.\n  UNPROMOTED STAGING: 1 staged timeline(s) still awaiting promotion - finished work no timeline carries yet:\n  'Reel 01 - axc-disposable [candidate-22c3cfc140394a7b849ff77a0b3a576a] (rebuild staging)' -> 'Reel 01 - axc-disposable' (held 0m, by rebuild_reels_in_project)\n  Promote it, discard it, or release the hold explicitly - a staging that sits is a fix the captain cannot watch.\n",
+      "elapsed_seconds": 17.976288666999608
     },
     {
       "id": "rebuild_after_edit",
@@ -25,12 +26,40 @@
       "production_entry": "reel_build",
       "operation": "rebuild",
       "proof": false,
+      "evaluation_level": 1,
       "status": "fail",
       "first_attempt": true,
       "collateral_changes": [],
       "checks": {},
-      "error": "RuntimeError: qualification batch failed: step 0 exited 1: project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-cpu712bt/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T025221615752Z-69c9962fbf97.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: private qualification timeline must be empty before the batch.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
-      "elapsed_seconds": 13.539845249997597
+      "error": "RuntimeError: qualification batch failed: step 0 exited 1: project_store_commit: true\n  store_note: \n  drt_backup: /private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-small-edit-run-record-evdpj6h2/pipeline_output/review/recovery_archives/fm-scratch_qualify--0735472139--custom-20261020T053031840924Z-fa192c96fcde.drt\n  inventory_guard: true\n  workflow_candidate: no-repeat-yet\nerror: error: script raised RuntimeError: private qualification timeline must be empty before the batch.\nhelp: resolve-axi run --help\n\nhelp: resolve-axi workflow candidates\n",
+      "elapsed_seconds": 12.498266916998546
     }
-  ]
+  ],
+  "evaluation_levels": [
+    {
+      "level": 1,
+      "name": "primitive_qualification",
+      "question": "Can the backend perform a specified operation?",
+      "evidence_status": "live_backend_qualification_suites"
+    },
+    {
+      "level": 2,
+      "name": "semantic_execution",
+      "question": "Can AXI safely execute a typed request?",
+      "evidence_status": "evaluator_directed_semantic_acceptance"
+    },
+    {
+      "level": 3,
+      "name": "autonomous_orchestration",
+      "question": "Can Ren infer operations and targets from an instruction?",
+      "evidence_status": "blind_runner_implemented_live_agent_run_pending"
+    },
+    {
+      "level": 4,
+      "name": "editorial_acceptance",
+      "question": "Does the completed video satisfy the creative brief?",
+      "evidence_status": "scorer_implemented_judgment_run_pending"
+    }
+  ],
+  "evaluation_level": 1
 }

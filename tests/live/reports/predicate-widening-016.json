@@ -1,0 +1,122 @@
+{
+  "at": "2026-10-20T live broker pid 9627, firstmate main 133956e1b",
+  "cases": {
+    "W1_delete_linked_video": {
+      "after": [],
+      "before": [
+        {
+          "name": "qual_a.mp4",
+          "record": [
+            0,
+            48
+          ],
+          "track": 1,
+          "unique_id": "bcb4ab47-0323-471c-b3a9-ba02ca9ae0b4"
+        }
+      ],
+      "checks": {
+        "other_items_unchanged": true,
+        "receipt_committed": true,
+        "target_absent_on_readback": true
+      },
+      "detail": {
+        "receipt_status": "committed",
+        "removed_uid": "bcb4ab47-0323-471c-b3a9-ba02ca9ae0b4"
+      },
+      "elapsed_seconds": 0.2604551670010551,
+      "status": "pass"
+    },
+    "W2_delete_still": {
+      "after": [],
+      "before": [
+        {
+          "name": "fm-qual-logo-180x64.png",
+          "record": [
+            96,
+            216
+          ],
+          "track": 3,
+          "unique_id": "0b766ed4-c475-4e6c-a740-859bf4f5bad2"
+        }
+      ],
+      "checks": {
+        "other_items_unchanged": true,
+        "receipt_committed": true,
+        "target_absent_on_readback": true
+      },
+      "detail": {
+        "receipt_status": "committed",
+        "removed_uid": "0b766ed4-c475-4e6c-a740-859bf4f5bad2"
+      },
+      "elapsed_seconds": 0.1570895409968216,
+      "status": "pass"
+    },
+    "W3_delete_cover_multi": {
+      "after": [
+        {
+          "name": "qual_a.mp4",
+          "record": [
+            0,
+            48
+          ],
+          "track": 1,
+          "unique_id": "4d462e45-e0e8-4ca6-a0bc-da0cebb41d34"
+        }
+      ],
+      "before": [
+        {
+          "name": "qual_a.mp4",
+          "record": [
+            0,
+            48
+          ],
+          "track": 1,
+          "unique_id": "4d462e45-e0e8-4ca6-a0bc-da0cebb41d34"
+        },
+        {
+          "name": "qual_c.mp4",
+          "record": [
+            96,
+            144
+          ],
+          "track": 2,
+          "unique_id": "cacde8b5-86ac-4ca9-9d69-f4189212303f"
+        }
+      ],
+      "checks": {
+        "other_items_unchanged": true,
+        "receipt_committed": true,
+        "target_absent_on_readback": true
+      },
+      "detail": {
+        "receipt_status": "committed",
+        "removed_uid": "cacde8b5-86ac-4ca9-9d69-f4189212303f"
+      },
+      "elapsed_seconds": 0.2820622090002871,
+      "status": "pass"
+    },
+    "W4_set_property_linked": {
+      "checks": {
+        "receipt_committed": true,
+        "record_span_unchanged": true,
+        "requested_property_read_back": true
+      },
+      "detail": {
+        "key": "Pan",
+        "record_kept": true,
+        "value": 40.0
+      },
+      "note": "direct EditPatch clip.set_property on linked A/V seed; Pan 40.0 read back, record span kept",
+      "receipt": "committed",
+      "status": "pass"
+    }
+  },
+  "method": "direct EditPatch execution with fresh read-back per scenario (Tier-1 precedent); production routing not exercised (version-format blocks it independently)",
+  "resolve_version_measured": [
+    21,
+    1,
+    0,
+    14
+  ],
+  "schema": "ren-predicate-widening-evidence/1"
+}

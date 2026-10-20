@@ -1,24 +1,213 @@
 {
   "records": {
-    "clip.delete::edit_patch": {
+    "broll.insert::resolve_axi": {
       "actual_state": {
-        "remaining_items": [],
-        "track_counts": {
-          "audio": 1,
-          "subtitle": 0,
-          "video": 3
-        }
+        "elapsed_seconds": 12.811515792000137,
+        "receipt": "committed"
       },
       "audio_verification": [
-        "not applicable: seeded clip carries video only"
+        "underlying linked audio untouched (linked_audio_untouched check passed)"
       ],
-      "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed",
+      "evidence": "tests/live/reports/editorial-acceptance-blind.json#insert_relevant_broll; Level-3 blind instruction covered the marked phrase with matching B-roll via resolve-axi edit place; cover placed, speech and audio kept",
       "expected_state": {
-        "remaining_items": 0,
-        "removed_uid": "e7285af3-4699-4fa9-b1dd-99320fd9821a"
+        "cover_over_marked_phrase": true,
+        "underlying_speech_kept": true
       },
       "media_types": [
         "video"
+      ],
+      "preservation_checks": [
+        {
+          "check": "cover_over_marked_phrase",
+          "result": "passed"
+        },
+        {
+          "check": "underlying_speech_kept",
+          "result": "passed"
+        },
+        {
+          "check": "linked_audio_untouched",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "one placed cover; A-roll video and linked audio untouched"
+      ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "seed_aroll_plus_placed_cover"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "linked_av_aroll_untouched"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "seed_plus_cover_plus_subtitles_row"
+        }
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "linked A/V A-roll seed; marked phrase covered at record 100..140"
+      ],
+      "visual_verification": [
+        "cover item read back on V2 over the marked span; A-roll spans unchanged"
+      ]
+    },
+    "caption.style::resolve_axi": {
+      "actual_state": {
+        "elapsed_seconds": 40.210270250001486,
+        "receipt": "committed",
+        "rerendered": [
+          "sub_nospeaker_axc-caption-1_0-2000_5bceefb6.mov",
+          "sub_nospeaker_axc-caption-2_0-2000_9b696f77.mov"
+        ]
+      },
+      "audio_verification": [
+        "not applicable: caption cards carry video only; no audio item placed or touched"
+      ],
+      "evidence": "tests/live/reports/editorial-acceptance-blind.json#restyle_captions; Level-3 blind instruction restyled 2 Ren-rendered cards to bold_large via subtitles.rerender_swap; text, timing and placement verified per card; frame stills of both restyled cards inspected 2026-10-20",
+      "expected_state": {
+        "cards": 2,
+        "style": "bold_large",
+        "text_preserved": true,
+        "timing_preserved": true
+      },
+      "media_types": [
+        "video"
+      ],
+      "preservation_checks": [
+        {
+          "check": "every_caption_verified",
+          "result": "passed"
+        },
+        {
+          "check": "one_caption_operation_per_card",
+          "result": "passed"
+        },
+        {
+          "check": "committed_receipt",
+          "result": "passed"
+        },
+        {
+          "check": "no_collateral_changes",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "fixture owns the two cards; nothing else on the timeline"
+      ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
+          "value": "two_caption_cards"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "no_audio_items"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "empty_baseline_plus_subtitles_row"
+        }
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "two Ren-rendered caption cards with render-props sidecars",
+        "Subtitles row created for the row, removed after"
+      ],
+      "visual_verification": [
+        "frame stills of both restyled cards read directly (bold_large): two-line layout, complete text visible with margins, high-contrast white/yellow 900-weight type on black - legible at phone size; both cards carried full canvas (tight guard refused the bold layout), nothing clipped at any canvas edge"
+      ]
+    },
+    "clip.delete::edit_patch": {
+      "actual_state": {
+        "scenarios": {
+          "W1_delete_linked_video": {
+            "receipt_status": "committed",
+            "removed_uid": "bcb4ab47-0323-471c-b3a9-ba02ca9ae0b4"
+          },
+          "W2_delete_still": {
+            "receipt_status": "committed",
+            "removed_uid": "0b766ed4-c475-4e6c-a740-859bf4f5bad2"
+          },
+          "W3_delete_cover_multi": {
+            "receipt_status": "committed",
+            "removed_uid": "cacde8b5-86ac-4ca9-9d69-f4189212303f"
+          }
+        }
+      },
+      "audio_verification": [
+        "linked audio twin preserved in W1/W3 (twin uid unchanged on read-back); stills carry no audio"
+      ],
+      "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
+      "expected_state": {
+        "other_items_unchanged": true,
+        "target_absent": true
+      },
+      "media_types": [
+        "video",
+        "video + audio",
+        "still"
       ],
       "preservation_checks": [
         {
@@ -26,12 +215,16 @@
           "result": "passed"
         },
         {
-          "check": "no_collateral_items_or_tracks",
+          "check": "other_items_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "receipt_committed",
           "result": "passed"
         }
       ],
       "preservation_limits": [
-        "seed is the only item; V2/V3 setup tracks stay"
+        "one delete per scenario; link twins and covers outside the target uid are preserved"
       ],
       "qualification_predicates": [
         {
@@ -53,23 +246,35 @@
           "field": "media_type",
           "operator": "one_of",
           "value": [
-            "video"
+            "video",
+            "video + audio",
+            "still"
           ]
         },
         {
           "field": "clip_composition",
-          "operator": "equals",
-          "value": "single_video_clip"
+          "operator": "one_of",
+          "value": [
+            "single_video_clip",
+            "linked_video_clip",
+            "still_clip"
+          ]
         },
         {
           "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
+          "operator": "one_of",
+          "value": [
+            "no_linked_audio",
+            "linked_audio_present"
+          ]
         },
         {
           "field": "timeline_structure",
-          "operator": "equals",
-          "value": "single_seeded_clip_empty_baseline"
+          "operator": "one_of",
+          "value": [
+            "single_seeded_clip_empty_baseline",
+            "multi_item_timeline"
+          ]
         }
       ],
       "recovery": "not_required",
@@ -78,59 +283,49 @@
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
-        "single seeded fixture clip, empty baseline otherwise"
+        "linked A/V seed, still logo, and seed-plus-V2-cover compositions on the scratch timeline"
       ],
       "visual_verification": [
-        "seeded clip absent from the timeline inventory read-back"
+        "target uid absent on fresh read-back in all three scenarios; all other item uids and tracks unchanged"
       ]
     },
-    "clip.set_property::edit_patch": {
+    "clip.remove::resolve_axi": {
       "actual_state": {
-        "record_span": [
-          0,
-          48
-        ],
-        "track_counts": {
-          "audio": 1,
-          "subtitle": 0,
-          "video": 3
-        },
-        "transform": {
-          "Pan": 0.0,
-          "Scaling": 1,
-          "Tilt": 0.0,
-          "ZoomX": 0.5,
-          "ZoomY": 0.5
-        }
+        "elapsed_seconds": 12.761612750000495,
+        "receipt": "committed"
       },
       "audio_verification": [
-        "not applicable: seeded clip carries video only"
+        "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
       ],
-      "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged",
+      "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
       "expected_state": {
-        "Scaling": 1,
-        "ZoomX": 0.5,
-        "ZoomY": 0.5,
-        "record_span": [
-          0,
-          48
-        ]
+        "cover_absent": true,
+        "cover_track_emptied": true,
+        "speech_and_audio_unchanged": true
       },
       "media_types": [
         "video"
       ],
       "preservation_checks": [
         {
-          "check": "requested_properties_read_back",
+          "check": "broll_target_absent",
           "result": "passed"
         },
         {
-          "check": "record_span_and_tracks_unchanged",
+          "check": "cover_track_emptied",
+          "result": "passed"
+        },
+        {
+          "check": "underlying_speech_and_audio_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "linked_audio_in_sync",
           "result": "passed"
         }
       ],
       "preservation_limits": [
-        "seed is the only item; V2/V3 setup tracks stay"
+        "single cover on V2 over seeded A-roll; gap closure track-scoped"
       ],
       "qualification_predicates": [
         {
@@ -158,6 +353,96 @@
         {
           "field": "clip_composition",
           "operator": "equals",
+          "value": "seed_aroll_plus_v2_cover"
+        },
+        {
+          "field": "linked_audio_configuration",
+          "operator": "equals",
+          "value": "linked_av_aroll_kept_in_sync"
+        },
+        {
+          "field": "timeline_structure",
+          "operator": "equals",
+          "value": "seed_plus_cover_plus_subtitles_row"
+        }
+      ],
+      "recovery": "not_required",
+      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "result": "passed",
+      "timeline_conditions": [
+        "Ren Qualification / fm-scratch qualify",
+        "private target timeline only",
+        "linked A/V A-roll seed plus one V2 B-roll cover",
+        "track-scoped ripple remove (edit track-ripple-remove)"
+      ],
+      "visual_verification": [
+        "cover absent on read-back; cover track empty; A-roll spans preserved"
+      ]
+    },
+    "clip.set_property::edit_patch": {
+      "actual_state": {
+        "detail": {
+          "key": "Pan",
+          "record_kept": true,
+          "value": 40.0
+        }
+      },
+      "audio_verification": [
+        "audio twin exists but was not separately read back in W4; the property write targeted the video item by unique_id"
+      ],
+      "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged; tests/live/reports/predicate-widening-016.json#W4; direct EditPatch clip.set_property Pan 40.0 committed on linked clip; transform read back, record span kept",
+      "expected_state": {
+        "Pan": 40.0,
+        "record_span_kept": true
+      },
+      "media_types": [
+        "video",
+        "video + audio"
+      ],
+      "preservation_checks": [
+        {
+          "check": "requested_property_read_back",
+          "result": "passed"
+        },
+        {
+          "check": "record_span_unchanged",
+          "result": "passed"
+        },
+        {
+          "check": "receipt_committed",
+          "result": "passed"
+        }
+      ],
+      "preservation_limits": [
+        "one property on one item; spans and siblings unchanged"
+      ],
+      "qualification_predicates": [
+        {
+          "field": "project_name",
+          "operator": "equals",
+          "value": "Ren Qualification"
+        },
+        {
+          "field": "timeline_name",
+          "operator": "equals",
+          "value": "fm-scratch qualify"
+        },
+        {
+          "field": "resolve_version",
+          "operator": "equals",
+          "value": "DaVinci Resolve 21.1.0.14"
+        },
+        {
+          "field": "media_type",
+          "operator": "one_of",
+          "value": [
+            "video",
+            "video + audio"
+          ]
+        },
+        {
+          "field": "clip_composition",
+          "operator": "equals",
           "value": "single_video_clip"
         },
         {
@@ -167,8 +452,11 @@
         },
         {
           "field": "timeline_structure",
-          "operator": "equals",
-          "value": "single_seeded_clip_empty_baseline"
+          "operator": "one_of",
+          "value": [
+            "single_seeded_clip_empty_baseline",
+            "multi_item_timeline"
+          ]
         }
       ],
       "recovery": "not_required",
@@ -177,10 +465,10 @@
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
         "private target timeline only",
-        "single seeded fixture clip, empty baseline otherwise"
+        "linked A/V seed; Pan set on the video item by unique_id"
       ],
       "visual_verification": [
-        "ZoomX/ZoomY 0.5 read back from the live item transform"
+        "Pan 40.0 read back from the live item transform; record span kept"
       ]
     },
     "track.add::edit_patch": {

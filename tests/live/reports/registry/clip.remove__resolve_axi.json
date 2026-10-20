@@ -1,0 +1,93 @@
+{
+  "actual_state": {
+    "elapsed_seconds": 12.761612750000495,
+    "receipt": "committed"
+  },
+  "audio_verification": [
+    "underlying A-roll audio unchanged and in sync (linked_audio_in_sync check passed)"
+  ],
+  "backend": "resolve_axi",
+  "evidence": "tests/live/reports/editorial-acceptance-blind.json#remove_broll; Level-3 blind instruction removed the V2 cover via track-scoped ripple remove; cover absent, track emptied, speech and linked audio unchanged",
+  "expected_state": {
+    "cover_absent": true,
+    "cover_track_emptied": true,
+    "speech_and_audio_unchanged": true
+  },
+  "operation_id": "clip.remove",
+  "preservation_checks": [
+    {
+      "check": "broll_target_absent",
+      "result": "passed"
+    },
+    {
+      "check": "cover_track_emptied",
+      "result": "passed"
+    },
+    {
+      "check": "underlying_speech_and_audio_unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "linked_audio_in_sync",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "single cover on V2 over seeded A-roll; gap closure track-scoped"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "linked A/V A-roll seed plus one V2 B-roll cover",
+    "track-scoped ripple remove (edit track-ripple-remove)"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "project_name",
+      "operator": "equals",
+      "value": "Ren Qualification"
+    },
+    {
+      "field": "timeline_name",
+      "operator": "equals",
+      "value": "fm-scratch qualify"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "DaVinci Resolve 21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "one_of",
+      "value": [
+        "video"
+      ]
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "seed_aroll_plus_v2_cover"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "linked_av_aroll_kept_in_sync"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "seed_plus_cover_plus_subtitles_row"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "DaVinci Resolve 21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v1",
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "cover absent on read-back; cover track empty; A-roll spans preserved"
+  ]
+}

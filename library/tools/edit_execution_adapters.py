@@ -904,8 +904,22 @@ def _caption_style(context) -> dict:
             f"claiming a restyle")
     new_props = dict(old_props)
     new_props["style"] = new_style
-    if ({key: new_props[key] for key in new_props if key != "style"} !=
-            {key: old_props[key] for key in old_props if key != "style"}):
+    # A rendered sidecar records the TIGHT canvas (the carrying), while
+    # the render entry re-validates props against the project's delivery
+    # frame: re-rendering tight dims is refused as a wrong-frame props.
+    # Restore the full frame from the project - the renderer re-derives
+    # tight itself - using the same reading the validator uses, so the
+    # two agree by construction. Full-canvas cards already carry these
+    # dims and are unchanged by the restore.
+    from library.tools.delivery_format import resolve_delivery_format
+
+    full_width, full_height = resolve_delivery_format(project_folder)
+    new_props["width"], new_props["height"] = full_width, full_height
+    restyle_kept = ("style", "width", "height")
+    if ({key: new_props[key] for key in new_props
+            if key not in restyle_kept} !=
+            {key: old_props[key] for key in old_props
+                if key not in restyle_kept}):
         raise RuntimeError(
             f"caption.style restyle of card {unique_id!r} would rewrite "
             f"more than the style - refusing a restyle that moves text "

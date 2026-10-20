@@ -1,0 +1,95 @@
+{
+  "actual_state": {
+    "detail": {
+      "key": "Pan",
+      "record_kept": true,
+      "value": 40.0
+    }
+  },
+  "audio_verification": [
+    "audio twin exists but was not separately read back in W4; the property write targeted the video item by unique_id"
+  ],
+  "backend": "edit_patch",
+  "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged; tests/live/reports/predicate-widening-016.json#W4; direct EditPatch clip.set_property Pan 40.0 committed on linked clip; transform read back, record span kept",
+  "expected_state": {
+    "Pan": 40.0,
+    "record_span_kept": true
+  },
+  "operation_id": "clip.set_property",
+  "preservation_checks": [
+    {
+      "check": "requested_property_read_back",
+      "result": "passed"
+    },
+    {
+      "check": "record_span_unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "receipt_committed",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one property on one item; spans and siblings unchanged"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "linked A/V seed; Pan set on the video item by unique_id"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "project_name",
+      "operator": "equals",
+      "value": "Ren Qualification"
+    },
+    {
+      "field": "timeline_name",
+      "operator": "equals",
+      "value": "fm-scratch qualify"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "DaVinci Resolve 21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "one_of",
+      "value": [
+        "video",
+        "video + audio"
+      ]
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "single_video_clip"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "one_of",
+      "value": [
+        "single_seeded_clip_empty_baseline",
+        "multi_item_timeline"
+      ]
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "DaVinci Resolve 21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v1",
+  "supported_media_types": [
+    "video",
+    "video + audio"
+  ],
+  "visual_verification": [
+    "Pan 40.0 read back from the live item transform; record span kept"
+  ]
+}

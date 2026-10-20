@@ -1,0 +1,98 @@
+{
+  "actual_state": {
+    "elapsed_seconds": 40.210270250001486,
+    "receipt": "committed",
+    "rerendered": [
+      "sub_nospeaker_axc-caption-1_0-2000_5bceefb6.mov",
+      "sub_nospeaker_axc-caption-2_0-2000_9b696f77.mov"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: caption cards carry video only; no audio item placed or touched"
+  ],
+  "backend": "resolve_axi",
+  "evidence": "tests/live/reports/editorial-acceptance-blind.json#restyle_captions; Level-3 blind instruction restyled 2 Ren-rendered cards to bold_large via subtitles.rerender_swap; text, timing and placement verified per card; frame stills of both restyled cards inspected 2026-10-20",
+  "expected_state": {
+    "cards": 2,
+    "style": "bold_large",
+    "text_preserved": true,
+    "timing_preserved": true
+  },
+  "operation_id": "caption.style",
+  "preservation_checks": [
+    {
+      "check": "every_caption_verified",
+      "result": "passed"
+    },
+    {
+      "check": "one_caption_operation_per_card",
+      "result": "passed"
+    },
+    {
+      "check": "committed_receipt",
+      "result": "passed"
+    },
+    {
+      "check": "no_collateral_changes",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "fixture owns the two cards; nothing else on the timeline"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "two Ren-rendered caption cards with render-props sidecars",
+    "Subtitles row created for the row, removed after"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "project_name",
+      "operator": "equals",
+      "value": "Ren Qualification"
+    },
+    {
+      "field": "timeline_name",
+      "operator": "equals",
+      "value": "fm-scratch qualify"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "DaVinci Resolve 21.1.0.14"
+    },
+    {
+      "field": "media_type",
+      "operator": "one_of",
+      "value": [
+        "video"
+      ]
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "two_caption_cards"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_audio_items"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "empty_baseline_plus_subtitles_row"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "DaVinci Resolve 21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v1",
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "frame stills of both restyled cards read directly (bold_large): two-line layout, complete text visible with margins, high-contrast white/yellow 900-weight type on black - legible at phone size; both cards carried full canvas (tight guard refused the bold layout), nothing clipped at any canvas edge"
+  ]
+}
