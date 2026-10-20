@@ -190,6 +190,34 @@ _BROKER_ALLOWLIST = frozenset({
     "cmd_run",
 })
 
+# These commands are safe on Ren-owned fixture projects only. Keep them
+# outside the general allowlist: both commands accept a caller-selected
+# project, and a missing project would otherwise silently address whichever
+# project Resolve currently has open.
+_SCOPED_RESOLVE_AXI_COMMANDS = frozenset({
+    "cmd_markers_snapshot",
+    "cmd_timeline_duplicate",
+})
+
+
+def _ren_owned_fixture_target(project: str, timeline: str) -> bool:
+    """Whether this exact Resolve target belongs to Ren's fixture space.
+
+    Qualification's reusable fixtures are named ``Q*`` and
+    ``fm-scratch*``. Other qualification projects use the dedicated
+    ``Ren Scratch - `` namespace and may carry their own reel names.
+    These checks intentionally use Resolve's exact project name, never a
+    project path or substring that could match a captain-owned project.
+    """
+    project = (project or "").strip()
+    timeline = (timeline or "").strip()
+    if not project or not timeline:
+        return False
+    if project == "Ren Qualification":
+        return timeline.startswith(("Q", "fm-scratch"))
+    prefix = "Ren Scratch - "
+    return project.startswith(prefix) and bool(project[len(prefix):].strip())
+
 
 class JobRefused(ValueError):
     """The submission is not a job the broker will run. Says why.
@@ -315,7 +343,16 @@ def _resolve_axi_shape(params: dict) -> dict:
     if func is None or name in resolve_axi._LOCAL_COMMANDS:
         raise JobRefused(f"resolve-axi {argv[0]!r} does not reach Resolve; "
                          "run it locally")
-    if name not in _BROKER_ALLOWLIST:
+    if name in _SCOPED_RESOLVE_AXI_COMMANDS:
+        project = getattr(args, "project", "") or ""
+        timeline = getattr(args, "timeline", "") or ""
+        if not _ren_owned_fixture_target(project, timeline):
+            raise JobRefused(
+                f"resolve-axi {argv[0]!r} is permitted through the broker "
+                "only for an explicit Ren-owned fixture project and "
+                "timeline (Ren Qualification Q*/fm-scratch* fixtures or "
+                "Ren Scratch - * projects)")
+    elif name not in _BROKER_ALLOWLIST:
         raise JobRefused(
             f"resolve-axi {argv[0]!r} is not on the broker allowlist; the "
             "broker runs reads so they coalesce across agents - a write "
@@ -332,6 +369,9 @@ def _resolve_axi_shape(params: dict) -> dict:
                 f"{resolve_axi.RUN_OPT_IN_ENV}=1")
     exclusive = bool(getattr(args, "unsafe", False)
                      or getattr(args, "apply", False)
+                     # Snapshot writes its requested output file in the
+                     # broker process, so serialize that side effect too.
+                     or name == "cmd_markers_snapshot"
                      or name == "cmd_project_scratch"
                      or name == "cmd_render_inspect"
                      or (name == "cmd_run" and bool(
