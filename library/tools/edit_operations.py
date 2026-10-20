@@ -62,6 +62,32 @@ PLAN_OPERATION_VALUE_CONTRACTS = {
 
 OP_OWNERS = {**DIRECT_OP_OWNERS, **PLAN_OPERATION_OWNERS}
 
+#: The primitives each planning operation compiles into.
+#:
+#: A planning operation is a STATEMENT about the cut, so it has no
+#: executor and must not be given one. It reaches the timeline by
+#: compiling into the primitives below, each of which has a real writer
+#: and its own qualification. This is the table the canonical operation
+#: map publishes for a planning-only operation, and it names only
+#: operations that HAVE an executor: a compilation into something that
+#: cannot be executed is not a compilation.
+PLAN_OPERATION_PRIMITIVES = {
+    "shot_selection": ("clip.insert", "clip.remove", "clip.replace"),
+    "speech_selection": ("clip.trim", "clip.remove"),
+    "story_pacing": ("clip.ripple", "clip.trim", "clip.remove"),
+    "music_selection": ("audio.gain", "audio.fade"),
+    "audio_mix": ("audio.gain", "audio.fade"),
+    "look": ("grade.node_set", "clip.set_property"),
+    "visual_effect": ("clip.set_property", "overlay.add"),
+    "sound_effect": ("overlay.add",),
+    "subject_effect": ("mask.create", "mask.track"),
+    "motion_graphic": ("overlay.add", "overlay.entry_motion"),
+    "brand_asset": ("overlay.add",),
+    "end_card": ("overlay.add",),
+    "angle_plan": ("multicam.select_angle",),
+    "plan_change": ("clip.trim", "clip.remove", "clip.set_property"),
+}
+
 # Rung 7 (E3) gave each planner fields that carry a number the requester
 # stated, in frames or seconds, beside the feel word it otherwise uses.
 # A typed value in one of these units reaches its owner naming the fields

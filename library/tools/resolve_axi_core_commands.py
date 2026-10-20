@@ -389,6 +389,7 @@ def _qualification_context(resolve, project, timeline, operations) -> dict:
 # verbs it does not know yet).
 _LOCAL_COMMANDS = frozenset({
     "cmd_capabilities",
+    "cmd_operation_map",
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
     "cmd_api_whats_new", "cmd_api_intellisearch_query",
     "cmd_intellisearch_collect",
@@ -397,6 +398,78 @@ _LOCAL_COMMANDS = frozenset({
     "cmd_update", "cmd_workflow_list", "cmd_workflow_candidates",
     "cmd_workflow_promote",
 })
+
+
+def cmd_operation_map(args) -> int:
+    """Serve the canonical operation map: what AXI can do, and how.
+
+    JSON is the default because this verb exists to be READ BY A MODEL
+    rather than by a person: a model that picks its own execution path
+    is how a semantically different edit reaches the timeline.  `--toon`
+    prints the same facts as a table for a person reading them.
+
+    `capabilities` answers "is this operation available"; this answers
+    "what does it MEAN, what does it DEPEND on, which backend executes
+    it, what does it PRESERVE, what QUALIFIES it, and in which project
+    STATES is it supported" - and audits the registry against the code.
+    """
+    from library.tools import operation_map
+
+    requested = (getattr(args, "operation", "") or "").strip()
+    as_toon = bool(getattr(args, "toon", False))
+    audit_only = bool(getattr(args, "audit", False))
+
+    if audit_only:
+        payload = operation_map.audit()
+    else:
+        payload = operation_map.operation_map()
+        if requested:
+            entry = payload["operations"].get(requested)
+            if entry is None:
+                return fail(f"unknown operation {requested!r}",
+                            f"{TOOL} operation-map --list-operations")
+            payload = {"schema": payload["schema"],
+                       "operation": entry,
+                       "audit": payload["audit"]}
+
+    if as_toon:
+        sys.stdout.write(_operation_map_toon(payload) + "\n")
+        return 0
+    sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    return 0
+
+
+def _operation_map_toon(payload: dict) -> str:
+    """Render the map as compact tables for a reader, not a model."""
+    if "operation" in payload:
+        entry = payload["operation"]
+        parts = [kv_block("operation", {
+            "id": entry["id"],
+            "purpose": entry["semantics"]["purpose"],
+            "support_level": entry["support_level"],
+            "execution_paths": ", ".join(entry["execution_paths"]),
+            "axi_controls": ", ".join(entry["axi_controls"]) or "none",
+            "axi_commands": ", ".join(entry["axi_verbs"]) or "none",
+            "edit_request_routable": str(
+                entry["how_to_request"]["edit_request_routable"]),
+        })]
+        parts.append(table("backends", [
+            {"id": row["backend"],
+             "path": row["execution_path"] or "undeclared",
+             "implemented": row["implemented"],
+             "production_enabled": row["production_enabled"],
+             "qualification": row["qualification_status"]}
+            for row in entry["backend_capabilities"]],
+            ["id", "path", "implemented", "production_enabled",
+             "qualification"]))
+        return "\n".join(parts)
+    if "counts" in payload:
+        return kv_block("audit_counts", payload["counts"])
+    return kv_block("map", {
+        "schema": payload["schema"],
+        "operations": payload["operation_count"],
+    })
+
 
 def cmd_capabilities(args) -> int:
     """Discover operations and answer focused questions from registry evidence."""
@@ -9046,6 +9119,18 @@ def build_parser() -> Parser:
     p.add_argument("--json", action="store_true",
                    help="emit structured JSON instead of concise TOON")
     p.set_defaults(func=cmd_capabilities)
+
+    p = subs.add_parser(
+        "operation-map",
+        help="the canonical operation map: semantics, dependencies, "
+             "backends, preservation, qualification and supported states")
+    p.add_argument("operation", nargs="?", default="",
+                   help="one operation id; the whole map when omitted")
+    p.add_argument("--audit", action="store_true",
+                   help="emit only the audit of the registry against the code")
+    p.add_argument("--toon", action="store_true",
+                   help="render compact tables for a person instead of JSON")
+    p.set_defaults(func=cmd_operation_map)
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
                                          "exact name")
