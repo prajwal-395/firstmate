@@ -1,0 +1,3103 @@
+{
+  "measured_at": "2026-10-20T22:00Z/2026-10-20T23:00Z",
+  "project": "ren-scratch-breaktest (Ren-owned scratch copy)",
+  "resolve_project": "Ren Scratch - breaktest",
+  "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+  "ledger": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-breaktest/pipeline_output/logs/perf_ledger.jsonl",
+  "task_attempts": [
+    {
+      "task_id": "run-20261020T224524Z-fcc0c7",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T224524Z-fcc0c7",
+      "outcome": "ok",
+      "latency_s": 638.241,
+      "requested_at": 1792536324.758,
+      "completed_at": 1792536962.999,
+      "peak_child_rss_mb": 3830.9,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 637.514,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 637.514,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "edit_core_rust",
+              "resolve_hold",
+              "resolve_mutation_batch",
+              "resolve_snapshot_read",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 579.028
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 57.379
+        },
+        {
+          "layer": "resolve_snapshot_read",
+          "wall_s": 1.083
+        },
+        {
+          "layer": "resolve_mutation_batch",
+          "wall_s": 0.015
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        },
+        {
+          "layer": "edit_core_rust",
+          "wall_s": 0.003
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 579.028,
+        "project_open_s": 0.0,
+        "total_s": 579.028
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1,
+        "edit_core_calls": 5
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223705Z-34fb8a",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223705Z-34fb8a",
+      "outcome": "exit 4",
+      "latency_s": 408.682,
+      "requested_at": 1792535825.349,
+      "completed_at": 1792536234.03,
+      "peak_child_rss_mb": 55.8,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 378.083,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 378.083,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 378.08
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.003
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 378.08,
+        "project_open_s": 0.0,
+        "total_s": 378.08
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T222506Z-18a691",
+      "task_class": "reels.build",
+      "run_id": "run-20261020T222506Z-18a691",
+      "outcome": "exit 1",
+      "latency_s": 189.651,
+      "requested_at": 1792535106.315,
+      "completed_at": 1792535295.965,
+      "peak_child_rss_mb": 2627.7,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.037,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.037,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.02
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.015
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.002
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.02,
+        "project_open_s": 0.0,
+        "total_s": 0.02
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T221242Z-2638f2",
+      "task_class": "reels.build",
+      "run_id": "run-20261020T221242Z-2638f2",
+      "outcome": "exit 1",
+      "latency_s": 180.686,
+      "requested_at": 1792534362.541,
+      "completed_at": 1792534543.227,
+      "peak_child_rss_mb": 2280.2,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.04,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.04,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.031
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.002
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.031,
+        "project_open_s": 0.0,
+        "total_s": 0.031
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T221100Z-3f35e7",
+      "task_class": "reels.build",
+      "run_id": "run-20261020T221100Z-3f35e7",
+      "outcome": "exit 1",
+      "latency_s": 71.948,
+      "requested_at": 1792534260.967,
+      "completed_at": 1792534332.916,
+      "peak_child_rss_mb": 2608.9,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.033,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.033,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.022
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.009
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.002
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.022,
+        "project_open_s": 0.0,
+        "total_s": 0.022
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225948Z-ebb9e2",
+      "task_class": "axi.caption_fix",
+      "run_id": "run-20261020T225948Z-ebb9e2",
+      "outcome": "ok",
+      "latency_s": 68.819,
+      "requested_at": 1792537188.807,
+      "completed_at": 1792537257.626,
+      "peak_child_rss_mb": 2882.4,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 68.084,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 68.084,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "edit_core_rust",
+              "resolve_hold",
+              "resolve_mutation_batch",
+              "resolve_snapshot_read",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_hold",
+          "wall_s": 55.681
+        },
+        {
+          "layer": "resolve_wait",
+          "wall_s": 10.968
+        },
+        {
+          "layer": "resolve_snapshot_read",
+          "wall_s": 1.41
+        },
+        {
+          "layer": "resolve_mutation_batch",
+          "wall_s": 0.017
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        },
+        {
+          "layer": "edit_core_rust",
+          "wall_s": 0.004
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 10.968,
+        "project_open_s": 0.0,
+        "total_s": 10.968
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1,
+        "edit_core_calls": 5
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223551Z-5b13ed",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223551Z-5b13ed",
+      "outcome": "exit 1",
+      "latency_s": 67.069,
+      "requested_at": 1792535751.76,
+      "completed_at": 1792535818.83,
+      "peak_child_rss_mb": 4185.2,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 66.192,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 66.192,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "edit_core_rust",
+              "resolve_api_call",
+              "resolve_hold",
+              "resolve_mutation_batch",
+              "resolve_snapshot_read",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_hold",
+          "wall_s": 64.585
+        },
+        {
+          "layer": "resolve_snapshot_read",
+          "wall_s": 1.456
+        },
+        {
+          "layer": "resolve_api_call",
+          "wall_s": 0.079
+        },
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.043
+        },
+        {
+          "layer": "resolve_mutation_batch",
+          "wall_s": 0.017
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        },
+        {
+          "layer": "edit_core_rust",
+          "wall_s": 0.004
+        },
+        {
+          "layer": "reel_lifecycle",
+          "wall_s": 0.001
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.043,
+        "project_open_s": 0.0,
+        "total_s": 0.043
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1,
+        "edit_core_calls": 5,
+        "resolve_api_calls": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T212758Z-5397d6",
+      "task_class": "reels.build",
+      "run_id": "run-20261020T212758Z-5397d6",
+      "outcome": "exit 1",
+      "latency_s": 22.809,
+      "requested_at": 1792531679.054,
+      "completed_at": 1792531701.863,
+      "peak_child_rss_mb": 2156.6,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.055,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.055,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.035
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.015
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.005
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.035,
+        "project_open_s": 0.0,
+        "total_s": 0.035
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T224431Z-af54ee",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T224431Z-af54ee",
+      "outcome": "exit 4",
+      "latency_s": 11.356,
+      "requested_at": 1792536271.415,
+      "completed_at": 1792536282.771,
+      "peak_child_rss_mb": 1939.4,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 10.628,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 10.627,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "edit_core_rust",
+              "resolve_api_call",
+              "resolve_hold",
+              "resolve_snapshot_read",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.001
+      },
+      "layers": [
+        {
+          "layer": "resolve_hold",
+          "wall_s": 9.93
+        },
+        {
+          "layer": "resolve_snapshot_read",
+          "wall_s": 0.571
+        },
+        {
+          "layer": "resolve_api_call",
+          "wall_s": 0.077
+        },
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.039
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        },
+        {
+          "layer": "edit_core_rust",
+          "wall_s": 0.003
+        },
+        {
+          "layer": "reel_lifecycle",
+          "wall_s": 0.001
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.039,
+        "project_open_s": 0.0,
+        "total_s": 0.039
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1,
+        "edit_core_calls": 3,
+        "resolve_api_calls": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225627Z-bf2cf1",
+      "task_class": "axi.trim",
+      "run_id": "run-20261020T225627Z-bf2cf1",
+      "outcome": "exit 1",
+      "latency_s": 9.425,
+      "requested_at": 1792536987.854,
+      "completed_at": 1792536997.279,
+      "peak_child_rss_mb": 63.8,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 6.241,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 6.241,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 6.176
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.055
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.01
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 6.176,
+        "project_open_s": 0.0,
+        "total_s": 6.176
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T220924Z-7148a7",
+      "task_class": "reels.build",
+      "run_id": "run-20261020T220924Z-7148a7",
+      "outcome": "exit 1",
+      "latency_s": 9.229,
+      "requested_at": 1792534165.006,
+      "completed_at": 1792534174.235,
+      "peak_child_rss_mb": 2501.3,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.162,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.162,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.153
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.002
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.153,
+        "project_open_s": 0.0,
+        "total_s": 0.153
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225908Z-dfba18",
+      "task_class": "axi.caption_fix",
+      "run_id": "run-20261020T225908Z-dfba18",
+      "outcome": "exit 4",
+      "latency_s": 7.146,
+      "requested_at": 1792537148.804,
+      "completed_at": 1792537155.95,
+      "peak_child_rss_mb": 60.8,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.482,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.482,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 3.733
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.743
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 3.733,
+        "project_open_s": 0.0,
+        "total_s": 3.733
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225813Z-94abdf",
+      "task_class": "axi.trim",
+      "run_id": "run-20261020T225813Z-94abdf",
+      "outcome": "exit 1",
+      "latency_s": 6.219,
+      "requested_at": 1792537093.786,
+      "completed_at": 1792537100.005,
+      "peak_child_rss_mb": 106.1,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 2.824,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 2.824,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 2.698
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.117
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.009
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 2.698,
+        "project_open_s": 0.0,
+        "total_s": 2.698
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225718Z-570d98",
+      "task_class": "axi.trim",
+      "run_id": "run-20261020T225718Z-570d98",
+      "outcome": "exit 1",
+      "latency_s": 6.023,
+      "requested_at": 1792537038.177,
+      "completed_at": 1792537044.2,
+      "peak_child_rss_mb": 66.6,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 5.0,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 5.0,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.898
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.097
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.005
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.898,
+        "project_open_s": 0.0,
+        "total_s": 4.898
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223457Z-1190a6",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223457Z-1190a6",
+      "outcome": "exit 1",
+      "latency_s": 5.753,
+      "requested_at": 1792535697.373,
+      "completed_at": 1792535703.127,
+      "peak_child_rss_mb": 67.5,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.985,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.985,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.919
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.059
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.919,
+        "project_open_s": 0.0,
+        "total_s": 4.919
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223313Z-fa750f",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223313Z-fa750f",
+      "outcome": "exit 1",
+      "latency_s": 5.731,
+      "requested_at": 1792535593.846,
+      "completed_at": 1792535599.578,
+      "peak_child_rss_mb": 69.3,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.935,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.935,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.841
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.087
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.841,
+        "project_open_s": 0.0,
+        "total_s": 4.841
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223424Z-d31efc",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223424Z-d31efc",
+      "outcome": "exit 1",
+      "latency_s": 5.681,
+      "requested_at": 1792535664.884,
+      "completed_at": 1792535670.565,
+      "peak_child_rss_mb": 66.4,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 5.031,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 5.031,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.998
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.027
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.998,
+        "project_open_s": 0.0,
+        "total_s": 4.998
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223513Z-c9c71d",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223513Z-c9c71d",
+      "outcome": "exit 1",
+      "latency_s": 5.658,
+      "requested_at": 1792535713.658,
+      "completed_at": 1792535719.316,
+      "peak_child_rss_mb": 66.6,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.954,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.954,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.906
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.042
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.906,
+        "project_open_s": 0.0,
+        "total_s": 4.906
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223440Z-7f566e",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223440Z-7f566e",
+      "outcome": "exit 1",
+      "latency_s": 5.644,
+      "requested_at": 1792535681.026,
+      "completed_at": 1792535686.67,
+      "peak_child_rss_mb": 67.2,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.941,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.941,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.894
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.041
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.894,
+        "project_open_s": 0.0,
+        "total_s": 4.894
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223352Z-745986",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223352Z-745986",
+      "outcome": "exit 1",
+      "latency_s": 5.638,
+      "requested_at": 1792535632.143,
+      "completed_at": 1792535637.782,
+      "peak_child_rss_mb": 66.3,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.943,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.943,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.889
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.047
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.889,
+        "project_open_s": 0.0,
+        "total_s": 4.889
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223408Z-058a03",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223408Z-058a03",
+      "outcome": "exit 1",
+      "latency_s": 5.624,
+      "requested_at": 1792535648.754,
+      "completed_at": 1792535654.378,
+      "peak_child_rss_mb": 66.4,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 4.978,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 4.978,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 4.941
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.033
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.004
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 4.941,
+        "project_open_s": 0.0,
+        "total_s": 4.941
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225651Z-b9c454",
+      "task_class": "axi.trim",
+      "run_id": "run-20261020T225651Z-b9c454",
+      "outcome": "exit 1",
+      "latency_s": 5.599,
+      "requested_at": 1792537011.95,
+      "completed_at": 1792537017.549,
+      "peak_child_rss_mb": 65.9,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 2.854,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 2.854,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 2.795
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.053
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 2.795,
+        "project_open_s": 0.0,
+        "total_s": 2.795
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T225835Z-375cbc",
+      "task_class": "axi.trim",
+      "run_id": "run-20261020T225835Z-375cbc",
+      "outcome": "exit 4",
+      "latency_s": 2.393,
+      "requested_at": 1792537115.431,
+      "completed_at": 1792537117.825,
+      "peak_child_rss_mb": 63.4,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 1.337,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 1.337,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_hold",
+          "wall_s": 1.276
+        },
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.054
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.007
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.054,
+        "project_open_s": 0.0,
+        "total_s": 0.054
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223542Z-062add",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223542Z-062add",
+      "outcome": "exit 1",
+      "latency_s": 0.812,
+      "requested_at": 1792535742.837,
+      "completed_at": 1792535743.648,
+      "peak_child_rss_mb": 66.3,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.088,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.088,
+            "pct": 100.0,
+            "layers": [
+              "broker_request",
+              "resolve_hold",
+              "resolve_wait"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "resolve_wait",
+          "wall_s": 0.044
+        },
+        {
+          "layer": "resolve_hold",
+          "wall_s": 0.038
+        },
+        {
+          "layer": "broker_request",
+          "wall_s": 0.006
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0.044,
+        "project_open_s": 0.0,
+        "total_s": 0.044
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "cli_starts": 1,
+        "broker_requests": 1
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223136Z-f044c0",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223136Z-f044c0",
+      "outcome": "exit 1",
+      "latency_s": 0.454,
+      "requested_at": 1792535496.773,
+      "completed_at": 1792535497.227,
+      "peak_child_rss_mb": 27.7,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.365,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.365,
+            "pct": 100.0,
+            "layers": [
+              "broker_request"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "broker_request",
+          "wall_s": 0.365
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0,
+        "project_open_s": 0.0,
+        "total_s": 0.0
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "broker_requests": 3
+      },
+      "verified_decisions": 0
+    },
+    {
+      "task_id": "run-20261020T223101Z-a3b616",
+      "task_class": "axi.property_change",
+      "run_id": "run-20261020T223101Z-a3b616",
+      "outcome": "exit 1",
+      "latency_s": 0.131,
+      "requested_at": 1792535462.04,
+      "completed_at": 1792535462.171,
+      "peak_child_rss_mb": 27.8,
+      "capability_rows": 0,
+      "capability_wall_s": 0,
+      "stages": {
+        "total_span_wall_s": 0.027,
+        "stages": [
+          {
+            "stage": "ingestion",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "search",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "evidence",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "planning",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "axi",
+            "wall_s": 0.027,
+            "pct": 100.0,
+            "layers": [
+              "broker_request"
+            ]
+          },
+          {
+            "stage": "rendering",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          },
+          {
+            "stage": "verification",
+            "wall_s": 0.0,
+            "pct": 0.0,
+            "layers": []
+          }
+        ],
+        "unclassified_s": 0.0
+      },
+      "layers": [
+        {
+          "layer": "broker_request",
+          "wall_s": 0.027
+        }
+      ],
+      "waits": {
+        "scheduler_queue_s": 0,
+        "resolve_lease_wait_s": 0,
+        "project_open_s": 0.0,
+        "total_s": 0.0
+      },
+      "model_access": {
+        "model_load_s": 0.0,
+        "model_cache_s": 0.0,
+        "cold_inference_s": 0.0,
+        "cold_inferences": 0,
+        "warm_inference_s": 0.0,
+        "warm_inferences": 0,
+        "unmeasured_inference_s": 0.0,
+        "unmeasured_inferences": 0
+      },
+      "project_open": {
+        "switches": 0,
+        "total_s": 0.0,
+        "load_s": 0.0,
+        "settle_s": 0.0,
+        "readback_s": 0.0
+      },
+      "resources": {
+        "peak_rss_mb": null,
+        "memory_pressure": null,
+        "swap_used_mb": null,
+        "swap_total_mb": null,
+        "project_bytes_written": null,
+        "disk_bytes_read": null,
+        "disk_bytes_written": null,
+        "disk_free_bytes": null,
+        "disk_total_bytes": null
+      },
+      "counts": {
+        "broker_requests": 3
+      },
+      "verified_decisions": 0
+    }
+  ]
+}
