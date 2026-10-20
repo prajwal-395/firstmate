@@ -12,6 +12,7 @@ Start with the directory layout, then use the setting reference for the behavior
 | Worker permissions, accounts, or environment | [Claude permission mode](#claude-permission-mode-configclaude-permission-mode), [worker account pin](#worker-account-pin-configclaude-account-configpi-account), [worker tool exclusions](#worker-tool-exclusions-configcrew-exclude-tools), and [worker launch environment](#worker-launch-environment-configlaunch-env-allowlist) |
 | Backlog, preferences, and memory | [Backlog backend](#backlog-backend-taskstoml--configbacklog-backend), [captain preferences](#captain-preferences-datacaptainmd--datacaptain-sharedmd), and [startup memory budget](#startup-memory-budget-configstartup-memory-budget) |
 | Supervision and presentation | [Pi supervision branch](#pi-supervision-branch), [supervision host](#supervision-host-configsupervision-host), and [Calm preference](#calm-preference-configcalm) |
+| OpenCode Go worker routing | [Pi on OpenCode Go](#pi-on-opencode-go-configpi-opencode-go) |
 | Persistent secondmates | [Secondmate routes](#secondmate-routes-datasecondmatesmd) |
 | Per-run overrides and tuning | [Environment variables](#environment-variables) |
 
@@ -943,6 +944,7 @@ The refusal names the variable; remove that assignment from the raw command, or 
 
 Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Firstmate asks the runner itself whether the pinned account is signed in: `claude auth status` for Claude, and `pi auth check --provider <provider> --json --no-refresh` for Pi, falling back to `pi --list-models <provider>` for a provider an extension registers.
 The check runs with only `HOME`, `PATH`, `TMPDIR`, `USER`, `LOGNAME`, and the pinned root in its environment, so a credential variable in firstmate's own environment cannot answer for an empty root.
+For a Pi worker routed to OpenCode Go by `config/pi-opencode-go`, the provider uses OpenCode's console database instead of a Pi-stored API credential, so spawn validates the task database's console login and the request-time helper refreshes it before sending a token.
 
 A pinned Claude launch also unsets the environment credentials Claude ranks above a stored login, such as `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, and the Bedrock and Vertex switches ([authentication precedence](https://code.claude.com/docs/en/authentication#authentication-precedence)).
 Pi ranks a root's stored logins above environment variables, so a pinned Pi launch unsets nothing.
@@ -1220,6 +1222,23 @@ With both keys present the tool tries the captain's typesafe.ai key first (`jev-
 With one key present the tool uses that rung only.
 The resolver fixes the confidence floor at 0.6 and the request timeout at 5 seconds; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
+
+## Pi on OpenCode Go (config/pi-opencode-go)
+
+The optional local, gitignored `config/pi-opencode-go` file holds exactly one line, `on` or `off`; absent means off, and malformed content refuses the spawn.
+When on, ordinary crewmates and scouts selected for the OpenCode ladder's free Minimax or paid Go model run on standard Pi with the ladder's selected model and workspace.
+The ladder order, quota caps, workspace choice, and descent remain the same, and the Codex Plus rung remains on Codex.
+Secondmates and tasks that do not resolve to one of those two OpenCode-backed rungs are unaffected.
+
+Firstmate installs or merges its OpenCode Go provider into the Pi agent directory the worker actually uses: the pinned Pi account directory when a worker account is selected, or Pi's default agent directory otherwise.
+The provider uses the OpenCode Go inference endpoint and the same model ids as the OpenCode ladder.
+Firstmate supplies each task's selected workspace id and stable `x-opencode-session` value through that launch's environment, and uses the existing workspace pin database to create the task's private credential database.
+
+Pi does not refresh OpenCode console credentials itself.
+For each model request, its credential command asks OpenCode to refresh the canonical console database, copies only the login rows into that task's private database, and refuses an absent or near-expiry token.
+Tokens remain in OpenCode databases; the request-time command hands the token directly to Pi without logging or persisting it elsewhere.
+The refresh is serialized across tasks so workers do not race the same console refresh token.
+`bin/fm-pi-opencode-go.sh` owns provider installation and request-time credential handling.
 
 ## Stow owner resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
 

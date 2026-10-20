@@ -123,6 +123,18 @@ fm_opencode_second_config_dir() {  # [config-dir]
   printf '%s\n' "$config_dir"
 }
 
+# fm_opencode_pi_go_enabled [config-dir]: 0 for the opt-in, 1 when absent or
+# off, and 2 for malformed content. Spawn and descent share this one reader.
+fm_opencode_pi_go_enabled() {  # [config-dir]
+  local config_dir=${1:-} file value=
+  config_dir=$(fm_opencode_second_config_dir "$config_dir") || return 1
+  file="$config_dir/pi-opencode-go"
+  [ -f "$file" ] || [ -L "$file" ] || return 1
+  [ "$(awk 'END { print NR }' "$file" 2>/dev/null)" = 1 ] \
+    && IFS= read -r value < "$file" || return 2
+  case "$value" in on) return 0 ;; off) return 1 ;; *) return 2 ;; esac
+}
+
 # Workspace file infixes. The secondary workspace keeps its historic `second`
 # infix (config/opencode-second-org); the main workspace uses `main`.
 fm_opencode_workspace_infix() {  # <workspace>

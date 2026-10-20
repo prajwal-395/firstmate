@@ -435,6 +435,7 @@ fm-pi-branch-extension.test.sh standalone
 fm-pi-branch-live-e2e.test.sh live-harness-optin
 fm-pi-branch-responsiveness-live-e2e.test.sh live-harness-optin
 fm-pi-codex-native.test.sh live-harness-optin
+fm-pi-opencode-go.test.sh pure-contract-unit
 fm-pi-primary-live-e2e.test.sh live-harness-optin
 fm-pi-primary-types.test.sh pure-contract-unit
 fm-pi-watch-extension.test.sh watcher-wake-lock
@@ -927,6 +928,7 @@ tests/fm-pi-branch-extension.test.sh 63703
 tests/fm-pi-branch-live-e2e.test.sh 52
 tests/fm-pi-branch-responsiveness-live-e2e.test.sh 13241
 tests/fm-pi-codex-native.test.sh 120
+tests/fm-pi-opencode-go.test.sh 700
 tests/fm-pi-primary-live-e2e.test.sh 49
 tests/fm-pi-seeded-home-trust-live-e2e.test.sh 45
 tests/fm-pi-watch-extension.test.sh 98956
