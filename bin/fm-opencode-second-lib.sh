@@ -363,6 +363,42 @@ fm_opencode_second_live_db() {
   printf '%s\n' "$line"
 }
 
+# fm_opencode_db_backup <source-db> <destination-db>: take a consistent
+# SQLite online backup, including WAL contents, without copying a live file.
+fm_opencode_db_backup() {  # <source-db> <destination-db>
+  local source=${1:-} destination=${2:-} escaped
+  [ -n "$source" ] && [ -n "$destination" ] && [ -f "$source" ] || return 1
+  command -v sqlite3 >/dev/null 2>&1 || return 1
+  escaped=$(printf '%s' "$destination" | sed "s/'/''/g") || return 1
+  sqlite3 "$source" ".backup '$escaped'" >/dev/null 2>&1
+}
+
+# fm_opencode_unpinned_seed <destination-db> [config-dir]: seed a standalone
+# task database from a verified main pin, or from a consistent copy of the
+# machine database. A missing login source leaves initialization to OpenCode.
+fm_opencode_unpinned_seed() {  # <destination-db> [config-dir]
+  local destination=${1:-} config_dir=${2:-} main_db live source tmp
+  [ -n "$destination" ] || return 1
+  config_dir=$(fm_opencode_second_config_dir "${config_dir:-}") || return 1
+  main_db=$(fm_opencode_main_db_file "$config_dir") || return 1
+  if [ -f "$main_db" ] && fm_opencode_main_verify "$main_db"; then
+    source=$main_db
+  else
+    live=$(fm_opencode_second_live_db 2>/dev/null) || {
+      : > "$destination"
+      return $?
+    }
+    source=$live
+  fi
+  tmp="$destination.tmp.$$"
+  rm -f "$tmp" || return 1
+  if ! fm_opencode_db_backup "$source" "$tmp" || ! mv "$tmp" "$destination"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  return 0
+}
+
 # fm_opencode_attempt_count [override] [default]: the bounded retry count.
 # Non-numeric and empty overrides read as the default, so a bad env value
 # cannot disable the bound or spin.
