@@ -141,9 +141,16 @@ def test_broll_insert_acceptance_names_speech_preservation_and_collateral():
     assert accepted["passed"]
 
 
-def test_broll_insert_is_registered_but_stays_fail_closed():
+def test_broll_insert_is_production_ready_only_on_its_live_evidence():
     """Defect: an implemented adapter that reads as production-enabled
-    before live qualification routes an unproven cover onto the reel."""
+    before live qualification routes an unproven cover onto the reel.
+
+    The live qualification happened (2026-10-20: the cover evidence is
+    in tests/live/reports/registry/broll.insert__resolve_axi.json), so
+    the operation IS production-enabled now. What this still names is
+    the rule behind that state: the enablement comes from the evidence
+    record, and the record names the run it came from.
+    """
     from library.tools import edit_algebra, edit_execution_adapters, resolve_axi_core
 
     edit_execution_adapters.register_builtin_edit_executors()
@@ -151,8 +158,14 @@ def test_broll_insert_is_registered_but_stays_fail_closed():
         resolve_axi_core.registered_edit_executors())
     status = edit_algebra.status("broll.insert")
     assert status is not None and status.compilable
-    assert status.for_backend("resolve_axi") is not None
-    assert not status.production_enabled
+    row = status.for_backend("resolve_axi")
+    assert row is not None
+    assert status.production_enabled
+    assert row.qualification_evidence
+    assert any("insert_relevant_broll" in evidence
+               for evidence in row.qualification_evidence)
+    assert row.resolve_version
+    assert row.qualification_predicates
     assert edit_algebra.safety_class("broll.insert") == (
         edit_algebra.SAFETY_STRUCTURAL)
     assert edit_algebra.has_independent_readback("broll.insert")

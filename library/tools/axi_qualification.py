@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,48 @@ PREDICATE_FIELDS = frozenset({
     "resolve_version", "project_name", "timeline_name", "media_type", "clip_composition",
     "linked_audio_configuration", "timeline_structure",
 })
+
+#: The ONE reading of a Resolve version.
+#:
+#: Resolve's own ``GetVersionString`` reports a bare dotted version
+#: ("21.1.0.14"); a qualification record may carry the product label
+#: ("DaVinci Resolve 21.1.0.14"). Both name the same build, and a
+#: predicate compared against a label the runtime never emits can never be
+#: satisfied - so the comparison happens on the VERSION, and the product
+#: label is decoration. Measured 2026-10-20: every promoted operation
+#: (``clip.delete``, ``clip.set_property``) was refused in production
+#: routing with "resolve_version is '21.1.0.14', not 'DaVinci Resolve
+#: 21.1.0.14'", which is a statement about two notations and not about the
+#: timeline the evidence was earned on.
+_RESOLVE_VERSION_LABEL = re.compile(
+    r"^\s*(?:DaVinci\s+Resolve(?:\s+Studio)?\b\s*)?", re.IGNORECASE)
+
+
+def canonical_resolve_version(value: Any) -> str:
+    """The Resolve version in the one form a recorded predicate can compare.
+
+    The bare dotted version, with the product label removed. A version
+    that is already bare comes back unchanged; an empty value stays empty
+    so a missing version is still a missing version.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return _RESOLVE_VERSION_LABEL.sub("", text).strip()
+
+
+def canonical_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
+    """One predicate with its version value in the canonical reading."""
+    if predicate.get("field") != "resolve_version":
+        return dict(predicate)
+    canonical = dict(predicate)
+    operator = canonical.get("operator")
+    if operator == "one_of" and isinstance(canonical.get("value"), list):
+        canonical["value"] = [canonical_resolve_version(item)
+                              for item in canonical["value"]]
+    else:
+        canonical["value"] = canonical_resolve_version(canonical.get("value"))
+    return canonical
 
 _IDENTITY_REQUIRED = ("operation_id", "backend", "result", "evidence")
 _REQUIRED = (
@@ -104,10 +147,14 @@ def parse_result(report: dict[str, Any]) -> tuple[tuple[str, str], dict[str, Any
             "recovery_status must be passed or explicitly not_required")
     record = {
         "evidence": report["evidence"],
-        "resolve_version": report["resolve_version"],
+        # The version is stored in the ONE reading a predicate compares
+        # against, so the record and the runtime that must satisfy it
+        # cannot disagree about a product label.
+        "resolve_version": canonical_resolve_version(report["resolve_version"]),
         "media_types": report["supported_media_types"],
         "timeline_conditions": report["project_conditions"],
-        "qualification_predicates": predicates,
+        "qualification_predicates": [canonical_predicate(predicate)
+                                     for predicate in predicates],
         "expected_state": report["expected_state"],
         "actual_state": report["actual_state"],
         "preservation_checks": report["preservation_checks"],
@@ -175,10 +222,17 @@ def load_qualification_records(path: Path = REGISTRY_PATH) -> dict:
         records[(op_id, backend)] = {
             "result": record["result"],
             "evidence": (record["evidence"],),
-            "resolve_version": record["resolve_version"],
+            # A record written before the version had one reading still
+            # reads in it: the predicate is compared against a runtime
+            # that reports the bare version, so the label is removed here
+            # rather than left to fail the comparison forever.
+            "resolve_version": canonical_resolve_version(
+                record["resolve_version"]),
             "media_types": tuple(record["media_types"]),
             "timeline_conditions": tuple(record["timeline_conditions"]),
-            "qualification_predicates": tuple(record["qualification_predicates"]),
+            "qualification_predicates": tuple(
+                canonical_predicate(predicate)
+                for predicate in record["qualification_predicates"]),
             "expected_state": record["expected_state"],
             "actual_state": record["actual_state"],
             "preservation_checks": record["preservation_checks"],

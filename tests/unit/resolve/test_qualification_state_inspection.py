@@ -42,6 +42,7 @@ if str(_ROOT) not in sys.path:
 from library.tools import axi_qualification, edit_algebra  # noqa: E402
 from library.tools.execution_router import (  # noqa: E402
     RoutingRefused,
+    _predicate_mismatches,
     _qualification_matches,
     route_compiled_edit,
 )
@@ -238,7 +239,7 @@ def test_the_axi_command_dispatch_measures_the_runtime(monkeypatch):
 
     class _Resolve:
         def GetVersionString(self):
-            return "DaVinci Resolve 21.1.0.14"
+            return "21.1.0.14"
 
     monkeypatch.setattr(
         "library.tools.reel_read.read_tracks",
@@ -290,7 +291,12 @@ def test_the_measurement_describes_the_runtime_it_read(monkeypatch):
 
     class _Resolve:
         def GetVersionString(self):
-            return "DaVinci Resolve 21.1.0.14"
+            # What Resolve ACTUALLY returns. The stub used to answer
+            # "DaVinci Resolve 21.1.0.14", which no Resolve has ever
+            # answered, and the fiction is why the version predicate
+            # looked satisfiable in a unit test and refused every
+            # promoted edit in the live run.
+            return "21.1.0.14"
 
     monkeypatch.setattr(
         "library.tools.reel_read.read_tracks", lambda timeline: [])
@@ -299,7 +305,7 @@ def test_the_measurement_describes_the_runtime_it_read(monkeypatch):
         timeline=_Timeline(),
         operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
     assert state["inspected"] is True
-    assert state["state"]["resolve_version"] == "DaVinci Resolve 21.1.0.14"
+    assert state["state"]["resolve_version"] == "21.1.0.14"
     assert state["state"]["project_name"] == "Ren Qualification"
     assert state["state"]["timeline_name"] == "fm-scratch qualify"
 
@@ -332,7 +338,7 @@ def test_the_measured_fixture_satisfies_the_recorded_predicates(monkeypatch):
 
     class _Resolve:
         def GetVersionString(self):
-            return "DaVinci Resolve 21.1.0.14"
+            return "21.1.0.14"
 
     rows = _fake_rows()
     monkeypatch.setattr(
@@ -350,6 +356,128 @@ def test_the_measured_fixture_satisfies_the_recorded_predicates(monkeypatch):
         row = edit_algebra.status(op_id).for_backend(backend)
         assert row is not None and row.production_enabled
         assert _qualification_matches(row, measured), (op_id, measured)
+
+
+def test_a_recorded_predicate_a_runtime_cannot_satisfy_is_a_defect():
+    """The general form of the defect the live run measured.
+
+    A production-enabled operation carries the CONDITIONS its evidence was
+    earned under, and the runtime is compared against them. A condition
+    written in a notation the runtime never reports can never be
+    satisfied, so the operation is refused on every timeline - including
+    the one the evidence was earned on.
+
+    Measured 2026-10-20: every promoted operation (`clip.delete`,
+    `clip.set_property`) was refused in production routing with
+    "resolve_version is '21.1.0.14', not 'DaVinci Resolve 21.1.0.14'" -
+    a statement about two notations and not about the timeline. The
+    version now has ONE reading, so the comparison is version against
+    version.
+    """
+    records = axi_qualification.load_qualification_records()
+    assert records, "the registry carries no evidence to check"
+
+    for (op_id, backend), record in records.items():
+        row = edit_algebra.status(op_id).for_backend(backend)
+        assert row is not None and row.production_enabled, (op_id, backend)
+        version = record["resolve_version"]
+        assert version, (op_id, backend)
+        for predicate in record["qualification_predicates"]:
+            if predicate["field"] != "resolve_version":
+                continue
+            values = predicate["value"]
+            values = values if isinstance(values, list) else [values]
+            for value in values:
+                # The recorded condition is written in the canonical
+                # reading, so the runtime's own reading can satisfy it.
+                assert value == axi_qualification.canonical_resolve_version(
+                    value), (op_id, backend, value)
+                # And the canonical reading of the evidence's own version
+                # is that value: the record and its condition agree.
+                assert value == axi_qualification.canonical_resolve_version(
+                    version), (op_id, backend, value, version)
+
+
+def test_the_version_has_one_reading():
+    """Resolve reports a bare version; the label is decoration."""
+    canonical = axi_qualification.canonical_resolve_version
+
+    assert canonical("21.1.0.14") == "21.1.0.14"
+    assert canonical("DaVinci Resolve 21.1.0.14") == "21.1.0.14"
+    assert canonical("DaVinci Resolve Studio 21.1.0.14") == "21.1.0.14"
+    assert canonical("  DaVinci  Resolve  21.1.0.14 ") == "21.1.0.14"
+    assert canonical("") == ""
+    assert canonical(None) == ""
+
+
+def test_the_state_the_live_run_measured_now_satisfies_the_recorded_conditions():
+    """The 2026-10-20 live run's own measurement, replayed.
+
+    The generalization matrix refused 15 of its 20 cases, and every one
+    of them with the same line: "no production-qualified executor is
+    available for: clip.delete; production routing fails closed
+    (clip.delete: runtime state does not satisfy recorded qualification
+    predicates: resolve_version is '21.1.0.14', not 'DaVinci Resolve
+    21.1.0.14'; media_type is 'video + audio', not one of ['video'];
+    timeline_str...)".
+
+    This is that measurement, as the refusal printed it, replayed against
+    the recorded conditions. The conditions the evidence was earned under
+    have to be satisfiable by the runtime the evidence was earned on.
+    """
+    measured = {
+        "resolve_version": "21.1.0.14",
+        "project_name": "Ren Qualification",
+        "timeline_name": "fm-scratch qualify",
+        "media_type": "video + audio",
+        "clip_composition": "linked_video_clip",
+        "linked_audio_configuration": "linked_audio_present",
+        "timeline_structure": "multi_item_timeline",
+    }
+    inspected = {"inspected": True, "state": measured}
+
+    for op_id, backend in (("clip.delete", "edit_patch"),
+                            ("clip.set_property", "edit_patch")):
+        row = edit_algebra.status(op_id).for_backend(backend)
+        assert row is not None and row.production_enabled, (op_id, backend)
+        assert _qualification_matches(row, inspected), (
+            op_id, _predicate_mismatches([row], inspected))
+        assert _predicate_mismatches([row], inspected) == ()
+
+
+def test_the_measurement_reads_the_version_in_the_one_reading(monkeypatch):
+    """The measurement is where the version enters the system.
+
+    Resolve's answer is read in the reading the recorded conditions are
+    written in, so the comparison the router makes is version against
+    version - whatever notation Resolve happens to use.
+    """
+    from library.tools import axi_qualification_state
+
+    class _Timeline:
+        def GetName(self):
+            return "fm-scratch qualify"
+
+    class _Project:
+        def GetName(self):
+            return "Ren Qualification"
+
+    class _Resolve:
+        def GetVersionString(self):
+            return "DaVinci Resolve 21.1.0.14"
+
+    monkeypatch.setattr(
+        "library.tools.reel_read.read_tracks",
+        lambda timeline: [{"type": "video", "index": 1, "name": "Video 1",
+                           "clips": _fake_rows()}])
+    measured = axi_qualification_state.inspect_handles(
+        resolve=_Resolve(), resolve_project=_Project(),
+        timeline=_Timeline(),
+        operations=[{"op": PROMOTED_OP, "unique_id": "item-1"}])
+
+    assert measured["state"]["resolve_version"] == "21.1.0.14"
+    row = edit_algebra.status("clip.delete").for_backend("edit_patch")
+    assert _qualification_matches(row, measured)
 
 
 def test_a_timeline_with_more_than_the_seeded_clip_is_its_own_structure():

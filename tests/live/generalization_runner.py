@@ -52,11 +52,28 @@ COVERED: dict[str, list[str]] = {
     "approved_edit_history": ["none", "manual_transform"],
 }
 
+#: The matrix values the runner runs for the dimensions it does NOT
+#: vary. The default track names are what every case places onto; the
+#: three target states are the unique target, the ambiguous one the
+#: probe must refuse, and the stale snapshot the reordered case
+#: exercises; the source dimensions are the pixels of the sources the
+#: runner does place. They are stated here so the matrix's coverage is
+#: read off the runner and not guessed from it.
+COVERED_MATRIX_VALUES: dict[str, list[str]] = {
+    "track_names": ["default_names"],
+    "target_state": ["unique", "ambiguous", "stale_snapshot"],
+    "source_dimensions": ["1920x1080", "180x64"],
+}
+
 UNCOVERED: dict[str, str] = {
     "timeline_resolution": ("shared qualification timeline settings are "
                             "immutable; needs an isolated scratch project"),
     "frame_rate": ("shared qualification timeline settings are immutable; "
                    "needs an isolated scratch project"),
+    "source_dimensions": ("the runner places 1920x1080 and 180x64 sources; "
+                          "the other source sizes need the isolated media "
+                          "the factory generates but the runner does not "
+                          "import yet"),
     "source_3840x2160": "factory generates 4K media; live runner does not yet import isolated fixtures",
     "source_1080x1920": "factory generates portrait media; live runner does not yet import isolated fixtures",
     "source_prores_mov": "factory generates ProRes media; live runner does not yet import isolated fixtures",
@@ -76,6 +93,37 @@ INVARIANTS = ["same_semantic_target", "exact_source_and_record_intervals",
               "role_based_track_resolution", "approved_edits_preserved",
               "no_unrelated_timeline_changes",
               "output_pixel_geometry_verified"]
+
+#: The invariants the matrix REQUIRES, and the reason each one the runner
+#: does not check is not checked. An invariant that is simply missing
+#: reads as if nothing was required - so the matrix's own list is read
+#: here, and the difference is reported with the dimension that would
+#: have exercised it.
+REQUIRED_INVARIANT_REASONS = {
+    "linked_audio_sync_preserved":
+        "no case runs a multi-clip A/V group (complex_linked_av is "
+        "uncovered), so no case can show a linked pair staying in sync "
+        "through an edit",
+    "grade_and_fusion_preserved":
+        "no case seeds a native grade or a Fusion composition "
+        "(graded_project and fusion_composition are uncovered), so no "
+        "case can show either surviving an edit",
+}
+
+
+def required_invariants() -> tuple[str, ...]:
+    """The invariants the matrix declares, read from the matrix itself."""
+    matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+    return tuple(matrix["execution_contract"]["required_invariants"])
+
+
+def unverified_invariants() -> list[dict]:
+    """The required invariants this runner does not check, and why."""
+    missing = [name for name in required_invariants() if name not in INVARIANTS]
+    return [{"invariant": name,
+             "reason": REQUIRED_INVARIANT_REASONS.get(
+                 name, "the matrix requires it and no case exercises it")}
+            for name in missing]
 
 
 def _uncovered_count(candidate: dict,
@@ -728,14 +776,29 @@ def run_matrix(live: bool = True) -> dict:
                 "evaluation_level": 1,
                 "cases": [{**case, "evaluation_level": 1}
                           for case in cases + [ambiguous]],
-                "uncovered_dimensions": UNCOVERED,
                 "invariants": INVARIANTS,
+                "required_invariants": list(required_invariants()),
+                "unverified_invariants": unverified_invariants(),
+                "uncovered_dimensions": UNCOVERED,
                 "live": False}
     started = perf_counter()
-    batch = q._qualification_batch(
-        q._select_timeline_script() + _broker_script(
-            cases).replace(
-            "@FM_QUAL_PROJECT_DIR@", _run_store()))
+    script = (q._select_timeline_script() + _broker_script(cases).replace(
+        "@FM_QUAL_PROJECT_DIR@", _run_store()))
+    try:
+        batch = q._qualification_batch(script)
+    except RuntimeError as exc:
+        # A previous batch that died mid-case left the private timeline
+        # dirty, and the matrix refuses to run on it - that is the
+        # fixture's own rule, so the fixture restores it and the matrix
+        # runs once more. The recovery is recorded on the report.
+        if "not empty before the cases" not in str(exc) \
+                and "expected three" not in str(exc):
+            raise
+        q.recover_timeline()
+        batch = q._qualification_batch(script)
+        recovered = True
+    else:
+        recovered = False
     steps = (batch.get("result") or {}).get("steps", [])
     if not steps:
         raise RuntimeError(
@@ -758,7 +821,10 @@ def run_matrix(live: bool = True) -> dict:
         "passed": sum(row["status"] == "pass" for row in rows),
         "failed": sum(row["status"] == "fail" for row in rows),
         "invariants": INVARIANTS,
+        "required_invariants": list(required_invariants()),
+        "unverified_invariants": unverified_invariants(),
         "uncovered_dimensions": UNCOVERED,
+        "timeline_recovered": recovered,
         "elapsed_seconds": perf_counter() - started,
         "results": rows,
     }

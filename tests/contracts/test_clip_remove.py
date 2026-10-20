@@ -230,14 +230,37 @@ def test_clip_remove_has_a_registered_resolve_axi_backend():
         resolve_axi_core.registered_edit_executors())
 
 
-def test_clip_remove_stays_fail_closed_until_live_qualification():
+def test_clip_remove_is_production_ready_only_on_its_live_evidence():
     """Defect: an unqualified ripple reaching production would move
-    every later cut on measured evidence nobody recorded."""
+    every later cut on measured evidence nobody recorded.
+
+    The live qualification happened (2026-10-20: the track-scoped
+    ripple-remove evidence is in
+    tests/live/reports/registry/clip.remove__resolve_axi.json), so the
+    operation IS production-enabled on the backend that earned it - and
+    only on that one. What this still names is the rule behind the
+    state: the enablement comes from the evidence record, the record
+    names the run it came from, and a runtime nobody measured is still
+    refused.
+    """
     from library.tools import edit_algebra, execution_router
 
-    assert edit_algebra.status("clip.remove").production_enabled is False
-    assert all(row.production_enabled is False
-               for row in edit_algebra.status("clip.remove").backends)
+    status = edit_algebra.status("clip.remove")
+    row = status.for_backend("resolve_axi")
+    assert row is not None
+    assert status.production_enabled
+    assert row.qualification_evidence
+    assert any("remove_broll" in evidence
+               for evidence in row.qualification_evidence)
+    assert row.resolve_version
+    assert row.qualification_predicates
+    # The other backend has no evidence of its own, so it stays closed.
+    assert all(other.production_enabled is False
+               for other in status.backends
+               if other.backend != "resolve_axi")
+    # A runtime nobody measured is still refused - the promotion is
+    # conditional on the recorded conditions, and the conditions are
+    # checked against a MEASURED runtime.
     try:
         execution_router.route_axi_dispatch(
             [{"op": "clip.remove", "unique_id": "b"}])
@@ -245,4 +268,5 @@ def test_clip_remove_stays_fail_closed_until_live_qualification():
         assert "clip.remove" in str(exc)
     else:
         raise AssertionError(
-            "clip.remove routed under production without qualification")
+            "clip.remove routed under production without a measured "
+            "runtime state")

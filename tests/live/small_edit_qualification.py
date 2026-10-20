@@ -211,8 +211,37 @@ def _qualification_batch(script: str, *, wait_seconds: int = 180,
                 f"broker returned non-JSON receipt: {proc.stdout}") from exc
         if receipt.get("state") != "done" or not receipt.get("result"):
             raise RuntimeError(
-                f"qualification batch failed: {receipt.get('error', receipt)}")
+                "qualification batch failed: "
+                + _failure_detail(receipt))
         return receipt
+
+
+def _failure_detail(receipt: dict) -> str:
+    """The WHOLE failure, not the tail of it.
+
+    The broker's step failure keeps the last 500 characters of the
+    step's stderr, so a failure whose cause is printed EARLIER (and a
+    warning printed after it) arrives with the cause cut off - the
+    2026-10-20 rebuild row's evidence was a tail of "answer the asks
+    the build wrote" and a pending-promotion warning, with the actual
+    refusal never visible. The full stderr of every step is on the
+    receipt, so it is read here.
+    """
+    detail = str(receipt.get("error") or "")
+    result = receipt.get("result")
+    steps = (result or {}).get("steps") if isinstance(result, dict) else None
+    for index, step in enumerate(steps or ()):
+        if not isinstance(step, dict):
+            continue
+        stderr = str(step.get("stderr") or "")
+        stdout = str(step.get("stdout") or "")
+        if not stderr and not stdout:
+            continue
+        if stderr.strip() and stderr.strip() in detail:
+            continue
+        detail += (f"\n--- step {index} stdout ---\n{stdout}"
+                   f"\n--- step {index} stderr ---\n{stderr}")
+    return detail or json.dumps(receipt, default=str)[:2000]
 
 
 def _select_timeline_script() -> str:
@@ -252,6 +281,102 @@ def _initialize_run_store(root: Path) -> None:
 
 def _edit(*args: str) -> list[str]:
     return ["edit", *args, "--project", PROJECT, "--timeline", TIMELINE]
+
+
+#: The private timeline the fixture owns, restored to the state every
+#: batch starts from: no items, no fixture markers, the three video rows
+#: the fixture places onto. A batch that died mid-case skips its
+#: teardown, and the NEXT batch refuses to start on a dirty timeline -
+#: so the recovery is part of the harness, not a manual step.
+_RECOVER_SCRIPT = """\
+import json
+timeline = manager.GetCurrentProject().GetCurrentTimeline()
+doomed = []
+for _track in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+    doomed.extend(timeline.GetItemListInTrack("video", _track) or ())
+try:
+    _audio = int(timeline.GetTrackCount("audio") or 0)
+except Exception:
+    _audio = 0
+for _track in range(1, _audio + 1):
+    doomed.extend(timeline.GetItemListInTrack("audio", _track) or ())
+if doomed:
+    if not bool(timeline.DeleteClips(doomed, False)):
+        raise RuntimeError("recovery could not remove fixture leftovers")
+# The fixture's own rows: three video rows named Video 1/V2/V3. A run
+# that added a row (the generalization matrix's V4) or renamed one left
+# the next run unable to place, so the rows are restored here.
+_names = []
+for _index in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
+    try:
+        _names.append(str(timeline.GetTrackName("video", _index) or ""))
+    except Exception:
+        _names.append("")
+for _index in range(len(_names), 2, -1):
+    if timeline.GetItemListInTrack("video", _index):
+        raise RuntimeError("recovery found items on a surplus video row")
+    if not bool(timeline.DeleteTrack("video", _index)):
+        raise RuntimeError("recovery could not drop a surplus video row")
+for _index, _wanted in enumerate(("Video 1", "V2", "V3"), start=1):
+    while int(timeline.GetTrackCount("video") or 0) < _index:
+        if not timeline.AddTrack("video"):
+            raise RuntimeError("recovery could not add a video row")
+    try:
+        _current = str(timeline.GetTrackName("video", _index) or "")
+    except Exception:
+        _current = ""
+    if _current != _wanted:
+        if not timeline.SetTrackName("video", _index, _wanted):
+            raise RuntimeError("recovery could not name a video row")
+for _color in ("Yellow", "Green", "Blue"):
+    try:
+        timeline.DeleteMarkersByColor(_color)
+    except Exception:
+        pass
+if not bool(manager.SaveProject()):
+    raise RuntimeError("recovery could not save the project")
+print("RECOVERED")
+"""
+
+
+def recover_timeline() -> None:
+    """Empty and normalize the private qualification timeline.
+
+    The fixture owns this timeline, so restoring it is a fixture action:
+    the items a dead batch left, the markers it placed, and the video
+    rows it expects (Video 1/V2/V3). It refuses rather than deletes a
+    row that still carries items - a row with content is not a leftover
+    of this fixture and must not be removed by a recovery.
+    """
+    root = Path(tempfile.mkdtemp(prefix="axc-recover-"))
+    (root / "project.yaml").write_text(
+        "project_name: axc_timeline_recovery\n", encoding="utf-8")
+    _initialize_run_store(root)
+    script = _RECOVER_SCRIPT
+    with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", dir="/tmp",
+            delete=False) as handle:
+        handle.write(_select_timeline_script() + script)
+        path = Path(handle.name)
+    try:
+        completed = subprocess.run(
+            [str(REN), "resolved", "submit",
+             "resolve.qualification_session",
+             json.dumps({"project": PROJECT,
+                         "steps": [{"resolve_axi": [
+                             "run", "--file", str(path), "--unsafe", "--json",
+                             "--purpose", "Recover scratch timeline",
+                             "--scope", "project", "--project-dir",
+                             str(root)]}]}),
+             "--qualification", "--wait", "120"],
+            capture_output=True, text=True, encoding="utf-8",
+            timeout=240, check=False, cwd=str(ROOT))
+    finally:
+        path.unlink(missing_ok=True)
+    if completed.returncode or "RECOVERED" not in completed.stdout:
+        raise RuntimeError(
+            "timeline recovery failed: "
+            + (completed.stderr or completed.stdout)[-300:])
 
 
 def _logo_base_commands() -> list[list[str]]:

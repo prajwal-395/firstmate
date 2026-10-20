@@ -1,11 +1,12 @@
 {
   "schema": "ren-live-generalization-matrix/2",
   "dimensions": {
+    "edit": ["set_property", "trim", "delete", "insert", "move"],
     "track_layout": ["v1_graphics_v2", "v1_v3_graphics_v4", "reversed_roles"],
     "timeline_resolution": [[1920, 1080], [3840, 2160], [1080, 1920]],
     "source_dimensions": [[1920, 1080], [3840, 2160], [1080, 1920], [180, 64]],
     "frame_rate": ["24", "25", "30000/1001", "60"],
-    "source_media": ["h264_mp4", "prores_mov", "transparent_png", "wav_linked_av", "wav_only"],
+    "source_media": ["h264_mp4", "prores_mov", "transparent_png", "linked_aac_av", "wav_only"],
     "clip_identity": ["stable_unique_id", "duplicate_display_name", "reordered_after_snapshot"],
     "project_complexity": ["single_track", "multitrack", "long_timeline", "graded", "fusion_composition", "complex_linked_av"],
     "approved_edit_history": ["none", "manual_transform", "approved_revision", "staged_revision"],

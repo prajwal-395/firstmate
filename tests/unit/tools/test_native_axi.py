@@ -126,19 +126,25 @@ def test_bad_model_fails_on_stdout_with_fix(capsys):
     assert "help: native-axi model <model.json>" in out
 
 
-def test_unknown_flag_fails_loud_on_stdout(capsys):
+def test_unknown_flag_fails_loud_on_stderr(capsys):
+    """A usage error is a misuse of the COMMAND LINE, not a refusal.
+
+    The contract is shared with resolve-axi (PR 2887): a command's own
+    refusals stay on stdout, and a usage error goes to stderr with exit
+    2, the way argparse's own usage errors do.
+    """
     assert main(["model", str(E2E_FIXTURE), "--stat"]) == 2
     out, err = capsys.readouterr()
-    assert err == ""
-    assert out.startswith("error: ")
-    assert "help: " in out
+    assert out == ""
+    assert err.startswith("error: ")
+    assert "help: " in err
 
 
-def test_unknown_command_fails_loud_on_stdout(capsys):
+def test_unknown_command_fails_loud_on_stderr(capsys):
     assert main(["frobnicate"]) == 2
     out, err = capsys.readouterr()
-    assert err == ""
-    assert "error: " in out
+    assert out == ""
+    assert "error: " in err
 
 
 def _stored_reel_project(tmp_path):

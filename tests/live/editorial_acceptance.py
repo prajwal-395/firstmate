@@ -195,6 +195,7 @@ def run_tasks(execute_instruction: Callable[[str, Mapping[str, Any]], Mapping[st
             "name": "semantic_execution",
             "agent_receives_expected_operation": True,
             "agent_receives_expected_target": True,
+            "agent_receives_asset_selection": True,
             "agent_receives_editorial_decision": True,
             "compound_request_count": len(COMPOUND_REQUESTS) if include_compound else 0,
             "limitations": [
@@ -335,8 +336,18 @@ def run_blind_requests(execute_request: Callable[[str, Mapping[str, Any]],
             "level": 3, "name": "autonomous_orchestration",
             "agent_receives_expected_operation": False,
             "agent_receives_expected_target": False,
+            "agent_receives_asset_selection": False,
             "agent_receives_editorial_decision": False,
             "compound_request_count": len(COMPOUND_REQUESTS),
+            "limitations": [
+                "The driver chooses the operation from the instruction and "
+                "resolves the target from live read-back; the fixture "
+                "supplies the asset and the frames the edit is executed "
+                "with, so asset selection is NOT demonstrated at this "
+                "level - the operation and the target are.",
+                "Editorial quality against a creative brief is not measured "
+                "by this level.",
+            ],
         },
         "task_count": len(rows),
         "passed": sum(row["status"] == "success" for row in rows),

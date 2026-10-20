@@ -65,17 +65,29 @@ def test_all_84_operations_have_an_audited_implementation_classification():
     }
 
 
-def test_caption_style_stays_fail_closed_until_live_qualification():
+def test_caption_style_is_production_ready_only_on_its_live_evidence():
     """Defect: a restyle with no live qualification evidence must never
     read as production-ready - the ordinary request
     "Apply the supplied caption style consistently to every caption"
-    fails today on exactly this missing path."""
+    fails today on exactly this missing path.
+
+    The live qualification happened (2026-10-20: the restyle evidence is
+    in tests/live/reports/registry/caption.style__resolve_axi.json), so
+    the operation IS production-enabled now. What this still names is
+    the rule behind that state: the enablement comes from the evidence
+    record, and the record names the run it came from.
+    """
     entry = edit_algebra.status("caption.style", "resolve_axi")
     assert entry is not None and entry.compilable
-    assert not entry.qualified
-    assert not entry.production_enabled
-    assert not edit_algebra.status("caption.style").qualified
-    assert not edit_algebra.status("caption.style").production_enabled
+    assert entry.qualified
+    assert entry.production_enabled
+    assert entry.qualification_evidence
+    assert any("restyle_captions" in evidence
+               for evidence in entry.qualification_evidence)
+    assert entry.resolve_version
+    assert entry.qualification_predicates
+    assert edit_algebra.status("caption.style").qualified
+    assert edit_algebra.status("caption.style").production_enabled
     assert (edit_algebra.safety_class("caption.style")
             == edit_algebra.SAFETY_COMPLEX_LOCALIZED)
     assert edit_algebra.has_independent_readback("caption.style")

@@ -34,9 +34,12 @@ Output contract (axi.md principles 1-6, 9-10, shared with resolve-axi):
   rows, the `toon_serializer` quote rule) followed by `help[]` next-step
   hints. The emitters are imported from `resolve_axi`, so the two tools
   speak one dialect.
-- Errors go to stdout as `error: ...` plus a `help: ...` fix line.
-  Exit 0 is success (including no-ops), 1 is an error, 2 is a usage error
-  such as an unknown flag - Parser rejects those loudly, never ignored.
+- A command's own refusals go to stdout as `error: ...` plus a
+  `help: ...` fix line. Exit 0 is success (including no-ops), 1 is an
+  error, 2 is a usage error such as an unknown flag - a misuse of the
+  COMMAND LINE, which goes to stderr the way argparse's own usage
+  errors do and the way `ren` answers an unknown verb. `--help` is not
+  an error: it prints on stdout and exits 0.
 - Outputs stay small by minimal schema (3-4 fields per row), not by
   truncation: no verb here dumps a whole model, project or sequence.
 - `-v` / `-V` / `--version` answer before any heavy import runs.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -108,6 +109,87 @@ def test_production_enablement_is_not_accepted_as_an_importer_input():
 
     assert pair == ("transition", "reel_touchup")
     assert "production_enabled" not in record
+
+
+def test_a_version_written_with_the_product_label_imports_as_the_version():
+    """One reading of the version, whatever notation the report used.
+
+    Resolve reports a bare dotted version; a report may carry the product
+    label. The two name the same build, and the recorded condition is
+    compared against a runtime that reports the bare one - so the import
+    stores the version in the reading the comparison happens in.
+    """
+    labelled = _passed_report()
+    labelled["resolve_version"] = "DaVinci Resolve 21.1.0.14"
+    labelled["qualification_predicates"] = [
+        {"field": "resolve_version", "operator": "equals",
+         "value": "DaVinci Resolve 21.1.0.14"}]
+
+    bare = _passed_report()
+    bare["resolve_version"] = "21.1.0.14"
+    bare["qualification_predicates"] = [
+        {"field": "resolve_version", "operator": "equals",
+         "value": "21.1.0.14"}]
+
+    _pair, labelled_record = axi_qualification.parse_result(labelled)
+    _pair, bare_record = axi_qualification.parse_result(bare)
+
+    assert labelled_record["resolve_version"] == "21.1.0.14"
+    assert labelled_record == bare_record
+
+
+def test_a_one_of_version_predicate_imports_in_the_same_reading():
+    report = _passed_report()
+    report["qualification_predicates"] = [
+        {"field": "resolve_version", "operator": "one_of",
+         "value": ["DaVinci Resolve 21.1.0.14", "21.1.0.15"]}]
+
+    _pair, record = axi_qualification.parse_result(report)
+
+    assert record["qualification_predicates"][0]["value"] == [
+        "21.1.0.14", "21.1.0.15"]
+
+
+def test_every_promoted_row_is_derived_from_a_committed_evidence_report():
+    """The registry stores observations; the reports are the observations.
+
+    A promoted row whose evidence report is not in the repository is a
+    promotion nobody can read back: the registry says a record exists
+    and the report it came from is somewhere else. Every production
+    enabled row must re-import from its committed report to the record
+    the registry holds - so the registry cannot drift from the evidence.
+    """
+    directory = (Path(__file__).resolve().parents[1] / "live" / "reports"
+                 / "registry")
+    reports = {path.stem: path for path in directory.glob("*.json")}
+    assert reports, "the registry holds no evidence report"
+
+    registry = json.loads(
+        (Path(__file__).resolve().parents[2] / "library" / "tools"
+         / "axi_qualification_records.json").read_text(encoding="utf-8"))
+    stored = registry["records"]
+
+    promoted = {
+        key for key, record in stored.items()
+        if record.get("result") == "passed"
+    }
+    assert promoted, "the registry promotes nothing"
+
+    for key in sorted(promoted):
+        op_id, backend = key.split("::", 1)
+        stem = f"{op_id}__{backend}"
+        assert stem in reports, (
+            f"{op_id} on {backend} is promoted with no committed evidence "
+            f"report named {stem}.json under {directory}")
+        report_path = reports[stem]
+        parsed = json.loads(report_path.read_text(encoding="utf-8"))
+        assert parsed["operation_id"] == op_id
+        assert parsed["backend"] == backend
+        assert parsed["result"] == "passed"
+        _pair, record = axi_qualification.parse_result(parsed)
+        assert record == stored[key], (
+            f"{op_id} on {backend}: the committed report and the registry "
+            f"row disagree")
 
 
 def test_registered_dispatch_refuses_a_backend_other_than_the_router_choice():

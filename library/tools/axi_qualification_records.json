@@ -47,7 +47,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -73,7 +73,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
@@ -141,7 +141,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -167,7 +167,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
@@ -240,7 +240,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -278,7 +278,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
@@ -341,7 +341,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -367,7 +367,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
@@ -430,7 +430,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -442,13 +442,19 @@
         },
         {
           "field": "clip_composition",
-          "operator": "equals",
-          "value": "single_video_clip"
+          "operator": "one_of",
+          "value": [
+            "single_video_clip",
+            "linked_video_clip"
+          ]
         },
         {
           "field": "linked_audio_configuration",
-          "operator": "equals",
-          "value": "no_linked_audio"
+          "operator": "one_of",
+          "value": [
+            "no_linked_audio",
+            "linked_audio_present"
+          ]
         },
         {
           "field": "timeline_structure",
@@ -460,7 +466,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",
@@ -525,7 +531,7 @@
         {
           "field": "resolve_version",
           "operator": "equals",
-          "value": "DaVinci Resolve 21.1.0.14"
+          "value": "21.1.0.14"
         },
         {
           "field": "media_type",
@@ -551,7 +557,7 @@
         }
       ],
       "recovery": "not_required",
-      "resolve_version": "DaVinci Resolve 21.1.0.14",
+      "resolve_version": "21.1.0.14",
       "result": "passed",
       "timeline_conditions": [
         "Ren Qualification / fm-scratch qualify",

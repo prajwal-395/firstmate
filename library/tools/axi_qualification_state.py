@@ -29,7 +29,10 @@ produce it:
   that reason. An unread state is never reported as an inspected one;
 * it measures in the vocabulary the recorded predicates are written in
   (`axi_qualification.PREDICATE_FIELDS`), so the router's predicate check
-  is unchanged - only the INPUT to it became real.
+  is unchanged - only the INPUT to it became real. The version has ONE
+  reading (`axi_qualification.canonical_resolve_version`): Resolve reports
+  a bare dotted version, the recorded predicates are compared in it, and a
+  product label can never make a satisfiable predicate unsatisfiable.
 """
 
 from __future__ import annotations
@@ -196,13 +199,18 @@ def _read_runtime_handles(resolve, resolve_project, timeline) -> dict:
 
 def _measure(runtime: Mapping, operations: Sequence[Mapping]) -> dict:
     """Read the live runtime and describe it in the predicate vocabulary."""
+    from library.tools.axi_qualification import canonical_resolve_version
+
     rows = list(runtime.get("rows") or ())
     by_id = {str(row.get("unique_id") or ""): row for row in rows}
     targets = _target_ids(operations)
     chosen = [by_id[uid] for uid in targets if uid in by_id]
     state = {
-        "resolve_version": str(
-            runtime["resolve"].GetVersionString() or ""),
+        # The ONE reading of the version: Resolve reports a bare dotted
+        # version and the recorded predicates are written in it, so the
+        # comparison is version against version.
+        "resolve_version": canonical_resolve_version(
+            runtime["resolve"].GetVersionString()),
         "project_name": str(runtime["project"].GetName() or ""),
         "timeline_name": str(runtime["timeline"].GetName() or ""),
         "media_type": _media_type(chosen, operations),

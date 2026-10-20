@@ -1366,32 +1366,6 @@ result = {"cases": results}
 _EVIDENCE_CACHE: dict = {}
 
 
-_RECOVER_SCRIPT = """\
-import json
-timeline = manager.GetCurrentProject().GetCurrentTimeline()
-doomed = []
-for _track in range(1, int(timeline.GetTrackCount("video") or 0) + 1):
-    doomed.extend(timeline.GetItemListInTrack("video", _track) or ())
-try:
-    _audio = int(timeline.GetTrackCount("audio") or 0)
-except Exception:
-    _audio = 0
-for _track in range(1, _audio + 1):
-    doomed.extend(timeline.GetItemListInTrack("audio", _track) or ())
-if doomed:
-    if not bool(timeline.DeleteClips(doomed, False)):
-        raise RuntimeError("recovery could not remove fixture leftovers")
-    if not bool(manager.SaveProject()):
-        raise RuntimeError("recovery could not save the project")
-for _color in ("Yellow", "Green", "Blue"):
-    try:
-        timeline.DeleteMarkersByColor(_color)
-    except Exception:
-        pass
-if not bool(manager.SaveProject()):
-    raise RuntimeError("recovery could not save after marker clear")
-print("RECOVERED")
-"""
 
 
 def _recover_timeline() -> None:
@@ -1401,38 +1375,10 @@ def _recover_timeline() -> None:
     next task's assert_empty; recovery removes exactly what is there
     (the fixture owns this timeline - nothing else writes it) and
     persists the empty state so a project reload cannot resurrect it.
+    The implementation is shared with the generalization matrix, which
+    needs the same restoration.
     """
-    root = Path(tempfile.mkdtemp(prefix="axc-recover-"))
-    (root / "project.yaml").write_text(
-        "project_name: axc_timeline_recovery\n", encoding="utf-8")
-    q._initialize_run_store(root)
-    from tests.live import disposable_project
-
-    disposable = disposable_project.materialize(root)
-    script = _RECOVER_SCRIPT.replace("@FM_QUAL_PROJECT_DIR@", str(root))
-    script = script.replace("@AXC_DISPOSABLE_PROJECT@",
-                            str(disposable))
-    with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", dir="/tmp",
-            delete=False) as handle:
-        handle.write(q._select_timeline_script() + script)
-        path = Path(handle.name)
-    completed = subprocess.run(
-        [str(q.REN), "resolved", "submit",
-         "resolve.qualification_session",
-         json.dumps({"project": q.PROJECT,
-                     "steps": [{"resolve_axi": [
-                         "run", "--file", str(path), "--unsafe", "--json",
-                         "--purpose", "Recover scratch timeline",
-                         "--scope", "project", "--project-dir",
-                         str(root)]}]}),
-         "--qualification", "--wait", "120"],
-        capture_output=True, text=True, encoding="utf-8",
-        timeout=240, check=False, cwd=str(q.ROOT))
-    if completed.returncode or "RECOVERED" not in completed.stdout:
-        raise RuntimeError(
-            "timeline recovery failed: "
-            + (completed.stderr or completed.stdout)[-300:])
+    q.recover_timeline()
 
 
 def _evidence_batch(task_id: str) -> dict:

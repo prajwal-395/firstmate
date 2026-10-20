@@ -185,7 +185,7 @@ def test_production_route_requires_inspected_state_matching_fixture_predicates()
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
         route_compiled_edit(operation)
 
-    state = {"resolve_version": "DaVinci Resolve 21.1.0.14",
+    state = {"resolve_version": "21.1.0.14",
              "project_name": "Ren Qualification",
              "timeline_name": "fm-scratch qualify",
              "media_type": "video", "clip_composition": "single_video_clip",
@@ -196,7 +196,7 @@ def test_production_route_requires_inspected_state_matching_fixture_predicates()
     assert decision.backend == "edit_patch.property"
     assert decision.as_dict()["selection"]["qualification_state_inspected"] is True
 
-    state["linked_audio_configuration"] = "linked_audio_present"
+    state["clip_composition"] = "still_clip"
     with pytest.raises(RoutingRefused, match="production routing fails closed"):
         route_compiled_edit(operation, context={
             "qualification_state": {"inspected": True, "state": state}})

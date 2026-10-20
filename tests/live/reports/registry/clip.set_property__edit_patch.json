@@ -64,13 +64,19 @@
     },
     {
       "field": "clip_composition",
-      "operator": "equals",
-      "value": "single_video_clip"
+      "operator": "one_of",
+      "value": [
+        "single_video_clip",
+        "linked_video_clip"
+      ]
     },
     {
       "field": "linked_audio_configuration",
-      "operator": "equals",
-      "value": "no_linked_audio"
+      "operator": "one_of",
+      "value": [
+        "no_linked_audio",
+        "linked_audio_present"
+      ]
     },
     {
       "field": "timeline_structure",
