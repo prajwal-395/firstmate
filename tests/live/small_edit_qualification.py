@@ -440,7 +440,10 @@ def live_state():
             }})
     return {{"timeline": timeline.GetUniqueId(), "start_frame": start,
             "end_frame": end, "fps": fps, "frame_size": [frame_w, frame_h],
-            "mismatch_behavior": behavior, "items": rows}}
+            "mismatch_behavior": behavior,
+            "track_counts": {{kind: int(timeline.GetTrackCount(kind) or 0)
+                             for kind in ("video", "audio", "subtitle")}},
+            "items": rows}}
 
 def select_qualification_timeline():
     project = manager.GetCurrentProject()
@@ -911,8 +914,8 @@ def _add_video_action() -> dict:
     result = _batch_case("add_video")
     text = _case_observation(result)
     # The fixture asks for the 48 source frames [0, 48). Exact read-back must
-    # show 48 record frames too; item-count movement alone is insufficient.
-    right_span = "video1,qual_a.mp4,0,48,48,0,47" in text
+    # show 48 record/source frames too; item-count movement alone is insufficient.
+    right_span = "video1,qual_a.mp4,0,48,48,0,48" in text
     succeeded = all(row["exit_code"] == 0 for row in result["commands"])
     return {"receipt": {"status": "committed" if succeeded else "refused"},
             "collateral_changes": result["collateral_changes"],
@@ -925,7 +928,10 @@ def _move_clip_action() -> dict:
     result = _batch_case("move_clip")
     text = _case_observation(result)
     succeeded = all(row["exit_code"] == 0 for row in result["commands"])
-    expected_readback = "video1,qual_a.mp4,8,55,47,0,47"
+    # Move re-places the full inclusive source range at the new record
+    # frame: [0, 47] at 8 lands on [8, 56) with the source end echoed back
+    # in the exclusive AppendToTimeline form, like the add_video proof.
+    expected_readback = "video1,qual_a.mp4,8,56,48,0,48"
     return {"receipt": {"status": "committed" if succeeded else "refused"},
             "collateral_changes": result["collateral_changes"],
             "checks": {"move_readback": succeeded and expected_readback in text},
@@ -936,8 +942,10 @@ def _move_clip_action() -> dict:
 def _trim_action() -> dict:
     result = _batch_case("trim")
     text = _case_observation(result)
-    # The row is the production read-back, not merely the API's success bit.
-    expected_readback = "video1,qual_a.mp4,0,45,45,1,46"
+    # Trim narrows the inclusive source range to [1, 46] (46 frames) and
+    # re-places at the shifted record frame 0 + 1; the fresh placement
+    # echoes the exclusive source end, like the add_video proof.
+    expected_readback = "video1,qual_a.mp4,1,47,46,1,47"
     succeeded = all(row["exit_code"] == 0 for row in result["commands"])
     return {"receipt": {"status": "committed" if succeeded else "refused"},
             "collateral_changes": result["collateral_changes"],
@@ -1232,6 +1240,10 @@ def _verify_rendered_geometry(frame_paths: list[str], *, expected_bbox: tuple,
 
 def _rebuild_preservation(before: dict, after: dict, asset_name: str) -> dict:
     """Compare the logo's measured identity, timing, and geometry after rebuild."""
+    # A rebuild may not be attempted when an earlier live operation refuses.
+    # Preserve that as missing rebuild evidence instead of turning the real
+    # operation failure into an AttributeError that hides the Resolve receipt.
+    after = after or {}
     before_rows = [row for row in before.get("items", [])
                    if row.get("name") == asset_name]
     after_rows = [row for row in after.get("items", [])

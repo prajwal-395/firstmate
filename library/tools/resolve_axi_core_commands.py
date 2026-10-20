@@ -4636,6 +4636,23 @@ def _drop_original(project, timeline, uid: str):
     return ""
 
 
+def _inclusive_source_end(source_in: int, source_out: int,
+                            record_duration: int) -> int | None:
+    """Normalize Resolve's two source-endpoint forms to an inclusive bound.
+
+    Measured against live Resolve: existing clips report the inclusive
+    GetSourceEndFrame, while fresh AppendToTimeline placements echo the
+    exclusive endFrame. The record duration decides which form a
+    read-back speaks. Returns None when the span matches neither form -
+    the caller refuses rather than re-placing an unfaithful range.
+    """
+    if record_duration == source_out - source_in + 1:
+        return source_out
+    if record_duration == source_out - source_in:
+        return source_out - 1
+    return None
+
+
 def _preflight_replace_delete(uid: str) -> str:
     """Refuse an unsupported replacement before placing anything live.
 
@@ -4833,11 +4850,22 @@ def cmd_edit_move(args) -> int:
         try:
             src_in = int(span["source_in"])
             src_out = int(span["source_out"])
+            record_duration = (int(span["record_out"])
+                               - int(span["record_in"]))
         except (TypeError, ValueError):
             return fail(
                 f"{span['name']!r} would not report its source range "
                 f"- the move cannot be re-placed faithfully.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        normalized = _inclusive_source_end(src_in, src_out, record_duration)
+        if normalized is None:
+            return fail(
+                f"{span['name']!r} has a source-to-record duration mismatch; "
+                "move refuses because a lossless restore cannot be proven.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        # Fresh AppendToTimeline placements report the exclusive source
+        # endpoint; the re-place speaks inclusive bounds like the CLI.
+        src_out = normalized
         refusal = _preflight_replace_delete(uid)
         if refusal:
             return fail(
@@ -4913,18 +4941,24 @@ def cmd_edit_trim(args) -> int:
                 f"{span['name']!r} would not report its spans - the "
                 f"trim cannot be re-placed faithfully.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
-        if orig_rec_out - orig_rec != orig_out - orig_in + 1:
+        record_duration = orig_rec_out - orig_rec
+        normalized = _inclusive_source_end(orig_in, orig_out, record_duration)
+        if normalized is None:
             return fail(
                 f"{span['name']!r} has a source-to-record duration mismatch; "
                 "trim refuses because a lossless restore cannot be proven.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        # Fresh AppendToTimeline placements report the exclusive source
+        # endpoint (measured: the requested endFrame echoes back); the CLI
+        # speaks inclusive bounds, so narrow from the normalized bound.
+        orig_out_inclusive = normalized
         new_in = orig_in if args.source_in is None else args.source_in
-        new_out = (orig_out if args.source_out is None
+        new_out = (orig_out_inclusive if args.source_out is None
                    else args.source_out)
-        if not orig_in <= new_in <= new_out <= orig_out:
+        if not orig_in <= new_in <= new_out <= orig_out_inclusive:
             return fail(
                 f"[{new_in}, {new_out}] reaches past the handles "
-                f"[{orig_in}, {orig_out}] - trim only narrows.",
+                f"[{orig_in}, {orig_out_inclusive}] - trim only narrows.",
                 f"{TOOL} items --timeline \"{timeline.GetName()}\"")
         new_rec = orig_rec + (new_in - orig_in)
         if args.apply:

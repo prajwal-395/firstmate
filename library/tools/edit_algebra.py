@@ -1690,6 +1690,18 @@ def _apply_track_reorder(op, tl, _item, _project=None):
     return bool(tl.SetTrackName(track_type, to_index, name))
 
 
+def _apply_track_add(op, tl, _item, _project=None):
+    """Append a row, then name it using Resolve's measured API surface."""
+    track_type = op["track_type"]
+    before = int(tl.GetTrackCount(track_type) or 0)
+    index = before + 1
+    if not tl.AddTrack(track_type):
+        return False
+    if int(tl.GetTrackCount(track_type) or 0) != index:
+        return False
+    return bool(tl.SetTrackName(track_type, index, op["name"]))
+
+
 # ── The union ──────────────────────────────────────────────────────────
 #
 # Every op in all five vocabularies, plus the review's missing terms.
@@ -2263,8 +2275,7 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="track.add", domain="timeline_structure",
         required=("track_type", "name"),
         span=_timeline_span,
-        apply=lambda op, tl, _item, _project=None: tl.AddTrack(
-            op["track_type"], op["name"]),
+        apply=_apply_track_add,
         verify=lambda op, after: _verify_track_named(op["name"])(op, after),
         key=lambda op: ("track", op["track_type"], -1), merge="exclusive",
         inverse=_pair("track.delete"),

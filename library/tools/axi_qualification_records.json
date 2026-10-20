@@ -1,4 +1,13 @@
 {
-  "records": {},
+  "records": {
+    "clip.set_property::edit_patch": {
+      "evidence": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-axi-live-qual/small-edit-after-add-video-assertion.json#results[9].observed; resolve-axi edit transform exited 1: no production-qualified executor is available for clip.set_property; target and timeline state unchanged",
+      "result": "failed"
+    },
+    "track.add::edit_patch": {
+      "evidence": "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/vep-axi-live-qual/track-add-qualification.json#evidence.receipt; Resolve 21.1.0.14, EditPatch verification_failed, generation 91; native Timeline.AddTrack(\"video\", \"\") returned false, GetTrackCount remained 1 on same/refetched handles; Blackmagic MCP route unavailable in session; OTIO ImportTimelineFromFile created a 3-video-track candidate (track-add-interchange-route.json), but AXI inventory guard rejected added timeline and it was deleted (track-add-interchange-cleanup.json)",
+      "result": "failed"
+    }
+  },
   "schema": "ren-axi-qualification-registry/v1"
 }
