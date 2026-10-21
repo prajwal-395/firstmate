@@ -764,6 +764,48 @@ Reader: `library/tools/project_graph/footage.py` (`_build_world_models`
 via `source_memory.read_world_model`) joins each catalog source's model
 into the footage graph's scenes and transcript segments.
 
+### The world's questions
+
+The per-second view is a COMPATIBILITY surface: it answers "what is
+happening at time T" and nothing else. A span question and an entity
+question have no route over it, and answering either means reading the
+whole document - 36.7 MB for a 68-minute source, 47.1 MB for an
+82-minute one (`docs/benchmarks/2026-10-22-targeted-reasoning.md`).
+
+`library/tools/world_model_query.py` is the world's QUESTION surface. It
+answers off the canonical records the view is derived from, so a
+question costs the question and not the episode:
+
+- an INTERVAL query returns the facts inside a span, at the timing the
+  canonical record carries (the utterance's own start and end, the
+  speaking span's, the candidate's), not at the second's edge;
+- an ENTITY query returns one entity's occurrences wherever they are,
+  each row numbered with its occurrence OF ITS KIND, so "the second
+  time" is a nameable answer;
+- every fact carries `provenance`: the lane, the slot, the reader that
+  produced it, the field it came from, and whether that lane MEASURED
+  the fact or only CANDIDATED it;
+- a lane that was never built is ABSENT and is named - never an empty
+  answer that reads as "nothing happened there".
+
+The lanes are read lazily, one question at a time: a question about
+speech never pays for M3's faces. The per-second view is not read by
+this module and is not rewritten by it; the file stays a derived view of
+the canonical records.
+
+```sh
+python3 -m library.tools.world_model_query interval <project> \
+  --clip clip_003 --start 40 --end 55
+python3 -m library.tools.world_model_query entity <project> \
+  --clip clip_003 --entity face_001
+python3 -m library.tools.world_model_query ask <project> \
+  --clip clip_003 --start 40 --end 55 --question who
+
+# the same three, from the world's own command:
+python3 -m library.tools.world_model interval <project> --clip clip_003 \
+  --start 40 --end 55
+```
+
 ## M10 `relationships.json` (written)
 
 Owner: `library/tools/relationships.py`; the `relationships` lane of

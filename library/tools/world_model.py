@@ -14,6 +14,15 @@ timeline. No new measurement: every observation in the world model
 comes from a lane that already measured it. The join is pure data
 manipulation over the source memory.
 
+**The view is a compatibility surface; the QUESTION surface is
+`library/tools/world_model_query.py`.** A per-second view answers "what
+is happening at time T" and nothing else: a span question and an
+entity question have no route, and answering either means reading the
+whole document. The query module answers both off the canonical records
+the view is derived from, at the records' own timing, with a provenance
+row per fact - and this module's `interval`, `entity` and `ask`
+subcommands are its front door.
+
 **The derived structure.** One entry per second of the source duration. Each
 entry carries every observation that falls within that second, so a
 query at time T is one array index:
@@ -624,6 +633,29 @@ def main(argv=None) -> int:
     p_query.add_argument("--t", type=float, required=True)
     p_query.add_argument("--memory-root")
 
+    p_interval = sub.add_parser(
+        "interval", help="the facts inside a span, at their own timing")
+    p_interval.add_argument("project")
+    p_interval.add_argument("--clip", required=True)
+    p_interval.add_argument("--start", type=float, required=True)
+    p_interval.add_argument("--end", type=float, required=True)
+    p_interval.add_argument("--aspect", action="append")
+    p_interval.add_argument("--memory-root")
+
+    p_entity = sub.add_parser("entity", help="one entity's occurrences")
+    p_entity.add_argument("project")
+    p_entity.add_argument("--clip", required=True)
+    p_entity.add_argument("--entity", required=True)
+    p_entity.add_argument("--memory-root")
+
+    p_ask = sub.add_parser("ask", help="who/what/where at a span")
+    p_ask.add_argument("project")
+    p_ask.add_argument("--clip", required=True)
+    p_ask.add_argument("--start", type=float, required=True)
+    p_ask.add_argument("--end", type=float, required=True)
+    p_ask.add_argument("--question", default="what")
+    p_ask.add_argument("--memory-root")
+
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
@@ -670,6 +702,23 @@ def main(argv=None) -> int:
             return 1
         print(json.dumps(entry, indent=2))
         return 0
+    if args.command in ("interval", "entity", "ask"):
+        # The world's narrow questions. The per-second view above stays
+        # exactly what it is; these read the canonical records behind it.
+        from library.tools import world_model_query
+        argv_rest = [args.project, "--clip", args.clip]
+        if args.command == "interval":
+            argv_rest += ["--start", str(args.start), "--end", str(args.end)]
+            for aspect in args.aspect or []:
+                argv_rest += ["--aspect", aspect]
+        elif args.command == "entity":
+            argv_rest += ["--entity", args.entity]
+        else:
+            argv_rest += ["--start", str(args.start), "--end", str(args.end),
+                          "--question", args.question]
+        if args.memory_root:
+            argv_rest += ["--memory-root", args.memory_root]
+        return world_model_query.main([args.command] + argv_rest)
     return 2
 
 

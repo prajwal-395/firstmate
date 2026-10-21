@@ -1,0 +1,2209 @@
+{
+  "corpus": [
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "duration_seconds": 4099.5955,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 36722044,
+      "world_model_tokens": {
+        "utf8_bytes": 36722044,
+        "o200k_base": 13278002
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "duration_seconds": 288.955333,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 2514173,
+      "world_model_tokens": {
+        "utf8_bytes": 2514173,
+        "o200k_base": 906180
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "duration_seconds": 225.225,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 2129592,
+      "world_model_tokens": {
+        "utf8_bytes": 2129592,
+        "o200k_base": 768491
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "duration_seconds": 287.620667,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 2394747,
+      "world_model_tokens": {
+        "utf8_bytes": 2394747,
+        "o200k_base": 862747
+      }
+    },
+    {
+      "content_digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+      "duration_seconds": 214.547667,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m4",
+        "m5",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 1871880,
+      "world_model_tokens": {
+        "utf8_bytes": 1871880,
+        "o200k_base": 676802
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "duration_seconds": 4941.102833,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 47133943,
+      "world_model_tokens": {
+        "utf8_bytes": 47133943,
+        "o200k_base": 17005795
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "duration_seconds": 838.003833,
+      "lanes": [
+        "m0",
+        "m1",
+        "m3",
+        "m3b",
+        "m6",
+        "m7"
+      ],
+      "world_model_bytes": 8139877,
+      "world_model_tokens": {
+        "utf8_bytes": 8139877,
+        "o200k_base": 2947688
+      }
+    },
+    {
+      "content_digest": "f6e702c519060751ed247980d83484b13ed695399f33af3cf7e1a55b3ed78742",
+      "duration_seconds": 48.0,
+      "lanes": [
+        "m0",
+        "m3",
+        "m5"
+      ],
+      "world_model_bytes": 41633,
+      "world_model_tokens": {
+        "utf8_bytes": 41633,
+        "o200k_base": 14346
+      }
+    }
+  ],
+  "m0_questions": [
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 1566,
+        "token_counts": {
+          "utf8_bytes": 1566,
+          "o200k_base": 499
+        },
+        "bytes_read": 31338545,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 1566,
+        "token_counts": {
+          "utf8_bytes": 1566,
+          "o200k_base": 499
+        },
+        "bytes_read": 31338545,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 213
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 306090,
+        "token_counts": {
+          "utf8_bytes": 306090,
+          "o200k_base": 97295
+        },
+        "bytes_read": 720696,
+        "provenance_facts": 511,
+        "facts": 511
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 125.06s",
+      "truth": {
+        "start": 124.958,
+        "end": 125.458
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 947,
+        "token_counts": {
+          "utf8_bytes": 947,
+          "o200k_base": 287
+        },
+        "bytes_read": 31338545,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "157522998320e9352229df48c41722da817438bae118534410cb7d7411bb1c7c",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 36722044,
+        "token_counts": {
+          "utf8_bytes": 36722044,
+          "o200k_base": 13278002
+        },
+        "bytes_read": 36722044,
+        "provenance_facts": 0,
+        "facts": 213
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 203711,
+        "token_counts": {
+          "utf8_bytes": 203711,
+          "o200k_base": 61541
+        },
+        "bytes_read": 31338545,
+        "provenance_facts": 213,
+        "facts": 213
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 931,
+        "token_counts": {
+          "utf8_bytes": 931,
+          "o200k_base": 284
+        },
+        "bytes_read": 2179308,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 931,
+        "token_counts": {
+          "utf8_bytes": 931,
+          "o200k_base": 284
+        },
+        "bytes_read": 2179308,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 13
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 25271,
+        "token_counts": {
+          "utf8_bytes": 25271,
+          "o200k_base": 8126
+        },
+        "bytes_read": 94094,
+        "provenance_facts": 52,
+        "facts": 52
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 25.46s",
+      "truth": {
+        "start": 25.359,
+        "end": 26.359
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 931,
+        "token_counts": {
+          "utf8_bytes": 931,
+          "o200k_base": 284
+        },
+        "bytes_read": 2179308,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "4fa282cea14702c4883091dfa5a326e183b8f283b50510c9df81f5ab50695049",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 2514173,
+        "token_counts": {
+          "utf8_bytes": 2514173,
+          "o200k_base": 906180
+        },
+        "bytes_read": 2514173,
+        "provenance_facts": 0,
+        "facts": 13
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 12657,
+        "token_counts": {
+          "utf8_bytes": 12657,
+          "o200k_base": 3780
+        },
+        "bytes_read": 2179308,
+        "provenance_facts": 13,
+        "facts": 13
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 2
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 1241,
+        "token_counts": {
+          "utf8_bytes": 1241,
+          "o200k_base": 403
+        },
+        "bytes_read": 1866641,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 2
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 1241,
+        "token_counts": {
+          "utf8_bytes": 1241,
+          "o200k_base": 403
+        },
+        "bytes_read": 1866641,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 26
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 24452,
+        "token_counts": {
+          "utf8_bytes": 24452,
+          "o200k_base": 8081
+        },
+        "bytes_read": 106429,
+        "provenance_facts": 57,
+        "facts": 57
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 2.44s",
+      "truth": {
+        "start": 2.336,
+        "end": 5.839
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 534,
+        "token_counts": {
+          "utf8_bytes": 534,
+          "o200k_base": 174
+        },
+        "bytes_read": 1866641,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "9b7fd11e02e566be07e73f7c3303db93813df35d5c14386deb2411a5799c2888",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 2129592,
+        "token_counts": {
+          "utf8_bytes": 2129592,
+          "o200k_base": 768491
+        },
+        "bytes_read": 2129592,
+        "provenance_facts": 0,
+        "facts": 26
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 14127,
+        "token_counts": {
+          "utf8_bytes": 14127,
+          "o200k_base": 4536
+        },
+        "bytes_read": 1866641,
+        "provenance_facts": 26,
+        "facts": 26
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 1536,
+        "token_counts": {
+          "utf8_bytes": 1536,
+          "o200k_base": 495
+        },
+        "bytes_read": 2096564,
+        "provenance_facts": 4,
+        "facts": 4
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 1536,
+        "token_counts": {
+          "utf8_bytes": 1536,
+          "o200k_base": 495
+        },
+        "bytes_read": 2096564,
+        "provenance_facts": 4,
+        "facts": 4
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 33
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 33005,
+        "token_counts": {
+          "utf8_bytes": 33005,
+          "o200k_base": 10931
+        },
+        "bytes_read": 118737,
+        "provenance_facts": 77,
+        "facts": 77
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 13.95s",
+      "truth": {
+        "start": 13.847,
+        "end": 15.849
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 572,
+        "token_counts": {
+          "utf8_bytes": 572,
+          "o200k_base": 182
+        },
+        "bytes_read": 2096564,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "c11218156a07c8cb4d3666c29f7d80c7ebd13e49e27765ff5d73dd4e7ff66d73",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 2394747,
+        "token_counts": {
+          "utf8_bytes": 2394747,
+          "o200k_base": 862747
+        },
+        "bytes_read": 2394747,
+        "provenance_facts": 0,
+        "facts": 33
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 18310,
+        "token_counts": {
+          "utf8_bytes": 18310,
+          "o200k_base": 5873
+        },
+        "bytes_read": 2096564,
+        "provenance_facts": 33,
+        "facts": 33
+      }
+    },
+    {
+      "content_digest": "d19007c31379d0706cfff08b90777227acddb40c48a1971ba70da680c93db5a4",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 1871880,
+        "token_counts": {
+          "utf8_bytes": 1871880,
+          "o200k_base": 676802
+        },
+        "bytes_read": 1871880,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 1871880,
+        "token_counts": {
+          "utf8_bytes": 1871880,
+          "o200k_base": 676802
+        },
+        "bytes_read": 1871880,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 13,
+        "token_counts": {
+          "utf8_bytes": 13,
+          "o200k_base": 5
+        },
+        "bytes_read": 4498507,
+        "provenance_facts": 0,
+        "facts": 0
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 2
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 1662,
+        "token_counts": {
+          "utf8_bytes": 1662,
+          "o200k_base": 538
+        },
+        "bytes_read": 40295662,
+        "provenance_facts": 4,
+        "facts": 4
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 2
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 1662,
+        "token_counts": {
+          "utf8_bytes": 1662,
+          "o200k_base": 538
+        },
+        "bytes_read": 40295662,
+        "provenance_facts": 4,
+        "facts": 4
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 323
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 292098,
+        "token_counts": {
+          "utf8_bytes": 292098,
+          "o200k_base": 97159
+        },
+        "bytes_read": 1593559,
+        "provenance_facts": 646,
+        "facts": 646
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 4.44s",
+      "truth": {
+        "start": 4.338,
+        "end": 7.841
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 571,
+        "token_counts": {
+          "utf8_bytes": 571,
+          "o200k_base": 185
+        },
+        "bytes_read": 40295662,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "dca969b8ed907f10bd2b4fa7c4de24390586d5a841c4ebf97b56c2623a4151ea",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 47133943,
+        "token_counts": {
+          "utf8_bytes": 47133943,
+          "o200k_base": 17005795
+        },
+        "bytes_read": 47133943,
+        "provenance_facts": 0,
+        "facts": 323
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 178988,
+        "token_counts": {
+          "utf8_bytes": 178988,
+          "o200k_base": 57749
+        },
+        "bytes_read": 40295662,
+        "provenance_facts": 323,
+        "facts": 323
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-1",
+      "question": "the second time face_001 covers their mouth",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the occurrence was resolved, boundary error 0.000s",
+        "context_bytes": 1496,
+        "token_counts": {
+          "utf8_bytes": 1496,
+          "o200k_base": 472
+        },
+        "bytes_read": 7021132,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-2",
+      "question": "the boundary of the second time face_001 covers their mouth",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "boundary error 0.000s (bar 0.125s)",
+        "context_bytes": 1496,
+        "token_counts": {
+          "utf8_bytes": 1496,
+          "o200k_base": 472
+        },
+        "bytes_read": 7021132,
+        "provenance_facts": 3,
+        "facts": 3
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-3",
+      "question": "when does face_001 cover their mouth, and which one is the second",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": false,
+        "reason": "no occurrence is named an ordinal",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 31
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the second occurrence is named",
+        "context_bytes": 69601,
+        "token_counts": {
+          "utf8_bytes": 69601,
+          "o200k_base": 22664
+        },
+        "bytes_read": 150606,
+        "provenance_facts": 154,
+        "facts": 154
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-P",
+      "question": "what is face_001 doing at 11.45s",
+      "truth": {
+        "start": 11.345,
+        "end": 14.347
+      },
+      "today_api": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 1
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the moment was reported, boundary error 0.000s",
+        "context_bytes": 889,
+        "token_counts": {
+          "utf8_bytes": 889,
+          "o200k_base": 271
+        },
+        "bytes_read": 7021132,
+        "provenance_facts": 1,
+        "facts": 1
+      }
+    },
+    {
+      "content_digest": "f683a9759e06a8465b3cb4b0ffb6c7f44b2818df10a827eba60dd8a2bca1f6b1",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 8139877,
+        "token_counts": {
+          "utf8_bytes": 8139877,
+          "o200k_base": 2947688
+        },
+        "bytes_read": 8139877,
+        "provenance_facts": 0,
+        "facts": 31
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the lane ran, and its answer is reported",
+        "context_bytes": 29653,
+        "token_counts": {
+          "utf8_bytes": 29653,
+          "o200k_base": 8921
+        },
+        "bytes_read": 7021132,
+        "provenance_facts": 31,
+        "facts": 31
+      }
+    },
+    {
+      "content_digest": "f6e702c519060751ed247980d83484b13ed695399f33af3cf7e1a55b3ed78742",
+      "case": "M0-8",
+      "question": "did the person ever cover their mouth",
+      "truth": null,
+      "today_api": {
+        "answered": false,
+        "correct": false,
+        "reason": "no interval or entity query exists",
+        "context_bytes": 41633,
+        "token_counts": {
+          "utf8_bytes": 41633,
+          "o200k_base": 14346
+        },
+        "bytes_read": 41633,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "whole_view": {
+        "answered": true,
+        "correct": true,
+        "reason": "the missing lane is named",
+        "context_bytes": 41633,
+        "token_counts": {
+          "utf8_bytes": 41633,
+          "o200k_base": 14346
+        },
+        "bytes_read": 41633,
+        "provenance_facts": 0,
+        "facts": 0
+      },
+      "targeted": {
+        "answered": true,
+        "correct": true,
+        "reason": "the missing lane is named",
+        "context_bytes": 13,
+        "token_counts": {
+          "utf8_bytes": 13,
+          "o200k_base": 5
+        },
+        "bytes_read": 628683,
+        "provenance_facts": 0,
+        "facts": 0
+      }
+    }
+  ],
+  "routes": {
+    "today_api": {
+      "questions": 32,
+      "answered": "6/32",
+      "correct": "6/32",
+      "facts_with_provenance": "0/6",
+      "context_bytes_per_call": 15533918,
+      "o200k_tokens_per_call": 5610489
+    },
+    "whole_view": {
+      "questions": 32,
+      "answered": "32/32",
+      "correct": "26/32",
+      "facts_with_provenance": "0/1300",
+      "context_bytes_per_call": 15533918,
+      "o200k_tokens_per_call": 5610489
+    },
+    "targeted": {
+      "questions": 32,
+      "answered": "32/32",
+      "correct": "32/32",
+      "facts_with_provenance": "2178/2178",
+      "context_bytes_per_call": 38415,
+      "o200k_tokens_per_call": 12294
+    }
+  },
+  "reel_plan": {
+    "candidates_asked": 37,
+    "candidates_answered": 37,
+    "speaker_set_match": "37/37",
+    "speaker_share_within_0.10": "32/37",
+    "rows": [
+      {
+        "candidate": 0,
+        "plan_share": {
+          "Akshita": 0.414,
+          "Craig": 0.551
+        },
+        "world_share": {
+          "Craig": 0.5681,
+          "Akshita": 0.4319
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0175,
+        "answered": true
+      },
+      {
+        "candidate": 1,
+        "plan_share": {
+          "Akshita": 0.517,
+          "Craig": 0.453
+        },
+        "world_share": {
+          "Craig": 0.4716,
+          "Akshita": 0.5284
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.015,
+        "answered": true
+      },
+      {
+        "candidate": 2,
+        "plan_share": {
+          "Akshita": 0.603,
+          "Craig": 0.347
+        },
+        "world_share": {
+          "Craig": 0.362,
+          "Akshita": 0.638
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.025,
+        "answered": true
+      },
+      {
+        "candidate": 3,
+        "plan_share": {
+          "Akshita": 0.056,
+          "Craig": 0.914
+        },
+        "world_share": {
+          "Craig": 0.9327,
+          "Akshita": 0.0673
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.015,
+        "answered": true
+      },
+      {
+        "candidate": 4,
+        "plan_share": {
+          "Akshita": 0.578,
+          "Craig": 0.333
+        },
+        "world_share": {
+          "Craig": 0.2309,
+          "Akshita": 0.7691
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.1466,
+        "answered": true
+      },
+      {
+        "candidate": 5,
+        "plan_share": {
+          "Akshita": 0.253,
+          "Craig": 0.724
+        },
+        "world_share": {
+          "Craig": 0.7153,
+          "Akshita": 0.2847
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0202,
+        "answered": true
+      },
+      {
+        "candidate": 6,
+        "plan_share": {
+          "Akshita": 0.747,
+          "Craig": 0.241
+        },
+        "world_share": {
+          "Craig": 0.2331,
+          "Akshita": 0.7669
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0139,
+        "answered": true
+      },
+      {
+        "candidate": 7,
+        "plan_share": {
+          "Akshita": 0.586,
+          "Craig": 0.386
+        },
+        "world_share": {
+          "Craig": 0.3477,
+          "Akshita": 0.6523
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0523,
+        "answered": true
+      },
+      {
+        "candidate": 8,
+        "plan_share": {
+          "Akshita": 0.599,
+          "Craig": 0.364
+        },
+        "world_share": {
+          "Craig": 0.3573,
+          "Akshita": 0.6427
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0252,
+        "answered": true
+      },
+      {
+        "candidate": 9,
+        "plan_share": {
+          "Akshita": 0.687,
+          "Craig": 0.309
+        },
+        "world_share": {
+          "Craig": 0.26,
+          "Akshita": 0.74
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.051,
+        "answered": true
+      },
+      {
+        "candidate": 10,
+        "plan_share": {
+          "Akshita": 0.414,
+          "Craig": 0.565
+        },
+        "world_share": {
+          "Craig": 0.5636,
+          "Akshita": 0.4364
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0119,
+        "answered": true
+      },
+      {
+        "candidate": 11,
+        "plan_share": {
+          "Akshita": 0.438,
+          "Craig": 0.527
+        },
+        "world_share": {
+          "Craig": 0.5465,
+          "Akshita": 0.4535
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0175,
+        "answered": true
+      },
+      {
+        "candidate": 12,
+        "plan_share": {
+          "Akshita": 0.602,
+          "Craig": 0.392
+        },
+        "world_share": {
+          "Craig": 0.3862,
+          "Akshita": 0.6138
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0088,
+        "answered": true
+      },
+      {
+        "candidate": 13,
+        "plan_share": {
+          "Akshita": 0.699,
+          "Craig": 0.266
+        },
+        "world_share": {
+          "Craig": 0.2512,
+          "Akshita": 0.7488
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0323,
+        "answered": true
+      },
+      {
+        "candidate": 14,
+        "plan_share": {
+          "Akshita": 0.107,
+          "Craig": 0.889
+        },
+        "world_share": {
+          "Craig": 0.8949,
+          "Akshita": 0.1051
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0039,
+        "answered": true
+      },
+      {
+        "candidate": 15,
+        "plan_share": {
+          "Akshita": 0.777,
+          "Craig": 0.215
+        },
+        "world_share": {
+          "Craig": 0.1983,
+          "Akshita": 0.8017
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0207,
+        "answered": true
+      },
+      {
+        "candidate": 16,
+        "plan_share": {
+          "Akshita": 0.819,
+          "Craig": 0.169
+        },
+        "world_share": {
+          "Craig": 0.0986,
+          "Akshita": 0.9014
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0764,
+        "answered": true
+      },
+      {
+        "candidate": 17,
+        "plan_share": {
+          "Akshita": 0.79,
+          "Craig": 0.181
+        },
+        "world_share": {
+          "Craig": 0.1827,
+          "Akshita": 0.8173
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0145,
+        "answered": true
+      },
+      {
+        "candidate": 18,
+        "plan_share": {
+          "Akshita": 0.786,
+          "Craig": 0.392
+        },
+        "world_share": {
+          "Craig": 0.2099,
+          "Akshita": 0.7901
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0931,
+        "answered": true
+      },
+      {
+        "candidate": 19,
+        "plan_share": {
+          "Akshita": 0.856,
+          "Craig": 0.133
+        },
+        "world_share": {
+          "Craig": 0.0814,
+          "Akshita": 0.9186
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0571,
+        "answered": true
+      },
+      {
+        "candidate": 20,
+        "plan_share": {
+          "Akshita": 0.593,
+          "Craig": 0.181
+        },
+        "world_share": {
+          "Craig": 0.3255,
+          "Akshita": 0.6745
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.113,
+        "answered": true
+      },
+      {
+        "candidate": 21,
+        "plan_share": {
+          "Akshita": 0.618,
+          "Craig": 0.371
+        },
+        "world_share": {
+          "Craig": 0.3138,
+          "Akshita": 0.6862
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0627,
+        "answered": true
+      },
+      {
+        "candidate": 22,
+        "plan_share": {
+          "Akshita": 0.907,
+          "Craig": 0.084
+        },
+        "world_share": {
+          "Craig": 0.0591,
+          "Akshita": 0.9409
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0294,
+        "answered": true
+      },
+      {
+        "candidate": 23,
+        "plan_share": {
+          "Akshita": 0.734,
+          "Craig": 0.261
+        },
+        "world_share": {
+          "Craig": 0.1756,
+          "Akshita": 0.8244
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0879,
+        "answered": true
+      },
+      {
+        "candidate": 24,
+        "plan_share": {
+          "Akshita": 0.54,
+          "Craig": 0.441
+        },
+        "world_share": {
+          "Craig": 0.1562,
+          "Akshita": 0.8438
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.2943,
+        "answered": true
+      },
+      {
+        "candidate": 25,
+        "plan_share": {
+          "Akshita": 0.81,
+          "Craig": 0.366
+        },
+        "world_share": {
+          "Akshita": 0.8976,
+          "Craig": 0.1024
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.1756,
+        "answered": true
+      },
+      {
+        "candidate": 26,
+        "plan_share": {
+          "Akshita": 0.773,
+          "Craig": 0.212
+        },
+        "world_share": {
+          "Craig": 0.1236,
+          "Akshita": 0.8764
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0959,
+        "answered": true
+      },
+      {
+        "candidate": 27,
+        "plan_share": {
+          "Akshita": 0.441,
+          "Craig": 0.549
+        },
+        "world_share": {
+          "Craig": 0.4921,
+          "Akshita": 0.5079
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0619,
+        "answered": true
+      },
+      {
+        "candidate": 28,
+        "plan_share": {
+          "Akshita": 0.813,
+          "Craig": 0.179
+        },
+        "world_share": {
+          "Craig": 0.1709,
+          "Akshita": 0.8291
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0121,
+        "answered": true
+      },
+      {
+        "candidate": 29,
+        "plan_share": {
+          "Akshita": 0.849,
+          "Craig": 0.141
+        },
+        "world_share": {
+          "Craig": 0.1244,
+          "Akshita": 0.8756
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0216,
+        "answered": true
+      },
+      {
+        "candidate": 30,
+        "plan_share": {
+          "Akshita": 0.749,
+          "Craig": 0.179
+        },
+        "world_share": {
+          "Craig": 0.0265,
+          "Akshita": 0.9735
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.1885,
+        "answered": true
+      },
+      {
+        "candidate": 31,
+        "plan_share": {
+          "Akshita": 0.847,
+          "Craig": 0.137
+        },
+        "world_share": {
+          "Craig": 0.1319,
+          "Akshita": 0.8681
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0131,
+        "answered": true
+      },
+      {
+        "candidate": 32,
+        "plan_share": {
+          "Akshita": 0.847,
+          "Craig": 0.146
+        },
+        "world_share": {
+          "Craig": 0.0659,
+          "Akshita": 0.9341
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0836,
+        "answered": true
+      },
+      {
+        "candidate": 33,
+        "plan_share": {
+          "Akshita": 0.47,
+          "Craig": 0.523
+        },
+        "world_share": {
+          "Craig": 0.4348,
+          "Akshita": 0.5652
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0917,
+        "answered": true
+      },
+      {
+        "candidate": 34,
+        "plan_share": {
+          "Akshita": 0.652,
+          "Craig": 0.335
+        },
+        "world_share": {
+          "Craig": 0.3105,
+          "Akshita": 0.6895
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.031,
+        "answered": true
+      },
+      {
+        "candidate": 35,
+        "plan_share": {
+          "Akshita": 0.658,
+          "Craig": 0.258
+        },
+        "world_share": {
+          "Craig": 0.2096,
+          "Akshita": 0.7904
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0904,
+        "answered": true
+      },
+      {
+        "candidate": 36,
+        "plan_share": {
+          "Akshita": 0.791,
+          "Craig": 0.196
+        },
+        "world_share": {
+          "Craig": 0.1213,
+          "Akshita": 0.8787
+        },
+        "speakers_match": true,
+        "mean_absolute_share_difference": 0.0812,
+        "answered": true
+      }
+    ]
+  },
+  "tokenizer": [
+    "utf8_bytes",
+    "o200k_base"
+  ]
+}
