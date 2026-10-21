@@ -67,6 +67,24 @@ a silence question. So the loudness leg is NOT CHECKED on such a file
 (``measure_lufs`` says so in its own detail) and the SILENCE leg
 decides: a declared silent ending - Reel 13's silent end card - is
 excused by the declaration, an undeclared silence is not.
+
+The CAPTION spec, verified on the file itself
+---------------------------------------------
+A caption can be right in the plan and wrong in the file: the card
+never reached the export, it reached it late, it was replaced by a card
+that was never re-rendered, or another graphic was drawn over it. None
+of that is visible to a plan-side check, because the plan is not what
+was delivered.
+
+So the caption spec is measured on the DELIVERED FILE, the way the
+audio spec is: the words the export carries, the frames the caption is
+visible for, where it is drawn, whether it is legible, how it wraps,
+whether the emphasis reached the export, and whether a caption nobody
+declared is still on the file. The plan supplies only the INTENT
+(``library/tools/delivered_caption_intent.py``); every measurement is
+taken from the file. It GATES when it ran, and reports itself
+unmeasured when it could not - an unmeasured caption is never a
+silently passing one.
 """
 
 from __future__ import annotations
@@ -74,7 +92,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from library.tools.delivery_spec import DeliverySpec
 from library.tools.render_qa import RenderQAResult
@@ -104,6 +122,14 @@ class DeliverableQCVerdict:
     #: channel presence. GATES with the rest: a file that fails its
     #: audio spec is not a deliverable, whatever its picture measures.
     audio: "AudioSpecVerdict" = None
+    #: The delivered FILE's CAPTIONS against what the plan declared for
+    #: them - the words, the visible span, the placement, the
+    #: readability, the wrapping, the emphasis, the collision with
+    #: other graphics, and the card nobody declared (a replacement that
+    #: never reached the export). None when no caption intent was
+    #: supplied: an unmeasured caption is not a passing caption, and the
+    #: verdict says so rather than passing it.
+    caption_spec: Any = None
 
 
 @dataclass(frozen=True)
@@ -230,7 +256,9 @@ def run_deliverable_qc(
         subtitle_data: Optional[List[Dict]] = None,
         spine_blocks: Optional[Sequence] = None,
         declared_black_beats: Optional[List] = None,
-        declared_silence_spans: Optional[Sequence] = None
+        declared_silence_spans: Optional[Sequence] = None,
+        caption_intents: Optional[Sequence] = None,
+        caption_spans: Optional[Sequence] = None
         ) -> DeliverableQCVerdict:
     """Judge one rendered deliverable against its spec.
 
@@ -246,6 +274,17 @@ def run_deliverable_qc(
     dialogue, and the channel presence. ``declared_silence_spans``
     excuse the silence a project DECLARED (a silent end card); nothing
     else is excused.
+
+    THE CAPTION SPEC. ``caption_intents`` is what the captions were
+    supposed to be - the plan's side of the comparison. The caption
+    spec is measured on the DELIVERED FILE (``library/tools/
+    delivered_caption_spec.py``): its words, the frames it is visible
+    for, where it is drawn, whether it is legible, how it wraps,
+    whether the emphasis reached the export, and whether another
+    graphic is drawn over it. It GATES when it ran; when it could not
+    run (no intent, or no way to read the delivered frames) it is
+    REPORTED as unmeasured and does not gate - an unmeasured caption is
+    never silently a passing one.
     """
     from library.tools import render_qa
     from library.tools.subtitle_qa import verify_subtitle_timing
@@ -267,15 +306,37 @@ def run_deliverable_qc(
         subtitle_data, total_duration=expected_duration,
         spine_blocks=spine_blocks)
         if subtitle_data is not None else None)
+    caption_spec = _measure_caption_spec(
+        video_path, caption_intents, caption_spans)
 
     return DeliverableQCVerdict(
         platform=spec.platform,
         passed=bool(duration.passed and black_frames.passed
-                    and audio.passed),
+                    and audio.passed
+                    and (caption_spec is None or caption_spec.passed)),
         duration=duration,
         black_frames=black_frames,
         loudness=audio.loudness,
         grade=grade,
         captions=captions,
         audio=audio,
+        caption_spec=caption_spec,
     )
+
+
+def _measure_caption_spec(video_path: str,
+                           caption_intents: Optional[Sequence],
+                           caption_spans: Optional[Sequence]):
+    """The delivered file's captions, measured on the delivered file.
+
+    None when no intent was supplied: nothing was asked, so nothing was
+    measured, and the verdict says so rather than passing a file it
+    could not judge.
+    """
+    if caption_intents is None:
+        return None
+    from library.tools.delivered_caption_spec import verify_delivered_captions
+
+    return verify_delivered_captions(
+        video_path, caption_intents,
+        declared_spans=list(caption_spans or ()))

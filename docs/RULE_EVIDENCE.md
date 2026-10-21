@@ -9069,3 +9069,73 @@ profile, and the live lane's ordinary-request and blind reports.
 machine and the time that produced them are still `not_recorded` - the header names the
 revision that RECORDED each file and does not pretend to know the revision it ran at. No live
 benchmark was re-run to obtain any of this.
+
+
+## the-delivery-that-could-not-see-its-own-captions
+
+**The rule:** A delivered file's CAPTIONS are judged on the delivered file, and
+the judgement GATES the delivery state. The plan supplies only the INTENT; every
+measurement is taken from the file's own frames.
+`library/tools/delivered_caption_spec.py` owns the measurement;
+`library/tools/delivered_caption_intent.py` owns the plan side;
+`library/tools/caption_ocr.py` reads the frames; `library/tools/reel_deliver.py` and
+`library/tools/deliverable_qc.py` read the one verdict.
+
+**What happened.** The delivery judged a delivered file's captions by the PLAN:
+the caption's timing came from the plan's own subtitle rows (`subtitle_qa`) and its
+presence came from the build's inventory of placed items (`export_verification`'s
+caption-presence walk). Both are statements about the plan and the timeline.
+Neither is a statement about the file the captain receives, and the difference is
+where every caption defect lives: the card that never reached the export, the
+card that reached it late, the card that was REPLACED and never re-rendered (the
+old pixels still on the file), the card another graphic was drawn over, and the
+card that says a different word than the plan asked for. The captain once called a
+broken highlight sweep "subtitles messed up" - that is a defect in the FILE, and no
+plan-side check can see it. The same shape as the audio leg above: the delivery
+measured what it had on hand, and what it had on hand was the plan.
+
+**How it is measured.** The delivered file is read, cropped to the caption row, at
+four frames a second (`library/tools/caption_ocr.py`, a compiled Apple Vision
+helper over the `--list` protocol and the compile cache `vision_measure` already
+owns). That ONE reading answers every leg: the words the export carries (against
+the plan's words), the frames the caption slot is occupied for (against the
+window the plan gave it), where the caption is drawn (against the frame's own
+rules and the declared box when there is one), how tall its ink is (against the
+engine's own legibility floor), how many lines it draws (against the declared
+line count), whether the emphasis reached the export (the ink height against the
+planned card's, which is what carries the emphasis bump), whether another graphic
+is drawn over the caption's own box, and whether a caption NOBODY declared is on
+the file - the stale card a replacement leaves behind.
+
+**Why the pixels were not counted.** The first version counted bright pixels in
+the caption's own box, and it was wrong on real footage: measured on a Ren scratch
+export (2026-10-21), the picture INSIDE the caption's own box carries 22,000
+bright pixels per frame while the caption's ink is a few thousand, and the count
+said more about the footage than about the caption. A caption is TEXT, and the
+only honest way to know that text is there is to read it. The scan reads the file
+instead, and the same export's captions read back correctly.
+
+**The seeded defects.** Each of these is caught on a synthetic scratch render, and
+a clean render passes every leg (a check that fails correct output is not
+coverage): a caption that says the wrong word; a card that arrives eight frames
+late; a card a lower third is drawn over; the replaced card still on the export;
+and the caption that never reached the export at all.
+
+**What it costs.** Measured on this machine, 2026-10-21: **15.9 seconds per
+minute of video** on a synthetic 1080x1920 / 30fps file with six captions, and
+**32.7 seconds per minute** on a real Ren scratch export (1080x1920, 23.976fps,
+a continuous caption track - about 90 captions in 79 seconds). The cost is a
+function of the file's LENGTH, not of the number of captions in it: one decode of
+the file and one Vision read per scanned frame, cropped to the caption row.
+
+**What it does not fix.** The reading is Apple Vision's, so it needs macOS; where
+it cannot run, the caption spec says it is UNMEASURED and does not gate - an
+unmeasured caption is never a silently passing one, but it is not a refusal
+either. The words are compared with a ratio, not for equality: OCR reads a
+rendered glyph, so a caption that differs only in its SPACING passes (that is the
+same caption) and a caption that differs in its LETTERS does not. The collision
+leg sees TEXT: a graphic that covers the caption without carrying readable words
+is caught by the words leg instead, because the caption it covers no longer reads
+as intended. And the intent comes from the built timeline's own snapshot, so a
+timeline with no snapshot on disk has no caption intent and its captions are not
+judged.

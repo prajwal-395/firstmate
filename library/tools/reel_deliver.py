@@ -525,7 +525,9 @@ def verify_deliverable(video_path: str, expected_seconds: float,
                        expected_width: int, expected_height: int,
                        expected_codec: str = "",
                        spec=None,
-                       declared_silence_spans=None) -> dict:
+                       declared_silence_spans=None,
+                       caption_intents=None,
+                       caption_spans=None) -> dict:
     """`render_qa`'s verdict on one delivered file: duration, resolution,
     audio present, not black, loudness, and - when named - the encoded
     codec.
@@ -573,6 +575,23 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     case-insensitive (`h264` is `H264`); a file with no measurable
     video stream is skipped rather than flagged, the same policy
     `_disk_resolution` applies.
+
+    THE CAPTION SPEC GATES, when it ran. `caption_intents` is what the
+    captions were supposed to be (the plan's side, read by
+    `library/tools/delivered_caption_intent.py`); every measurement is
+    taken from the delivered file itself (`library/tools/
+    delivered_caption_spec.py`): the words it carries, the frames it is
+    visible for, where it is drawn, whether it is legible, how it
+    wraps, whether the emphasis reached the export, and whether a
+    caption nobody declared is still on the file - the shape a
+    replacement leaves when the new card never reached the export.
+    `caption_spans` are the windows where the plan declares some OTHER
+    graphic, so that graphic's ink is never called an undeclared
+    caption.
+
+    No intent means no caption spec: nothing was asked, so nothing is
+    claimed, and the verdict says the captions were not judged rather
+    than passing them.
     """
     from library.tools import render_qa
     from library.tools.deliverable_qc import verify_audio_spec
@@ -595,6 +614,24 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     black = render_qa.detect_black_frames(video_path)
     codec = _verify_file_codec(video_path, expected_codec)
     loudness = audio.loudness
+
+    # THE CAPTION SPEC: measured on the delivered file, against the
+    # plan's intent. None when no intent was supplied - nothing asked,
+    # nothing claimed.
+    caption_spec = None
+    caption_spec_passed = True
+    if caption_intents is not None:
+        from library.tools.delivered_caption_spec import (
+            verify_delivered_captions,
+        )
+
+        caption_spec = verify_delivered_captions(
+            video_path, caption_intents,
+            declared_spans=list(caption_spans or ()))
+        # A caption spec that could not run does not gate, and says so:
+        # an unmeasured caption is never a silently passing one.
+        caption_spec_passed = bool(caption_spec.passed) if caption_spec.checked \
+            else True
 
     segments = list(black.value or []) if black.value else []
     black_seconds = sum(float(s.get("duration", 0.0)) for s in segments
@@ -633,8 +670,11 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         "passed": bool(duration.passed and resolution.passed
                        and content_present
                        and audio.passed
-                       and codec["passed"]),
+                       and codec["passed"]
+                       and caption_spec_passed),
     }
+    if caption_spec is not None:
+        verdict["caption_spec"] = caption_spec.as_dict()
     return verdict
 
 

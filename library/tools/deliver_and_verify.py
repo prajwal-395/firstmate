@@ -152,6 +152,20 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
         report, final_path,
         target_lufs=delivery_spec.loudness_target_lufs,
         true_peak_ceiling=delivery_spec.true_peak_ceiling_dbtp)
+    # The DELIVERED FILE's captions, judged on the delivered file: the
+    # words it carries, the frames the caption is visible for, where it
+    # is drawn, and whether a caption nobody declared is still on it.
+    # The plan supplies the intent (the built timeline's own snapshot);
+    # every measurement is taken from the file. No readable plan means
+    # no intent, and the verdict says the captions were not judged
+    # rather than passing them.
+    from library.tools import delivered_caption_intent as _caption_intent
+
+    caption_plan = _caption_intent.caption_plan(project_folder, timeline_name)
+    caption_intents = (list(caption_plan.intents)
+                       if caption_plan.attributable and caption_plan.intents
+                       else None)
+
     # Positional: fakes of verify_deliverable in the suite take
     # (*args), so a keyword here would break every one of them. The
     # spec goes with it, so the verdict measures the loudness the
@@ -159,12 +173,14 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
     # second ear on a route that skipped or weakened the master. The
     # declared silence goes with it too: the audio spec is judged on
     # the file, and a declared silent ending is excused by the
-    # declaration.
+    # declaration. The caption spec goes with it: the caption is
+    # judged on the file, and the intent comes from the plan.
     verdict = reel_deliver.verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"],
         delivery_spec.codec, delivery_spec,
-        declared_silence_spans)
+        declared_silence_spans, caption_intents,
+        list(caption_plan.other_spans))
 
     full = {
         "timeline_name": timeline_name,
@@ -190,6 +206,7 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
         audio_spec = verdict.get("audio_spec") or {}
         silence = audio_spec.get("silence") or {}
         channels = audio_spec.get("channels") or {}
+        caption_spec = verdict.get("caption_spec") or {}
         raise _refusal(
             f"rendered {report['output_path']} but verification FAILED",
             f"duration={verdict['duration']['passed']}, "
@@ -199,6 +216,7 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
             f"silence_under_picture={silence.get('passed')}, "
             f"channels={channels.get('passed')}, "
             f"codec={verdict['codec']['passed']}, "
+            f"captions={caption_spec.get('passed', 'not judged')}, "
             f"content_present={verdict['content_present']}. "
             f"Report: {record['record_path']}",
             "read the record for the failing check, fix the timeline or "
