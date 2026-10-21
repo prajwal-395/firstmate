@@ -33,17 +33,23 @@ install_provider() {
 }
 
 install_unlocked() {
-  local agent_dir=${1:-} models tmp helper api_key
+  local agent_dir=${1:-} models tmp helper_hash api_key
   models="$agent_dir/models.json"
-  helper="$SCRIPT_DIR/fm-pi-opencode-go.sh"
-  api_key="!bash $helper token"
   tmp="$models.tmp.$$"
   if [ -f "$models" ]; then
     jq -e 'type == "object" and ((.providers // {}) | type == "object")' "$models" >/dev/null 2>&1 || {
       echo "error: refusing malformed Pi models file at $models" >&2
       return 1
     }
-    if jq --arg helper "$api_key" -e '.providers["opencode-go"] != null and (.providers["opencode-go"].baseUrl != "https://opencode.ai/inference/go/openai/v1" or .providers["opencode-go"].api != "openai-completions" or .providers["opencode-go"].apiKey != $helper)' "$models" >/dev/null 2>&1; then
+    if jq -e '
+      .providers["opencode-go"] as $p |
+      $p != null and (
+        $p.baseUrl != "https://opencode.ai/inference/go/openai/v1"
+        or $p.api != "openai-completions"
+        or ($p.apiKey != "!bash \"$FM_PI_OPENCODE_GO_HELPER\" token"
+          and ($p.apiKey | test("^!bash .*fm-pi-opencode-go\\.sh.* token$") | not))
+      )
+    ' "$models" >/dev/null 2>&1; then
       echo "error: Pi provider opencode-go is already configured differently in $models" >&2
       return 1
     fi
@@ -51,7 +57,17 @@ install_unlocked() {
     # shellcheck disable=SC2016
     printf '%s\n' '{"$schema":"https://pi.dev/schemas/models.schema.json","providers":{}}' > "$models" || return 1
   fi
+  agent_dir=$(CDPATH='' cd -- "$agent_dir" && pwd -P) || return 1
+  models="$agent_dir/models.json"
+  helper_hash=$(install_token_helper "$agent_dir") || return 1
+  # Pi's provider file may be shared across multiple Firstmate homes and code
+  # roots. Keep the request helper beside that provider, version it by content,
+  # and select the correct agent directory at request time. Older helper
+  # versions remain installed so workers that already loaded an older command
+  # can continue to use it after a later install.
+  api_key="!bash \"\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}/fm-opencode-go/$helper_hash/fm-pi-opencode-go.sh\" token"
   jq --arg api_key "$api_key" '
+    .providers as $existing_providers |
     .providers = (.providers // {}) |
     .providers["opencode-go"] = {
       "baseUrl":"https://opencode.ai/inference/go/openai/v1",
@@ -61,14 +77,53 @@ install_unlocked() {
         "x-opencode-org-id":"${FM_OPENCODE_ORG_ID}",
         "x-opencode-session":"${FM_OPENCODE_SESSION}"
       },
-      "models":[
+      "models": (($existing_providers["opencode-go"].models // []
+        | map(select(.id != "minimax-m3.1-flash-free" and .id != "muse-spark-1.3-contributor"))) + [
         {"id":"minimax-m3.1-flash-free","name":"MiniMax M3.1 Flash Free","reasoning":true,"input":["text","image"],"contextWindow":1000000,"maxTokens":512000,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}},
         {"id":"muse-spark-1.3-contributor","name":"Muse Spark 1.3 Contributor","api":"openai-responses","reasoning":true,"input":["text","image"],"contextWindow":1048576,"maxTokens":131072,"cost":{"input":0.1,"output":0.2,"cacheRead":0.002,"cacheWrite":0}}
-      ]
+      ])
     }
   ' "$models" > "$tmp" || { echo "error: could not update Pi's OpenCode Go provider" >&2; return 1; }
   chmod 600 "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$models" || return 1
+}
+
+install_token_helper() {  # <Pi-agent-dir> -> prints the helper content hash
+  local agent_dir=$1 helper_root version_dir tmp name hash_input hash
+  local -a helper_files=(fm-pi-opencode-go.sh fm-opencode-second-lib.sh fm-timeout-lib.sh fm-backend.sh)
+  helper_root="$agent_dir/fm-opencode-go"
+  mkdir -p "$helper_root" || return 1
+  command -v shasum >/dev/null 2>&1 || {
+    echo "error: shasum is required to install Pi's versioned OpenCode Go helper" >&2
+    return 1
+  }
+  hash_input=$(for name in "${helper_files[@]}"; do
+    [ -f "$SCRIPT_DIR/$name" ] || return 1
+    shasum -a 256 "$SCRIPT_DIR/$name" | awk '{print $1}'
+  done) || return 1
+  hash=$(printf '%s\n' "$hash_input" | shasum -a 256 | awk '{print $1}') || return 1
+  case "$hash" in
+    [0-9a-f][0-9a-f]*) [ "${#hash}" -eq 64 ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  version_dir="$helper_root/$hash"
+  if [ -d "$version_dir" ]; then
+    for name in "${helper_files[@]}"; do
+      cmp -s "$SCRIPT_DIR/$name" "$version_dir/$name" || {
+        echo "error: installed Pi helper hash collision at $version_dir" >&2
+        return 1
+      }
+    done
+  else
+    tmp=$(mktemp -d "$helper_root/.install.XXXXXX") || return 1
+    for name in "${helper_files[@]}"; do
+      cp "$SCRIPT_DIR/$name" "$tmp/$name" || { rm -rf "$tmp"; return 1; }
+      chmod 700 "$tmp/$name" 2>/dev/null || true
+    done
+    chmod 700 "$tmp" 2>/dev/null || true
+    mv "$tmp" "$version_dir" || { rm -rf "$tmp"; return 1; }
+  fi
+  printf '%s\n' "$hash"
 }
 
 token_for_task() {

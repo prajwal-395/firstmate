@@ -1226,9 +1226,10 @@ The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`]
 ## Pi on OpenCode Go (config/pi-opencode-go)
 
 The optional local, gitignored `config/pi-opencode-go` file holds exactly one line, `on` or `off`; absent means off, and malformed content refuses the spawn.
-When on, ordinary crewmates and scouts selected for the OpenCode ladder's free Minimax or paid Go model run on standard Pi with the ladder's selected model and workspace.
-The ladder order, quota caps, workspace choice, and descent remain the same, and the Codex Plus rung remains on Codex.
-Secondmates and tasks that do not resolve to one of those two OpenCode-backed rungs are unaffected.
+When on, every ordinary crewmate or scout route that selects the OpenCode harness is routed to standard Pi, including configured defaults, dispatch profiles, exhausted-ladder fallbacks, explicit harness selection, and relaunches.
+The selected model must be explicitly defined in the worker's Pi provider configuration; otherwise the spawn refuses with the missing provider/model rather than launching OpenCode or substituting another model.
+The OpenCode ladder order, quota caps, workspace choice, and descent remain the same, and the Codex Plus rung remains on Codex.
+Secondmates are unaffected.
 
 Firstmate installs or merges its OpenCode Go provider into the Pi agent directory the worker actually uses: the pinned Pi account directory when a worker account is selected, or Pi's default agent directory otherwise.
 The provider uses the OpenCode Go inference endpoint and the same model ids as the OpenCode ladder.
@@ -1239,6 +1240,7 @@ Pi does not refresh OpenCode console credentials itself.
 For each model request, its credential command asks OpenCode to refresh the canonical console database, copies only the login rows into that task's private database, and refuses an absent or near-expiry token.
 Tokens remain in OpenCode databases; the request-time command hands the token directly to Pi without logging or persisting it elsewhere.
 The refresh is serialized across tasks so workers do not race the same console refresh token.
+The shared provider entry calls a content-versioned helper installed inside the Pi agent directory, selected through `PI_CODING_AGENT_DIR` or the default `$HOME/.pi/agent` path. Multiple homes and code roots can therefore share the provider without a code-root-specific command. Older helper versions remain installed so workers that already loaded an earlier provider command continue to work after a later install; installation migrates the older code-root-bound managed entry.
 `bin/fm-pi-opencode-go.sh` owns provider installation and request-time credential handling.
 
 ## Stow owner resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)

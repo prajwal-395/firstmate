@@ -796,6 +796,7 @@ DISPATCH_ROUTE_LADDER=
 DISPATCH_FALLBACK_SELECTED=
 DISPATCH_META_OVERRIDE_REASON=
 PI_OPENCODE_GO=0
+PI_OPENCODE_REROUTE=0
 PI_OPENCODE_ORG=
 PI_OPENCODE_SESSION=
 OPENCODE_WORKSPACE_ARG=
@@ -2864,9 +2865,38 @@ case "$HARNESS" in
     ;;
 esac
 
+# The home switch applies to every ordinary crew/scout route that resolves to
+# OpenCode, including configured defaults, dispatch profiles, exhausted-ladder
+# fallbacks, explicit harnesses, and recovery relaunches. Run after OpenCode's
+# model gate so a modelless default harness still resolves to its normal free
+# rung before the selected provider/model is checked for Pi.
+if [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] && [ "$HARNESS" = opencode ]; then
+  case "$MODEL" in
+    opencode-go/*) PI_OPENCODE_GO=1 ;;
+    opencode/*) ;;
+    *)
+      echo "error: config/pi-opencode-go is on, but OpenCode route model '${MODEL:-<default>}' has no explicit Pi provider/model mapping; refusing to launch OpenCode or silently change models" >&2
+      exit 1
+      ;;
+  esac
+  PI_OPENCODE_REROUTE=1
+  HARNESS=pi
+  LAUNCH=$(launch_template "$HARNESS" "$KIND") || {
+    echo "error: Pi launch template is unavailable for the selected OpenCode model" >&2
+    exit 1
+  }
+  printf 'notice: OpenCode route %s routed to Pi by config/pi-opencode-go\n' "$MODEL" >&2
+elif [ "$PI_OPENCODE_GO_ENABLED" -eq 1 ] && [ "$KIND" != secondmate ] \
+  && [ "$HARNESS" = pi ] && [[ "$MODEL" == opencode-go/* ]]; then
+  # Converted tasks are durably recorded as Pi. Re-enabling the switch on a
+  # later relaunch must restore their OpenCode Go provider and workspace path.
+  PI_OPENCODE_GO=1
+  PI_OPENCODE_REROUTE=1
+fi
+
 # The OpenCode ladder case can resolve a model onto Pi after the ordinary Pi
 # setup branch above has already run; finish the same Pi launch preparation.
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
   PI_BIN=$(resolve_pi_executable pi) || {
     echo "error: pi executable not found on PATH; install it or select a different verified harness" >&2
     exit 1
@@ -2883,6 +2913,26 @@ if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   [ -z "$EXCLUDE_TOOLS" ] || PI_EXCLUDE=" --exclude-tools $(shell_quote "$EXCLUDE_TOOLS")"
   LAUNCH=${LAUNCH//__PIEXCLUDE__/$PI_EXCLUDE}
   LAUNCH="FM_PI_HARNESS=pi $LAUNCH"
+fi
+
+# Validate the resolved provider before workspace database setup, endpoint
+# provisioning, or task publication. In particular, never let an unsupported
+# custom OpenCode model fall back to an OpenCode launch when Pi is selected.
+if [ "$PI_OPENCODE_REROUTE" -eq 1 ]; then
+  PI_ACCOUNT_PRE=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
+  PI_AGENT_DIR_PRE=${PI_ACCOUNT_PRE#*$'\t'}
+  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE%%$'\t'*}
+  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE:-${HOME:?}/.pi/agent}
+  if [ "$PI_OPENCODE_GO" -eq 1 ]; then
+    "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR_PRE" || exit 1
+  fi
+  PI_MODEL_PROVIDER_PRE=${MODEL%%/*}
+  PI_MODEL_ID_PRE=${MODEL#*/}
+  if ! jq -e --arg provider "$PI_MODEL_PROVIDER_PRE" --arg model "$PI_MODEL_ID_PRE" \
+    'any(.providers[$provider].models[]?; .id == $model)' "$PI_AGENT_DIR_PRE/models.json" >/dev/null 2>&1; then
+    echo "error: Pi provider configuration in $PI_AGENT_DIR_PRE/models.json does not define model '$MODEL'; refusing to launch OpenCode or substitute a model" >&2
+    exit 1
+  fi
 fi
 
 # The Go workspace lane (bin/fm-opencode-second-lib.sh owns the pins,
@@ -3062,13 +3112,6 @@ fi
 # trust registration below writes the store the worker will actually read.
 RAW_COMMAND=
 [ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
-if [ "$PI_OPENCODE_GO" -eq 1 ]; then
-  PI_ACCOUNT_PRE=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
-  PI_AGENT_DIR_PRE=${PI_ACCOUNT_PRE#*$'\t'}
-  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE%%$'\t'*}
-  PI_AGENT_DIR_PRE=${PI_AGENT_DIR_PRE:-${HOME:?}/.pi/agent}
-  "$SCRIPT_DIR/fm-pi-opencode-go.sh" install "$PI_AGENT_DIR_PRE" || exit 1
-fi
 if [ "$PI_OPENCODE_GO" -eq 1 ]; then
   PI_ACCOUNT_RESOLVED=$(fm_worker_account_resolve pi "$CONFIG") || exit 1
   if [ -n "$PI_ACCOUNT_RESOLVED" ]; then
