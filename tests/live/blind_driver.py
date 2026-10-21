@@ -123,6 +123,15 @@ def interpret(instruction: str) -> dict[str, Any]:
             "case": "restyle_captions",
             "brief": "",
         }
+    if _has(text, "caption", "should say"):
+        from library.tools.caption_rewrite import caption_fix_operation
+        return {
+            "operations": [caption_fix_operation("blind-caption",
+                                                 "hold the opening")],
+            "role": "selected_caption_card",
+            "case": "fix_caption_text",
+            "brief": "",
+        }
     if (_has(text, "remove the selected b-roll")
             and "close" in text and "gap" in text):
         return {
@@ -301,6 +310,17 @@ def resolve_target(role: str, evidence: dict[str, Any],
         return {"semantic_role": role, "uniquely_resolved": True,
                 "unique_id": covers[0].get("unique_id"),
                 "record": list(covers[0].get("record", []))}
+    if role == "selected_caption_card":
+        hits = [row for row in items
+                if row.get("kind") == "video"
+                and str(row.get("name", "")).endswith(".mov")]
+        if len(hits) != 1:
+            return {"semantic_role": role, "uniquely_resolved": False,
+                    "reason": f"{len(hits)} rendered caption cards on the "
+                              "timeline"}
+        return {"semantic_role": role, "uniquely_resolved": True,
+                "unique_id": hits[0].get("unique_id"),
+                "record": list(hits[0].get("record", []))}
     if role == "all_caption_cards":
         per_caption = [str(card.get("unique_id") or "")
                        for card in (evidence.get("per_caption") or [])
@@ -381,6 +401,7 @@ def execute_request(instruction: str,
         "remove_broll": adapter._remove_broll_evidence,
         "insert_relevant_broll": adapter._insert_broll_evidence,
         "restyle_captions": adapter._restyle_captions_evidence,
+        "fix_caption_text": adapter._fix_caption_text_evidence,
         "right_speaker_camera": adapter._multicam_evidence,
         "improve_opening": adapter._opening_evidence,
         "compound_move_and_resize":

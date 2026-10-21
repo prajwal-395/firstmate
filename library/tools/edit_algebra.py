@@ -297,6 +297,26 @@ def _verify_transform(key: str, expected):
     return verify
 
 
+def _verify_caption_fix(op, after):
+    """One fixed caption card reads back on its own span.
+
+    The TEXT is judged by the acceptance contract's rendered evidence -
+    the shadow carries no caption text, and a snapshot judge that
+    scored the words would be the pipeline inventing them (AGENTS.md
+    10.5). This verifier refuses what the snapshot CAN judge: a card
+    the write lost, and a timing the write moved.
+    """
+    clip = _clip(after, op["unique_id"])
+    if clip is None:
+        return f"clip {op['unique_id']!r} is not on the timeline"
+    for key in ("record_in", "record_out"):
+        if key in op and int(clip[key]) != int(op[key]):
+            return (f"clip {op['unique_id']!r} reads {key}={clip[key]}, "
+                    f"not {op[key]}: a caption fix must not move "
+                    f"the timing")
+    return None
+
+
 def _verify_caption_style(op, after):
     """One restyled caption reads back on its own span under a new file.
 
@@ -2689,11 +2709,16 @@ ALGEBRA: dict[str, AlgebraOp] = {
         id="caption_fix", domain="captions",
         required=("unique_id", "text"),
         span=_item_span, item=True,
-        verify=lambda op, after: None,
+        verify=_verify_caption_fix,
         key=lambda op: ("clip", op["unique_id"], "caption"),
         merge="replace",
         inverse=_self("the inverse carries the previous text"),
-        note="Rewrite caption text."),
+        note="Rewrite the text of one rendered caption card - the "
+             "medium every Ren reel uses - and swap it in place. The "
+             "card's own measured word windows are re-fitted to the "
+             "new words, the card is drawn again through the caption "
+             "render path, and the new file is swapped onto the "
+             "placement. The timing never moves."),
     "caption.style": AlgebraOp(
         id="caption.style", domain="captions",
         required=("unique_id", "style"),
@@ -3427,6 +3452,13 @@ _ROUTE_EVALUATION = {
         "next": "Run the deferred live qualification with visual/audio evidence and recovery checks before enabling normal routing.",
         "not_yet_evaluated": [],
     },
+    "caption_fix": {
+        "inspected": ["step 4.05 caption render path and the render props beside a placed card", "caption_swap pool-item replacement", "caption_rewrite word-window fit", "OTIO", "Blackmagic MCP tools/list", "Resolve Workflow Integrations developer package and installed VEP plugin"],
+        "available": ["the adapter re-fits the card's own measured word windows to the new words, re-renders the card through rerender_and_swap and swaps the pool item with per-placement read-back and a post-check that no old file remains placed", "the rendered card's own props are read back off the disk after the render, so the pixels are proved to carry the new text over the old timing"],
+        "gaps": ["one caption card per operation, on the Subtitles row; a title item is not a caption card", "the new text must fit the card's measured span - a text that cannot be timed inside the card refuses rather than being drawn unswept", "the swap replaces the card's media pool item, which is project-wide: every placement of that card reads the new text", "live Resolve qualification remains deferred, so normal routing stays fail-closed", "plugin-owned writes have no AXI request/receipt path and would bypass the shared broker, lease, qualification, and recovery contract"],
+        "next": "Run the deferred live qualification with per-card rendered evidence, text/timing preservation and swap-back recovery before enabling normal routing.",
+        "not_yet_evaluated": [],
+    },
     "caption.style": {
         "inspected": ["native scripting title/text properties", "step 4.05 caption render path and subtitle_style", "caption_swap pool-item replacement", "OTIO", "Blackmagic MCP tools/list", "Resolve Workflow Integrations developer package and installed VEP plugin"],
         "available": ["the adapter re-renders one caption card in a named subtitle style through rerender_and_swap with text and timing preserved, then ReplaceClips the pool item with per-placement read-back and a post-check that no old file remains placed", "Workflow Integration is a host over the same scripting API; the installed VEP plugin exposes read-only Resolve calls, not a new edit backend"],
@@ -3504,7 +3536,9 @@ _IMPLEMENTATION_EVIDENCE = {
     ),
     ("caption_fix", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_caption_fix",
-        "library/tools/resolve_axi_core_commands.py:cmd_edit_title",
+        "library/tools/caption_rewrite.py:rewrite_props",
+        "library/steps/step_4_05_render_subtitles/step.py:rerender_and_swap",
+        "library/tools/caption_swap.py:swap_files",
     ),
     ("multicam.select_angle", "resolve_axi"): (
         "library/tools/edit_execution_adapters.py:_multicam_select_angle",
@@ -3595,7 +3629,7 @@ _BACKEND_OPERATION_LIMITATIONS = {
     ("clip.slip", "reel_touchup"):
         ("one target source window shifts within measured source bounds; its record span stays fixed and the staged replacement must read back exactly",),
     ("caption_fix", "resolve_axi"):
-        ("only Resolve text/title items exposing a supported text property; rendered caption images require regeneration",),
+        ("one rendered caption card per operation, re-rendered with the new text over the card's own measured word windows and swapped in place with per-placement read-back; the card's timing never moves and the new text must fit the card's measured span; a title item is not a caption card and is not addressed here; live Resolve qualification remains deferred",),
     ("multicam.select_angle", "resolve_axi"):
         (("requires a resolved speaker id, assignment basis, unique camera media-pool source, "
           "explicit synced source frames, and a source range matching the existing record duration; "
@@ -4274,6 +4308,7 @@ _INDEPENDENT_READBACK_OPS: frozenset[str] = frozenset({
     "transform_override", "span_retime", "drop_fragment",
     "multicam.select_angle",
     "caption.style",
+    "caption_fix",
     "reel.opening",
 })
 

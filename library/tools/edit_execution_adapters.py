@@ -191,10 +191,6 @@ def _verified_command(context, command: list[str], operation: dict,
         evidence.update(_remove_readback_evidence(
             before, after, target_id, before_clip, after_clip))
         operation_matches = all(evidence.values())
-    elif operation_id == "caption_fix" and before_clip and after_clip:
-        # A timeline inventory does not expose rendered title text. Do not
-        # turn command prose into evidence for this operation.
-        operation_matches = None
     if operation_id == "clip.remove" and before_clip is not None:
         # The removal verifier accounts for every item one-to-one, allowing
         # only the target's explicit link group to disappear and the target
@@ -497,11 +493,241 @@ def _remove(context) -> dict:
        "AXI undo journal entry for the complete track-scoped ripple")
 
 
+def _caption_cue_timing(props: Mapping) -> tuple:
+    """The card's own cue frames - when the card says its words.
+
+    The timing of a caption fix is the thing that must NOT move: the
+    card's words start and end on the frames they were measured over.
+    """
+    cues = props.get("subtitles") or []
+    if len(cues) != 1:
+        return ()
+    cue = cues[0]
+    try:
+        return (int(cue["startFrame"]), int(cue["endFrame"]))
+    except (KeyError, TypeError, ValueError):
+        return ()
+
+
 def _caption_fix(context) -> dict:
-    raise RuntimeError(
-        "caption_fix is refused before mutation: fresh timeline inventory "
-        "does not expose title text, so independent read-back evidence is "
-        "missing")
+    """Rewrite one rendered caption card's text and swap it in place.
+
+    A caption fix is a TEXT change: the card says the wrong words and
+    the captain wants the right ones, with the timing, the placement
+    and every other caption untouched. A rendered card carries no text
+    property - the words are PIXELS - so the text cannot be edited in
+    place. The physical work is the caption render path, not a new
+    writer: the card's own measured word windows are re-fitted to the
+    new words (`library/tools/caption_rewrite.py`), the card is drawn
+    again through `subtitles.rerender_swap`, and the new file is
+    swapped onto the placement with the swap's per-placement read-back
+    and post-check.
+
+    The timing never moves: the cue's own frames ride into the new
+    props and are compared before anything touches Resolve, and the
+    rendered card's own props - read back off the disk after the
+    render - are compared again afterwards, so the pixels on the
+    timeline are proved to carry the new text over the old timing.
+
+    Fail-closed notes: a target that is not a rendered caption card on
+    the Subtitles row, a card whose render props cannot be read, a new
+    text that does not fit the card's measured words, a card that
+    already reads the new text, and a stale live identity all refuse
+    before mutation.
+
+    The swap replaces the card's MEDIA POOL ITEM, which is
+    project-wide: every placement of that card - on every timeline that
+    shares it - reads the new text. The receipt records each placement
+    the swap touched, so what changed is said out loud.
+    """
+    import os
+
+    from library.tools import operation_acceptance, resolve_axi_core
+
+    operation = dict(context.operation)
+    operation_id = "caption_fix"
+    unique_id = str(operation.get("unique_id") or "")
+    text = operation.get("text")
+    if not unique_id:
+        raise ValueError(
+            "caption_fix names no unique_id - the card to fix is "
+            "required, never inferred")
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(
+            f"caption_fix needs the card's new text, got {text!r}")
+    new_text = text.strip()
+
+    from library.tools.caption_rewrite import (
+        CaptionRewriteError,
+        rewrite_props,
+    )
+
+    _track, clip = _caption_style_prepared_target(
+        context, unique_id, operation_id)
+    _caption_style_revalidate_live(context, dict(clip), operation_id)
+    project_folder = _project_folder(context)
+    old_file = str(clip["source_file"])
+    old_props = _caption_style_props(old_file, operation_id)
+    try:
+        new_props = rewrite_props(old_props, new_text)
+    except CaptionRewriteError as exc:
+        raise RuntimeError(
+            f"caption_fix refused: {exc}") from None
+    # A rendered sidecar records the TIGHT canvas (the carrying), while
+    # the render entry re-validates props against the project's delivery
+    # frame: re-rendering tight dims is refused as a wrong-frame props.
+    # Restore the full frame from the project - the renderer re-derives
+    # tight itself - using the same reading the validator uses, so the
+    # two agree by construction.
+    from library.tools.delivery_format import resolve_delivery_format
+
+    full_width, full_height = resolve_delivery_format(project_folder)
+    new_props["width"], new_props["height"] = full_width, full_height
+    # The fix changes what the card says, never when it says it: the
+    # cue's own frames must ride through unchanged.
+    old_timing = _caption_cue_timing(old_props)
+    new_timing = _caption_cue_timing(new_props)
+    if not old_timing or old_timing != new_timing:
+        raise RuntimeError(
+            f"caption_fix of card {unique_id!r} would move the caption's "
+            f"timing from {old_timing} to {new_timing} - refusing a fix "
+            "that moves the words off the speech they cover")
+
+    from library.tools import operations as pipeline_operations
+
+    rerender_and_swap = pipeline_operations.get(
+        "subtitles.rerender_swap").run
+    report = rerender_and_swap(
+        project_folder,
+        [{"old_mov": old_file,
+          "timeline_label": context.request.timeline,
+          "props": new_props}],
+        swap=True)
+    if not report.get("ok"):
+        raise RuntimeError(
+            f"caption_fix render-and-swap refused: "
+            f"{report.get('error') or report}")
+    new_file = dict(report.get("map") or {}).get(old_file)
+    if not new_file:
+        raise RuntimeError(
+            f"caption_fix has nothing to do: the re-render produced no "
+            f"new file for card {unique_id!r} (already-current: "
+            f"{report.get('already_current') or []}) - refusing rather "
+            "than claiming a fix")
+
+    after = resolve_axi_core.read_live_timeline(
+        context.request.project, context.request.timeline)
+    live_hits = [live for track in after["tracks"]
+                 for live in track["clips"]
+                 if str(live.get("unique_id")) == unique_id]
+    # The pixels on disk are the evidence for the TEXT: the renderer
+    # writes the props it drew from beside the file it drew. Reading
+    # them back proves the new text was drawn over the old timing.
+    rendered_props: dict = {}
+    try:
+        rendered_props = _caption_style_props(str(new_file), operation_id)
+    except (RuntimeError, TypeError):
+        rendered_props = {}
+    rendered_text = ""
+    rendered_timing: tuple = ()
+    cues = rendered_props.get("subtitles") or []
+    if len(cues) == 1:
+        rendered_text = str(cues[0].get("text") or "")
+        rendered_timing = _caption_cue_timing(rendered_props)
+
+    evidence = {
+        "target_identity": len(live_hits) == 1,
+        "requested_record_span": (
+            len(live_hits) == 1
+            and int(live_hits[0]["record_in"]) == int(clip["record_in"])
+            and int(live_hits[0]["record_out"]) == int(clip["record_out"])),
+        "caption_text_applied": (
+            bool(new_file) and os.path.isfile(new_file)
+            and len(live_hits) == 1
+            and str(live_hits[0].get("source_file")) == str(new_file)
+            and rendered_text == new_text),
+        "caption_timing_preserved": (
+            len(live_hits) == 1
+            and int(live_hits[0]["record_in"]) == int(clip["record_in"])
+            and int(live_hits[0]["record_out"]) == int(clip["record_out"])
+            and int(live_hits[0]["source_in_frame"])
+            == int(clip["source_in_frame"])
+            and int(live_hits[0]["source_out_frame"])
+            == int(clip["source_out_frame"])
+            and rendered_timing == old_timing),
+    }
+    operation_matches = all(evidence.values())
+    unrelated = _unrelated_changes(context.snapshot, after, unique_id)
+    evidence["unrelated_items_unchanged"] = not unrelated
+    acceptance = operation_acceptance.evaluate(
+        {**operation, "op": operation_id},
+        readback_passed=operation_matches and not unrelated,
+        evidence=evidence)
+    if not acceptance["passed"]:
+        missing = ", ".join(acceptance["missing"]) or "none"
+        failed = ", ".join(acceptance["failed"]) or "none"
+        raise RuntimeError(
+            f"AXI read-back acceptance failed for {operation_id}: "
+            f"missing evidence [{missing}], failed checks [{failed}]")
+    target_identity = {
+        key: operation[key]
+        for key in ("unique_id", "client_unique_id")
+        if key in operation
+    }
+    target_identity.update({
+        key: clip[key]
+        for key in ("source_file", "source_in_frame",
+                    "source_out_frame", "record_in", "record_out")
+        if key in clip
+    })
+    return {
+        "status": "committed",
+        "backend": "resolve_axi",
+        "mutated": True,
+        "operation_id": operation_id,
+        "request_id": context.request.id,
+        "operation_index": int(getattr(context, "operation_index", 0)),
+        "target_identity": {
+            **target_identity,
+        },
+        "readback": {"snapshot": after,
+                      "render_report": {
+                          "rendered": report.get("rendered"),
+                          "reused": report.get("reused"),
+                          "swapped": report.get("swapped"),
+                      },
+                      "previous_file": old_file, "new_file": new_file,
+                      "previous_text": str(
+                          (old_props.get("subtitles") or [{}])[0].get("text")
+                          or ""),
+                      "applied_text": rendered_text},
+        "acceptance_contracts": [acceptance],
+        "execution_contract": {
+            "verification": {
+                "status": "verified",
+                "checks": ({"operation": operation_id, "passed": True},),
+                "evidence": {"acceptance": acceptance,
+                             "snapshot_source": "fresh_live_timeline",
+                             "previous_file": old_file,
+                             "new_file": new_file},
+            },
+            "recovery": {
+                "status": "recorded",
+                "action": "swap the retained previous-generation file "
+                          "back onto the card (old caption files stay on "
+                          "disk as superseded generations; caption_fix "
+                          "carries the previous text)",
+                "reference": {
+                    "kind": "caption_swap_back",
+                    "project_folder": project_folder,
+                    "unique_id": unique_id,
+                    "previous_file": old_file,
+                    "current_file": new_file,
+                    "previous_props": old_props,
+                },
+            },
+        },
+    }
 
 
 def _speech_row_signatures(snapshot: Mapping,
@@ -911,13 +1137,16 @@ def _place(context) -> dict:
     }
 
 
-def _caption_style_props(source_file: str) -> dict:
+def _caption_style_props(source_file: str, op: str = "caption.style") -> dict:
     """The tight render props written beside a placed caption card.
 
     The same layout `caption_width._props` reads: `<stem>_props.json`
     beside the card carries the bounds, words and timings the card was
-    drawn from. Without them a restyle would have to guess what the
+    drawn from. Without them a re-render would have to guess what the
     card says or when it plays, so an unreadable sidecar refuses.
+
+    `op` names the operation asking, so the refusal says which write
+    was refused rather than naming a different one.
     """
     import json
     import os
@@ -929,13 +1158,13 @@ def _caption_style_props(source_file: str) -> dict:
             props = json.load(handle)
     except (OSError, ValueError) as exc:
         raise RuntimeError(
-            f"caption.style cannot re-render "
+            f"{op} cannot re-render "
             f"{os.path.basename(str(source_file))!r}: no readable render "
             f"props beside it ({path}: {exc}) - refusing to guess bounds, "
             f"text or timing") from None
     if not isinstance(props, dict):
         raise TypeError(
-            f"caption.style cannot re-render "
+            f"{op} cannot re-render "
             f"{os.path.basename(str(source_file))!r}: {path} holds no "
             f"props mapping")
     return props
@@ -983,8 +1212,15 @@ def _resolve_named_caption_style(project_folder: str,
         frame_h=frame_h)
 
 
-def _caption_style_prepared_target(context, unique_id: str) -> tuple:
-    """The prepared caption clip and its track, resolved exactly once."""
+def _caption_style_prepared_target(context, unique_id: str,
+                                   op: str = "caption.style") -> tuple:
+    """The prepared caption clip and its track, resolved exactly once.
+
+    A rendered caption card is the medium every Ren reel uses: a card
+    on the Subtitles row, playing a file the caption renderer drew.
+    `op` names the operation asking, so a refusal says which write was
+    refused.
+    """
     from library.tools.caption_swap import SUBTITLES_TRACK_NAME
 
     hits = [(track, clip)
@@ -993,14 +1229,14 @@ def _caption_style_prepared_target(context, unique_id: str) -> tuple:
             if str(clip.get("unique_id")) == unique_id]
     if len(hits) != 1:
         raise ValueError(
-            f"caption.style target {unique_id!r} resolved to "
+            f"{op} target {unique_id!r} resolved to "
             f"{len(hits)} prepared items")
     track, clip = hits[0]
     if track.get("name") != SUBTITLES_TRACK_NAME:
         raise ValueError(
-            f"caption.style target {unique_id!r} sits on "
+            f"{op} target {unique_id!r} sits on "
             f"{track.get('name')!r}, not the {SUBTITLES_TRACK_NAME!r} "
-            f"row - a style op on a non-caption is a mislabelled write")
+            f"row - a caption op on a non-caption is a mislabelled write")
     if not clip.get("source_file"):
         raise ValueError(
             f"caption.style target {unique_id!r} has no source file - "
@@ -1008,7 +1244,8 @@ def _caption_style_prepared_target(context, unique_id: str) -> tuple:
     return track, clip
 
 
-def _caption_style_revalidate_live(context, clip: dict) -> dict:
+def _caption_style_revalidate_live(context, clip: dict,
+                                  op: str = "caption.style") -> dict:
     """Fresh live read-back of the target before anything is rendered.
 
     The prepared identity (media plus record span) must still hold on
@@ -1026,14 +1263,14 @@ def _caption_style_revalidate_live(context, clip: dict) -> dict:
                if str(live.get("unique_id")) == unique_id]
     if len(matches) != 1:
         raise RuntimeError(
-            f"caption.style target {unique_id!r} is stale: it resolves "
+            f"{op} target {unique_id!r} is stale: it resolves "
             f"to {len(matches)} live items, not one - nothing was rendered")
     live = matches[0]
     for key in ("source_file", "source_in_frame", "source_out_frame",
                 "record_in", "record_out"):
         if str(live.get(key)) != str(clip.get(key)):
             raise RuntimeError(
-                f"caption.style target {unique_id!r} is stale: live "
+                f"{op} target {unique_id!r} is stale: live "
                 f"{key} reads {live.get(key)!r}, not the prepared "
                 f"{clip.get(key)!r} - nothing was rendered")
     return after

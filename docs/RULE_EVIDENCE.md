@@ -8387,3 +8387,47 @@ unchanged and still refuses a `caption.style` operation that names no style - th
 refusal is the contract, and it is what caught this. The other algebra operations
 keep their own builders; nothing here generalises to them until one of them is
 caught the same way.
+
+## the-caption-fix-that-refused-a-rendered-card
+
+**The rule:** AGENTS.md 10.2, "A capability is only real where the renderer reads
+it", applied to a caption: the operation that rewrites a caption's text is real
+where the caption is DRAWN, and a rendered card is pixels - so the text is
+re-rendered and swapped, never asserted.
+
+**What happened.** Every caption in a real Ren reel is a rendered `.mov` card on
+the Subtitles row, and `caption_fix` refused before mutation:
+
+```
+caption_fix is refused before mutation: fresh timeline inventory does not expose
+title text, so independent read-back evidence is missing
+```
+
+The refusal was true about the INVENTORY - a timeline snapshot carries no caption
+text - and wrong about the operation. The engine already had the machinery for the
+rendered case: `caption.style` re-renders the card through the caption render
+path (`subtitles.rerender_swap`) and swaps the new file onto the placement with
+per-placement read-back. The one operation that answers "that caption says the
+wrong word" could not address the medium the product is made of, and the live
+batch had no case for it.
+
+**What it does now.** `library/tools/caption_rewrite.py` fits the new words onto
+the card's OWN measured word windows: a surviving word keeps the window it was
+measured with, a replaced run shares the span it replaces, an inserted run takes
+the gap between its neighbours, and a text that cannot be timed inside the
+card's measured span REFUSES rather than being drawn unswept.
+`edit_execution_adapters._caption_fix` then re-renders through
+`subtitles.rerender_swap` and proves from read-back that the TEXT changed (the
+rendered card's own props, read back off the disk), that the TIMING did not
+(the cue's frames, the record span and the source trim), and that nothing else
+on the timeline moved. The timing is the thing a fix must never move: a caption
+that silently changes its span is a fidelity loss, and the read-back is strict
+about it.
+
+**What it does not do.** It does not qualify the operation: `caption_fix` stays
+unqualified for production routing, and the live case is BUILT, run deferred
+(its two runs were refused with `ResolveBusy` after the full 900 s wait, because
+the one shared Resolve was held by another lane). The AXI-11 batch stays
+contracted at ten ordinary requests, so the new case runs on demand
+(`--case fix_caption_text`) rather than by changing a number every measurement
+reads.

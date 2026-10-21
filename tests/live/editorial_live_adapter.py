@@ -1173,6 +1173,98 @@ if TASK in ("all", "restyle_captions"):
     teardown()
     drop_subtitles_track()
 
+if TASK in ("all", "fix_caption_text"):
+    # fix_caption_text: rewrite the TEXT of one Ren-rendered caption
+    # card on the Subtitles row - the medium every real Ren reel uses.
+    # The card is re-rendered through the caption render path and
+    # swapped onto the placement by the operation's own adapter; its
+    # timing, its placement and every other item stay as they are.
+    import os as _os
+    from types import SimpleNamespace as _Namespace
+    subtitle_track = ensure_subtitles_track()
+    card_name = _os.path.basename(CAPTION_ONE)
+    try:
+        pool_uid(card_name)
+    except RuntimeError:
+        ingested = call(["ingest", CAPTION_ONE, "--apply",
+                         "--project", PROJECT])
+        if ingested["exit_code"]:
+            raise RuntimeError("could not ingest caption card "
+                               + card_name + ": "
+                               + ingested["stdout"]
+                               + ingested["stderr"])
+    placed = call(["edit", "place", "--clip", card_name,
+                   "--media", "video", "--track", str(subtitle_track),
+                   "--record", "96", "--source-in", "0",
+                   "--source-out", "47",
+                   "--apply", "--project", PROJECT, "--timeline",
+                   TIMELINE, "--project-folder", PROJECT_DIR,
+                   "--require-recovery"])
+    if placed["exit_code"]:
+        raise RuntimeError("could not place caption card "
+                           + card_name + ": "
+                           + placed["stdout"] + placed["stderr"])
+    card = next(row for row in live_items()
+                if row["kind"] == "video" and row["name"] == card_name)
+    fix_before = live_items()
+    # The operation under test, run through its own adapter: the
+    # engine's route, not a hand-written script beside it.
+    from library.tools.edit_execution_adapters import _caption_fix
+    from library.tools import resolve_axi_core
+    operation = {"op": "caption_fix", "unique_id": card["unique_id"],
+                 "text": "hold the opening"}
+    request = _Namespace(id="axc-caption-fix", project=PROJECT_DIR,
+                         timeline=TIMELINE, operations=[operation])
+    context = _Namespace(operation=operation,
+                         snapshot=resolve_axi_core.read_live_timeline(
+                             PROJECT, TIMELINE),
+                         request=request, compiled=None, operation_index=0)
+    receipt = _caption_fix(context)
+    fix_after = live_items()
+    landed = next((row for row in fix_after
+                   if row["unique_id"] == card["unique_id"]), None)
+    new_file = str((landed or {}).get("source_path") or "")
+    # The pixels on disk are the evidence for the TEXT: the renderer
+    # writes the props it drew from beside the file it drew.
+    rendered_props = {}
+    if new_file:
+        import json as _json2
+        sidecar = _os.path.join(
+            _os.path.dirname(new_file),
+            _os.path.splitext(_os.path.basename(new_file))[0]
+            + "_props.json")
+        try:
+            with open(sidecar, encoding="utf-8") as _handle:
+                rendered_props = _json2.load(_handle)
+        except (OSError, ValueError) as _exc:
+            rendered_props = {"error": str(_exc)}
+    rendered_cue = (rendered_props.get("subtitles") or [{}])[0]
+    untouched_before = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in fix_before if row["kind"] == "video"
+        and row["unique_id"] != card["unique_id"])
+    untouched_after = sorted(
+        (row["name"], tuple(row["record"]))
+        for row in fix_after if row["kind"] == "video"
+        and row["unique_id"] != card["unique_id"]
+        and row["name"] != card_name)
+    collateral = ([] if untouched_before == untouched_after
+                  else ["unrelated video items changed"])
+    results["fix_caption_text"] = {
+        "operation": operation,
+        "receipt": receipt,
+        "card_before": card,
+        "card_after": landed,
+        "items": fix_after,
+        "rendered_text": rendered_cue.get("text"),
+        "rendered_timing": [rendered_cue.get("startFrame"),
+                            rendered_cue.get("endFrame")],
+        "previous_file": str(card["source_path"]),
+        "new_file": new_file,
+        "collateral_changes": collateral}
+    teardown()
+    drop_subtitles_track()
+
 if TASK in ("all", "right_speaker_camera"):
     # right_speaker_camera: the marked speaking turn is covered by the
     # assigned camera while the edit points hold. The fixture declares
@@ -1880,6 +1972,61 @@ def _restyle_captions_evidence(case: dict | None, started: float,
     return row
 
 
+def _fix_caption_text_evidence(case: dict | None, started: float,
+                               instruction: str, discovery: dict,
+                               phases: dict) -> dict:
+    """Judge the caption text fix: the TEXT changed, the TIMING did not.
+
+    A rendered card carries no text property, so the text is judged from
+    the pixels the renderer drew: the props written beside the new file
+    carry the text it drew and the frames it drew it over.
+    """
+    if not isinstance(case, dict):
+        raise _refuse(
+            "missing_fixture_content",
+            "caption_fix needs a Ren-rendered caption card on the "
+            "Subtitles row with readable render props; the current "
+            "fixture contains none")
+    operation = dict(case.get("operation") or {})
+    receipt = dict(case.get("receipt") or {})
+    before = dict(case.get("card_before") or {})
+    after = dict(case.get("card_after") or {})
+    collateral = list(case.get("collateral_changes") or [])
+    requested_text = str(operation.get("text") or "")
+    rendered_text = str(case.get("rendered_text") or "")
+    checks = {
+        "caption_text_changed": (
+            bool(requested_text) and rendered_text == requested_text
+            and str(before.get("source_path") or "")
+            != str(after.get("source_path") or "")),
+        "caption_timing_preserved": (
+            bool(after) and bool(before)
+            and list(after.get("record") or [])
+            == list(before.get("record") or [])
+            and list(case.get("rendered_timing") or []) != []),
+        "caption_item_kept": (
+            bool(after) and bool(before)
+            and str(after.get("unique_id") or "")
+            == str(before.get("unique_id") or "")),
+        "committed_receipt": receipt.get("status") == "committed",
+        "no_collateral_changes": not collateral,
+    }
+    backend = _route_executing(
+        [operation], entry="resolve_axi_core.execute_semantic_edit_job",
+        basis=("the caption card is re-rendered through the existing "
+               "subtitles.rerender_swap path, swapped in place, and read "
+               "back from the rendered props and the live timeline"))
+    row = _common(instruction, discovery, started, phases)
+    row.update(_checked_row(checks, backend, {
+        "rendered_text": rendered_text,
+        "rendered_timing": case.get("rendered_timing"),
+        "previous_file": case.get("previous_file"),
+        "new_file": case.get("new_file")}))
+    row["receipt"] = receipt
+    row["collateral_changes"] = collateral
+    return row
+
+
 def _common(instruction: str, discovery: dict, started: float,
             phases: dict) -> dict:
     now = perf_counter()
@@ -2512,11 +2659,48 @@ def _compound_trim_replace_evidence(case: dict, started: float,
     return row
 
 
+#: The verbatim instruction the caption-fix case answers. The AXI-11
+#: batch is CONTRACTED at ten ordinary requests (the count is pinned by
+#: `tests/unit/tools/test_live_edit_acceptance_contracts.py`), so this
+#: case is run on demand - `--case fix_caption_text` - rather than by
+#: changing that number under every measurement that reads it.
+CAPTION_FIX_INSTRUCTION = (
+    "The first caption on the timeline should say 'hold the opening' "
+    "instead of 'tighten the opening'. Change that caption's text and "
+    "nothing else - not its timing, not the other items.")
+
+
+def run_case(case_id: str) -> dict:
+    """Run ONE live case on the fixture's scratch copy and judge it.
+
+    The request path is the blind driver's: the instruction is the only
+    input, the target is resolved from live fixture state, and the
+    result is judged from read-back.
+    """
+    from tests.live import blind_driver
+
+    if case_id != "fix_caption_text":
+        raise SystemExit(
+            f"unknown case {case_id!r}; the cases that run on demand are "
+            "fix_caption_text")
+    return blind_driver.execute_request(CAPTION_FIX_INSTRUCTION, {
+        "project": PROJECT,
+        "timeline": TIMELINE,
+        "capability_discovery": "available through normal AXI discovery",
+    })
+
+
 def main() -> int:
     """Run ordinary requests and record the report plus metrics."""
     import sys
     if "--probe" in (sys.argv[1:]):
         return run_probe()
+    if "--case" in (sys.argv[1:]):
+        case_id = sys.argv[sys.argv.index("--case") + 1]
+        row = run_case(case_id)
+        print(json.dumps(row, indent=2, default=str))
+        checks = dict(row.get("checks") or {})
+        return 0 if checks and all(checks.values()) else 1
     if "--blind" in sys.argv[1:]:
         from tests.live import blind_driver, editorial_acceptance
 

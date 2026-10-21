@@ -144,8 +144,13 @@ def test_trim_refuses_if_linked_audio_record_or_source_span_changes(monkeypatch)
         adapters._trim(context)
 
 
-def test_caption_fix_refuses_without_readable_title_text():
-    with pytest.raises(RuntimeError, match="title text.*evidence is missing"):
+def test_caption_fix_refuses_a_target_that_is_not_a_rendered_caption_card():
+    """Defect: every caption in a real Ren reel is a rendered `.mov`
+    card, and the fix refused before mutation - so the one operation
+    that answers "that caption says the wrong word" could not address
+    the medium the product uses. The card is re-rendered and swapped;
+    a target that is NOT a card is still refused, by name."""
+    with pytest.raises(ValueError, match="not the 'Subtitles'"):
         adapters._caption_fix(_context({
             "op": "caption_fix", "unique_id": "clip-17",
             "text": "Correct words",

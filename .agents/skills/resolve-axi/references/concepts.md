@@ -17,7 +17,7 @@ Operation ids are editorial semantics. `defined` says the id is in the vocabular
 | `brand_asset` | planning_only | `plan` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `broll.insert` | implemented_qualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `source_in`, `source_out`, `clip` | yes | yes | yes | yes | post-write snapshot checked by _verify_broll_insert |
 | `caption.style` | implemented_qualified | `unique_id`, `style` | yes | yes | yes | yes | post-write snapshot checked by _verify_caption_style |
-| `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `caption_fix` | implemented_unqualified | `unique_id`, `text` | yes | yes | no | no | post-write snapshot checked by _verify_caption_fix |
 | `clip.delete` | implemented_qualified | `unique_id` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `clip.insert` | implemented_unqualified | `unique_id`, `track_type`, `track_index`, `record_in`, `record_out`, `media_pool_item` | yes | yes | no | no | post-write snapshot checked by verify |
 | `clip.join` | no_executor | `unique_id`, `other_unique_id` | yes | no | no | no | post-write snapshot checked by the operation-specific algebra verifier |

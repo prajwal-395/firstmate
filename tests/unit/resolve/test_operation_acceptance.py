@@ -125,7 +125,29 @@ def test_acceptance_reports_unavailable_readback_as_missing_evidence():
         {"op": "caption_fix", "unique_id": "clip-1", "text": "Correct"},
         readback_passed=None)
     assert not result["passed"]
-    assert "operation_readback_matches_request" in result["missing"]
+    assert "caption_text_applied" in result["missing"]
+    assert "caption_timing_preserved" in result["missing"]
+
+
+def test_caption_fix_contract_demands_the_text_and_the_timing():
+    """Defect: a fix that claimed the new text while the card kept its
+    old timing would read as a fix and ship a re-timing."""
+    contract = operation_acceptance.contract_for("caption_fix")
+    assert contract["checks"] == [
+        "target_identity", "requested_record_span", "caption_text_applied",
+        "caption_timing_preserved", "unrelated_items_unchanged"]
+    assert contract["rendered_source"] == "caption_asset_rerender"
+    evidence = {check: True for check in contract["checks"]}
+    result = operation_acceptance.evaluate(
+        {"op": "caption_fix", "unique_id": "clip-9", "text": "Correct"},
+        readback_passed=True, evidence=evidence)
+    assert result["passed"]
+    moved = operation_acceptance.evaluate(
+        {"op": "caption_fix", "unique_id": "clip-9", "text": "Correct"},
+        readback_passed=True,
+        evidence={**evidence, "caption_timing_preserved": False})
+    assert not moved["passed"]
+    assert "caption_timing_preserved" in moved["failed"]
 
 
 def test_caption_style_contract_demands_independent_rendered_evidence():
