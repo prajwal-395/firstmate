@@ -42,7 +42,8 @@ EVIDENCE_STATUSES = ("passed", "failed")
 
 EVALUATION_STATUSES = ("undeclared", "passed", "failed", "incomplete")
 
-STAGES = ("BRIEF", "PLANNED", "EXECUTED", "APPROVED", "DELIVERED", "CANCELLED")
+STAGES = ("BRIEF", "PLANNED", "EXECUTED", "APPROVED", "DELIVERED",
+          "ACCEPTED", "REJECTED", "CANCELLED")
 
 STATE_STAGES = {
     "brief": "BRIEF",
@@ -50,6 +51,8 @@ STATE_STAGES = {
     "review": "EXECUTED",
     "approved": "APPROVED",
     "delivered": "DELIVERED",
+    "accepted": "ACCEPTED",
+    "rejected": "REJECTED",
     "cancelled": "CANCELLED",
 }
 
@@ -80,12 +83,17 @@ def _now() -> str:
 def _contract(record: Mapping) -> dict:
     section = record.get("acceptance")
     if not isinstance(section, Mapping):
-        return {"criteria": [], "evidence": {}}
+        return {"criteria": [], "evidence": {}, "final": None}
     criteria = section.get("criteria")
     evidence = section.get("evidence")
+    final = section.get("final")
     return {
         "criteria": list(criteria) if isinstance(criteria, list) else [],
         "evidence": dict(evidence) if isinstance(evidence, Mapping) else {},
+        # The FINAL ACCEPTANCE (QA-008) lives in the same section and is
+        # carried through untouched: a contract declared after the gate
+        # ran must not erase the verdict the gate reached.
+        "final": dict(final) if isinstance(final, Mapping) else None,
     }
 
 
@@ -289,23 +297,35 @@ def completion(project: str, assignment_id: str) -> dict:
     """The gate: is this task done, and if not, what says it is not.
 
     `complete` is the only claim of done-ness, and it is true only when
-    the task was DELIVERED, every acceptance criterion is passed, and the
-    delivery receipt itself reports no missing and no failed output. The
-    stage names how far the task got, so a reader can tell a task that
-    has not started from one whose plan compiled, and one whose timeline
-    was written from one that was delivered.
+    the task was DELIVERED (or ACCEPTED), every acceptance criterion is
+    passed, and the delivery receipt itself reports no missing and no
+    failed output. The stage names how far the task got, so a reader can
+    tell a task that has not started from one whose plan compiled, and
+    one whose timeline was written from one that was delivered.
+
+    The FINAL ACCEPTANCE (QA-008) is a second, separate gate and it is
+    read here. A task whose acceptance gate ran and did not accept it is
+    NOT complete, and the reason is the gate's own verdict: technically
+    valid but editorially rejected, technically failed, or not measured
+    are three different things and none of them is completion. A task
+    whose acceptance gate has not run carries no verdict, and the
+    answer says so rather than reading the absence as a pass.
     """
+    from library.tools import acceptance_state
+
     stored = lifecycle.load(project, assignment_id)
     if stored is None:
         return {"complete": False, "stage": "BRIEF", "assignment_state": None,
                 "reason": "the task has no record", "criteria": {},
-                "delivery": None, "blockers": ["the task has no record"]}
+                "delivery": None, "acceptance": None,
+                "blockers": ["the task has no record"]}
     state = str(stored.get("state") or "brief")
     stage = STATE_STAGES.get(state, "BRIEF")
     evaluated = evaluate(project, assignment_id)
     delivery = _delivery(project, stored)
+    acceptance = acceptance_state.read(project, assignment_id)
     blockers = []
-    if stage != "DELIVERED":
+    if stage not in ("DELIVERED", "ACCEPTED"):
         blockers.append(
             f"the task is {state}, not delivered: a compiled plan, a "
             f"submitted mutation and a written timeline are stages on the "
@@ -328,7 +348,13 @@ def completion(project: str, assignment_id: str) -> dict:
         blockers.append(
             f"the delivery receipt reports {delivery.get('status')!r}, not "
             f"a complete delivery")
-    complete = (stage == "DELIVERED" and not blockers)
+    if acceptance is not None \
+            and str(acceptance.get("outcome")) != acceptance_state.ACCEPTED:
+        blockers.append(
+            f"the final acceptance did not accept this work: "
+            f"{acceptance.get('outcome')} - "
+            f"{acceptance.get('reason') or 'no reason recorded'}")
+    complete = (stage in ("DELIVERED", "ACCEPTED") and not blockers)
     return {
         "complete": complete,
         "stage": stage,
@@ -339,5 +365,6 @@ def completion(project: str, assignment_id: str) -> dict:
                    "; ".join(blockers) or "the task is not complete"),
         "criteria": evaluated,
         "delivery": delivery,
+        "acceptance": acceptance,
         "blockers": blockers,
     }

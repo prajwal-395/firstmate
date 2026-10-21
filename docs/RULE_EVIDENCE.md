@@ -9836,3 +9836,58 @@ current executor paths, and the resource-demand fixture is read from the
 machine's own capacity, so capturing it on another machine writes different
 rows. Those are the receipt, capability and resource mirrors, not the
 refusal's, and they are not fixed here.
+
+## the-final-acceptance-is-a-state
+
+**The punch list, QA-008, 2026-10-20.** "Make final acceptance an
+explicit task state. Do not equate successful execution with editorial
+completion. Require the operation-level checks and applicable final-file
+checks. Attach reviewer approval where the workflow calls for it. Keep
+technically valid but editorially rejected work as a distinct outcome.
+Record incomplete checks as unmeasured."
+
+**What was wrong.** Every leg of an edit's acceptance existed and none
+of them was joined into a state. AXI-013 (PR 3069) compares two fresh
+reads around every mutation; QA-001 (PR 3084) reads a whole timeline
+back structurally; QA-005 (PR 3097) reads an approved shot's LOOK back
+across a revision; QA-004, QA-002 and QA-003 (PRs 3046, 3071, 3082)
+judge the delivered file's audio, picture and captions; QA-006 (PR
+3088) is the structured editorial review of that file. Each answers for
+itself, and none is asked whether the others were run.
+
+So the record said `delivered` and the reader was left to believe a
+task that executed cleanly was a task that was EDITORIALLY FINISHED. A
+delivered file can fail its audio spec, a timeline can carry a hole, a
+shot can lose its grade, and an editor can read the result and refuse
+it - and every one of those outcomes read the same on the task.
+
+**Measured, on three scratch tasks, with the engine's own legs**
+(`scripts/acceptance_state_proof.py`; 3 tasks x 8 legs = 24 leg
+readings, 19 passed, 1 failed, 1 unmeasured, 3 not applicable):
+
+- before: 0 of the 6 task states could express an acceptance, and a
+  task record could carry no acceptance verdict at all;
+- after: 2 of the 8 states are acceptance states (`accepted`,
+  `rejected`), every task record carries a verdict, and the three
+  scratch tasks ended in three DIFFERENT readings - one `accepted`
+  (7 of 7 applicable legs passed), one `editorially_rejected` (every
+  technical leg passed and the editorial review refused the work), one
+  `unmeasured` (the look comparison was UNPROVABLE, and an unprovable
+  difference is not a pass).
+
+**The rule.** Successful execution is not editorial completion. A task
+is accepted only when every APPLICABLE leg was measured and passed,
+and the leg that says the work is technically valid is not the leg
+that says the work is good. A technically valid work that was
+editorially refused is `editorially_rejected` and is not `failed`:
+they have different fixes, and folding them together loses the
+difference. A check that could not run is `unmeasured` - never a pass,
+never zero - and a leg whose APPLICABILITY nobody established is
+unmeasured as well, because an unknown fact is not an absent one. The
+reviewer's approval is a leg of its own: missing is unmeasured,
+refused is a rejection.
+
+`library/tools/acceptance_state.py` is the one enumeration of the legs
+and the one gate; `library/tools/assignment_lifecycle.py` carries the
+two states; `library/tools/assignment_contract.py` reads the verdict
+when it answers whether a task is complete.

@@ -64,6 +64,11 @@ def test_work_state_includes_resumable_assignment_checkpoints(tmp_path):
     assert state["assignments"] == [{
         "assignment_id": "assignment-1",
         "state": "review",
+        # The FINAL ACCEPTANCE (QA-008): a task whose gate has not run
+        # carries no verdict, and the work-state says so rather than
+        # reading the absence as a pass.
+        "acceptance": {"outcome": "not_evaluated", "state": None,
+                       "reason": "", "counts": {}},
         "checkpoint": "picture.plan",
         "recovery": "resume",
         "resume_point": {

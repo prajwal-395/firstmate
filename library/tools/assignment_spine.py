@@ -815,6 +815,18 @@ def resume_point(project, record: dict) -> dict:
         return {"action": f"rerun_{verb}", "command": command,
                 "why": f"the last {verb} did not finish; the assignment is "
                        f"still {record['state']}"}
+    if record.get("state") == "accepted":
+        return {"action": "none", "command": None,
+                "why": "the task was accepted: every applicable leg of the "
+                       "final acceptance was measured and passed"}
+    if record.get("state") == "rejected":
+        from library.tools import acceptance_state
+
+        final = acceptance_state.read(root, record["assignment_id"]) or {}
+        return {"action": "revise", "command": f"ren revise {quoted}",
+                "why": "the final acceptance refused this work: "
+                       f"{final.get('outcome', 'rejected')} - "
+                       f"{final.get('reason') or 'no reason recorded'}"}
     if record.get("kind") == KIND_EDIT:
         return {
             "brief": {"action": "edit", "command": f"ren edit {quoted}",

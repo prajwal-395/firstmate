@@ -103,6 +103,7 @@ def project_work_state(project_ref: str) -> dict:
         assignments.append({
             "assignment_id": record["assignment_id"],
             "state": record["state"],
+            "acceptance": _acceptance_section(record),
             "checkpoint": checkpoint.get("operation_id"),
             "recovery": "resume" if checkpoint.get("status") in {"running", "interrupted"}
             else "continue",
@@ -133,7 +134,19 @@ def project_work_state(project_ref: str) -> dict:
     open_work.extend({"kind": "edit_spec", "request_id": request_id,
                       "status": "awaiting host response"} for request_id in pending_specs)
     open_work.extend({"kind": "assignment", **assignment} for assignment in assignments
-                     if assignment["state"] != "delivered" or assignment["recovery"] == "resume")
+                     if assignment["state"] not in ("delivered", "accepted")
+                     or assignment["recovery"] == "resume")
+    # A task whose final acceptance did not accept it is OPEN WORK, and
+    # the reason it names is the gate's own: technically valid but
+    # editorially rejected, technically failed, or a check nobody
+    # measured.  A task that was delivered and accepted is not.
+    open_work.extend({"kind": "acceptance",
+                      "assignment_id": assignment["assignment_id"],
+                      "status": assignment["acceptance"]["outcome"],
+                      "why": assignment["acceptance"]["reason"]}
+                     for assignment in assignments
+                     if assignment["acceptance"]["outcome"]
+                     not in ("accepted", "not_evaluated"))
     if not pending_approvals and not open_work:
         open_work.append({"kind": "next step", "status": "No recorded work is waiting"})
     last_request = _latest_request(root)
@@ -163,6 +176,24 @@ def project_work_state(project_ref: str) -> dict:
     return state
 
 
+def _acceptance_section(record: dict) -> dict:
+    """The FINAL ACCEPTANCE a task carries, or that it has none.
+
+    A task whose acceptance gate has not run carries no verdict, and
+    this says `not_evaluated` rather than reading the absence as a pass:
+    an absent verdict established nothing.
+    """
+    section = record.get("acceptance")
+    final = section.get("final") if isinstance(section, dict) else None
+    if not isinstance(final, dict):
+        return {"outcome": "not_evaluated", "state": None, "reason": "",
+                "counts": {}}
+    return {"outcome": str(final.get("outcome") or "not_evaluated"),
+            "state": final.get("state"),
+            "reason": str(final.get("reason") or ""),
+            "counts": dict(final.get("counts") or {})}
+
+
 def _summary(state: dict) -> str:
     project = state["project"].get("name") or state["project"]["slug"]
     changes = state["last_changes"]
@@ -172,9 +203,13 @@ def _summary(state: dict) -> str:
     work = state["open_work"]
     open_text = " Work is waiting: " + ", ".join(str(item.get("kind")) for item in work if item.get("kind") != "next step") + "." if any(item.get("kind") != "next step" for item in work) else " No open work is recorded."
     live = [item for item in state["assignments"]
-            if item["state"] != "delivered" or item["recovery"] == "resume"]
+            if item["state"] not in ("delivered", "accepted")
+            or item["recovery"] == "resume"
+            or item["acceptance"]["outcome"] not in ("accepted", "not_evaluated")]
     assignment_text = "".join(
         f" Assignment {item['assignment_id']} is {item['state']}"
+        + (f"; acceptance: {item['acceptance']['outcome']}"
+           if item["acceptance"]["outcome"] != "not_evaluated" else "")
         + (f"; next: {item['resume_point']['command']}"
            if item["resume_point"].get("command") else "")
         + "." for item in live)

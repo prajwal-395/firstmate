@@ -22,22 +22,41 @@ from pathlib import Path
 _LOCK_STATE = threading.local()
 """Which assignment locks this thread holds, so the lock re-enters."""
 
-STATES = ("brief", "draft", "review", "approved", "delivered", "cancelled")
+STATES = ("brief", "draft", "review", "approved", "delivered",
+          "accepted", "rejected", "cancelled")
 TRANSITIONS = {
     "brief": {"draft", "cancelled"},
     "draft": {"review", "brief", "cancelled"},
     "review": {"draft", "approved", "cancelled"},
     "approved": {"delivered", "review", "cancelled"},
-    "delivered": {"review", "cancelled"},
+    "delivered": {"review", "accepted", "rejected", "cancelled"},
+    # A revision round after the acceptance gate ruled: an accepted
+    # task that is revised goes back to REVIEW, and a rejected one goes
+    # back to REVIEW as well - the gate refused the work, and the work
+    # is not over.  The two states also reach EACH OTHER, because the
+    # gate may be run again on new evidence and its verdict may change:
+    # a task accepted on Tuesday and refused on Wednesday is a task the
+    # reader must be able to see the refusal of.
+    "accepted": {"review", "rejected", "cancelled"},
+    "rejected": {"review", "accepted", "cancelled"},
     "cancelled": {"brief"},
 }
+"""The states a task can be in.
+
+`accepted` and `rejected` are the ACCEPTANCE states (QA-008): they
+are entered by the final acceptance gate and by nothing else, so a
+reader can tell a task that was DELIVERED from a task whose work was
+ACCEPTED.  The gate's own precise verdict - technically valid but
+editorially rejected, technically failed, or not measured - is in the
+record's acceptance section, and it is not flattened into the state.
+"""
 
 TASK_SECTIONS = {
     "project_state": None,
     "evidence": [],
     "decisions": [],
     "plan": {"operations": {}},
-    "acceptance": {"criteria": [], "evidence": {}},
+    "acceptance": {"criteria": [], "evidence": {}, "final": None},
     "delivery": None,
     "edit_workflows": {},
     "pause": None,

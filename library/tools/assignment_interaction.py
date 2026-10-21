@@ -389,7 +389,8 @@ def delivery_receipt(project: str, *, assignment_id: str,
 
 
 STAGE_BY_STATE = {"brief": "understand", "draft": "plan", "review": "review",
-                  "approved": "deliver", "delivered": "deliver"}
+                  "approved": "deliver", "delivered": "deliver",
+                  "accepted": "deliver", "rejected": "review"}
 
 
 def _summary_message(record: Mapping, resume: Mapping) -> str:
@@ -487,6 +488,11 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--authorization-source", choices=("creator_brief", "creator_approval"),
         help="the creator authorization for --edit-apply")
+    parser.add_argument(
+        "--accept", metavar="JSON",
+        help="record the FINAL ACCEPTANCE of this assignment from a JSON "
+             "file: the facts that decide which legs apply and the result "
+             "each applicable leg measured")
     args = parser.parse_args(argv)
     root = Path(args.project).expanduser()
     if not root.is_dir():
@@ -503,7 +509,8 @@ def main(argv=None) -> int:
         ("--cancel", args.cancel),
         ("--reopen", args.reopen)) if value]
     acts.extend(name for name, value in (
-        ("--edit-plan", args.edit_plan), ("--edit-apply", args.edit_apply))
+        ("--edit-plan", args.edit_plan), ("--edit-apply", args.edit_apply),
+        ("--accept", args.accept))
                 if value)
     if len(acts) > 1:
         parser.error("one act at a time: " + ", ".join(acts))
@@ -568,6 +575,20 @@ def _act(root: str, args) -> dict:
         return assignment_edit_workflow.apply(
             root, args.assignment_id, args.edit_apply,
             authorization_source=args.authorization_source)
+    if args.accept:
+        _require_id(args)
+        try:
+            document = json.loads(
+                Path(args.accept).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise FileNotFoundError(
+                f"cannot read the acceptance JSON: {exc}") from exc
+        from library.tools import acceptance_state
+        acceptance_state.record(
+            root, args.assignment_id,
+            facts=document.get("facts") or {},
+            results=document.get("results") or {})
+        return state(root, args.assignment_id)
     return state(root, args.assignment_id)
 
 

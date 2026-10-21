@@ -869,7 +869,7 @@ def _no_task_completed() -> dict:
     """The completion verdict for a project with no task."""
     return {"complete": False, "stage": "BRIEF", "assignment_state": None,
             "reason": "no task is recorded for this project",
-            "criteria": {}, "delivery": None,
+            "criteria": {}, "delivery": None, "acceptance": None,
             "blockers": ["no task is recorded"]}
 
 
