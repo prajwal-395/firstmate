@@ -1186,18 +1186,31 @@ def main() -> int:
     stamp = time.strftime("%Y%m%dT%H%M%S")
     manifest = {}
     outcomes = []
-    for name in selected:
-        row = _run_one(
-            name, args.ledger, journal_dir, store, stamp,
-            already_active_project=args.already_active_project)
-        manifest[name] = row["run_id"]
-        outcomes.append(row)
-        print(json.dumps(row, default=str))
-        if "inventory" in row.get("result", {}):
-            EXPECTED_BASES[_next_name(name)] = row["result"]["inventory"]
-        if row.get("error") and name in WORKFLOWS and _must_stop(name):
-            print(f"stopping after {name}: {row['error']}", file=sys.stderr)
-            break
+    # ONE broker session for the whole profile run. Each workflow takes
+    # its own lease, and every lease is a broker CALL: between two of
+    # them another lane's turn could be granted, and that lane's
+    # exclusive lease moves the cursor to its own project - so the
+    # next workflow would read a base that is not the one the previous
+    # workflow left ("the disposable is not where the previous workflow
+    # left it"). The session holds ONE exclusive claim across the run,
+    # and the workflows inside it share it.
+    from library.tools.resolve_session import resolve_session
+    with resolve_session("profile run",
+                         description=f"vc02 profile ({len(selected)} "
+                                     f"workflows)"):
+        for name in selected:
+            row = _run_one(
+                name, args.ledger, journal_dir, store, stamp,
+                already_active_project=args.already_active_project)
+            manifest[name] = row["run_id"]
+            outcomes.append(row)
+            print(json.dumps(row, default=str))
+            if "inventory" in row.get("result", {}):
+                EXPECTED_BASES[_next_name(name)] = row["result"]["inventory"]
+            if row.get("error") and name in WORKFLOWS and _must_stop(name):
+                print(f"stopping after {name}: {row['error']}",
+                      file=sys.stderr)
+                break
     if args.manifest is not None:
         args.manifest.write_text(
             json.dumps(manifest, indent=1) + "\n", encoding="utf-8"

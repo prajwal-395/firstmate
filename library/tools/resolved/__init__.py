@@ -37,6 +37,11 @@ Two shapes of job, because Resolve's handles cannot cross a process:
   broker is serving, so every existing lease call site is scheduled
   here without being rewritten. The flock stays underneath as the
   fence against writers that never asked (an older checkout, a human).
+* SESSION (`library.tools.resolve_session`) - ONE exclusive grant held
+  across a whole multi-call operation (a reels build, a profile run, a
+  delivery), so no other lane's turn is granted between two of that
+  operation's calls. The operation's own leases are served by that one
+  claim instead of asking for another.
 
 The broker never switches PROJECTS: an executed job names the open one
 or is refused. It moves the timeline cursor only inside its own

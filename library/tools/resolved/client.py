@@ -129,7 +129,20 @@ def call(request: dict, path=None, timeout: Optional[float] = 30.0) -> dict:
     `shutdown`, which is the stop command and has to be able to say
     "nothing is serving" rather than starting what it was asked to
     stop.
+
+    A `submit` inside a Resolve session (`library.tools.resolve_session`)
+    is REFUSED: the session holds the broker's turn for its whole
+    operation, so the job would queue behind the very session that is
+    waiting for it - a deadlock with a queue in the middle of it.
     """
+    if request.get("op") == "submit":
+        from library.tools import resolve_session
+        if resolve_session.claim_held():
+            raise BrokerError({"error": (
+                f"refusing to queue the broker job "
+                f"{request.get('kind')!r}: {resolve_session.describe_claim()}"
+                f" - a broker job cannot run inside a session, because it "
+                f"would queue behind the session that is waiting for it")})
     if request.get("op") != "shutdown":
         ensure(path)
     sock = _open(path)
@@ -553,6 +566,14 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
 def submit(kind: str, params: dict, owner: str = "",
            qualification: bool = False, path=None,
            idempotency_key: str | None = None) -> dict:
+    """Queue one broker job.
+
+    REFUSED inside a Resolve session (`library.tools.resolve_session`):
+    the session holds the broker's turn for its whole operation, so the
+    job would queue behind the very session that is waiting for it -
+    a deadlock with a queue in the middle of it. The refusal names the
+    session, so the caller can say what it would have to give up.
+    """
     request = {"op": "submit", "kind": kind, "params": params,
                "owner": owner, "qualification": qualification}
     if idempotency_key is not None:

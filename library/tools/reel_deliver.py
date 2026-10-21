@@ -96,6 +96,7 @@ from pathlib import Path
 from typing import Optional
 
 from library.tools.ren_refusal import RenRefusal
+from library.tools.resolve_session import session_scope
 from library.tools.worker_requirements import check_render, is_refusal
 
 
@@ -878,6 +879,7 @@ def _timeline_expected_seconds(timeline) -> float:
     return frames / fps
 
 
+@session_scope("reel delivery")
 def deliver_reel(project_folder: str, reel: Optional[int],
                  output_dir: str = "", file_name: str = "",
                  timeout_seconds: int = 1800,
@@ -894,6 +896,16 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     `retention_job=False` says that somebody else owns the reclamation
     for this render - the batch does, so one job covers the masters and
     the variants together.
+
+    ONE BROKER SESSION holds the whole delivery. A delivery takes
+    several leases - the connect and the reads that name the reel, the
+    render's own lease, the checks that follow it - and every lease is a
+    broker CALL. Between two of them another lane's turn could be
+    granted, and that lane's exclusive lease moves the cursor to its own
+    project: the render would then run against a project that is not the
+    reel's. The session takes ONE exclusive claim for the delivery, so
+    no other lane's turn is granted between two of its calls. See
+    `library/tools/resolve_session.py`.
     """
     from library.tools.project_layout import Area, ProjectLayout
 

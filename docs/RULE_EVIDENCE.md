@@ -8431,3 +8431,54 @@ the one shared Resolve was held by another lane). The AXI-11 batch stays
 contracted at ten ordinary requests, so the new case runs on demand
 (`--case fix_caption_text`) rather than by changing a number every measurement
 reads.
+## the-build-that-lost-its-project-between-its-own-calls
+
+**The rule.** A multi-call Resolve operation holds ONE exclusive broker session
+across its whole duration. Every lease it takes is a broker CALL, and the
+broker's queue is shared: between two of an operation's calls another lane's
+turn can be granted, and that lane's exclusive lease moves the cursor to its
+own project. So the operation's next call finds a project that is not its own.
+One claim for the whole operation, released at the end.
+
+**What happened.** 2026-10-22, a live Ren Scratch reels build under shared lane
+switching: the build repeatedly lost its Resolve project and timeline BETWEEN
+its own broker calls. The build took the instance lease per section - the
+connect, the survey, the draw-gain probe, one per placed reel, the batch Fusion
+pass, the gate, the promotion - and each of those leases was a separate broker
+turn. In the gaps the broker granted another lane's turn, and that lane's
+exclusive lease moved the cursor away from the build's project. The build's own
+next section then read a project that was not its own, so what it placed and
+what it read back belonged to the other lane's timeline.
+
+The per-section shape was a DELIBERATE change (#2701: the build releases
+Resolve during preparation so a reader is not blocked for minutes). It was
+correct about the instance and wrong about the broker: releasing the instance
+between sections and releasing the QUEUE slot between sections are different
+things, and only the second one let another lane's write land in the gap.
+
+**The rule.** The two are separated. The session holds the BROKER's turn - one
+exclusive claim for the whole operation - so no other lane's turn is granted
+between two of the operation's calls. The INSTANCE lease is still taken per
+section, so the preparation still runs with Resolve free and a reader is still
+not blocked for minutes. A lease taken inside a session does not ask the
+broker for another turn (it would queue behind the session that is waiting for
+it), and a broker JOB queued inside a session is refused rather than queued
+(the same deadlock, one layer up). Waiting writers queue on the session; the
+lease owns the contention and nothing is paced by hand.
+
+**Where it is.** `library/tools/resolve_session.py` owns the session: the
+claim (`_claim`), the record (`Session`), the process-wide registry
+(`claim_held`, `claim_job_id`) and the decorator form (`session_scope`).
+`library/tools/resolve_lock.py` skips the broker turn for a lease taken inside
+a session, and `library/tools/resolved/client.py` refuses a job queued inside
+one. The three operations that take it: `library/tools/reel_build.py`
+(`rebuild_reels_in_project`), `library/tools/reel_deliver.py` (`deliver_reel`)
+and `scripts/vc02_live_profile.py` (the live profile run).
+`tests/unit/resolve/test_resolve_session.py` measures both halves - the switch
+landing in the gap WITHOUT a session, and waiting for the session WITH one.
+
+**What it does not fix.** A writer that never asked the broker - an older
+checkout, a human in Resolve - is fenced by the instance flock, and the flock
+is held per section, so such a writer can still move the cursor in a gap. And
+the gap BETWEEN capabilities (the build ends, the gate begins) is still a gap:
+the gate's safe refusal, not the session, is what stands there.

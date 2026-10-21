@@ -148,6 +148,7 @@ from library.tools.transaction_orchestration import attach_routing
 from library.tools.resolve_lock import (
     ResolveBusy, assert_current_timeline, report_activity_progress,
     resolve_lease, under_lease)
+from library.tools.resolve_session import session_scope
 from library.tools import shadow_watcher
 from library.tools.timeline_ingest import (
     TimelineIngestError, resolve_project_exactly)
@@ -14724,6 +14725,7 @@ class _PreparedReelArtifact:
 
 @project_activity_lease
 @_serialize_reel_build
+@session_scope("reels build")
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                               verify: bool = True, only=None,
                               name_suffix: str = "",
@@ -14863,6 +14865,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     The `reels` process retains its wider run-wide lease through verification
     and promotion to protect that handoff, so this split does not shorten that
     caller's hold.
+
+    ONE BROKER SESSION holds the whole build. Every lease above is a broker
+    CALL, and between two of them the broker could grant another lane's turn
+    - and that lane's exclusive lease moves the cursor to its own project, so
+    the build's next section would find a project that is not its own (the
+    live Ren Scratch build that lost its project between its own calls, 2026-10-22).
+    The session takes ONE exclusive claim for the build, so no other lane's
+    turn is granted between two of the build's calls; the instance lease is
+    still taken per section, so preparation still runs with Resolve free.
+    See `library/tools/resolve_session.py`.
 
     Resolve holds guard their cursor-sensitive sections:
 

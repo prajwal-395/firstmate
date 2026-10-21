@@ -1110,8 +1110,20 @@ def _broker_turn(purpose: str, exclusive: bool, interactive: bool,
     `ensure` first: the broker is a standalone service that any client
     starts on demand, so a worker never has to be the one running it -
     and one started here is detached and outlives this process.
+
+    A SESSION in this process already holds the broker's turn for the
+    whole operation (`library.tools.resolve_session`), so the turn is
+    not asked for again: the session's claim is the claim, and asking
+    again would queue behind our own claim and wait for a turn that
+    cannot come until the session ends. The session's job id is yielded
+    instead, so the activity overlay and the progress reports still
+    point at the claim that is actually held.
     """
     _ensure_activity_overlay()
+    from library.tools import resolve_session
+    if resolve_session.claim_held():
+        yield resolve_session.claim_job_id() or None
+        return
     from library.tools.resolved import client
     try:
         client.ensure()
@@ -1244,9 +1256,11 @@ def under_lease(purpose: str, exclusive: bool | None = None,
     concurrent live builds interleaved their writes in the gaps
     (2026-10-05 - one build died reading a timeline count that no
     longer matched the project, another's staging timeline was
-    deleted under it). It now takes the exclusive lease for its whole
-    duration, and a second build waits at its own first acquisition
-    rather than interleaving. The per-write cursor check makes each
+    deleted under it). It now holds ONE broker session for its whole
+    duration (`library/tools/resolve_session.py`) and takes the
+    instance lease per section, so a second build waits at its own
+    first acquisition rather than interleaving, and preparation still
+    runs with Resolve free. The per-write cursor check makes each
     write land where it was aimed; it cannot protect a READ from a
     concurrent deletion.
     """
