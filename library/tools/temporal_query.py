@@ -9,13 +9,23 @@ module answers the questions that follow from that:
   did she do it" - ORDER, DURATION and REPETITION over the events
   (VI-015);
 * "what caused it" - a CAUSAL-LIKE relationship, always marked
-  ``inferred``, never presented as measured (VI-015).
+  ``inferred``, never presented as measured (VI-015);
+* "what happened before she opened the laptop", "what was happening
+  while it opened" - a RELATIONAL REFERENCE, resolved against the
+  MEASURED relations between events (VI-006).
 
 The ordinal resolver is deterministic and abstains loudly.  It reports
 WHICH part of the question it could not use - a pronoun it could not
 turn into a person, an action the vocabulary does not name, an ordinal
 with no such repetition - rather than resolving to the nearest event
 that looks plausible.
+
+A relational question is answered the same way: the anchor is
+resolved to ONE event by the same evidence an ordinal uses - the
+event's own action class, its measured state changes and its
+participants - and the events before, after or during it are the ones
+whose intervals say so.  Nothing here matches on how two sentences
+LOOK alike.
 """
 
 from __future__ import annotations
@@ -175,6 +185,60 @@ def searchable_text(event: TemporalEvent) -> str:
     return " ".join(part for part in parts if part).lower()
 
 
+def state_evidence_text(event: TemporalEvent) -> str:
+    """The event's MEASURED state changes, in words.
+
+    A property that changed is part of what happened, so a reference
+    may match on it: "the lid" and "closed" and "open" are the
+    vocabulary the state change carries.
+    """
+    parts: list[str] = []
+    for change in event.state_changes:
+        parts.append(change.property)
+        for value in (change.before, change.after):
+            if isinstance(value, str):
+                parts.append(value)
+    if event.location:
+        parts.append(event.location)
+    return " ".join(part for part in parts if part).lower()
+
+
+ACTION_STATE_VALUES: dict[str, tuple[str, ...]] = {
+    "opening": ("open", "opened", "opening"),
+    "closing": ("closed", "closing", "shut"),
+}
+"""The property values that MEASURE an action class.
+
+A lid that goes from ``closed`` to ``open`` IS an opening, whatever
+the event's own words happen to be.  This is the vocabulary that lets
+a measured state change answer a question about an action, instead of
+the answer depending on how a lane worded the event.
+"""
+
+
+def action_matches_state_change(event: TemporalEvent,
+                                action: str) -> bool:
+    """Whether the event's own state changes MEASURE that action.
+
+    The action class is read off the event's transitions, not off the
+    prose around them: an event whose lid REACHED ``open`` is an
+    opening, and an event whose lid reached ``closed`` is a closing.
+
+    The DIRECTION matters, and only the value the property REACHED is
+    read.  A lid that went from open to closed is a closing, and a
+    question about an opening must not match it because it once was
+    open.
+    """
+    values = ACTION_STATE_VALUES.get(action)
+    if not values:
+        return False
+    for change in event.state_changes:
+        value = change.after
+        if isinstance(value, str) and value.strip().lower() in values:
+            return True
+    return False
+
+
 def events_matching(index: TemporalEventIndex,
                      reference: OrdinalReference) -> list[TemporalEvent]:
     """The events a reference could be about, before the ordinal is used.
@@ -183,16 +247,22 @@ def events_matching(index: TemporalEventIndex,
     event whose text does not contain the reference's terms is not a
     candidate, whatever its ordinal says: "the second time she opens
     THE BOX" is not about any other box.
+
+    The action class is read off the event's OWN evidence: an event
+    that carries the measured transition ``closed -> open`` is an
+    opening, whether or not a lane worded it that way.
     """
     out = []
     for event in index.events:
-        if reference.action and event.action != reference.action:
+        if (reference.action and event.action != reference.action
+                and not action_matches_state_change(event, reference.action)):
             continue
         if not reference.terms:
             out.append(event)
             continue
         text = searchable_text(event)
-        if all(term in text for term in reference.terms):
+        evidence = state_evidence_text(event)
+        if all(term in text or term in evidence for term in reference.terms):
             out.append(event)
     return out
 
@@ -271,6 +341,228 @@ def resolve_ordinal_reference(index: TemporalEventIndex,
         f"the {_ordinal_word(ordinal)} matching instance in the group"
         if ordinal != -1 else
         "the last matching instance in the group")
+    return report
+
+
+# ── Relational references (VI-006) ────────────────────────────────────
+
+RELATIONS: dict[str, str] = {
+    "before": "before",
+    "earlier_than": "before",
+    "preceding": "before",
+    "after": "after",
+    "later_than": "after",
+    "following": "after",
+    "while": "while",
+    "during": "while",
+}
+"""The relation words a question may use, and the relation they name."""
+
+RELATION_BASIS: dict[str, str] = {
+    "before": ("the event's interval ended at or before the anchor's "
+               "began"),
+    "after": ("the event's interval began at or after the anchor's "
+              "ended"),
+    "while": "the event's interval overlaps the anchor's",
+}
+"""Why an event counts as before, after or during the anchor."""
+
+
+@dataclass(frozen=True)
+class RelationalReference:
+    """A parsed question like "what happened before she opened the box".
+
+    The question names a RELATION and an ANCHOR.  The anchor is
+    resolved to one event by the same evidence an ordinal uses, and
+    the relation is then read off the two events' intervals.
+    """
+
+    raw: str
+    relation: str
+    anchor: str
+    anchor_reference: OrdinalReference
+    unresolved: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"raw": self.raw, "relation": self.relation,
+                "anchor": self.anchor,
+                "anchor_reference": self.anchor_reference.to_dict(),
+                "unresolved": list(self.unresolved)}
+
+
+def parse_relational_reference(query: str) -> RelationalReference | None:
+    """Parse a question that names a relation, or ``None``.
+
+    ``None`` when the question names no relation: a question that does
+    not ask about before, after or while is not a relational question,
+    and is answered by the other resolvers.
+    """
+    raw = (query or "").strip()
+    words = raw.lower().replace(",", " ").replace("?", " ").replace(
+        ".", " ").split()
+    relation: str | None = None
+    position = -1
+    for index, word in enumerate(words):
+        stripped = word.strip("'\"")
+        if stripped in RELATIONS:
+            relation = RELATIONS[stripped]
+            position = index
+            break
+    if relation is None:
+        return None
+    anchor = " ".join(words[position + 1:]).strip()
+    unresolved: list[str] = []
+    if not anchor:
+        unresolved.append(
+            "the question names a relation but no event to relate it to")
+    reference = parse_ordinal_reference(anchor)
+    return RelationalReference(raw=raw, relation=relation, anchor=anchor,
+                               anchor_reference=reference,
+                               unresolved=tuple(unresolved))
+
+
+def resolve_anchor(index: TemporalEventIndex,
+                    phrase: str) -> dict[str, Any]:
+    """Resolve the ANCHOR of a relational question to one event.
+
+    An anchor that names an ordinal is resolved by the ordinal
+    machinery, so "the second time she opens the laptop" names the
+    second opening and not the first.  An anchor that names no ordinal
+    is resolved only when it matches exactly one event: a question
+    that does not say which of several matching events it means is
+    REFUSED rather than answered from the nearest one.
+    """
+    reference = parse_ordinal_reference(phrase)
+    candidates = events_matching(index, reference)
+    report: dict[str, Any] = {
+        "phrase": phrase,
+        "reference": reference.to_dict(),
+        "candidates": len(candidates),
+        "status": "unresolved",
+        "event": None,
+        "reasons": [],
+    }
+    if reference.ordinal is not None:
+        ordinal_report = resolve_ordinal_reference(index, phrase)
+        report["status"] = ordinal_report["status"]
+        report["event"] = ordinal_report.get("event")
+        report["reasons"] = list(ordinal_report.get("reasons") or [])
+        report["groups_considered"] = ordinal_report.get("groups_considered")
+        return report
+    if not candidates:
+        report["reasons"].append(
+            "no event matches this anchor's action and terms")
+        return report
+    if len(candidates) > 1:
+        report["status"] = "ambiguous"
+        report["reasons"].append(
+            f"the anchor matches {len(candidates)} events and the "
+            "question does not say which one")
+        return report
+    report["status"] = "resolved"
+    report["event"] = candidates[0].to_dict()
+    return report
+
+
+def _stands_in(relation: str, event: TemporalEvent,
+               anchor: TemporalEvent) -> bool:
+    """Whether one event stands in the named relation to the anchor.
+
+    A relation is a fact about two intervals on ONE clock: an event
+    that ended before the anchor began is before it, an event that
+    began after the anchor ended is after it, and an event that shares
+    any of the anchor's time is during it.
+    """
+    if relation == "before":
+        return event.end_seconds <= anchor.start_seconds
+    if relation == "after":
+        return event.start_seconds >= anchor.end_seconds
+    return overlaps(event, anchor)
+
+
+def related_events(index: TemporalEventIndex, anchor: TemporalEvent,
+                   relation: str) -> list[TemporalEvent]:
+    """The events that stand in the named relation to the anchor.
+
+    Nothing else qualifies, and an event on another clock is never
+    related to this one: two events can share a moment in time and
+    still have happened on different sources.
+    """
+    out: list[TemporalEvent] = []
+    for event in index.events:
+        if event.event_id == anchor.event_id:
+            continue
+        if event.clock_id != anchor.clock_id:
+            continue
+        if _stands_in(relation, event, anchor):
+            out.append(event)
+    return sorted(out, key=lambda event: (event.start_seconds,
+                                           event.event_id))
+
+
+def resolve_relational_reference(index: TemporalEventIndex,
+                                 query: str) -> dict[str, Any]:
+    """Answer a question that names a relation between events.
+
+    The report says how the answer was reached: the question as
+    parsed, the anchor and the evidence that resolved it, the events
+    that stand in the relation, and what was left unresolved.  A
+    question that cannot be resolved carries no events - it never
+    falls back to the nearest plausible moment.
+    """
+    reference = parse_relational_reference(query)
+    report: dict[str, Any] = {
+        "query": query,
+        "relation": None,
+        "status": "unresolved",
+        "anchor": None,
+        "anchor_event": None,
+        "events": [],
+        "count": 0,
+        "relations": [],
+        "transitions": [],
+        "reasons": [],
+        "unresolved": [],
+    }
+    if reference is None:
+        report["reasons"].append(
+            "the question names no relation (before, after or while)")
+        return report
+    report["relation"] = reference.relation
+    report["unresolved"] = list(reference.unresolved)
+    anchor_report = resolve_anchor(index, reference.anchor)
+    report["anchor"] = anchor_report
+    if anchor_report["status"] != "resolved" or not anchor_report["event"]:
+        report["status"] = str(anchor_report.get("status") or "unresolved")
+        report["reasons"] = list(anchor_report.get("reasons") or [])
+        return report
+    anchor_id = str(anchor_report["event"]["event_id"])
+    anchor = next((event for event in index.events
+                   if event.event_id == anchor_id), None)
+    if anchor is None:
+        report["reasons"].append(
+            "the resolved anchor is not in the index it was resolved from")
+        return report
+    report["anchor_event"] = anchor.to_dict()
+    related = related_events(index, anchor, reference.relation)
+    report["events"] = [event.to_dict() for event in related]
+    report["count"] = len(related)
+    report["relations"] = [{
+        "relation": ("precedes" if reference.relation == "before"
+                     else "follows" if reference.relation == "after"
+                     else "overlaps"),
+        "from_event_id": event.event_id,
+        "to_event_id": anchor.event_id,
+        "certainty": "measured",
+        "basis": RELATION_BASIS[reference.relation],
+    } for event in related]
+    report["transitions"] = [
+        transition.to_dict()
+        for transition in temporal_events.state_transitions(index.events)
+        if (transition.clip_id == anchor.clip_id
+            and transition.start_seconds >= anchor.start_seconds
+            and transition.start_seconds <= anchor.end_seconds)]
+    report["status"] = "resolved"
     return report
 
 
@@ -464,24 +756,44 @@ def answer(index: TemporalEventIndex, query: str,
     """The whole answer to one temporal question.
 
     One report carries the ordinal resolution (when the question names
-    an ordinal), the matching events, their durations, the measured
+    an ordinal), the RELATIONAL resolution (when it names before,
+    after or while), the matching events, their durations, the measured
     relations between them, the causality-LIKE candidates (marked
     inferred) and the repetitions they belong to.  A caller does not
     have to know which of those a question needs.
     """
-    resolved = resolve_ordinal_reference(index, query)
-    found = search_events(index, query, max_priority)
+    relational = resolve_relational_reference(index, query)
+    # A question that names a relation is asked ABOUT its anchor: the
+    # relation word is not part of what the anchor describes, so the
+    # anchor's own words are what the ordinal and the matching read.
+    subject_query = query
+    if relational["relation"] is not None:
+        reference = parse_relational_reference(query)
+        if reference is not None and reference.anchor:
+            subject_query = reference.anchor
+    resolved = resolve_ordinal_reference(index, subject_query)
+    found = search_events(index, subject_query, max_priority)
     matched_ids = {row["event_id"] for row in found["events"]}
     if resolved.get("event"):
         matched_ids.add(resolved["event"]["event_id"])
     matched = [event for event in index.events if event.event_id in matched_ids]
+    events = found["events"]
+    if relational["status"] == "resolved":
+        # A relational question is ABOUT the events in the relation, so
+        # those are the answer's events; the anchor they hang on is
+        # named in the relational report.
+        events = list(relational["events"])
+        matched_ids.update(row["event_id"] for row in relational["events"])
+        matched = [event for event in index.events
+                   if event.event_id in matched_ids]
     return {
         "mode": "temporal",
         "query": query,
         "event_count": len(index.events),
         "unmapped_kinds": list(index.unmapped_kinds),
         "resolution": resolved,
-        "events": found["events"],
+        "relational": relational,
+        "events": events,
         "order": order_events(matched),
         "durations": durations(matched),
         "repetitions": repetition_groups(matched),

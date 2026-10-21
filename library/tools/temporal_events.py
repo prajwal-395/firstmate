@@ -288,20 +288,51 @@ class Continuity:
                 "basis": self.basis}
 
 
+CERTAINTY_STATES: tuple[str, ...] = ("observed", "measured", "inferred",
+                                     "interpreted")
+"""The epistemic states an event or a state change may carry.
+
+The vocabulary is Ren's own (``library/tools/evidence_contract``): the
+values are ORTHOGONAL to confidence, and a reader can always tell a
+reading from a measurement.
+"""
+
+
 @dataclass(frozen=True)
 class StateChange:
-    """One property transition belonging to an event."""
+    """One property transition belonging to an event.
+
+    A transition names the ENTITY whose property changed, the property
+    itself, the value it left and the value it reached, and the
+    EVIDENCE that measured it.  An event may carry several transitions
+    on one property: ``closed -> opening -> open`` is two transitions
+    inside one event, and the order they are written in is the order
+    they happened.
+
+    ``certainty`` says how the transition was established.  A MEASURED
+    transition came from an instrument; an INFERRED one was read off
+    the picture, and a reader who needs to know which is looking at a
+    field that says so.
+    """
 
     entity_id: str
     property: str
     before: Any = None
     after: Any = None
     evidence_ids: tuple[str, ...] = ()
+    certainty: str = "measured"
+
+    def __post_init__(self) -> None:
+        if self.certainty not in CERTAINTY_STATES:
+            raise ValueError(
+                f"unknown certainty {self.certainty!r}; expected one of "
+                f"{CERTAINTY_STATES}")
 
     def to_dict(self) -> dict[str, Any]:
         return {"entity_id": self.entity_id, "property": self.property,
                 "from": self.before, "to": self.after,
-                "evidence_ids": list(self.evidence_ids)}
+                "evidence_ids": list(self.evidence_ids),
+                "certainty": self.certainty}
 
 
 @dataclass(frozen=True)
@@ -325,6 +356,30 @@ class TemporalEvent:
     subject_labels: tuple[str, ...] = ()
     objects: tuple[str, ...] = ()
     object_labels: tuple[str, ...] = ()
+    participant_ids: tuple[str, ...] = ()
+    """Every entity the event names, the actor and the object alike.
+
+    This is the Project Model's own ``participant_ids``, carried here so
+    the typed surface answers the same question the canonical model
+    does.  It is the FULL set: ``subjects`` and ``objects`` say which
+    role each participant played.
+    """
+    observed_participant_ids: tuple[str, ...] = ()
+    """The participants DIRECTLY OBSERVED in the event's span.
+
+    A person the picture showed, or a tracker that followed them
+    there, is an observation.  A participant named only because an
+    inference put them there is not, and the two are kept apart.
+    """
+    inferred_participant_ids: tuple[str, ...] = ()
+    """The participants established only by an INFERENCE.
+
+    A participant nobody saw, named by a reading of the picture, is an
+    inference.  It travels with the event, and a reader can tell it
+    from an observation without reading the event's own certainty.
+    """
+    location: str | None = None
+    """Where the event happened, when the material names a place."""
     evidence_ids: tuple[str, ...] = ()
     status: str = "candidate"
     certainty: str = "inferred"
@@ -362,6 +417,26 @@ class TemporalEvent:
     def evidence_names(self) -> tuple[str, ...]:
         return tuple(sorted(self.evidence_ids))
 
+    @property
+    def unknown_attributes(self) -> tuple[str, ...]:
+        """The attributes of this event nobody could determine.
+
+        A PARTIAL event is kept, not dropped: the event says which of
+        its attributes are known and which are not, so a reader never
+        has to guess whether an absent attribute was measured as absent
+        or never looked for.
+        """
+        unknown: list[str] = []
+        if self.action is None:
+            unknown.append("action")
+        if not self.subjects:
+            unknown.append("actor")
+        if not self.objects:
+            unknown.append("object")
+        if self.location is None:
+            unknown.append("location")
+        return tuple(unknown)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "event_id": self.event_id,
@@ -383,6 +458,11 @@ class TemporalEvent:
             "subject_labels": list(self.subject_labels),
             "objects": list(self.objects),
             "object_labels": list(self.object_labels),
+            "participant_ids": list(self.participant_ids),
+            "observed_participant_ids": list(self.observed_participant_ids),
+            "inferred_participant_ids": list(self.inferred_participant_ids),
+            "location": self.location,
+            "unknown_attributes": list(self.unknown_attributes),
             "evidence_ids": list(self.evidence_ids),
             "status": self.status,
             "certainty": self.certainty,
@@ -428,6 +508,136 @@ class TemporalEventIndex:
             "clip_durations": dict(self.clip_durations),
             "count": len(self.events),
         }
+
+
+# ── State transitions (VI-006) ─────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class StateTransition:
+    """One property transition, and the event that measured it."""
+
+    entity_id: str
+    property: str
+    before: Any
+    after: Any
+    event_id: str
+    clip_id: str | None
+    clock_id: str
+    start_seconds: float
+    end_seconds: float
+    certainty: str = "measured"
+    evidence_ids: tuple[str, ...] = ()
+    order: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "entity_id": self.entity_id,
+            "property": self.property,
+            "from": self.before,
+            "to": self.after,
+            "event_id": self.event_id,
+            "clip_id": self.clip_id,
+            "clock_id": self.clock_id,
+            "start_seconds": self.start_seconds,
+            "end_seconds": self.end_seconds,
+            "certainty": self.certainty,
+            "evidence_ids": list(self.evidence_ids),
+            "order": self.order,
+        }
+
+
+def state_transitions(
+        events: Sequence[TemporalEvent],
+        entity_id: str | None = None,
+        property: str | None = None) -> tuple[StateTransition, ...]:
+    """Every measured transition, in the order it happened.
+
+    A transition is a property of an ENTITY changing value.  The
+    transitions are ordered by the moment they happened on their own
+    clock, and the order they are written in on one event is the order
+    they happened inside it - so ``closed -> opening -> open`` reads
+    as a chain and not as three unrelated facts.
+    """
+    out: list[StateTransition] = []
+    for event in events:
+        for index, change in enumerate(event.state_changes):
+            if entity_id is not None and change.entity_id != entity_id:
+                continue
+            if property is not None and change.property != property:
+                continue
+            out.append(StateTransition(
+                entity_id=change.entity_id,
+                property=change.property,
+                before=change.before,
+                after=change.after,
+                event_id=event.event_id,
+                clip_id=event.clip_id,
+                clock_id=event.clock_id,
+                start_seconds=event.start_seconds,
+                end_seconds=event.end_seconds,
+                certainty=change.certainty,
+                evidence_ids=change.evidence_ids,
+                order=index,
+            ))
+    out.sort(key=lambda row: (row.clip_id or "", row.start_seconds,
+                               row.event_id, row.order))
+    return tuple(out)
+
+
+def state_history(events: Sequence[TemporalEvent],
+                  entity_id: str | None = None,
+                  property: str | None = None) -> list[dict[str, Any]]:
+    """The values one property took, and the chain between them.
+
+    One row per (entity, property): the values in the order the
+    property reached them, and the transitions that carried it there.
+    A property nobody measured is ABSENT from this list, which is not
+    the same as a property measured to have no value.
+    """
+    grouped: dict[tuple[str, str], list[StateTransition]] = {}
+    for transition in state_transitions(events, entity_id, property):
+        grouped.setdefault((transition.entity_id, transition.property),
+                           []).append(transition)
+    out: list[dict[str, Any]] = []
+    for key, rows in sorted(grouped.items()):
+        states = [rows[0].before]
+        for transition in rows:
+            states.append(transition.after)
+        out.append({
+            "entity_id": key[0],
+            "property": key[1],
+            "states": states,
+            "transitions": [row.to_dict() for row in rows],
+            "certainty": rows[0].certainty,
+            "evidence_ids": sorted({eid for row in rows
+                                    for eid in row.evidence_ids}),
+        })
+    return out
+
+
+def state_at(events: Sequence[TemporalEvent], entity_id: str,
+             property: str, seconds: float) -> dict[str, Any] | None:
+    """The value a property held at a moment, and what established it.
+
+    ``None`` when nothing measured that property before then: the
+    answer is unknown, never "the property had no value".
+    """
+    rows = [transition for transition
+            in state_transitions(events, entity_id, property)
+            if transition.start_seconds <= seconds]
+    if not rows:
+        return None
+    latest = rows[-1]
+    return {
+        "entity_id": latest.entity_id,
+        "property": latest.property,
+        "value": latest.after,
+        "since_seconds": latest.start_seconds,
+        "established_by": latest.event_id,
+        "certainty": latest.certainty,
+        "evidence_ids": list(latest.evidence_ids),
+    }
 
 
 # ── Ordinals and repeat groups (VI-014) ────────────────────────────────
@@ -1141,8 +1351,10 @@ def _model_events(model: Mapping[str, Any],
         asset_id = str((asset or {}).get("id") or "")
         clip_id = _asset_clip_id(asset) if asset else None
         frame = _frame_duration(catalog_by_clip.get(clip_id or "", {}))
-        participants = [pid for pid in (row.get("participant_ids") or [])
-                        if pid in entities]
+        named_participants = tuple(
+            dict.fromkeys(str(pid) for pid in (row.get("participant_ids") or [])
+                          if str(pid or "")))
+        participants = [pid for pid in named_participants if pid in entities]
         subject_ids = tuple(pid for pid in participants
                             if entities[pid].get("kind") in ("person", "speaker"))
         object_ids = tuple(pid for pid in participants
@@ -1151,6 +1363,18 @@ def _model_events(model: Mapping[str, Any],
                                 for pid in subject_ids)
         object_labels = tuple(str(entities[pid].get("label") or "")
                               for pid in object_ids)
+        event_certainty = str(row.get("certainty") or "inferred")
+        if event_certainty not in CERTAINTY_STATES:
+            event_certainty = "inferred"
+        # A participant the model OBSERVED is an observation; one the
+        # model INFERRED is an inference, and the two are kept apart so
+        # a reader never has to infer the difference from the prose.
+        observed_participants = (named_participants
+                                 if event_certainty in ("observed", "measured")
+                                 else ())
+        inferred_participants = (named_participants
+                                 if event_certainty in ("inferred", "interpreted")
+                                 else ())
 
         priority, _ = event_priority(event_type)
         state_changes = tuple(
@@ -1158,7 +1382,8 @@ def _model_events(model: Mapping[str, Any],
                         property=str(change.get("property") or ""),
                         before=change.get("from"),
                         after=change.get("to"),
-                        evidence_ids=tuple(change.get("evidence_ids") or ()))
+                        evidence_ids=tuple(change.get("evidence_ids") or ()),
+                        certainty=event_certainty)
             for change in (row.get("state_changes") or [])
             if isinstance(change, Mapping))
 
@@ -1199,9 +1424,16 @@ def _model_events(model: Mapping[str, Any],
             subject_labels=subject_labels,
             objects=object_ids,
             object_labels=object_labels,
+            participant_ids=named_participants,
+            observed_participant_ids=observed_participants,
+            inferred_participant_ids=inferred_participants,
+            location=None,
+            # The model's own event rows carry no place; the SCENE
+            # observation an event cites is where a location is named,
+            # and that reading reaches the surface below.
             evidence_ids=tuple(row.get("evidence_ids") or ()),
             status=str(row.get("status") or "candidate"),
-            certainty=str(row.get("certainty") or "inferred"),
+            certainty=event_certainty,
             continuity=(read_continuity(entity_shots, subject_ids[0])
                         if subject_ids else
                         read_continuity(entity_shots, object_ids[0])
@@ -1423,6 +1655,7 @@ def _model_observation_events(
         subjects: tuple[str, ...] = ()
         subject_labels: tuple[str, ...] = ()
         state_changes: tuple[StateChange, ...] = ()
+        location: str | None = None
         if modality == "voice_turn":
             voice_track = str(payload.get("voice_track") or "")
             if voice_track:
@@ -1450,6 +1683,12 @@ def _model_observation_events(
                 if entity_id in entities:
                     label = str(entities[entity_id].get("label") or "")
                 subject_labels = (label,)
+        elif modality in ("scene", "scene_boundary"):
+            # A scene names the PLACE it happens in, and the place is
+            # part of the event rather than a summary of it.
+            named = payload.get("location")
+            if isinstance(named, str) and named.strip():
+                location = named.strip()
 
         action_text = _observation_action_text(modality, payload)
         priority, _ = event_priority(event_type)
@@ -1483,6 +1722,10 @@ def _model_observation_events(
             subject_labels=subject_labels,
             objects=(),
             object_labels=(),
+            participant_ids=subjects,
+            observed_participant_ids=subjects,
+            inferred_participant_ids=(),
+            location=location,
             evidence_ids=(str(observation.get("id") or ""),),
             status="verified",
             certainty="measured",
@@ -1713,6 +1956,9 @@ def _presence_events(model: Mapping[str, Any],
                 subject_labels=(label,),
                 objects=(),
                 object_labels=(),
+                participant_ids=(entity_id,),
+                observed_participant_ids=(entity_id,),
+                inferred_participant_ids=(),
                 evidence_ids=evidence,
                 status="verified",
                 certainty="measured",
@@ -1755,13 +2001,23 @@ def _attach_present_people(events: Sequence[TemporalEvent],
             continue
         subjects = list(event.subjects)
         labels = list(event.subject_labels)
+        participants = list(event.participant_ids)
+        observed = list(event.observed_participant_ids)
         for entity_id in people:
-            if entity_id in subjects:
-                continue
-            subjects.append(entity_id)
-            labels.append(str((entities.get(entity_id) or {}).get("label") or ""))
+            if entity_id not in subjects:
+                subjects.append(entity_id)
+                labels.append(str((entities.get(entity_id) or {}).get("label") or ""))
+            if entity_id not in participants:
+                participants.append(entity_id)
+            # A tracked region is the picture showing the person, so
+            # this participant is OBSERVED, whatever the event that
+            # drew them here was.
+            if entity_id not in observed:
+                observed.append(entity_id)
         out.append(replace(event, subjects=tuple(subjects),
-                           subject_labels=tuple(labels)))
+                           subject_labels=tuple(labels),
+                           participant_ids=tuple(participants),
+                           observed_participant_ids=tuple(observed)))
     return out
 
 
@@ -1902,6 +2158,10 @@ def _scene_events_from_memory(clip_id: str, digest: str, asset_id: str,
             subject_labels=(),
             objects=(),
             object_labels=(),
+            participant_ids=(),
+            observed_participant_ids=(),
+            inferred_participant_ids=(),
+            location=(str(row.get("location")) if row.get("location") else None),
             evidence_ids=(f"m4_scene:{digest}:{number:03d}",),
             status="verified",
             certainty="measured",
@@ -1961,6 +2221,9 @@ def _voice_turn_events_from_memory(clip_id: str, digest: str, asset_id: str,
             subject_labels=(voice_track,) if voice_track else (),
             objects=(),
             object_labels=(),
+            participant_ids=(entity_id,) if entity_id else (),
+            observed_participant_ids=(entity_id,) if entity_id else (),
+            inferred_participant_ids=(),
             evidence_ids=(f"m7_voice_turn:{digest}:{number:03d}",),
             status="verified",
             certainty="measured",
@@ -2006,8 +2269,20 @@ def _dedupe_events(events: Sequence[TemporalEvent]) -> list[TemporalEvent]:
             changes.append(change)
         evidence = tuple(sorted(set(existing.evidence_ids)
                                 | set(event.evidence_ids)))
+        participants = tuple(dict.fromkeys(
+            tuple(existing.participant_ids) + tuple(event.participant_ids)))
+        observed = tuple(dict.fromkeys(
+            tuple(existing.observed_participant_ids)
+            + tuple(event.observed_participant_ids)))
+        inferred = tuple(dict.fromkeys(
+            tuple(existing.inferred_participant_ids)
+            + tuple(event.inferred_participant_ids)))
         merged[key] = replace(existing, state_changes=tuple(changes),
-                               evidence_ids=evidence)
+                               evidence_ids=evidence,
+                               participant_ids=participants,
+                               observed_participant_ids=observed,
+                               inferred_participant_ids=inferred,
+                               location=existing.location or event.location)
     return [merged[key] for key in order]
 
 

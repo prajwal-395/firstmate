@@ -1,0 +1,249 @@
+{
+  "name": "podcast - the laptop opens",
+  "why": "A labelled fixture for VI-006: the ordinal, before, after and while questions, and the laptop's own state transition (closed -> opening -> open). Every event carries the participants it names and the evidence that measured it, so a query can be answered from the event evidence rather than from how two sentences look alike.",
+  "clip_id": "podcast_001",
+  "clock_id": "clock:podcast_001",
+  "entities": {
+    "person_host": {"kind": "person", "label": "the host"},
+    "obj_laptop": {"kind": "object", "label": "laptop"}
+  },
+  "events": [
+    {
+      "event_id": "podcast_001:action_state_change:000",
+      "event_type": "action_state_change",
+      "action": "reach",
+      "action_text": "she reaches for the laptop",
+      "start_seconds": 1.0,
+      "end_seconds": 2.0,
+      "subjects": ["person_host"],
+      "objects": ["obj_laptop"],
+      "participant_ids": ["person_host", "obj_laptop"],
+      "observed_participant_ids": ["person_host", "obj_laptop"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-reach-001"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": []
+    },
+    {
+      "event_id": "podcast_001:action_state_change:001",
+      "event_type": "action_state_change",
+      "action": "opening",
+      "action_text": "she lifts the laptop lid",
+      "start_seconds": 4.0,
+      "end_seconds": 4.6,
+      "subjects": ["person_host"],
+      "objects": ["obj_laptop"],
+      "participant_ids": ["person_host", "obj_laptop"],
+      "observed_participant_ids": ["person_host", "obj_laptop"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-lid-001"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": [
+        {
+          "entity_id": "obj_laptop",
+          "property": "lid",
+          "from": "closed",
+          "to": "opening",
+          "evidence_ids": ["obs-lid-001"],
+          "certainty": "measured"
+        },
+        {
+          "entity_id": "obj_laptop",
+          "property": "lid",
+          "from": "opening",
+          "to": "open",
+          "evidence_ids": ["obs-lid-002"],
+          "certainty": "measured"
+        }
+      ]
+    },
+    {
+      "event_id": "podcast_001:speech_start_end:002",
+      "event_type": "speech_start_end",
+      "action": null,
+      "action_text": "and that is the whole plan",
+      "start_seconds": 5.0,
+      "end_seconds": 7.0,
+      "subjects": ["person_host"],
+      "objects": [],
+      "participant_ids": ["person_host"],
+      "observed_participant_ids": ["person_host"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-speech-001"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": []
+    },
+    {
+      "event_id": "podcast_001:speech_start_end:003",
+      "event_type": "speech_start_end",
+      "action": null,
+      "action_text": "so we ship on Friday",
+      "start_seconds": 8.0,
+      "end_seconds": 9.5,
+      "subjects": ["person_host"],
+      "objects": [],
+      "participant_ids": ["person_host"],
+      "observed_participant_ids": ["person_host"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-speech-002"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": []
+    },
+    {
+      "event_id": "podcast_001:action_state_change:004",
+      "event_type": "action_state_change",
+      "action": "closing",
+      "action_text": "she puts the lid back down",
+      "start_seconds": 12.0,
+      "end_seconds": 12.4,
+      "subjects": ["person_host"],
+      "objects": ["obj_laptop"],
+      "participant_ids": ["person_host", "obj_laptop"],
+      "observed_participant_ids": ["person_host", "obj_laptop"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-lid-003"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": [
+        {
+          "entity_id": "obj_laptop",
+          "property": "lid",
+          "from": "open",
+          "to": "closed",
+          "evidence_ids": ["obs-lid-003"],
+          "certainty": "measured"
+        }
+      ]
+    },
+    {
+      "event_id": "podcast_001:action_state_change:005",
+      "event_type": "action_state_change",
+      "action": "opening",
+      "action_text": "she lifts the laptop lid again",
+      "start_seconds": 20.0,
+      "end_seconds": 20.5,
+      "subjects": ["person_host"],
+      "objects": ["obj_laptop"],
+      "participant_ids": ["person_host", "obj_laptop"],
+      "observed_participant_ids": ["person_host", "obj_laptop"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-lid-004"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": [
+        {
+          "entity_id": "obj_laptop",
+          "property": "lid",
+          "from": "closed",
+          "to": "opening",
+          "evidence_ids": ["obs-lid-004"],
+          "certainty": "measured"
+        },
+        {
+          "entity_id": "obj_laptop",
+          "property": "lid",
+          "from": "opening",
+          "to": "open",
+          "evidence_ids": ["obs-lid-005"],
+          "certainty": "measured"
+        }
+      ]
+    },
+    {
+      "event_id": "podcast_001:speech_start_end:006",
+      "event_type": "speech_start_end",
+      "action": null,
+      "action_text": "and the screen comes up",
+      "start_seconds": 20.2,
+      "end_seconds": 21.4,
+      "subjects": ["person_host"],
+      "objects": [],
+      "participant_ids": ["person_host"],
+      "observed_participant_ids": ["person_host"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-speech-003"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": []
+    },
+    {
+      "event_id": "podcast_001:speech_start_end:007",
+      "event_type": "speech_start_end",
+      "action": null,
+      "action_text": "right, back to the slide",
+      "start_seconds": 22.0,
+      "end_seconds": 23.4,
+      "subjects": ["person_host"],
+      "objects": [],
+      "participant_ids": ["person_host"],
+      "observed_participant_ids": ["person_host"],
+      "inferred_participant_ids": [],
+      "evidence_ids": ["obs-speech-004"],
+      "status": "verified",
+      "certainty": "measured",
+      "state_changes": []
+    }
+  ],
+  "queries": [
+    {
+      "query": "what happened before the second time she opens the laptop",
+      "relation": "before",
+      "anchor_event_id": "podcast_001:action_state_change:005",
+      "expected_event_ids": [
+        "podcast_001:action_state_change:000",
+        "podcast_001:action_state_change:001",
+        "podcast_001:speech_start_end:002",
+        "podcast_001:speech_start_end:003",
+        "podcast_001:action_state_change:004"
+      ],
+      "note": "everything whose interval ended before the second opening began"
+    },
+    {
+      "query": "what happened after the second time she opens the laptop",
+      "relation": "after",
+      "anchor_event_id": "podcast_001:action_state_change:005",
+      "expected_event_ids": [
+        "podcast_001:speech_start_end:007"
+      ],
+      "note": "the speech that overlaps the opening is NOT after it"
+    },
+    {
+      "query": "what was happening while the second time she opens the laptop",
+      "relation": "while",
+      "anchor_event_id": "podcast_001:action_state_change:005",
+      "expected_event_ids": [
+        "podcast_001:speech_start_end:006"
+      ],
+      "note": "the speech that shares the opening's time is during it"
+    },
+    {
+      "query": "the second time she opens the laptop",
+      "relation": null,
+      "anchor_event_id": "podcast_001:action_state_change:005",
+      "expected_event_ids": [
+        "podcast_001:action_state_change:001",
+        "podcast_001:action_state_change:005"
+      ],
+      "note": "the ordinal on its own names the SECOND opening; the two events it is about are the two openings"
+    }
+  ],
+  "negatives": [
+    {
+      "query": "she opens the lid",
+      "must_not_match": ["podcast_001:action_state_change:004"],
+      "note": "the CLOSING of the same lid reads alike and is about the same object; a query about opening must not match it, because the event's own transition reached 'closed', not 'open'"
+    }
+  ],
+  "state_transition": {
+    "entity_id": "obj_laptop",
+    "property": "lid",
+    "expected_states": [
+      "closed", "opening", "open", "closed", "opening", "open"
+    ],
+    "note": "closed -> opening -> open, twice: the chain the transitions make, in the order they happened"
+  }
+}

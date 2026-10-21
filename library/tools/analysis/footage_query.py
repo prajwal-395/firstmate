@@ -4600,6 +4600,18 @@ def _print_temporal(answer):
             print(f"    unresolved: {note}")
         for reason in resolution.get("reasons") or []:
             print(f"    because: {reason}")
+    relational = answer.get("relational") or {}
+    if relational.get("relation"):
+        anchor = relational.get("anchor_event") or {}
+        print(f"  relation: {relational['relation']}"
+              + (f" - anchored on {anchor.get('event_id')}"
+                 f"  {anchor.get('start_seconds')}s"
+                 f"-{anchor.get('end_seconds')}s" if anchor else ""))
+        for reason in relational.get("reasons") or []:
+            print(f"    because: {reason}")
+        for row in relational.get("relations") or []:
+            print(f"    {row['relation']} ({row['certainty']}): "
+                  f"{row['from_event_id']} -> {row['to_event_id']}")
     for event in answer.get("events") or []:
         occurrence = (f" #{event['occurrence']}" if event.get("occurrence")
                       else "")

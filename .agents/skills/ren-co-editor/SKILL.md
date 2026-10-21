@@ -225,7 +225,12 @@ it whenever the goal is about what is IN the footage.
   sure the reading is. It reports what it could NOT read (a pronoun it
   cannot turn into a person, an ordinal with no such repetition) rather
   than the nearest plausible moment, and a causality-like pair is
-  always marked inferred.
+  always marked inferred. A question that names a RELATION - "what
+  happened before/after/while the second time she opens the laptop" -
+  is answered against the events' own intervals: the anchor is the
+  event the ordinal names, and the events before, after or during it
+  are the ones whose spans say so. An anchor that matches several
+  events is REFUSED, not guessed.
 - `ren where <project> <person>` lists that person's region tracks
   (`--at <seconds>`: the region at that moment), so "where is Craig?"
   is answered off the footage memory, never a guess.

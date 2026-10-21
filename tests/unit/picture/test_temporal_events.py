@@ -503,3 +503,136 @@ def test_building_the_index_creates_no_state_in_the_project(tmp_path):
     root = _project(tmp_path)
     temporal_events.build_temporal_events(str(root))
     assert not (root / "project_model").exists()
+
+
+# ── The event contract's own attributes (VI-006) ────────────────────
+
+
+def _model_with_event(event: dict, entities: list[dict]) -> dict:
+    return {
+        "clocks": [{"id": "clock_1", "ticks_per_second": 1000,
+                    "domain": {"kind": "source", "asset_id": "asset_1",
+                               "stream_id": "stream_1"}}],
+        "assets": [{"id": "asset_1", "kind": "video", "uri": "/tmp/a.mp4"}],
+        "entities": entities,
+        "observations": [],
+        "tracks": [],
+        "events": [event],
+    }
+
+
+def test_an_event_carries_the_participants_it_names():
+    """The Project Model names the participants of an event, and the
+    typed surface must carry them under the model's own field: a
+    reader asking WHO was in this event is answered by the event."""
+    model = _model_with_event(
+        {"id": "event_1",
+         "interval": {"clock_id": "clock_1", "start": 0, "end": 2500},
+         "kind": "object_pickup",
+         "participant_ids": ["person_1", "object_1"],
+         "status": "verified", "certainty": "measured",
+         "evidence_ids": ["obs_1"]},
+        [{"id": "person_1", "kind": "person", "label": "Ana"},
+         {"id": "object_1", "kind": "object", "label": "box"}])
+    events, _ = temporal_events._model_events(model)
+    assert events[0].participant_ids == ("person_1", "object_1")
+
+
+def test_a_participant_nobody_saw_is_not_reported_as_observed():
+    """A participant an INFERENCE put there is not an observation, and
+    the two are kept apart: a reader who cannot tell them apart reads
+    an inference as a sighting."""
+    model = _model_with_event(
+        {"id": "event_1",
+         "interval": {"clock_id": "clock_1", "start": 0, "end": 2500},
+         "kind": "object_pickup",
+         "participant_ids": ["person_1"],
+         "status": "candidate", "certainty": "inferred",
+         "evidence_ids": ["obs_1"]},
+        [{"id": "person_1", "kind": "person", "label": "Ana"}])
+    events, _ = temporal_events._model_events(model)
+    assert events[0].observed_participant_ids == ()
+    assert events[0].inferred_participant_ids == ("person_1",)
+
+
+def test_a_partial_event_says_which_attributes_are_unknown():
+    """A partial event is KEPT, and it says which of its attributes
+    nobody determined.  An absent attribute that reads as 'there was
+    none' is a claim nobody measured."""
+    event = _event(action=None, subjects=(), objects=())
+    assert event.unknown_attributes == ("action", "actor", "object",
+                                        "location")
+    assert event.to_dict()["unknown_attributes"] == ["action", "actor",
+                                                      "object", "location"]
+
+
+def test_a_state_transition_reads_closed_opening_open():
+    """The chain a lid makes - closed, opening, open - is the state
+    TRANSITION, in the order it happened, and not three unrelated
+    facts."""
+    events = [
+        _event(event_id="a", start_seconds=1.0, end_seconds=2.0,
+               state_changes=(temporal_events.StateChange(
+                   entity_id="object_1", property="lid",
+                   before="closed", after="opening",
+                   evidence_ids=("obs_1",)),)),
+        _event(event_id="b", start_seconds=2.0, end_seconds=2.5,
+               state_changes=(temporal_events.StateChange(
+                   entity_id="object_1", property="lid",
+                   before="opening", after="open",
+                   evidence_ids=("obs_2",)),)),
+    ]
+    history = temporal_events.state_history(events, "object_1", "lid")
+    assert len(history) == 1
+    assert history[0]["states"] == ["closed", "opening", "open"]
+    assert [row["event_id"] for row in history[0]["transitions"]] == ["a", "b"]
+
+
+def test_two_transitions_inside_one_event_keep_their_order():
+    """One event can carry the whole transition: closed -> opening ->
+    open, in the order the event measured them."""
+    event = _event(
+        state_changes=(
+            temporal_events.StateChange(entity_id="object_1",
+                                        property="lid", before="closed",
+                                        after="opening",
+                                        evidence_ids=("obs_1",)),
+            temporal_events.StateChange(entity_id="object_1",
+                                        property="lid", before="opening",
+                                        after="open",
+                                        evidence_ids=("obs_2",)),
+        ))
+    history = temporal_events.state_history([event], "object_1", "lid")
+    assert history[0]["states"] == ["closed", "opening", "open"]
+
+
+def test_the_state_at_a_moment_is_the_value_that_was_reached():
+    events = [
+        _event(event_id="a", start_seconds=1.0, end_seconds=2.0,
+               state_changes=(temporal_events.StateChange(
+                   entity_id="object_1", property="lid", before="closed",
+                   after="opening", evidence_ids=("obs_1",)),)),
+        _event(event_id="b", start_seconds=2.0, end_seconds=2.5,
+               state_changes=(temporal_events.StateChange(
+                   entity_id="object_1", property="lid", before="opening",
+                   after="open", evidence_ids=("obs_2",)),)),
+    ]
+    during = temporal_events.state_at(events, "object_1", "lid", 1.5)
+    assert during["value"] == "opening"
+    assert during["established_by"] == "a"
+    after = temporal_events.state_at(events, "object_1", "lid", 2.2)
+    assert after["value"] == "open"
+
+
+def test_a_property_nobody_measured_has_no_state_at_a_moment():
+    """Nobody measured that property before then, so the answer is
+    unknown - never "the property had no value"."""
+    events = [_event(start_seconds=1.0, end_seconds=2.0)]
+    assert temporal_events.state_at(events, "object_1", "lid", 1.5) is None
+
+
+def test_an_unknown_certainty_on_a_state_change_is_refused():
+    with pytest.raises(ValueError) as caught:
+        temporal_events.StateChange(entity_id="object_1", property="lid",
+                                    certainty="probably")
+    assert "probably" in str(caught.value)

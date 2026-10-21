@@ -21,6 +21,12 @@ The output is one row per project:
 * ``state_changes`` - the fraction of those events that carry at least
   one state change (an entity, a property, a before and an after);
 * ``participants`` - the fraction that name at least one participant;
+* ``participant_ids`` - the fraction that carry the event contract's
+  own ``participant_ids`` field, and how many of those participants
+  were OBSERVED rather than inferred;
+* ``state_chains`` - the number of (entity, property) pairs whose
+  value changed more than once, which is what a state TRANSITION
+  looks like (``closed -> opening -> open``);
 * ``unmapped`` - the Project Model event kinds the index could not
   type.  A kind it could not type is a hole in the surface, and it is
   reported rather than guessed into a type.
@@ -59,6 +65,12 @@ def measure(project_folder: str) -> dict:
     with_changes = sum(1 for event in events if event.state_changes)
     with_people = sum(1 for event in events
                       if event.subjects or event.objects)
+    with_participant_ids = sum(1 for event in events
+                               if event.participant_ids)
+    observed = sum(1 for event in events if event.observed_participant_ids)
+    inferred = sum(1 for event in events if event.inferred_participant_ids)
+    chains = sum(1 for row in temporal_events.state_history(events)
+                 if len(row["states"]) > 2)
     by_type: dict[str, int] = {}
     for event in events:
         by_type[event.event_type] = by_type.get(event.event_type, 0) + 1
@@ -69,6 +81,12 @@ def measure(project_folder: str) -> dict:
         "state_change_fraction": round(with_changes / count, 4) if count else 0.0,
         "participants": with_people,
         "participant_fraction": round(with_people / count, 4) if count else 0.0,
+        "participant_ids": with_participant_ids,
+        "participant_id_fraction": (round(with_participant_ids / count, 4)
+                                    if count else 0.0),
+        "observed_participant_events": observed,
+        "inferred_participant_events": inferred,
+        "state_chains": chains,
         "unmapped_kinds": list(index.unmapped_kinds),
         "sources": list(index.sources),
         "by_type": dict(sorted(by_type.items())),
@@ -98,7 +116,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(rows, indent=2))
         return 0
     header = (f"{'project':32s} {'events':>7s} {'state_changes':>14s} "
-              f"{'participants':>14s}  unmapped")
+              f"{'participants':>14s} {'participant_ids':>16s} "
+              f"{'obs/inf':>10s} {'chains':>7s}  unmapped")
     print(header)
     print("-" * len(header))
     for row in rows:
@@ -106,7 +125,12 @@ def main(argv: list[str] | None = None) -> int:
               f"{row['state_changes']:6d} "
               f"({row['state_change_fraction'] * 100:5.1f}%) "
               f"{row['participants']:6d} "
-              f"({row['participant_fraction'] * 100:5.1f}%)  "
+              f"({row['participant_fraction'] * 100:5.1f}%) "
+              f"{row['participant_ids']:8d} "
+              f"({row['participant_id_fraction'] * 100:5.1f}%) "
+              f"{row['observed_participant_events']:5d}/"
+              f"{row['inferred_participant_events']:<4d} "
+              f"{row['state_chains']:7d}  "
               f"{','.join(row['unmapped_kinds']) or '-'}")
     total = sum(row["events"] for row in rows)
     projects_with_events = sum(1 for row in rows if row["events"])
