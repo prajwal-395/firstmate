@@ -93,6 +93,23 @@ rather than through `standardize_receipt`: forcing it through would put
 already in `operation_acceptance.evaluate`, which separates "missing"
 from "failed"; it has not been carried up into `standardize`.
 
+**AXI-003 (this lane).** The distinction is carried up. The acceptance
+contract has ONE outcome, in three readings - `passed`, `failed`,
+`unmeasured` (`operation_acceptance.outcome_of`), and
+`transaction_receipt.standardize` reads it: the `verified` block says
+which of the three happened, a contract nobody measured carries NO
+recovery (nothing is known to be wrong), and the whole receipt has ONE
+reading through `transaction_receipt.acceptance_outcome` - `accepted`,
+`failed`, `unmeasured`, `refused`. The six lifecycle blocks are defined
+once, in `transaction_receipt.lifecycle_blocks`, so the staged reel build
+publishes the same shape as a semantic patch instead of its own.
+
+**Open.** The broker's job receipt and the undo journal entry are still
+their own shapes: a job envelope answers "did the job run" and a journal
+entry answers "what may be undone", which are different questions from
+the six. The census measures them rather than pretending they are the
+same receipt.
+
 ## AXI-037 - reel-building execution through common execution contracts
 
 **Already done.**

@@ -16,6 +16,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from library.tools.refusal_taxonomy import failure_category_for_blocker
+from library.tools.ren_refusal import RenRefusal
+
 
 @dataclass(frozen=True)
 class AxiOperation:
@@ -818,9 +821,19 @@ def _failure_receipt(*, request: Any, backend: str, generation: Any,
                   "completed_operations": len(receipts),
                   "instruction": typed},
     ).as_dict()
+    # AXI-003: a REFUSAL is a decision Ren made and nothing ran, so it
+    # is neither a failure nor an unexpected exception.  The engine's
+    # own refusal shape travels with the receipt, and the receipt says
+    # `refused` rather than `failed`.
+    engine_refusal = (evidence or {}).get("engine_refusal")
+    engine_refusal = (dict(engine_refusal)
+                      if isinstance(engine_refusal, Mapping) else None)
+    if engine_refusal is not None:
+        refusal = {**refusal, "engine_refusal": engine_refusal}
     failure_receipt = {
         "status": ("partial_failure" if receipts
-                   or (evidence or {}).get("mutated") else "failed"),
+                   or (evidence or {}).get("mutated")
+                   else "refused" if engine_refusal is not None else "failed"),
         "resolve_write_status": "failed",
         "patch_id": request.id,
         "request_id": request.id, "backend": backend,
@@ -1090,6 +1103,18 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                           operation=dict(operations[index]))
             try:
                 result = executor(context)
+            except RenRefusal as refusal:
+                # AXI-003: a refusal is a DECISION, and it must not
+                # arrive as an unexpected backend exception.  It keeps
+                # its own category, its own fix and its own next action.
+                return refused(
+                    failure_category_for_blocker(refusal.blocker),
+                    refusal.why,
+                    failed_index=index,
+                    evidence={"mutation_state": "not_mutated",
+                              "mutated": False,
+                              "operation_index": index,
+                              "engine_refusal": refusal.to_dict()})
             except Exception as exc:  # noqa: BLE001 - preserve partial result
                 return refused("backend_failure",
                                f"{type(exc).__name__}: {exc}",

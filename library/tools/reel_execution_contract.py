@@ -46,6 +46,7 @@ def _contract(operation: str, checks: Sequence[str], passed: bool,
         "operation": operation,
         "checks": list(checks),
         "structural_source": "timeline_readback",
+        "status": "passed" if passed else "failed",
         "passed": bool(passed),
         "results": rows,
         "missing": [],
@@ -166,6 +167,55 @@ def publish(record: Mapping, *, backend: str,
         out, backend=backend, routing=route, recovery=recovery)
     contracts = build_contracts(out)
     verified = bool(contracts) and all(row["passed"] for row in contracts)
+    # AXI-003: the build answers the SAME six questions every other
+    # execution path answers, in the same vocabulary, so a reader does
+    # not have to know that a build is a build.  The blocks come from
+    # `transaction_receipt.lifecycle_blocks`, which is where the six
+    # are defined.
+    from library.tools import operation_acceptance
+
+    outcomes = [operation_acceptance.outcome_of(row) for row in contracts]
+    if operation_acceptance.FAILED in outcomes:
+        acceptance = operation_acceptance.FAILED
+    elif operation_acceptance.UNMEASURED in outcomes or not contracts:
+        acceptance = operation_acceptance.UNMEASURED
+    else:
+        acceptance = operation_acceptance.PASSED
+    failed_checks = [str(name) for row in contracts
+                     for name in (row.get("failed") or ())]
+    missing_checks = [str(name) for row in contracts
+                      for name in (row.get("missing") or ())]
+    applied = sum(len(out.get(field) or [])
+                  for field in ("placements", "overlay_placements",
+                                "caption_links", "transition_placements"))
+    reason = ("the build's own checks were measured and passed"
+              if acceptance == operation_acceptance.PASSED else
+              "the build's own checks failed"
+              if acceptance == operation_acceptance.FAILED else
+              "the build measured nothing that could be judged")
+    # AXI-003: the build publishes through the SAME receipt shape as
+    # every other execution path, so a reader finds the contracts, the
+    # six lifecycle blocks and the execution contract in the same place
+    # whichever path produced them.  The build's own keys are kept.
+    out.setdefault("acceptance_contracts", contracts)
+    out.setdefault("status", ("committed"
+                               if acceptance == operation_acceptance.PASSED
+                               else "verification_failed"
+                               if acceptance == operation_acceptance.FAILED
+                               else "unverified"))
+    out = transaction_receipt.standardize(out)
+    out["acceptance_contracts"] = contracts
+    out.update(transaction_receipt.lifecycle_blocks(
+        applied=applied, requested=applied, acceptance=acceptance,
+        failed_checks=failed_checks, missing_checks=missing_checks,
+        committed=(acceptance == operation_acceptance.PASSED),
+        persisted=bool(applied),
+        write_state="committed" if applied else "unknown",
+        generation=out.get("generation"),
+        project_model=out.get("project_model_commit",
+                               {"status": "not_required"}),
+        promotion=out.get("promotion"), delivery=out.get("delivered"),
+        patch_id=out.get("patch_id"), reason=reason))
     out["lifecycle"] = transaction_receipt.lifecycle(
         out, stage=("VERIFIED" if verified else "APPLIED"),
         expected_state={"planned_reel": out.get("timeline_name")},

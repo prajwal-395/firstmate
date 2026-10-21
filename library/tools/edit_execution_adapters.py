@@ -212,6 +212,7 @@ def _refuse_collateral(operation_id: str, preservation: Mapping) -> None:
 def _verified_command(context, command: list[str], operation: dict,
                       recovery_action: str) -> dict:
     from library.tools import operation_acceptance, resolve_axi_core
+    from library.tools.ren_refusal import RenRefusal
 
     result = resolve_axi_core.execute(command)
     if not result.ok:
@@ -351,9 +352,29 @@ def _verified_command(context, command: list[str], operation: dict,
     if not acceptance["passed"]:
         missing = ", ".join(acceptance["missing"]) or "none"
         failed = ", ".join(acceptance["failed"]) or "none"
-        raise RuntimeError(
-            f"AXI read-back acceptance failed for {operation_id}: "
-            f"missing evidence [{missing}], failed checks [{failed}]")
+        # AXI-003: an acceptance that was never MEASURED is not an
+        # acceptance that FAILED, and the refusal says which.  The
+        # refusal shape is a `RenRefusal`, which is a `RuntimeError`,
+        # so every existing `except RuntimeError` still catches it and
+        # the receipt records a decision instead of an exception.
+        unmeasured = (acceptance.get("status")
+                      == operation_acceptance.UNMEASURED)
+        raise RenRefusal(
+            what=(f"AXI read-back acceptance failed for {operation_id}: "
+                  f"missing evidence [{missing}], failed checks [{failed}]"),
+            why=("the operation's acceptance contract was never measured, "
+                 "so nothing established that the edit did what was asked"
+                 if unmeasured else
+                 "the read-back did not satisfy the operation's acceptance "
+                 "contract, so the edit is not committed"),
+            fix=("measure the acceptance evidence the contract names "
+                 f"({missing}) and run the operation again"
+                 if unmeasured else
+                 "re-read the timeline and adjust the edit until the "
+                 f"read-back satisfies the contract (failed: {failed})"),
+            blocker=("insufficient_evidence" if unmeasured
+                     else "unsafe_state"),
+        )
     import re
 
     journal_match = re.search(r"(?m)^\s*entry:\s*(\S+)\s*$",

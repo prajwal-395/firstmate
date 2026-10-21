@@ -1,12 +1,59 @@
-"""Shared lifecycle vocabulary and receipt normalization for edit transactions."""
+"""Shared lifecycle vocabulary and receipt normalization for edit transactions.
+
+AXI-003: the SIX lifecycle states answer SIX questions, and each one
+answers only its own.
+
+    planned     the request was planned (and named)
+    applied     how many operations the write actually applied
+    verified    whether the acceptance was MEASURED and passed
+    committed   whether the write is durably committed
+    promoted    whether a staged change reached the live timeline
+    delivered   whether the file was delivered
+
+`verified` used to answer two questions at once, and it answered the
+second one wrongly: a receipt with NO acceptance contract, and a receipt
+whose contract FAILED, both read `failed`.  A build that worked and was
+never measured therefore read as a failure, and carried a recovery that
+nothing had to recover.  The contract's own outcome
+(`operation_acceptance.outcome_of`) now decides, and the three readings
+stay apart:
+
+    verified     the acceptance was measured and passed
+    failed       the acceptance was measured and did not pass
+    unmeasured   the acceptance was not measured
+
+`acceptance_outcome` is the ONE reader of that: every path asks it the
+same question and gets the same answer.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 STAGES = ("PLANNED", "VALIDATED", "PREPARED", "EXECUTING", "APPLIED",
           "VERIFIED", "COMMITTED", "PROMOTED", "DELIVERED")
+
+#: The outcome of a receipt's acceptance, in the three readings a
+#: reader can act on.  `accepted` means the work was measured and it
+#: passed; `failed` means it was measured and it did not; `unmeasured`
+#: means nobody established it, which is neither of the other two.
+ACCEPTED = "accepted"
+FAILED_OUTCOME = "failed"
+UNMEASURED_OUTCOME = "unmeasured"
+REFUSED_OUTCOME = "refused"
+
+ACCEPTANCE_OUTCOMES: tuple[str, ...] = (ACCEPTED, FAILED_OUTCOME,
+                                         UNMEASURED_OUTCOME, REFUSED_OUTCOME)
+
+#: The receipt-level verification statuses.  `unverified` is the third
+#: one: the write landed and the acceptance was not measured.  A reader
+#: that asks "is this committed?" still says no (the work is not
+#: accepted), and a reader that asks "did this fail?" no longer hears
+#: yes.
+VERIFIED = "verified"
+VERIFICATION_FAILED = "failed"
+UNVERIFIED = "unverified"
 RECOVERY_ACTIONS = {
     "target_not_found": "replan_target",
     "ambiguous_target": "replan_target",
@@ -133,13 +180,218 @@ def _promoted_status(receipt: Mapping[str, Any]) -> str:
     return "not_requested"
 
 
+def _acceptance_reading(contracts: Any) -> tuple[str, list[str], list[str]]:
+    """One reading of a receipt's acceptance contracts.
+
+    Returns ``(outcome, failed_checks, missing_checks)`` where the
+    outcome is one of `operation_acceptance`'s three.  A receipt with NO
+    contract is `unmeasured`: nothing was established, which is not the
+    same as a contract that failed.  A contract that failed outranks a
+    contract that was never finished, because a measured failure is a
+    fact about the work and an unmeasured one is only a gap.
+    """
+    from library.tools import operation_acceptance
+
+    failed: list[str] = []
+    missing: list[str] = []
+    if not contracts:
+        return operation_acceptance.UNMEASURED, failed, missing
+    outcomes = []
+    for contract in contracts:
+        outcome = operation_acceptance.outcome_of(contract)
+        outcomes.append(outcome)
+        if outcome == operation_acceptance.FAILED:
+            names = [str(name) for name in (contract.get("failed") or ())]
+            failed.extend(names or ["(unnamed check)"])
+        elif outcome == operation_acceptance.UNMEASURED:
+            missing.extend(str(name) for name in (contract.get("missing") or ()))
+    if operation_acceptance.FAILED in outcomes:
+        return operation_acceptance.FAILED, failed, missing
+    if operation_acceptance.UNMEASURED in outcomes:
+        return operation_acceptance.UNMEASURED, failed, missing
+    return operation_acceptance.PASSED, failed, missing
+
+
+def _write_state(receipt: Mapping[str, Any]) -> str:
+    """What happened to the WRITE, apart from its acceptance.
+
+    `committed` - the write landed.  `failed` - the write did not
+    happen, or the read-back rejected it.  `unverified` - the write
+    landed and the acceptance was not measured.  `unknown` - the
+    receipt says nothing about it, so nothing is established.
+    """
+    status = str(receipt.get("status") or "")
+    write_status = str(receipt.get("resolve_write_status") or "")
+    if status in {"failed", "partial_failure", "verification_failed",
+                  "rejected"} or write_status in {
+                      "failed", "verification_failed", "rejected"}:
+        return "failed"
+    if status == UNVERIFIED or write_status == UNVERIFIED:
+        return UNVERIFIED
+    if status == "committed" or write_status == "committed":
+        return "committed"
+    return "unknown"
+
+
+def _is_refusal(receipt: Mapping[str, Any]) -> bool:
+    """Whether the receipt records a REFUSAL rather than a failure.
+
+    A refusal is a decision Ren made: nothing ran, and the next step is
+    known.  It is not a failure and not an exception, and a receipt that
+    carries one must not read as either.  The receipt qualifies when it
+    says it was refused - the status says so, or the refusal carries
+    the engine-wide shape - and NOTHING was applied.  A receipt that
+    applied part of the work and then refused is a partial failure,
+    which is a different thing.
+    """
+    refusal = receipt.get("refusal")
+    engine = refusal.get("engine_refusal") if isinstance(refusal, Mapping) else None
+    if not isinstance(engine, Mapping):
+        engine = receipt.get("engine_refusal")
+    status = str(receipt.get("status") or "")
+    if status not in {"rejected", "refused"} and not isinstance(engine, Mapping):
+        return False
+    applied = receipt.get("applied")
+    if isinstance(applied, Mapping):
+        return int(applied.get("operations") or 0) == 0
+    operations = receipt.get("operations") or []
+    return not operations and not receipt.get("mutated")
+
+
+def acceptance_outcome(receipt: Mapping[str, Any] | None) -> str:
+    """The ONE reading of whether the work was accepted.
+
+    Every production path answers this question the same way, so two
+    readers of the same receipt cannot disagree about whether the
+    operation was accepted.  The four answers:
+
+    `accepted`    the acceptance was measured and it passed
+    `failed`      the acceptance was measured and it did not pass, or
+                  the write itself failed
+    `unmeasured`  nothing established it - no contract, or a contract
+                  nobody finished
+    `refused`     Ren decided not to act; nothing ran
+
+    A receipt that carries no acceptance block at all is read from its
+    own contracts and its own status, so a receipt written before the
+    block existed is read, not guessed at.
+    """
+    from library.tools import operation_acceptance
+
+    if not isinstance(receipt, Mapping):
+        return UNMEASURED_OUTCOME
+    if _is_refusal(receipt):
+        return REFUSED_OUTCOME
+    if _write_state(receipt) == "failed":
+        # The write did not land, so the operation was not accepted -
+        # whatever its acceptance evidence says.
+        return FAILED_OUTCOME
+    verified = receipt.get("verified")
+    if isinstance(verified, Mapping):
+        status = str(verified.get("status") or "")
+        if status == VERIFIED:
+            return ACCEPTED
+        if status == VERIFICATION_FAILED:
+            return FAILED_OUTCOME
+        if status == UNMEASURED_OUTCOME:
+            return UNMEASURED_OUTCOME
+    contracts = receipt.get("acceptance_contracts") or []
+    outcome, failed, missing = _acceptance_reading(contracts)
+    if outcome == operation_acceptance.FAILED:
+        return FAILED_OUTCOME
+    if outcome == operation_acceptance.UNMEASURED:
+        return UNMEASURED_OUTCOME
+    if _write_state(receipt) != "committed":
+        return UNMEASURED_OUTCOME
+    return ACCEPTED
+
+
+def lifecycle_blocks(*, applied: int, requested: int, acceptance: str,
+                     failed_checks: Sequence[str] = (),
+                     missing_checks: Sequence[str] = (),
+                     committed: bool = False, persisted: bool = False,
+                     write_state: str = "unknown", refused: bool = False,
+                     generation: Any = None, project_model: Any = None,
+                     promotion: Any = None, delivery: Any = None,
+                     patch_id: Any = None, reason: str = "") -> dict[str, Any]:
+    """The SIX lifecycle blocks, in the one vocabulary every path uses.
+
+    AXI-003: `planned`, `applied`, `verified`, `committed`, `promoted`
+    and `delivered` each answer ONE question, and the six are defined
+    here, once, so a semantic patch and a staged reel build answer them
+    the same way.
+
+    `acceptance` is the contract's outcome (`operation_acceptance`'s
+    three).  It decides the `verified` block alone: a contract nobody
+    measured makes the verification `unmeasured`, and `unmeasured` is
+    not `failed`.
+    """
+    from library.tools import operation_acceptance
+
+    failed_checks = [str(name) for name in failed_checks]
+    missing_checks = [str(name) for name in missing_checks]
+    if refused:
+        # Nothing ran, so nothing was measured and nothing failed.
+        verified_status = UNMEASURED_OUTCOME
+    elif write_state == "failed" or acceptance == operation_acceptance.FAILED:
+        verified_status = VERIFICATION_FAILED
+    elif acceptance == operation_acceptance.UNMEASURED:
+        verified_status = UNMEASURED_OUTCOME
+    elif write_state == "committed":
+        verified_status = VERIFIED
+    else:
+        verified_status = UNMEASURED_OUTCOME
+    if committed:
+        committed_status = "committed"
+    elif (persisted and acceptance == operation_acceptance.PASSED
+            and isinstance(project_model, Mapping)
+            and project_model.get("status") == "failed"):
+        committed_status = "project_model_commit_failed"
+    elif persisted and acceptance == operation_acceptance.FAILED:
+        committed_status = "readback_persisted_unverified"
+    elif persisted:
+        committed_status = "readback_persisted_unmeasured"
+    else:
+        committed_status = "not_committed"
+    return {
+        "planned": {"status": "planned", "patch_id": patch_id},
+        "applied": {"status": ("applied" if applied == requested and applied
+                               else "partial" if applied else "not_applied"),
+                    "operations": applied, "requested": requested,
+                    "complete": applied == requested},
+        "verified": {"status": verified_status,
+                     "acceptance_contracts_passed":
+                         acceptance == operation_acceptance.PASSED,
+                     "acceptance_status": acceptance,
+                     "missing": missing_checks,
+                     "failed": failed_checks,
+                     "reason": reason},
+        "committed": {"status": committed_status,
+                      "generation": generation,
+                      "project_model": project_model},
+        "promoted": {"status": _promoted_status({"promotion": promotion})},
+        "delivered": {"status": (delivery if isinstance(delivery, str)
+                                 else str((delivery or {}).get("status")
+                                          or "not_requested")
+                                 if isinstance(delivery, Mapping)
+                                 else "not_requested")},
+    }
+
+
 def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
     """Add ordered lifecycle stages to a legacy patch receipt.
 
     A failed operation or acceptance contract cannot be described as
     verified, committed, or delivered. A shadow generation may still be
     persisted as forensic read-back after a failed verification.
+
+    AXI-003: a contract nobody measured is not a contract that failed.
+    The `verified` block now says which of the two happened, and a
+    receipt that is merely unmeasured carries no recovery: there is
+    nothing to compensate, only evidence to collect.
     """
+    from library.tools import operation_acceptance
+
     out = dict(receipt)
     status = out.get("status")
     operations = out.get("operations") or []
@@ -147,27 +399,73 @@ def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
                         if row.get("failure") is None)
     requested_count = int(out.get("requested_operation_count", len(operations)))
     contracts = out.get("acceptance_contracts") or []
-    contracts_ok = bool(contracts) and all(
-        row.get("passed") is True for row in contracts)
-    verified = out.get("resolve_write_status", status) == "committed" and contracts_ok
+    acceptance, failed_checks, missing_checks = _acceptance_reading(contracts)
+    contracts_ok = acceptance == operation_acceptance.PASSED
+    write_state = _write_state(out)
+    refused = _is_refusal(out)
+    if refused:
+        # Nothing ran, so nothing was measured and nothing failed.
+        verified = False
+        verified_status = UNMEASURED_OUTCOME
+    elif acceptance == operation_acceptance.FAILED:
+        verified = False
+        verified_status = VERIFICATION_FAILED
+    elif acceptance == operation_acceptance.UNMEASURED:
+        # The acceptance was never measured.  A write that failed
+        # carries no acceptance either - nothing was read back - and
+        # the FAILED write is reported by the receipt's own status and
+        # by `applied`, `committed` and `recovery`.  The six blocks
+        # answer six questions, and this one answers only its own.
+        verified = False
+        verified_status = UNMEASURED_OUTCOME
+    elif write_state == "committed":
+        verified = True
+        verified_status = VERIFIED
+    else:
+        # The receipt says nothing about the write's fate, so nothing
+        # is established about it.
+        verified = False
+        verified_status = UNMEASURED_OUTCOME
     persisted = out.get("generation") is not None
     model_commit = out.get("project_model_commit", {"status": "not_required"})
     committed = persisted and verified and model_commit.get("status") != "failed"
     if "recovery" not in out:
-        if status == "verification_failed" or not contracts_ok:
+        if write_state == "failed" or acceptance == operation_acceptance.FAILED:
             stopped = out.get("stopped")
             out["recovery"] = recovery(
                 "api_uncertain" if stopped else "verification_failed",
                 reason=(stopped.get("raised", "") if stopped else
                         "read-back or operation acceptance contract failed"))
         else:
+            # An UNMEASURED acceptance owes no compensation: the write
+            # is not known to be wrong, and a recovery on a working
+            # build is the misclassification AXI-003 names.
             out["recovery"] = None
     out.setdefault("recovery_result", {
-        "status": "not_attempted" if verified else "recovery_required",
-        "reason": "verified result" if verified else
-                  "read-back and transaction history retained"})
+        "status": ("not_attempted" if verified else
+                   "not_required" if verified_status == UNMEASURED_OUTCOME
+                   else "recovery_required"),
+        "reason": ("verified result" if verified else
+                   "the acceptance evidence was not measured: nothing "
+                   "established whether the write did what was asked"
+                   if verified_status == UNMEASURED_OUTCOME else
+                   "read-back and transaction history retained")})
+    if verified_status == UNMEASURED_OUTCOME:
+        verification_reason = (
+            "the request was refused, so nothing ran and nothing was "
+            "measured" if refused else
+            "the acceptance was not measured"
+            + (f": {len(missing_checks)} check(s) nobody measured"
+               if missing_checks else ": the receipt carries no "
+               "acceptance contract"))
+    elif verified_status == VERIFICATION_FAILED:
+        verification_reason = (
+            "the acceptance failed"
+            + (f": {len(failed_checks)} check(s) did not pass"
+               if failed_checks else ""))
+    else:
+        verification_reason = "the acceptance was measured and passed"
     out.update({
-        "planned": {"status": "planned", "patch_id": out.get("patch_id")},
         "validated": {"status": "validated" if out.get("base_generation") is not None else "not_validated",
                       "base_generation": out.get("base_generation")},
         "prepared": {"status": _prepared_status(out),
@@ -176,21 +474,16 @@ def standardize(receipt: dict[str, Any]) -> dict[str, Any]:
                       ("partial" if operations else
                        "failed" if out.get("stopped") else "not_started"),
                       "stopped": out.get("stopped")},
-        "applied": {"status": "applied" if applied_count == requested_count else
-                    ("partial" if applied_count else "not_applied"),
-                    "operations": applied_count, "requested": requested_count,
-                    "complete": applied_count == requested_count},
-        "verified": {"status": "verified" if verified else
-                     ("failed" if status == "verification_failed" or not contracts_ok else "not_verified"),
-                     "acceptance_contracts_passed": contracts_ok},
-        "committed": {"status": "committed" if committed else
-                      ("project_model_commit_failed" if persisted and verified else
-                       "readback_persisted_unverified" if persisted else "not_committed"),
-                      "generation": out.get("generation"),
-                      "project_model": model_commit},
-        "promoted": {"status": _promoted_status(out)},
-        "delivered": {"status": out.get("delivered", {}).get("status", "not_requested")},
     })
+    out.update(lifecycle_blocks(
+        applied=applied_count, requested=requested_count,
+        acceptance=acceptance, failed_checks=failed_checks,
+        missing_checks=missing_checks, committed=committed,
+        persisted=persisted, write_state=write_state, refused=refused,
+        generation=out.get("generation"),
+        project_model=model_commit, promotion=out.get("promotion"),
+        delivery=out.get("delivered"), patch_id=out.get("patch_id"),
+        reason=verification_reason))
     promoted = _promoted_status(out)
     out["lifecycle"] = lifecycle(
         out, stage=("PROMOTED" if promoted == "promoted" else

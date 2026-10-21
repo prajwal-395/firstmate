@@ -3,9 +3,34 @@
 The editor's read-back is the structural baseline. Overlay acceptance also
 requires independent rendered evidence; inability to measure is a refusal
 to claim success, never an implicit pass.
+
+AXI-003: a contract has ONE outcome, and it is one of three.
+
+    passed      every check of the contract was measured and passed
+    failed      a check of the contract was measured and did not pass
+    unmeasured  a check of the contract was never measured
+
+`unmeasured` is the load-bearing one.  A contract nobody finished is not
+a contract that failed, and the difference is the difference between
+"the write did not do what was asked" and "nobody established whether
+the write did what was asked".  Folding the second into the first puts
+`recovery_required` on a build that worked, which is what AXI-003
+names: a successful build misclassified as failed.
+
+`outcome_of` reads the outcome off a contract dict, including the ones
+written before this vocabulary existed, so a reader never has to guess.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+
+PASSED = "passed"
+FAILED = "failed"
+UNMEASURED = "unmeasured"
+
+CONTRACT_STATUSES: tuple[str, ...] = (PASSED, FAILED, UNMEASURED)
+"""The whole outcome vocabulary of an acceptance contract."""
 
 _OVERLAY_VISUAL = (
     "projected_geometry_matches_request", "rendered_pixels_match_request",
@@ -150,7 +175,16 @@ def registry() -> dict[str, dict]:
 
 def evaluate(operation: dict, *, readback_passed: bool | None,
              evidence: dict | None = None) -> dict:
-    """Evaluate one contract; absent evidence is explicitly reported."""
+    """Evaluate one contract; absent evidence is explicitly reported.
+
+    The returned ``status`` is the contract's outcome: ``failed`` when a
+    check was measured and did not pass, ``unmeasured`` when a check was
+    never measured, and ``passed`` only when every check was measured
+    and passed.  ``passed`` stays the boolean it always was - it means
+    EVERY check passed - so a reader that only knows the old keys keeps
+    working; the new ``status`` is what tells a failed contract from an
+    unfinished one.
+    """
     evidence = evidence or {}
     op_id = operation.get("acceptance_op") or operation["op"]
     contract = contract_for(op_id, operation)
@@ -171,9 +205,46 @@ def evaluate(operation: dict, *, readback_passed: bool | None,
             status = "missing"
         results.append({"check": check, "passed": bool(passed),
                         "status": status, "evidence": evidence.get(check)})
-    return {**contract, "passed": all(row["passed"] for row in results),
+    missing = [row["check"] for row in results if row["status"] == "missing"]
+    failed = [row["check"] for row in results if row["status"] == "failed"]
+    if failed:
+        outcome = FAILED
+    elif missing:
+        outcome = UNMEASURED
+    else:
+        outcome = PASSED
+    return {**contract, "status": outcome,
+            "passed": all(row["passed"] for row in results),
             "results": results,
-            "missing": [row["check"] for row in results
-                        if row["status"] == "missing"],
-            "failed": [row["check"] for row in results
-                       if row["status"] == "failed"]}
+            "missing": missing,
+            "failed": failed}
+
+
+def outcome_of(contract: Mapping | None) -> str:
+    """The outcome of a contract, whoever wrote it.
+
+    A contract written by `evaluate` carries its own ``status``.  A
+    contract written before that vocabulary existed carries the two lists
+    instead - ``failed`` and ``missing`` - and those are read here, so
+    an old contract is never read as a failed one just because it is
+    old.  A contract that says only ``passed: False`` and names no
+    evidence is read as `failed`, which is what it always meant.
+    """
+    if not isinstance(contract, Mapping):
+        return UNMEASURED
+    status = str(contract.get("status") or "")
+    if status in CONTRACT_STATUSES:
+        return status
+    failed = contract.get("failed")
+    if isinstance(failed, (list, tuple)) and failed:
+        return FAILED
+    missing = contract.get("missing")
+    if isinstance(missing, (list, tuple)) and missing:
+        return UNMEASURED
+    passed = contract.get("passed")
+    if passed is True:
+        return PASSED
+    if passed is False:
+        return FAILED
+    return UNMEASURED
+

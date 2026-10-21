@@ -117,7 +117,37 @@ class ExecutionRefusal:
         keeps its category, its next action and its limitations. Any
         other exception is a ``backend_failure``: it is not a decision
         Ren made, and calling it one would be a lie.
+
+        AXI-003: a ``RenRefusal`` has no ``category`` attribute, so
+        before this it was read as a ``backend_failure`` - a refusal
+        masquerading as an unexpected exception.  It now carries the
+        category its own BLOCKER names, and its blocker, fix and next
+        action travel with it, so the caller acts on the refusal and
+        not on a string that reads like a stack trace.
         """
+        from library.tools import refusal_taxonomy
+        from library.tools.ren_refusal import RenRefusal
+
+        if isinstance(exc, RenRefusal):
+            category = str(getattr(exc, "category", "") or "")
+            if category not in cls.CATEGORIES:
+                # The refusal did not name a category of its own, so
+                # the one its BLOCKER names is the kind of failure it
+                # is.
+                category = refusal_taxonomy.failure_category_for_blocker(
+                    exc.blocker)
+            return cls(
+                category=category,
+                reason=str(exc.why),
+                retryable=bool(getattr(exc, "retryable", False)),
+                recovery={"recovery_class": exc.recovery_class,
+                          "next_action": exc.next_action,
+                          "blocker": exc.blocker,
+                          "code": exc.code,
+                          "user_message": exc.user_message},
+                fix=str(exc.fix),
+                limitations=tuple(getattr(exc, "limitations", ()) or ()),
+            )
         category = str(getattr(exc, "category", "") or "backend_failure")
         if category not in cls.CATEGORIES:
             category = "backend_failure"
@@ -360,16 +390,37 @@ def verify_readback(patch_operations: Sequence[Mapping],
     from library.tools import preservation_invariant
     named_requirements = preservation_invariant.judge_requirements(
         preservation_requirements, before=base, after=after)
-    ok = (stopped is None and not post_failures
-          and all(contract["passed"] for contract in acceptance_contracts)
-          and not any(row["failure"] for row in judged)
-          and preservation["status"] == "preserved"
-          and all(row["status"] == preservation_invariant.PRESERVED
-                  for row in named_requirements))
+    # AXI-003: the WRITE's fate and the ACCEPTANCE's fate are two
+    # questions. The write landed, or it did not. The acceptance was
+    # measured and passed, was measured and failed, or was never
+    # measured - and an unmeasured acceptance is not a failed one.
+    write_ok = (stopped is None and not post_failures
+                and not any(row["failure"] for row in judged)
+                and preservation["status"] == "preserved"
+                and all(row["status"] == preservation_invariant.PRESERVED
+                        for row in named_requirements))
+    acceptance = operation_acceptance.PASSED
+    for contract in acceptance_contracts:
+        outcome = operation_acceptance.outcome_of(contract)
+        if outcome == operation_acceptance.FAILED:
+            acceptance = operation_acceptance.FAILED
+            break
+        if outcome == operation_acceptance.UNMEASURED:
+            acceptance = operation_acceptance.UNMEASURED
+    if not write_ok or acceptance == operation_acceptance.FAILED:
+        status = "verification_failed"
+    elif acceptance == operation_acceptance.UNMEASURED:
+        # The write landed; nobody established that it did what was
+        # asked. That is a THIRD reading, and it is neither of the two
+        # the receipt used to offer.
+        status = "unverified"
+    else:
+        status = "committed"
+    ok = status == "committed"
     return {
         "patch_id": patch_id,
-        "status": "committed" if ok else "verification_failed",
-        "resolve_write_status": "committed" if ok else "verification_failed",
+        "status": status,
+        "resolve_write_status": status,
         "base_generation": head_generation,
         "project": project,
         "timeline": timeline,
@@ -385,8 +436,14 @@ def verify_readback(patch_operations: Sequence[Mapping],
         "preservation": preservation,
         "preservation_requirements": named_requirements,
         "stopped": stopped,
-        "recovery_result": {"status": "not_attempted",
+        "recovery_result": {"status": ("not_attempted" if ok else
+                                       "not_required" if status == "unverified"
+                                       else "recovery_required"),
                             "reason": ("transaction verified" if ok else
+                                       "the acceptance evidence was not "
+                                       "measured; nothing established that "
+                                       "the write did what was asked"
+                                       if status == "unverified" else
                                        "read-back retained for recovery")},
         "journal": {"intent_persisted": journaled,
                     "errors": journal_errors or []},
@@ -414,18 +471,39 @@ def _judge_conditions(conditions: Sequence[Mapping], snap: Mapping,
 # ── Receipts: one lifecycle vocabulary ────────────────────────────────
 
 def standardize_receipt(receipt: Mapping) -> dict:
-    """Publish a receipt through the common lifecycle and result contract."""
+    """Publish a receipt through the common lifecycle and result contract.
+
+    AXI-003: the verification status is the ONE reading of the
+    acceptance, and it has three answers.  ``verified`` - the acceptance
+    was measured and passed.  ``missing_evidence`` - it was not
+    measured, which is not a failure.  ``failed`` - it was measured and
+    did not pass.  A contract nobody finished used to read as
+    ``failed``, which put ``recovery_required`` on a build that worked.
+    """
     from library.tools import transaction_receipt
+    from library.tools import operation_acceptance
 
     out = transaction_receipt.standardize(dict(receipt))
     contracts = out.get("acceptance_contracts") or []
     checks = tuple({"passed": row.get("passed"),
                     "operation": row.get("operation"),
+                    "status": operation_acceptance.outcome_of(row),
                     "failures": row.get("failures", [])}
                    for row in contracts)
-    verified = (bool(checks)
-                and out.get("resolve_write_status", out.get("status")) == "committed"
-                and all(row.get("passed") is True for row in contracts))
+    outcome = transaction_receipt.acceptance_outcome(out)
+    # The verification status answers the ACCEPTANCE question, and the
+    # acceptance's own reading is the one that answers it.  The write's
+    # fate is a different question, and it is answered by the receipt's
+    # status and by `applied`/`committed`.
+    acceptance = str((out.get("verified") or {}).get("acceptance_status")
+                     or "")
+    verified = acceptance == operation_acceptance.PASSED
+    unmeasured = acceptance in ("", operation_acceptance.UNMEASURED)
+    unmeasured_checks = []
+    for row in contracts:
+        if operation_acceptance.outcome_of(row) == operation_acceptance.UNMEASURED:
+            unmeasured_checks.extend(str(name)
+                                     for name in (row.get("missing") or ()))
     rendered = out.get("rendered_verification") or {}
     rendered_layers = {}
     for name in ("pixels", "audio"):
@@ -443,13 +521,17 @@ def standardize_receipt(receipt: Mapping) -> dict:
         backend=str(out.get("backend") or "unknown"),
         verification=VerificationResult(
             status=("verified" if verified else
-                    "missing_evidence" if not checks else "failed"),
+                    "missing_evidence" if unmeasured else "failed"),
             checks=checks,
-            missing=() if checks else ("operation acceptance evidence",),
+            missing=(tuple(unmeasured_checks) if unmeasured_checks else
+                     () if checks else ("operation acceptance evidence",)),
             evidence={"acceptance_check_count": len(checks),
+                      "acceptance_outcome": outcome,
                       "readback_present": out.get("readback") is not None},
             layers={
-                "stored_state": {"status": "verified" if verified else "failed",
+                "stored_state": {"status": ("verified" if verified else
+                                            "missing_evidence" if unmeasured
+                                            else "failed"),
                                  "checks": len(checks)},
                 "rendered_pixels": rendered_layers["pixels"],
                 "rendered_audio": rendered_layers["audio"],

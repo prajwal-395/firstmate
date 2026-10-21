@@ -366,6 +366,38 @@ def blocker_for_failure_category(category: str) -> str:
     return found
 
 
+BLOCKER_FAILURE_CATEGORY = {
+    "unsupported_operation": "unsupported",
+    "unsafe_state": "conflict",
+    "ambiguous_intent": "conflict",
+    "insufficient_evidence": "verification_failed",
+    "missing_media": "broken",
+    "resource_contention": "conflict",
+}
+"""The refusal's own blocker, joined to the failure category it reports.
+
+AXI-003: a REFUSAL is a decision Ren made, and it used to arrive at the
+execution contract as `backend_failure` - an unexpected exception,
+which is not what it is.  This table is the join, so a refusal carries
+the category of the KIND of block it is.
+
+The category is the coarse kind; the refusal's own `blocker`, `fix` and
+`next_action` travel with it, and those are what the caller acts on.  A
+missing medium is `broken` rather than `unsupported` on purpose:
+`unsupported` is the one category a rebuild may follow, and rebuilding
+over a missing medium is not a repair.
+"""
+
+
+def failure_category_for_blocker(blocker: str) -> str:
+    """The failure category a refusal's blocker reports."""
+    found = BLOCKER_FAILURE_CATEGORY.get(str(blocker))
+    if not found:
+        raise ValueError(f"unknown blocker {blocker!r}; one of "
+                         f"{sorted(BLOCKER_FAILURE_CATEGORY)}")
+    return found
+
+
 def blocker_for_ask_reason(reason: str) -> str:
     """The blocker an ask reason reports."""
     found = ASK_REASON_BLOCKER.get(str(reason))

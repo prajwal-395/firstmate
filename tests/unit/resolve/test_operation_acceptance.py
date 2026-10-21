@@ -100,16 +100,27 @@ def test_lifecycle_stops_at_applied_when_acceptance_fails():
     assert receipt["committed"]["status"] == "readback_persisted_unverified"
 
 
-def test_lifecycle_does_not_verify_a_receipt_with_no_operation_evidence():
+def test_lifecycle_reports_a_receipt_with_no_operation_evidence_as_unmeasured():
+    """AXI-003: nobody measured the acceptance, and that is not a failure.
+
+    Defect: a receipt with NO acceptance contract read `failed`, which
+    put `recovery_required` on a build that worked and told a reader
+    the work was wrong.  Nothing was established about it, and that is
+    the third reading: `unmeasured`.
+    """
     receipt = transaction_receipt.standardize({
         "status": "committed", "patch_id": "p-2",
         "base_generation": 4, "generation": 5,
         "operations": [{"returned": True}],
     })
 
-    assert receipt["verified"]["status"] == "failed"
-    assert receipt["committed"]["status"] == "readback_persisted_unverified"
+    assert receipt["verified"]["status"] == "unmeasured"
+    assert receipt["verified"]["acceptance_status"] == "unmeasured"
+    assert receipt["committed"]["status"] == "readback_persisted_unmeasured"
     assert receipt["lifecycle"]["stage"] == "APPLIED"
+    # Nothing is known to be wrong, so nothing owes a recovery.
+    assert receipt["recovery"] is None
+    assert receipt["recovery_result"]["status"] == "not_required"
 
 
 def test_acceptance_distinguishes_missing_evidence_from_failed_measurement():

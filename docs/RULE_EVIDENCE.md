@@ -1154,6 +1154,27 @@ The way past the memo is `--rerun <step>`, which is the operator's word and beat
 
 Measured on the reproduced case (`tests/scenarios/test_perf011_repeated_failure_costs_nothing.py`): two runs of a step that refuses paid the preparation twice before and once after - **4.03 s against 1.85 s**, with the preparation of 1.0 s not paid again. The figure is the same shape as the 3,220 s it stands for.
 
+### the-missing-acceptance-read-as-a-failure
+
+An acceptance contract nobody finished read exactly like one that failed, and a build that worked was reported as a failure.
+
+`operation_acceptance.evaluate` already separated the two - a contract carries `missing` (the checks nobody measured) and `failed` (the checks that were measured and did not pass) - and the QA-008 acceptance leg read them correctly. Nothing carried that distinction UP. `transaction_receipt.standardize` asked one question of a receipt's contracts, `all(contract["passed"])` , and `passed` is False for a contract nobody finished, so an UNMEASURED acceptance and a FAILED one both read `failed`. The consequences: `verified.status` said `failed` for work nobody had measured against, `recovery_result` said `recovery_required` and put a compensation on the timeline, and `committed` said `readback_persisted_unverified` for a write that had been verified as far as anyone could tell.
+
+That is why the staged reel build published through its OWN contract rather than through `standardize_receipt` - forcing it through would have put `recovery_required` on a successful build - and why a semantic patch and a reel build were two receipt shapes a reader had to tell apart.
+
+**The rule.** A contract has ONE outcome, in three readings: `passed`, `failed`, `unmeasured`. A measurement that was never taken is not a measurement that came back wrong, and the receipt says which of the two happened. `library/tools/operation_acceptance.py` owns the three; `library/tools/transaction_receipt.py` carries them up (`lifecycle_blocks`, `standardize`) and publishes the ONE reading every path uses (`acceptance_outcome`: `accepted`, `failed`, `unmeasured`, `refused`). A receipt that is merely unmeasured owes NO recovery: nothing is known to be wrong, and a recovery on a working build is the misclassification this entry is about.
+
+**The second half of the rule: a REFUSAL is a decision, not an exception.** `ExecutionRefusal.from_exception` read `getattr(exc, "category", "")`, and a `RenRefusal` has no such attribute - so every refusal normalized to `backend_failure`, an unexpected exception, and the receipt said the backend broke. A refusal now carries the category its own BLOCKER names (`refusal_taxonomy.failure_category_for_blocker`), its fix and its next action, and `resolve_axi_core` records it as `refused` rather than `failed`.
+
+**Measured** on a recorded set of today's live receipts - the broker's own job table, the scratch projects' undo journals and the repository's live reports, 8,550 receipts captured by `scripts/axi003_capture_receipts.py` into `tests/fixtures/axi003_live_receipts.json` - with `scripts/axi003_receipt_census.py` asking the PRODUCTION readers the same question:
+
+| | before | after |
+|---|---|---|
+| distinct receipt shapes the production paths publish | 2 | 1 |
+| recorded execution receipts whose readers disagree about acceptance | 9/11 | 0/11 |
+
+The disagreement was `unmeasured` against `failed`: the acceptance contract and the QA-008 leg said nobody had measured the work, and the lifecycle and the execution contract said it had failed. Both readings were defensible on their own, and together they meant two readers could not tell whether the same operation was accepted.
+
 ### key-name-mismatches
 
 Steps disagree about what a field is called, the reader `.get()`s a default, and the pipeline reports success over empty data.
