@@ -9386,3 +9386,83 @@ pending the captain's re-adjudication. Numbers, method and limits:
 not a track: SAM 2 tracking stays the plan-triggered 1.06 path. A sampled pass
 never claims absence - a request that finds nothing answers `inconclusive` with
 its coverage map, because a sparse pass cannot support an exhaustive claim.
+
+## the-review-that-folded-a-technical-failure-into-a-score
+
+**The rule:** An editorial review keeps OBJECTIVE failures and SUBJECTIVE
+preferences apart, and a subjective score can never clear an objective failure.
+`library/tools/editorial_acceptance/judgement.py` owns the contract: the eight
+legs are DATA, the two kinds of row are SECTIONS, and the verdict is computed so
+that an objective failure stands whatever the score says.
+
+**What happened.** The captain's punch list (2026-10-20, QA-006) asks for a
+structured editorial review that evaluates a delivered file on eight named legs,
+"each judgment should include supporting evidence, uncertainty, and a clear
+distinction between objective failure and subjective preference". The engine
+already had the measurements that answer half of those legs ON THE DELIVERED
+FILE - the audio spec (QA-004, PR 3046), the caption spec (QA-003, PR 3082) and
+the picture spec (QA-002, PR 3071) - and it had an independent judge
+(`editorial_acceptance.judgement`) whose rows are scored against a brief's
+acceptance criteria. What it did NOT have was a place where the two halves meet.
+
+That is where the shape of the defect is. A review that averages a technical
+failure into a score reads a file that failed its audio spec as a seven-out-of-
+eight edit: the seven are taste, and the one is a measurement, and an average
+cannot tell them apart. So the contract puts them in different sections, makes a
+row declare WHICH kind of claim it is (a subjective row may not claim an
+objective basis, and an objective row may not claim a subjective one), and
+computes the verdict so that an objective failure is the verdict - with the
+subjective score published BESIDE it rather than folded into it.
+
+**What it enforces.** A measured row without evidence is refused; a row that
+does not state its uncertainty is refused; a leg the judge did not read must be
+a `not_measured` row rather than a missing one; and the objective rows NAME the
+measurement they came from, so an objective row with no measurement behind it is
+refused too.
+
+**Where it is.** `library/tools/editorial_acceptance/judgement.py`:
+`REVIEW_LEGS`, `objective_legs`, `review`, `review_verdict`. The CLI is
+`python3 -m library.tools.editorial_acceptance --review <delivered file>
+--brief-file <public brief> --judgments <the judge's rows>`.
+
+**MEASURED on two delivered scratch reels** (Ren's own
+`ren-scratch-bench-demo` export, 79.5s, 1080x1920; 2026-10-21). The clean reel
+is the delivered file with its audio brought to the delivery spec's -14.0 LUFS
+(it ships at -23.18, which the engine's own audio spec reports as a failure -
+a real finding about that scratch reel, reported as such). The defect reel is
+the same file with two seeded defects: 2.08s cut out of the MIDDLE of a spoken
+sentence, and a 0.709s undeclared BLACK flash at the seam. Both were reviewed
+against the same public brief and the same declared ending.
+
+| | the clean reel | the defect reel |
+|---|---|---|
+| verdict | `pass` | `fail` |
+| objective failures | none | `shot_quality` (the black frame) |
+| subjective failures | none | 6 of 8 legs |
+| subjective score | 1.0 | 0.25 |
+
+The defect reel's objective failure is `shot_quality`: the engine's own
+`render_qa.detect_black_frames` measures the 0.709s of black at 47.172-47.881s
+as UNDECLARED. The narrative defect is caught by the judge's reading of the
+file's own timed transcript, which reads "Everything that you're doing has to be
+aligned with what you want." where the reel said "Everything that you're doing
+has like your company's information has to be aligned with what you want." - the
+subject of "has to be aligned" is gone.
+
+**What the audio leg shows.** The defect reel's audio spec PASSES: the level is
+in spec, there is no undeclared silence under picture, and both channels carry
+signal - and the sentence inside that audio is broken. A gate that measures
+level and silence cannot hear a splice. That is the whole reason the contract
+has a subjective half at all, and the whole reason the two halves are not
+averaged.
+
+**What it does not do.** The picture spec (QA-002, PR 3071) landed on main
+while this branch was in flight, and the contract READS it: the picture leg's
+own measurements are the picture spec's four legs - the frame is 1080x1920, the
+picture fills it, no undeclared black frames, no frozen frames - and the defect
+reel fails its black-frames leg. Its OVERLAYS leg did not run, because no
+overlay expectations were supplied, and the caption spec (QA-003) did not run
+either: this scratch project holds no compiled manifest, so no caption intent
+was supplied and the captions were judged by reading the file, not against a
+plan. Both are reported `not_measured`, with the citation, rather than passing
+on what did run.

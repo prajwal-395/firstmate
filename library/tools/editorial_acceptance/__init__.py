@@ -14,8 +14,10 @@ The pieces, each in one module:
 - ``failures`` the failure-cause taxonomy, so the next engineering
   change targets the bottleneck that actually broke.
 - ``delivery`` the evidence taken off the EXPORTED file.
-- ``judgement`` the independent editorial assessment, and what a judge is
-  allowed to see.
+- ``judgement`` the independent editorial assessment, what a judge is
+  allowed to see, and the editorial REVIEW CONTRACT - the eight legs,
+  the objective rows beside the subjective ones, and the verdict that
+  an objective failure is not cleared by a subjective score.
 - ``record``   the task record a run leaves behind.
 - ``footage``  the substrate a brief runs against, and whether the
   brief's premise is in it.

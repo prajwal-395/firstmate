@@ -28,9 +28,16 @@ import argparse
 import importlib
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
-from library.tools.editorial_acceptance import briefs, footage, runner
+from library.tools.editorial_acceptance import (
+    briefs,
+    delivery,
+    footage,
+    judgement,
+    runner,
+)
 
 
 def _load_factory(spec: str):
@@ -78,6 +85,145 @@ def _list_briefs(brief_set: dict[str, Any],
     return 0
 
 
+def _brief_by_id(brief_set: dict[str, Any], brief_id: str) -> dict[str, Any]:
+    """The brief with this id, or a refusal that names the ones there are."""
+    for brief in brief_set.get("briefs") or []:
+        if str(brief.get("id")) == brief_id:
+            return brief
+    known = ", ".join(str(brief.get("id"))
+                      for brief in brief_set.get("briefs") or [])
+    raise SystemExit(
+        f"--brief {brief_id!r} is not in the brief set. It holds: {known}")
+
+
+def _public_brief(brief_set: dict[str, Any], args: argparse.Namespace
+                  ) -> dict[str, Any]:
+    """The brief the delivered file is reviewed against.
+
+    `--brief-file` names a JSON file holding the brief's PUBLIC half - the
+    instruction, the project state and the acceptance criteria - which is
+    what a judge is allowed to see. `--brief` names one of the acceptance
+    set's briefs instead.
+    """
+    if args.brief_file:
+        brief = json.loads(Path(args.brief_file).read_text(encoding="utf-8"))
+        if not isinstance(brief, dict):
+            raise SystemExit(f"{args.brief_file} does not hold a brief")
+        return brief
+    if not args.brief:
+        raise SystemExit("--review needs --brief or --brief-file")
+    return briefs.public_view(_brief_by_id(brief_set, args.brief))
+
+
+def _caption_intents(path: str | None) -> list[Any] | None:
+    """The caption intents a caller supplied, or None when none were."""
+    if not path:
+        return None
+    from library.tools.delivered_caption_spec import CaptionIntent
+
+    rows = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(rows, list):
+        raise SystemExit(f"{path} does not hold a list of caption intents")
+    intents = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise SystemExit(f"{path} holds a caption intent that is not "
+                             "an object")
+        intents.append(CaptionIntent(
+            label=str(row.get("label") or ""),
+            text=str(row.get("text") or ""),
+            start=float(row.get("start") or 0.0),
+            end=float(row.get("end") or 0.0),
+            box=tuple(row["box"]) if row.get("box") else None,
+            lines=row.get("lines"),
+            ink_height=row.get("ink_height"),
+            emphasis=tuple(tuple(item) for item in row.get("emphasis") or ()),
+        ))
+    return intents
+
+
+def _spans(text: str | None) -> list[tuple[float, float]]:
+    """The `start:end` spans a caller declared, read and checked."""
+    if not text:
+        return []
+    spans: list[tuple[float, float]] = []
+    for item in str(text).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        start, _, end = item.partition(":")
+        try:
+            pair = (float(start), float(end))
+        except ValueError:
+            raise SystemExit(
+                f"--declared span {item!r} is not start:end seconds")
+        if pair[1] <= pair[0]:
+            raise SystemExit(
+                f"--declared span {item!r} does not run forwards")
+        spans.append(pair)
+    return spans
+
+
+def _review(args: argparse.Namespace, brief_set: dict[str, Any]) -> int:
+    """One structured editorial review of one delivered file.
+
+    The objective legs are MEASURED here, by the engine's own gates on
+    the delivered file; the subjective legs are the judge's rows, read
+    from the evidence packet and carried in a file. The two are printed
+    apart, because a subjective score must never be read as clearing an
+    objective failure.
+    """
+    from library.tools import delivery_spec
+
+    video = Path(args.review)
+    if not video.is_file():
+        raise SystemExit(f"there is no delivered file at {video}")
+    brief = _public_brief(brief_set, args)
+    spec = delivery_spec.resolve_delivery_spec(args.platform or "")
+    declared_silence = _spans(args.declared_silence)
+    declared_black = _spans(args.declared_black)
+    render = delivery.build_render_evidence(
+        video, align_transcript=not args.no_align_transcript,
+        expected_resolution=(spec.width, spec.height),
+        expected_fps=spec.fps,
+        expected_duration=args.expected_duration,
+        declared_black_spans=list(declared_black),
+        declared_silence_spans=list(declared_silence),
+        target_lufs=spec.loudness_target_lufs,
+        lufs_tolerance=spec.loudness_tolerance_lufs,
+        true_peak_ceiling=spec.true_peak_ceiling_dbtp)
+    objective = judgement.objective_legs(
+        str(video), spec=spec,
+        expected_duration=args.expected_duration
+        or render.get("duration_seconds"),
+        caption_intents=_caption_intents(args.caption_intents),
+        declared_silence_spans=list(declared_silence),
+        declared_black_spans=list(declared_black))
+    judgments = None
+    if args.judgments:
+        judgments = json.loads(Path(args.judgments).read_text(encoding="utf-8"))
+        if isinstance(judgments, dict):
+            judgments = judgments.get("legs") or judgments.get("criteria")
+    record = judgement.review(
+        task_id=str(args.task_id or video.stem),
+        brief=brief, render=render, judgments=judgments,
+        judge=None if judgments is not None else _load_factory(args.judge)(),
+        objective=objective)
+    out = runner.write_report(record, args.report)
+    print(json.dumps({
+        "verdict": record["verdict"],
+        "verdict_reason": record["verdict_reason"],
+        "subjective_score": record["subjective_score"],
+        "objective_failures": [row["leg"]
+                               for row in record["objective_failures"]],
+        "subjective_failures": [row["leg"]
+                                for row in record["subjective_failures"]],
+        "counts": record["counts"],
+    }, indent=2))
+    print(f"wrote {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="ren accept",
@@ -96,6 +242,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--select", action="store_true",
                         help="print the substrate each brief would run "
                              "against, and why")
+    parser.add_argument("--review", default=None,
+                        help="review one delivered file on the eight "
+                             "named legs, and write the structured review")
+    parser.add_argument("--brief", default=None,
+                        help="the brief id the delivered file is reviewed "
+                             "against")
+    parser.add_argument("--brief-file", default=None,
+                        help="a JSON file holding the brief's PUBLIC half "
+                             "- the instruction, the project state and the "
+                             "acceptance criteria a judge may see")
+    parser.add_argument("--judgments", default=None,
+                        help="a JSON file holding the judge's own rows for "
+                             "the eight legs")
+    parser.add_argument("--task-id", default=None,
+                        help="the task id the review is recorded under")
+    parser.add_argument("--platform", default="",
+                        help="the delivery platform the file is judged "
+                             "against")
+    parser.add_argument("--expected-duration", type=float, default=None,
+                        help="the planned duration, in seconds")
+    parser.add_argument("--caption-intents", default=None,
+                        help="a JSON file holding the caption intents the "
+                             "delivered file's captions are compared "
+                             "against")
+    parser.add_argument("--declared-silence", default=None,
+                        help="the seconds of the delivered file that are "
+                             "DECLARED silent, as start:end pairs")
+    parser.add_argument("--declared-black", default=None,
+                        help="the seconds of the delivered file that are "
+                             "DECLARED black, as start:end pairs")
     parser.add_argument("--no-align-transcript", action="store_true",
                         help="time the delivered file's words with the "
                              "transcriber's own boundaries instead of the "
@@ -116,6 +292,8 @@ def main(argv: list[str] | None = None) -> int:
         selection = footage.select_for_set(brief_set, catalogue)
         print(json.dumps(selection, indent=2, sort_keys=True))
         return 0
+    if args.review:
+        return _review(args, brief_set)
     if args.list or not args.records:
         return _list_briefs(brief_set, catalogue)
     judge = _load_factory(args.judge)() if args.judge else None
