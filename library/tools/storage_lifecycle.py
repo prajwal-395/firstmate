@@ -31,6 +31,7 @@ from library.tools import artifact_lifecycle as lifecycle
 from library.tools import artifact_policy
 from library.tools import git_guard as _git_guard
 from library.tools import project_registry
+from library.tools import storage_categories
 
 DEFAULT_FREE_RESERVE_BYTES = 10 * 1024**3
 PROTECTED_SUFFIXES = frozenset({".drt", ".drp", ".otio"})
@@ -1219,25 +1220,292 @@ def _legacy_owner(path: str, roots: dict[str, list[Path]]) -> str:
     path is the same file, and a legacy entry that belongs to a project
     must be counted against that project rather than against the
     machine.
+
+    The comparison is a PREFIX, not a path-object walk: the report
+    walks tens of thousands of legacy entries against every project's
+    roots, and building path objects for each pair made `ren storage
+    status` take a quarter of an hour on this machine. A path that is
+    not a symlink is already the file it names, so it is matched
+    against the root it was walked from; only a symlink is resolved,
+    because only a symlink can name a file somewhere else.
     """
-    candidate = Path(path).resolve()
+    candidate = os.path.normpath(path)
     for project, owned in roots.items():
         for root in owned:
-            try:
-                if candidate.is_relative_to(root.resolve()):
-                    return project
-            except (OSError, ValueError):
-                continue
+            prefix = os.path.normpath(str(root))
+            if candidate == prefix or candidate.startswith(prefix + os.sep):
+                return project
+    if not os.path.islink(path):
+        return ""
+    try:
+        resolved = os.path.normpath(str(Path(path).resolve()))
+    except (OSError, ValueError):
+        return ""
+    for project, owned in roots.items():
+        for root in owned:
+            prefix = os.path.normpath(str(root.resolve()))
+            if resolved == prefix or resolved.startswith(prefix + os.sep):
+                return project
     return ""
 
 
-def status(projects: list[str], *, disk_path: str | None = None) -> dict:
-    """Summarize registered lifecycle artifacts and current disk pressure.
+def _policy_reason(project: str, path: str, recorded_class: str) -> dict | None:
+    """Why the AREA or the RECORD protects this path, or None.
 
-    The report answers PER PROJECT as well as for the machine: which
-    project holds which bytes, which of them may be reclaimed, what its
-    legacy entries cost, and what its analysis consumed.
+    The DECISION is `artifact_policy.is_protected_path`; this only says
+    WHICH reading protected it, so a kept artifact names a reason an
+    operator can act on instead of vanishing from the plan.
     """
+    if not artifact_policy.is_protected_path(project, path, recorded_class):
+        return None
+    area = artifact_policy.area_for_path(project, path)
+    if area is None:
+        if artifact_policy.is_inside_project(project, path):
+            return {
+                "code": "no-named-area",
+                "detail": artifact_policy.policy_for_path(project, path).why,
+            }
+        return {
+            "code": "record-protects",
+            "detail": (
+                f"the record names class {recorded_class!r}, which no "
+                "cleanup may name"),
+        }
+    area_policy = artifact_policy.policy_for_area(area)
+    if (recorded_class
+            and artifact_policy.is_never_cleanable(recorded_class)
+            and recorded_class != area_policy.retention_class):
+        return {
+            "code": "class-protects",
+            "detail": (
+                f"{area_policy.why}; the record also names class "
+                f"{recorded_class!r}"),
+        }
+    return {"code": "area-protects", "detail": area_policy.why}
+
+
+def _is_liveness_root(path: str, roots: set[str]) -> bool:
+    """Whether a RECORDED VERSION names this file.
+
+    The reading records both the path a record wrote and its resolved
+    form, so both are compared: the same file reached through a
+    symlinked path is the same file.
+    """
+    if not roots:
+        return False
+    written = os.path.abspath(os.path.expanduser(path))
+    if written in roots:
+        return True
+    try:
+        resolved = os.path.realpath(written)
+    except (OSError, ValueError):
+        return False
+    return resolved in roots
+
+
+def _classify_artifacts(projects: list[str], report: dict) -> tuple[list, list]:
+    """Every registered artifact: a candidate, or KEPT with its reasons.
+
+    ONE reading, shared by the status report and by the plan, so the
+    bytes the report calls reclaimable are exactly the bytes the plan
+    would reclaim. A git-tracked file is never a candidate: the guard
+    runs on every artifact that no other reading already keeps.
+    """
+    owned = [str(Path(project).resolve()) for project in projects]
+    liveness = {}
+    for project in projects:
+        resolved_project = str(Path(project).resolve())
+        try:
+            liveness[resolved_project] = _version_dependencies(project)
+        except (OSError, ValueError) as exc:
+            # A reading that cannot answer is a REFUSAL, not an absence:
+            # nothing in that project may be named until it can.
+            liveness[resolved_project] = (set(), (
+                f"a retained version record could not be read ({exc}), so "
+                "the files a version names cannot be established"
+            ))
+    candidates: list[dict] = []
+    kept: list[dict] = []
+    for row in report["artifacts"]:
+        identity = row.get("identity") or {}
+        reasons: list[dict] = []
+        if not row.get("path"):
+            # A Resolve resource is not a file on disk: there is no path
+            # to name, so it is kept and it is never a candidate.
+            kept.append({
+                "artifact_id": row["artifact_id"],
+                "project": row["project"],
+                "path": "",
+                "kind": row.get("kind"),
+                "state": row.get("state"),
+                "retention_class": row.get("retention_class", ""),
+                "category": storage_categories.PROTECTED,
+                "bytes": 0,
+                "reasons": [{
+                    "code": "resolve-resource",
+                    "detail": "a Resolve resource, not a file on disk",
+                }],
+            })
+            continue
+        if not row.get("identity_matches"):
+            reasons.append({
+                "code": "identity-changed",
+                "detail": "the file at the recorded path is not the "
+                          "recorded file",
+            })
+        if not row.get("ownership_known"):
+            reasons.append({
+                "code": "ownership-unknown",
+                "detail": "the record does not name a project, a run and "
+                          "a job, so ownership cannot be established",
+            })
+        state = row.get("state")
+        if state != lifecycle.DISPOSABLE:
+            reasons.append({
+                "code": "state",
+                "detail": f"the artifact is {state!r}, not disposable",
+            })
+        if row.get("pinned"):
+            reasons.append({
+                "code": "pinned",
+                "detail": "the artifact is pinned, so something asked for "
+                          "it to stay",
+            })
+        dependencies = row.get("dependencies") or []
+        if dependencies:
+            reasons.append({
+                "code": "dependency",
+                "detail": "a dependency names it: "
+                          + ", ".join(str(item) for item in dependencies),
+            })
+        if not row.get("regenerable"):
+            reasons.append({
+                "code": "not-regenerable",
+                "detail": "no re-run brings this file back",
+            })
+        if row.get("kind") in PROTECTED_KINDS:
+            reasons.append({
+                "code": "protected-kind",
+                "detail": f"{row.get('kind')!r} is never a cleanup target",
+            })
+        suffix = Path(row["path"]).suffix.lower()
+        if suffix in PROTECTED_SUFFIXES:
+            reasons.append({
+                "code": "protected-suffix",
+                "detail": f"{suffix} is never a cleanup target",
+            })
+        if _protected_project_artifact(row["project"], row["path"]):
+            reasons.append({
+                "code": "protected-path",
+                "detail": "the path sits in a durable editorial area",
+            })
+        if int(identity.get("link_count", 0)) != 1:
+            reasons.append({
+                "code": "hardlinked",
+                "detail": "the file has more than one link, so removing "
+                          "one name frees nothing",
+            })
+        policy = _policy_reason(
+            row["project"], row["path"], row.get("retention_class", ""))
+        if policy:
+            reasons.append(policy)
+        if not reasons:
+            roots, refusal = liveness.get(
+                row["project"], (set(), ""))
+            if refusal:
+                reasons.append({
+                    "code": "recovery-record-unreadable",
+                    "detail": refusal,
+                })
+            elif _is_liveness_root(row["path"], roots):
+                reasons.append({
+                    "code": "version-liveness-root",
+                    "detail": "a recorded version still names this file, so "
+                              "the version that could be restored keeps its "
+                              "media",
+                })
+        if not reasons:
+            hit = _git_guard.check(row["path"], owned_roots=owned)
+            if hit is not None:
+                reasons.append({
+                    "code": hit.reason,
+                    "detail": _git_guard.describe(hit),
+                    "resolved_path": hit.resolved_path,
+                    "work_tree": hit.work_tree,
+                })
+        size = int(identity.get("size_bytes", 0))
+        if reasons:
+            kept.append({
+                "artifact_id": row["artifact_id"],
+                "project": row["project"],
+                "path": row["path"],
+                "kind": row.get("kind"),
+                "state": row.get("state"),
+                "retention_class": row.get("retention_class", ""),
+                "category": storage_categories.category_for_path(
+                    row["project"], row["path"]),
+                "bytes": size,
+                "reasons": reasons,
+            })
+            continue
+        candidates.append({
+            key: row[key]
+            for key in (
+                "artifact_id",
+                "project",
+                "path",
+                "identity",
+                "kind",
+                "run_id",
+                "job_id",
+            )
+        })
+    return candidates, kept
+
+
+def _category_usage(entries: list[dict], legacy_rows: list[dict]) -> dict:
+    """Registered and legacy bytes per category, with the budget."""
+    totals = {
+        category: {
+            "artifacts": 0,
+            "logical_bytes": 0,
+            "physical_bytes": 0,
+            "legacy_entries": 0,
+            "legacy_bytes": 0,
+            "total_bytes": 0,
+        }
+        for category in storage_categories.CATEGORIES
+    }
+    seen: set[tuple[int, int]] = set()
+    for row in entries:
+        if not row.get("identity_matches"):
+            continue
+        identity = row.get("identity") or {}
+        size = int(identity.get("size_bytes", 0))
+        category = storage_categories.category_for_path(
+            row["project"], row["path"])
+        bucket = totals[category]
+        bucket["artifacts"] += 1
+        bucket["logical_bytes"] += size
+        inode = (int(identity["device"]), int(identity["inode"]))
+        if inode not in seen:
+            seen.add(inode)
+            bucket["physical_bytes"] += size
+    for row in legacy_rows:
+        category = storage_categories.LEGACY_CATEGORY.get(
+            str(row.get("category") or ""), storage_categories.PROTECTED)
+        bucket = totals[category]
+        bucket["legacy_entries"] += 1
+        bucket["legacy_bytes"] += int(row.get("physical_bytes", 0))
+    for bucket in totals.values():
+        bucket["total_bytes"] = bucket["physical_bytes"] + bucket["legacy_bytes"]
+    return storage_categories.usage_rows(totals)
+
+
+def _storage_report(
+    projects: list[str], *, disk_path: str | None = None
+) -> tuple[dict, list, list]:
+    """The report, the candidates it names, and the artifacts it keeps."""
     entries = []
     by_kind: dict[str, dict[str, int]] = {}
     by_project: dict[str, dict] = {}
@@ -1284,24 +1552,6 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
                 totals["physical_bytes"] += size
                 project_kind["physical_bytes"] += size
                 project_totals["physical_bytes"] += size
-            if (
-                row.get("state") == lifecycle.DISPOSABLE
-                and row.get("ownership_known")
-                and not row.get("pinned")
-                and not row.get("dependencies")
-                and row.get("regenerable")
-            ):
-                eligible_kind = kind not in PROTECTED_KINDS
-                eligible_path = (
-                    Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES
-                    and not _protected_project_artifact(project, row["path"])
-                )
-                eligible_area = not artifact_policy.is_protected_path(
-                    project, row["path"], row.get("retention_class", ""))
-                if (eligible_kind and eligible_path and eligible_area
-                        and identity.get("link_count") == 1):
-                    reclaimable += size
-                    project_totals["reclaimable_bytes"] += size
             if row.get("state") in {
                 lifecycle.CREATED,
                 lifecycle.ACTIVE,
@@ -1392,13 +1642,13 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
             {"entries": 0, "logical_bytes": 0, "physical_bytes": 0,
              "unverified": 0})
         totals["analysis"] = analysis_resources(project)
-    return {
+    report = {
         "artifacts": entries,
         "by_kind": by_kind,
         "by_project": by_project,
         "logical_bytes": logical,
         "physical_bytes": physical,
-        "reclaimable_bytes": reclaimable,
+        "reclaimable_bytes": 0,
         "active_bytes": active_bytes,
         "protected_bytes": protected_bytes,
         "oldest_retained": oldest,
@@ -1425,6 +1675,29 @@ def status(projects: list[str], *, disk_path: str | None = None) -> dict:
             "by_project": legacy_by_project,
         },
     }
+    report["categories"] = _category_usage(entries, legacy_rows)
+    candidates, kept = _classify_artifacts(projects, report)
+    for row in candidates:
+        size = int((row.get("identity") or {}).get("size_bytes", 0))
+        reclaimable += size
+        totals = by_project.get(row["project"])
+        if totals is not None:
+            totals["reclaimable_bytes"] += size
+    report["reclaimable_bytes"] = reclaimable
+    return report, candidates, kept
+
+
+def status(projects: list[str], *, disk_path: str | None = None) -> dict:
+    """Summarize registered lifecycle artifacts and current disk pressure.
+
+    The report answers PER PROJECT as well as for the machine: which
+    project holds which bytes, which of them may be reclaimed, what its
+    legacy entries cost, and what its analysis consumed. It also
+    answers per CATEGORY, with the budget each category is measured
+    against, so usage is visible before anything is planned.
+    """
+    report, _candidates, _kept = _storage_report(projects, disk_path=disk_path)
+    return report
 
 
 def require_free_space(required_bytes: int, *, path: str | None = None) -> dict:
@@ -1617,31 +1890,34 @@ def _version_dependencies(project: str) -> tuple[set[str], str]:
 
 
 def plan_document(projects: list[str]) -> dict:
-    """Build an exact-identity manifest without writing it."""
-    report = status(projects)
-    candidates = []
+    """Build an exact-identity manifest without writing it.
+
+    The manifest accounts for EVERY registered artifact: the ones it
+    would reclaim, and the ones it KEEPS with the reason each is kept.
+    A kept artifact that simply vanished from the plan made the plan
+    unusable as a prediction - an operator could not tell a file that
+    was protected from a file nobody had looked at.
+    """
+    report, candidates, kept = _storage_report(projects)
     refused_policy = []
+    refused_git = []
     refused_dependencies = []
-    dependencies: dict[str, set[str]] = {}
-    unreadable_projects: dict[str, str] = {}
-    for project in projects:
-        paths, problem = _version_dependencies(project)
-        dependencies[str(Path(project).resolve())] = paths
-        if problem:
-            unreadable_projects[str(Path(project).resolve())] = problem
-    for row in report["artifacts"]:
-        if row["project"] in unreadable_projects:
-            refused_dependencies.append({
+    for row in kept:
+        codes = [reason["code"] for reason in row["reasons"]]
+        if any(code in ("area-protects", "no-named-area", "class-protects")
+               for code in codes):
+            refused_policy.append({
                 "artifact_id": row["artifact_id"],
                 "path": row["path"],
                 "kind": row["kind"],
-                "reason": (
-                    "a retained version record of this project could not be "
-                    "read, so its media cannot be proved unreferenced: "
-                    + unreadable_projects[row["project"]]),
+                "retention_class": artifact_policy.effective_class(
+                    row["project"], row["path"], row.get("retention_class", "")),
+                "reason": next(
+                    reason["detail"] for reason in row["reasons"]
+                    if reason["code"] in ("area-protects", "no-named-area",
+                                          "class-protects")),
             })
-            continue
-        if row["path"] in dependencies.get(row["project"], set()):
+        if "version-liveness-root" in codes:
             refused_dependencies.append({
                 "artifact_id": row["artifact_id"],
                 "path": row["path"],
@@ -1649,75 +1925,50 @@ def plan_document(projects: list[str]) -> dict:
                 "reason": ("a retained generation of this project still "
                            "needs this file; it is a version dependency"),
             })
-            continue
-        if not (
-            row["identity_matches"]
-            and row["ownership_known"]
-            and row.get("state") == lifecycle.DISPOSABLE
-            and row.get("regenerable")
-            and not row.get("pinned")
-            and not row.get("dependencies")
-            and not _protected_project_artifact(row["project"], row["path"])
-            and int((row.get("identity") or {}).get("link_count", 0)) == 1
-            and row.get("kind") not in PROTECTED_KINDS
-            and Path(row["path"]).suffix.lower() not in PROTECTED_SUFFIXES
-        ):
-            continue
-        # The AREA has the last word. A record that named a disposable
-        # class for a file in `exports/` does not make a delivered render
-        # disposable, and the refusal is reported rather than dropped.
-        if artifact_policy.is_protected_path(
-                row["project"], row["path"], row.get("retention_class", "")):
-            refused_policy.append({
+        elif "recovery-record-unreadable" in codes:
+            refused_dependencies.append({
                 "artifact_id": row["artifact_id"],
                 "path": row["path"],
                 "kind": row["kind"],
-                "retention_class": artifact_policy.effective_class(
-                    row["project"], row["path"], row.get("retention_class", "")),
-                "reason": artifact_policy.policy_for_path(
-                    row["project"], row["path"]).why,
+                "reason": next(
+                    reason["detail"] for reason in row["reasons"]
+                    if reason["code"] == "recovery-record-unreadable"),
             })
-            continue
-        candidates.append(
-            {
-                key: row[key]
-                for key in (
-                    "artifact_id",
-                    "project",
-                    "path",
-                    "identity",
-                    "kind",
-                    "run_id",
-                    "job_id",
-                )
-            }
-        )
+        for reason in row["reasons"]:
+            if reason["code"] not in (_git_guard.GIT_TRACKED,
+                                     _git_guard.FOREIGN_WORK_TREE):
+                continue
+            refused_git.append({
+                "artifact_id": row["artifact_id"],
+                "path": row["path"],
+                "resolved_path": reason.get("resolved_path", ""),
+                "reason": reason["code"],
+                "work_tree": reason.get("work_tree", ""),
+                "detail": reason["detail"],
+            })
     cache_evictions = plan_cache_evictions(
         projects,
         pressure_state=report["disk_pressure"],
         cache_bytes=report["cache_bytes"],
     )
-    owned = [str(Path(project).resolve()) for project in projects]
-    _collectable, refused = _git_guard.partition(
-        [row["path"] for row in candidates], owned_roots=owned)
-    refused_by_path = {hit.path: hit for hit in refused}
-    refused_git = [
-        {"artifact_id": row["artifact_id"], "path": row["path"],
-         "resolved_path": refused_by_path[row["path"]].resolved_path,
-         "reason": refused_by_path[row["path"]].reason,
-         "work_tree": refused_by_path[row["path"]].work_tree,
-         "detail": _git_guard.describe(refused_by_path[row["path"]])}
-        for row in candidates if row["path"] in refused_by_path]
-    candidates = [row for row in candidates
-                  if row["path"] not in refused_by_path]
     document = {
         "format": "ren-storage-plan/1",
         "candidates": candidates,
+        "kept": kept,
         "refused_git": refused_git,
         "refused_policy": refused_policy,
         "refused_dependencies": refused_dependencies,
         "cache_evictions": cache_evictions,
         "logical_bytes": sum(row["identity"]["size_bytes"] for row in candidates),
+        "accounting": {
+            "registered": len(report["artifacts"]),
+            "candidates": len(candidates),
+            "kept": len(kept),
+            "reclaimable_bytes": sum(
+                row["identity"]["size_bytes"] for row in candidates),
+            "kept_bytes": sum(row["bytes"] for row in kept),
+            "categories": report.get("categories", {}),
+        },
     }
     return document
 

@@ -93,6 +93,19 @@ def _render(data: dict, as_json: bool) -> None:
             f"Disk pressure               {data['disk_pressure'].upper()} "
             f"({data['free_bytes']:,} bytes free)"
         )
+    categories = data.get("categories") or {}
+    if categories:
+        print("Category usage")
+        for name in sorted(categories):
+            row = categories[name]
+            budget = row.get("budget_bytes")
+            budget_text = (
+                "no budget" if budget is None else f"{budget:,} bytes budget")
+            over = " OVER BUDGET" if row.get("over_budget") else ""
+            print(
+                f"  {name:28} {row.get('total_bytes', 0):>12,} bytes  "
+                f"{budget_text}{over}"
+            )
     if data.get("legacy"):
         legacy = data["legacy"]
         print(
@@ -138,6 +151,23 @@ def _render(data: dict, as_json: bool) -> None:
                 f"  {row['kind']}: {row['path']} "
                 f"({row['identity']['size_bytes']:,} bytes)"
             )
+    if data.get("kept"):
+        print(f"Kept                       {len(data['kept'])}")
+        for row in data["kept"][:20]:
+            reasons = ", ".join(reason["code"] for reason in row["reasons"])
+            print(
+                f"  {row['kind']}: {row['path']} "
+                f"({row['bytes']:,} bytes) - {reasons}"
+            )
+        if len(data["kept"]) > 20:
+            print(f"  ... and {len(data['kept']) - 20} more")
+    accounting = data.get("accounting")
+    if accounting:
+        print(
+            f"Accounting                 {accounting['candidates']:,} candidate(s) "
+            f"+ {accounting['kept']:,} kept of "
+            f"{accounting['registered']:,} registered"
+        )
     if data.get("refused_policy"):
         print(
             f"Refused by policy           {len(data['refused_policy'])} "

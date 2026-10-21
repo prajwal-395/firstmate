@@ -18,12 +18,42 @@ those grounds is reported in the plan as `refused_policy`, not dropped.
 
 Use `ren storage status [PROJECT] --json` to inspect registered artifacts,
 storage by artifact kind, logical and physical bytes, cache budget use, and
-free-space pressure. The inventory reads lifecycle event logs; it does not
-discover candidates by recursively scanning storage directories. It reports
-Ren-owned registered artifacts and a separately measured legacy summary.
-Legacy entries include logical bytes and allocated bytes, counted once per
-device/inode for hardlinks. The legacy summary does not make an unverified
-entry eligible for collection.
+free-space pressure. It also reports USAGE PER CATEGORY against a BUDGET,
+so the report can say that a category is over its budget instead of only
+saying how many bytes it holds. The inventory reads lifecycle event logs; it
+does not discover candidates by recursively scanning storage directories. It
+reports Ren-owned registered artifacts and a separately measured legacy
+summary. Legacy entries include logical bytes and allocated bytes, counted
+once per device/inode for hardlinks. The legacy summary does not make an
+unverified entry eligible for collection. The walk resolves each project's
+roots ONCE per report rather than once per entry: resolving every root for
+every one of tens of thousands of entries made the report take a quarter of
+an hour on a machine with a populated qualification store, which is the same
+as having no report at all.
+
+### The categories and their budgets
+
+`library/tools/storage_categories.py` is the one vocabulary: the punchlist's
+four categories - `scratch_media`, `temporary_exports`, `analysis_caches`,
+`obsolete_render_generations` - plus `protected`, which holds everything no
+cleanup may ever name. A category is read from the LAYOUT's area, not from a
+file's name, and an area whose policy says a cleanup may never name it is
+always in `protected`, so a budget can never cover something protected.
+
+Each budgeted category carries a default budget and can be set per machine
+with `REN_STORAGE_BUDGET_<CATEGORY>_BYTES` (for example
+`REN_STORAGE_BUDGET_SCRATCH_MEDIA_BYTES`). `protected` has no budget under
+any configuration: a number against it would read as permission. A budget is
+REPORTED usage against a number; it is not an eviction policy, and the lanes
+that actually remove files keep their own guards.
+
+### The report and the plan agree
+
+`ren storage status` and `ren storage plan` read ONE classification, so the
+bytes the report calls reclaimable are exactly the bytes the plan would
+reclaim - including the git-tracked files the plan refuses. A report and a
+plan that disagreed were two predictions of the same run, and neither could
+be trusted.
 
 The report answers PER PROJECT as well as for the machine. `by_project` gives
 each project's own registered bytes, what of them may be reclaimed, the legacy
@@ -54,6 +84,26 @@ removes those exact entries through the ownership contract. `ren storage
 restore PATH` returns still-present quarantined entries to disposable state.
 Operations that cannot prove ownership, reachability, identity, or allowed
 state refuse with a reason. Plan before applying any change.
+
+`ren storage plan-preview [PROJECT]` is the DRY RUN: it builds the same
+manifest and prints it without writing a file.
+
+The manifest accounts for EVERY registered artifact. `candidates` are the
+entries it would reclaim; `kept` is every artifact it would NOT reclaim,
+each with the reason it is kept - a dependency that names it, a pin, the
+area that protects it, a record that cannot be read, or the git guard. A kept
+artifact that vanished from the plan made the plan unusable as a prediction:
+an operator could not tell a file that was protected from a file nobody had
+looked at. `accounting` states the denominators - registered, candidates,
+kept, and the bytes on each side.
+
+A file a RECORDED VERSION names is kept, with the reason
+`version-liveness-root`: an archived generation is a liveness root for every
+cleanup path, because a version that could still be restored must still have
+its media. The roots are read from
+`library/tools/execution/prune_orphans.py`, which owns that reading, and a
+recovery record that cannot be read is a REFUSAL - nothing in that project is
+named until it can be.
 
 The minimum free-space reserve is `REN_MIN_FREE_BYTES` (default 10 GiB).
 Pressure is critical below the reserve, elevated below 1.5 times the reserve,
