@@ -545,7 +545,11 @@ def export_timeline_recovery_archive(
             if staged.stat().st_size == 0:
                 raise RuntimeError("Resolve left an empty .drt file")
             os.replace(staged, destination)
-            _rebind_registered_archive(project_folder, destination)
+            if project_folder:
+                # A destination that belongs to no Ren project has no
+                # project artifacts to rebind, and the rebind reads the
+                # project layout - which refuses an empty folder.
+                _rebind_registered_archive(project_folder, destination)
         result.update({"archived": True, "path": str(destination),
                        "content_id": recovery_archive_content_id(destination),
                        "sha256": _sha256(destination),

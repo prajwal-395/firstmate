@@ -1,0 +1,188 @@
+{
+  "actual_state": {
+    "checks": {
+      "exact_record_start": true,
+      "exact_source_range": true,
+      "existing_items_untouched": true,
+      "placed_on_named_track": true
+    },
+    "measurement": {
+      "clip_composition": "single_video_clip",
+      "existing_effects": "transforms+retiming",
+      "frame_rate": "23.976",
+      "linked_audio_configuration": "no_linked_audio",
+      "media_type": "video",
+      "project_settings": "portrait_1080x1920",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "dense",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "scenarios": [
+      "insert_at_frame_on_track"
+    ]
+  },
+  "audio_verification": [
+    "every audio row is read back item by item before and after the write, and the dialogue rows are compared unchanged"
+  ],
+  "backend": "edit_patch",
+  "coverage": {
+    "configurations": [
+      "real_reel_product_format"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "single_video_clip"
+      ],
+      "existing_effects": [
+        "transforms+retiming"
+      ],
+      "frame_rate": [
+        "23.976"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "portrait_1080x1920"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "dense"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "all_populated"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {}
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#insert_at_frame_on_track",
+  "expected_state": {
+    "exact_record_start": true,
+    "exact_source_range": true,
+    "existing_items_untouched": true,
+    "placed_on_named_track": true
+  },
+  "operation_id": "clip.insert",
+  "preservation_checks": [
+    {
+      "check": "exact_record_start",
+      "result": "passed"
+    },
+    {
+      "check": "exact_source_range",
+      "result": "passed"
+    },
+    {
+      "check": "existing_items_untouched",
+      "result": "passed"
+    },
+    {
+      "check": "placed_on_named_track",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one operation, one backend, one product-format reel copy: exact_record_start, exact_source_range, existing_items_untouched, placed_on_named_track",
+    "the evidence is one live run; it does not qualify other effect combinations, other frame rates or another Resolve version"
+  ],
+  "project_conditions": [
+    "Ren Scratch - vep-bench-demo2 / vep-qual product format 1792542764",
+    "a Ren-owned scratch COPY of a real reel, never the captain's own timeline or media",
+    "the product format: portrait 1080x1920, 23.976fps, a dense timeline with linked video+audio, rendered caption cards, transforms and retiming"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "23.976"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "transforms+retiming"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "equals",
+      "value": "all_populated"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "single_video_clip"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "equals",
+      "value": "dense"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "portrait_1080x1920"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "clip.insert on edit_patch in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming"
+    ],
+    "does_not_apply_to": [
+      "a state outside coverage.dimensions",
+      "an operation/backend pair this evidence does not name",
+      "a timeline that is not a Ren-owned scratch copy of a real reel in the product format"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
+  ]
+}

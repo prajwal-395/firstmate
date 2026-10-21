@@ -139,8 +139,22 @@ def test_production_routing_still_refuses_every_covered_operation(op_id):
             context={"require_qualified": True})
 
 
+#: The operations the live qualification lane has since qualified, with
+#: the live evidence that earned it.  They stay in the protected
+#: policy's vocabulary - the policy is what a REQUEST may use - but the
+#: registry now carries their own production row, and this test is no
+#: longer the thing that says they are unqualified.
+QUALIFIED_BY_THE_LIVE_LANE = {
+    "broll.insert": "the product-format qualification of the AXI place "
+                     "verb on a real reel (portrait 1080x1920, 23.976fps, "
+                     "dense, linked video+audio, caption cards)",
+    "clip.replace": "the product-format qualification of the EditPatch "
+                    "source replacement on a real reel",
+}
+
+
 @pytest.mark.parametrize("op_id", [op for op in UNROUTABLE
-                                     if op != "broll.insert"])
+                                   if op not in QUALIFIED_BY_THE_LIVE_LANE])
 def test_no_covered_operation_is_production_enabled(op_id):
     """Catches: the qualification status edited to "production" so the
     protected route could be called a production one. Registering a
@@ -149,6 +163,21 @@ def test_no_covered_operation_is_production_enabled(op_id):
     assert status is not None
     assert not status.production_enabled
     assert not status.qualified
+
+
+@pytest.mark.parametrize("op_id", sorted(QUALIFIED_BY_THE_LIVE_LANE))
+def test_a_qualified_operation_carries_the_evidence_that_earned_it(op_id):
+    """Catches: an operation promoted to production with no live evidence
+    behind it.  The live qualification lane earns the promotion; the row
+    must carry the coverage the measurement produced."""
+    status = edit_algebra.status(op_id)
+    assert status is not None
+    assert status.production_enabled
+    for backend in status.backends:
+        if not backend.production_enabled:
+            continue
+        assert backend.qualification_predicates
+        assert backend.qualification_evidence
 
 
 def test_an_already_production_enabled_operation_keeps_its_predicates():

@@ -1717,8 +1717,20 @@ def _apply_clip_insert(op, timeline, _item, project=None):
     if not placed:
         raise RuntimeError("clip.insert: AppendToTimeline placed nothing")
     new_item = placed[0]
+    # A freshly placed item has no readable identity until Resolve's
+    # handle has caught up: `GetUniqueId()` answers None, and
+    # `str(None)` is the string "None" - which the verification then
+    # looked for and did not find (measured 2026-10-21 on a real reel).
+    from library.tools import resolve_write_settle
+
+    identity, _settled, _waited = resolve_write_settle.settled_placed_identity(
+        new_item)
+    if not identity:
+        raise RuntimeError(
+            "clip.insert: the placed item has no readable unique id - the "
+            "placement cannot be addressed, so nothing is claimed")
     op["client_unique_id"] = op["unique_id"]
-    op["unique_id"] = str(new_item.GetUniqueId())
+    op["unique_id"] = identity
     return new_item
 
 

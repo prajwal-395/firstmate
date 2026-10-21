@@ -1,0 +1,287 @@
+{
+  "actual_state": {
+    "checks": {
+      "aroll_unchanged": true,
+      "cover_on_cover_track": true,
+      "dialogue_audio_unchanged": true
+    },
+    "measurement": {
+      "clip_composition": "none",
+      "existing_effects": "none",
+      "frame_rate": "23.976",
+      "linked_audio_configuration": "no_linked_audio",
+      "media_type": "video",
+      "project_settings": "portrait_1080x1920",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "dense",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "scenarios": [
+      "broll_insert_keeps_dialogue"
+    ]
+  },
+  "audio_verification": [
+    "every audio row is read back item by item before and after the write, and the dialogue rows are compared unchanged"
+  ],
+  "backend": "resolve_axi",
+  "coverage": {
+    "configurations": [
+      "linked_av_1080p24",
+      "populated_1080p24",
+      "real_reel_product_format"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "none"
+      ],
+      "existing_effects": [
+        "none"
+      ],
+      "frame_rate": [
+        "24",
+        "23.976"
+      ],
+      "linked_audio_configuration": [
+        "no_linked_audio"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080",
+        "portrait_1080x1920"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "light",
+        "dense"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed",
+        "all_populated"
+      ]
+    },
+    "source": "derived_from_v1_evidence",
+    "uncovered": {
+      "clip_composition": [
+        "single_video_clip",
+        "linked_video_clip",
+        "still_clip",
+        "audio_clip",
+        "linked_audio_clip",
+        "unknown_item",
+        "mixed"
+      ],
+      "existing_effects": [
+        "fusion",
+        "grades",
+        "grades+fusion",
+        "grades+retiming",
+        "grades+retiming+fusion",
+        "retiming",
+        "retiming+fusion",
+        "transforms",
+        "transforms+fusion",
+        "transforms+grades",
+        "transforms+grades+fusion",
+        "transforms+grades+retiming",
+        "transforms+grades+retiming+fusion",
+        "transforms+retiming",
+        "transforms+retiming+fusion",
+        "transitions",
+        "transitions+fusion",
+        "transitions+grades",
+        "transitions+grades+fusion",
+        "transitions+grades+retiming",
+        "transitions+grades+retiming+fusion",
+        "transitions+retiming",
+        "transitions+retiming+fusion",
+        "transitions+transforms",
+        "transitions+transforms+fusion",
+        "transitions+transforms+grades",
+        "transitions+transforms+grades+fusion",
+        "transitions+transforms+grades+retiming",
+        "transitions+transforms+grades+retiming+fusion",
+        "transitions+transforms+retiming",
+        "transitions+transforms+retiming+fusion"
+      ],
+      "frame_rate": [
+        "other",
+        "25",
+        "29.97",
+        "30",
+        "48",
+        "50",
+        "59.94",
+        "60"
+      ],
+      "linked_audio_configuration": [
+        "linked_audio_present"
+      ],
+      "media_type": [
+        "audio",
+        "still",
+        "mixed",
+        "none",
+        "unknown"
+      ],
+      "project_settings": [
+        "unknown",
+        "square_1920x1920",
+        "landscape_1280x720",
+        "landscape_2560x1440",
+        "landscape_3840x2160",
+        "portrait_2160x3840"
+      ],
+      "timeline_density": [
+        "empty",
+        "moderate"
+      ],
+      "timeline_structure": [
+        "empty_timeline",
+        "single_item_timeline"
+      ],
+      "track_layout": [
+        "none",
+        "video",
+        "audio"
+      ],
+      "track_occupancy": [
+        "all_empty"
+      ]
+    }
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#broll_insert_keeps_dialogue; earlier evidence: tests/live/reports/editorial-acceptance-blind.json#insert_relevant_broll; Level-3 blind instruction covered the marked phrase with matching B-roll via resolve-axi edit place; cover placed, speech and audio kept",
+  "expected_state": {
+    "aroll_unchanged": true,
+    "cover_on_cover_track": true,
+    "dialogue_audio_unchanged": true
+  },
+  "operation_id": "broll.insert",
+  "preservation_checks": [
+    {
+      "check": "aroll_unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "cover_on_cover_track",
+      "result": "passed"
+    },
+    {
+      "check": "dialogue_audio_unchanged",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one operation, one backend, one product-format reel copy: aroll_unchanged, cover_on_cover_track, dialogue_audio_unchanged",
+    "the evidence is one live run; it does not qualify other effect combinations, other frame rates or another Resolve version"
+  ],
+  "project_conditions": [
+    "Ren Scratch - vep-bench-demo2 / vep-qual product format 1792548370",
+    "a Ren-owned scratch COPY of a real reel, never the captain's own timeline or media",
+    "the product format: portrait 1080x1920, 23.976fps, a dense timeline with linked video+audio, rendered caption cards, transforms and retiming"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "none"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "none"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "one_of",
+      "value": [
+        "24",
+        "23.976"
+      ]
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "no_linked_audio"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "project_settings",
+      "operator": "one_of",
+      "value": [
+        "landscape_1920x1080",
+        "portrait_1080x1920"
+      ]
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "light",
+        "dense"
+      ]
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "one_of",
+      "value": [
+        "mixed",
+        "all_populated"
+      ]
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "broll.insert on resolve_axi in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming"
+    ],
+    "does_not_apply_to": [
+      "a state outside coverage.dimensions",
+      "an operation/backend pair this evidence does not name",
+      "a timeline that is not a Ren-owned scratch copy of a real reel in the product format"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
+  ]
+}

@@ -5085,6 +5085,23 @@ def cmd_edit_place(args) -> int:
             delta = after - before
             new_items = list(placed or []) if placed else []
             if delta == 0:
+                # The handle may not have caught up yet: a dense reel
+                # refreshes slower than a fixture's, and a read taken
+                # straight after the append reports a write that landed
+                # as one that did not (measured 2026-10-21: the clip WAS
+                # on the cover row at the requested frame).
+                from library.tools import resolve_write_settle
+
+                after, _settled, _waited = (
+                    resolve_write_settle.settled_item_count(
+                        lambda: sum(
+                            len(timeline.GetItemListInTrack(t, i) or [])
+                            for t in ("video", "audio", "subtitle")
+                            for i in range(
+                                1, (int(timeline.GetTrackCount(t) or 0) + 1))),
+                        before))
+                delta = after - before
+            if delta == 0:
                 return fail(f"append reported "
                             f"{'success' if placed else 'nothing'} but the "
                             f"item count did not move ({before} -> {after}) "
@@ -5177,6 +5194,27 @@ def _replace_item(timeline, pool, orig, source_in: int,
             reason += f" The unverified replacement could not be removed ({exc})."
         return None, reason
 
+    from library.tools import resolve_write_settle
+
+    # The re-placed item reports the state from BEFORE the append until
+    # Resolve's handle has caught up, so the preservation state is
+    # carried onto the replacement only once the replacement reads the
+    # requested range (measured 2026-10-21 on a real reel: a dense reel
+    # refreshes slower than a fixture's, and the carry was judged
+    # against a stale read).
+    def placed_at_requested_range() -> bool:
+        span = _item_span(replacement)
+        try:
+            return (bool(span["uid"])
+                    and int(span["record_in"]) == int(record_frame)
+                    and int(span["record_out"]) - int(span["record_in"])
+                    == int(source_out) - int(source_in) + 1)
+        except (TypeError, ValueError):
+            return False
+
+    _placed, _waited = resolve_write_settle.wait_for(
+        placed_at_requested_range)
+
     state_diff = {}
     if preservation_state is not None:
         from library.tools import edit_state_preservation
@@ -5193,23 +5231,39 @@ def _replace_item(timeline, pool, orig, source_in: int,
             "the re-place did not preserve supported editorial state: "
             f"{state_diff}.")
     readback = _item_span(replacement)
-    try:
-        verified = (
-            bool(readback["uid"])
-            and int(readback["record_in"]) == int(record_frame)
-            and int(readback["record_out"]) - int(readback["record_in"])
-            == int(source_out) - int(source_in) + 1
-            and int(readback["source_in"]) == int(source_in)
-            # Live Resolve reports the exclusive endpoint for appended
-            # subranges, but clamps an endpoint at the media's final
-            # frame to that final inclusive frame. The record duration
-            # and source start are the stable proof of the requested
-            # range; accept exactly those two measured endpoint forms.
-            and int(readback["source_out"]) in {
-                int(source_out), int(source_out) + 1}
-            and _presence(timeline, readback["uid"]))
-    except (TypeError, ValueError):
-        verified = False
+
+    def verifies() -> bool:
+        """Whether the re-placed item reads the requested range.
+
+        The read waits for Resolve's handle to catch up: a re-placed
+        item reports the state from BEFORE the append until the handle
+        refreshes, and a dense reel refreshes slower than a fixture's
+        (measured 2026-10-21: the replacement was on the row while the
+        read said the item did not verify).
+        """
+        nonlocal readback
+        readback = _item_span(replacement)
+        try:
+            return (
+                bool(readback["uid"])
+                and int(readback["record_in"]) == int(record_frame)
+                and int(readback["record_out"]) - int(readback["record_in"])
+                == int(source_out) - int(source_in) + 1
+                and int(readback["source_in"]) == int(source_in)
+                # Live Resolve reports the exclusive endpoint for appended
+                # subranges, but clamps an endpoint at the media's final
+                # frame to that final inclusive frame. The record duration
+                # and source start are the stable proof of the requested
+                # range; accept exactly those two measured endpoint forms.
+                and int(readback["source_out"]) in {
+                    int(source_out), int(source_out) + 1}
+                and _presence(timeline, readback["uid"]))
+        except (TypeError, ValueError):
+            return False
+
+    from library.tools import resolve_write_settle
+
+    verified, _waited = resolve_write_settle.wait_for(verifies)
     if not verified:
         return None, ("the re-place returned an item that did not verify "
                       "at the requested source range and record frame.")

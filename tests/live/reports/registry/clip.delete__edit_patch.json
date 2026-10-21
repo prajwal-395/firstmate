@@ -1,29 +1,37 @@
 {
   "actual_state": {
-    "scenarios": {
-      "W1_delete_linked_video": {
-        "receipt_status": "committed",
-        "removed_uid": "bcb4ab47-0323-471c-b3a9-ba02ca9ae0b4"
-      },
-      "W2_delete_still": {
-        "receipt_status": "committed",
-        "removed_uid": "0b766ed4-c475-4e6c-a740-859bf4f5bad2"
-      },
-      "W3_delete_cover_multi": {
-        "receipt_status": "committed",
-        "removed_uid": "cacde8b5-86ac-4ca9-9d69-f4189212303f"
-      }
-    }
+    "checks": {
+      "other_items_untouched": true,
+      "target_absent": true
+    },
+    "measurement": {
+      "clip_composition": "linked_video_clip",
+      "existing_effects": "transforms+retiming+fusion",
+      "frame_rate": "23.976",
+      "linked_audio_configuration": "linked_audio_present",
+      "media_type": "video",
+      "project_settings": "portrait_1080x1920",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "dense",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "all_populated"
+    },
+    "scenarios": [
+      "delete_linked_target",
+      "delete_transformed_target"
+    ]
   },
   "audio_verification": [
-    "linked audio twin preserved in W1/W3 (twin uid unchanged on read-back); stills carry no audio"
+    "every audio row is read back item by item before and after the write, and the dialogue rows are compared unchanged"
   ],
   "backend": "edit_patch",
   "coverage": {
     "configurations": [
       "populated_1080p24",
       "linked_av_1080p24",
-      "still_1080p24"
+      "still_1080p24",
+      "real_reel_product_format"
     ],
     "dimensions": {
       "clip_composition": [
@@ -32,10 +40,13 @@
         "still_clip"
       ],
       "existing_effects": [
-        "none"
+        "none",
+        "transforms+retiming+fusion",
+        "transforms+retiming"
       ],
       "frame_rate": [
-        "24"
+        "24",
+        "23.976"
       ],
       "linked_audio_configuration": [
         "no_linked_audio",
@@ -46,13 +57,15 @@
         "still"
       ],
       "project_settings": [
-        "landscape_1920x1080"
+        "landscape_1920x1080",
+        "portrait_1080x1920"
       ],
       "resolve_version": [
         "21.1.0.14"
       ],
       "timeline_density": [
-        "light"
+        "light",
+        "dense"
       ],
       "timeline_structure": [
         "single_item_timeline",
@@ -90,8 +103,6 @@
         "transforms+grades+fusion",
         "transforms+grades+retiming",
         "transforms+grades+retiming+fusion",
-        "transforms+retiming",
-        "transforms+retiming+fusion",
         "transitions",
         "transitions+fusion",
         "transitions+grades",
@@ -111,7 +122,6 @@
       ],
       "frame_rate": [
         "other",
-        "23.976",
         "25",
         "29.97",
         "30",
@@ -132,24 +142,18 @@
         "landscape_1280x720",
         "landscape_2560x1440",
         "landscape_3840x2160",
-        "portrait_1080x1920",
         "portrait_2160x3840"
       ],
       "timeline_density": [
         "empty",
-        "moderate",
-        "dense"
+        "moderate"
       ],
       "timeline_structure": [
         "empty_timeline"
       ],
       "track_layout": [
         "none",
-        "audio",
-        "subtitle",
-        "video+subtitle",
-        "audio+subtitle",
-        "video+audio+subtitle"
+        "audio"
       ],
       "track_occupancy": [
         "all_empty"
@@ -160,33 +164,119 @@
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
+  "evidence": "tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: tests/live/reports/product-format-qualification/product-format-evidence.json#delete_linked_target,delete_transformed_target; earlier evidence: clip-delete-evidence.json#payload; direct EditPatch clip.delete committed; seeded qual_b.mp4 absent on re-read; no other items or tracks changed; tests/live/reports/predicate-widening-016.json#W1+W2+W3; direct EditPatch clip.delete committed on linked video, still, and multi-item cover; target absent, others unchanged",
   "expected_state": {
-    "other_items_unchanged": true,
+    "other_items_untouched": true,
     "target_absent": true
   },
   "operation_id": "clip.delete",
   "preservation_checks": [
     {
-      "check": "target_absent_on_readback",
+      "check": "other_items_untouched",
       "result": "passed"
     },
     {
-      "check": "other_items_unchanged",
-      "result": "passed"
-    },
-    {
-      "check": "receipt_committed",
+      "check": "target_absent",
       "result": "passed"
     }
   ],
   "preservation_limits": [
-    "one delete per scenario; link twins and covers outside the target uid are preserved"
+    "one operation, one backend, one product-format reel copy: other_items_untouched, target_absent",
+    "the evidence is one live run; it does not qualify other effect combinations, other frame rates or another Resolve version"
   ],
   "project_conditions": [
-    "Ren Qualification / fm-scratch qualify",
-    "private target timeline only",
-    "linked A/V seed, still logo, and seed-plus-V2-cover compositions on the scratch timeline"
+    "Ren Scratch - vep-bench-demo2 / vep-qual product format 1792548370",
+    "a Ren-owned scratch COPY of a real reel, never the captain's own timeline or media",
+    "the product format: portrait 1080x1920, 23.976fps, a dense timeline with linked video+audio, rendered caption cards, transforms and retiming"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "clip_composition",
+      "operator": "one_of",
+      "value": [
+        "single_video_clip",
+        "linked_video_clip",
+        "still_clip"
+      ]
+    },
+    {
+      "field": "existing_effects",
+      "operator": "one_of",
+      "value": [
+        "none",
+        "transforms+retiming+fusion",
+        "transforms+retiming"
+      ]
+    },
+    {
+      "field": "frame_rate",
+      "operator": "one_of",
+      "value": [
+        "24",
+        "23.976"
+      ]
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "one_of",
+      "value": [
+        "no_linked_audio",
+        "linked_audio_present"
+      ]
+    },
+    {
+      "field": "media_type",
+      "operator": "one_of",
+      "value": [
+        "video",
+        "still"
+      ]
+    },
+    {
+      "field": "project_settings",
+      "operator": "one_of",
+      "value": [
+        "landscape_1920x1080",
+        "portrait_1080x1920"
+      ]
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "one_of",
+      "value": [
+        "light",
+        "dense"
+      ]
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "one_of",
+      "value": [
+        "single_item_timeline",
+        "multi_item_timeline"
+      ]
+    },
+    {
+      "field": "track_layout",
+      "operator": "one_of",
+      "value": [
+        "video",
+        "video+audio"
+      ]
+    },
+    {
+      "field": "track_occupancy",
+      "operator": "one_of",
+      "value": [
+        "mixed",
+        "all_populated"
+      ]
+    }
   ],
   "recovery_status": "not_required",
   "resolve_version": "21.1.0.14",
@@ -194,21 +284,18 @@
   "schema": "ren-axi-qualification-result/v2",
   "semantic_boundary": {
     "applies_to": [
-      "deleting one timeline item, named by its exact unique id",
-      "a video, a linked A/V video or a still, on a timeline of one or a few items"
+      "clip.delete on edit_patch in the measured product-format state: a portrait 1080x1920 reel at 23.976fps, dense, with linked video+audio, caption cards, transforms and retiming"
     ],
     "does_not_apply_to": [
-      "deleting an item that carries a grade, a Fusion composition, a transition or a retime",
-      "deleting more than one item in one operation",
-      "a timeline whose frame rate, geometry or track layout is outside coverage.dimensions"
+      "a state outside coverage.dimensions",
+      "an operation/backend pair this evidence does not name",
+      "a timeline that is not a Ren-owned scratch copy of a real reel in the product format"
     ]
   },
   "supported_media_types": [
-    "video",
-    "video + audio",
-    "still"
+    "video"
   ],
   "visual_verification": [
-    "target uid absent on fresh read-back in all three scenarios; all other item uids and tracks unchanged"
+    "the live read-back of every clip on every row before and after the write: source path, source range, record span, transform, linked group and Fusion comps"
   ]
 }

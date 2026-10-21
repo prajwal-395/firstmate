@@ -1292,10 +1292,18 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
             handles_dirty = False
     try:
         from library.tools import perf_ledger
+        from library.tools import resolve_write_settle
         with perf_ledger.span(
                 "resolve_snapshot_read", snapshot_role="post_write",
                 snapshot_count=1, batch=True):
-            after = shadow.read_live(project, timeline)
+            # The post-write read waits for Resolve's handle to catch up.
+            # A dense timeline refreshes slower than a fixture's, and a
+            # read taken too early reports a write that landed as one
+            # that did not (measured 2026-10-21: the placed clip was on
+            # the cover row while the read said the row never moved).
+            after, _settled, _waited = resolve_write_settle.settled_snapshot(
+                lambda: shadow.read_live(project, timeline),
+                before_hash=shadow.snapshot_hash(live))
     except Exception as first_readback_error:  # noqa: BLE001
         try:
             with perf_ledger.span(

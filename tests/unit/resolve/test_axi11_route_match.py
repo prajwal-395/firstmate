@@ -127,16 +127,28 @@ def test_a_production_qualified_writer_elsewhere_keeps_the_route():
     assert decision.backend != "resolve_axi"
 
 
-def test_the_placement_has_an_implemented_but_unqualified_axi_adapter():
+def test_the_placement_has_an_implemented_axi_adapter():
     """The AXI place verb is a guarded write with a read-back, so the
-    registry may name it - and may NOT call it qualified."""
+    registry may name it - and its qualification is the live
+    qualification lane's to land.
+
+    The lane landed it: the AXI place verb was qualified on a Ren-owned
+    scratch copy of a REAL reel in the product format (portrait
+    1080x1920, 23.976fps, dense, with linked video+audio and caption
+    cards), and the row carries that coverage.  What the row may NOT
+    claim is a state the evidence does not cover: the predicates are the
+    product format, and a landscape fixture does not satisfy them.
+    """
     row = edit_algebra.status("clip.insert").for_backend("resolve_axi")
 
     assert row is not None
     assert row.compilable is True
     assert row.implementation_evidence
-    assert row.qualified is False
-    assert row.production_enabled is False
+    assert row.production_enabled is True
+    assert row.qualification_predicates
+    assert [predicate["value"] for predicate in row.qualification_predicates
+            if predicate["field"] == "project_settings"
+            and predicate["operator"] == "equals"] == ["portrait_1080x1920"]
 
 
 def test_the_placement_axi_adapter_is_registered_as_an_executor():
