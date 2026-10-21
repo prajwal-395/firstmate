@@ -74,6 +74,9 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
                      assignment_id: str | None = None,
                      qc_passed: bool | None = None,
                      declared_silence_spans=None,
+                     overlay_expectations=None,
+                     framing_spans=None,
+                     declared_freeze_spans=None,
                      write_ledger: bool = True) -> dict:
     """Render, master, verify and RECORD one timeline. The core.
 
@@ -94,6 +97,14 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
     the file that is handed over: its loudness against the spec, the
     silence under picture that catches missing dialogue, and its
     channel presence. A file that fails any of them is not delivered.
+
+    `overlay_expectations` are the overlays the built timeline carries
+    (`render_qa.OverlayExpectation`): the PICTURE SPEC asks whether
+    each of them is IN the delivered file at the size it was placed at,
+    which is the check that catches an overlay drawn at twice its size
+    and a graphic that is not in the file at all. None means nobody
+    declared an overlay, and the leg is then reported as unmeasured.
+    `declared_freeze_spans` excuse a frozen run the plan declared.
 
     Returns the report every caller reads: `render`, `verification`,
     `delivered`, `report_path`.
@@ -179,8 +190,9 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
         report["output_path"], expected_seconds,
         settings["width"], settings["height"],
         delivery_spec.codec, delivery_spec,
-        declared_silence_spans, caption_intents,
-        list(caption_plan.other_spans))
+        declared_silence_spans,
+        overlay_expectations, framing_spans, declared_freeze_spans,
+        caption_intents, list(caption_plan.other_spans))
 
     full = {
         "timeline_name": timeline_name,

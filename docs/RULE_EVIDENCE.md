@@ -9271,3 +9271,63 @@ something else is not this gate's finding. And a gap is a defect only against
 an expectation: a build knows what it planned, and a revision knows what it
 lost, but a whole-timeline outcome with neither is measured for COVERAGE LOST
 and never for a hole nobody authorized.
+
+## the-delivery-that-could-not-see-its-own-picture
+
+**The rule:** A delivered file's PICTURE SPEC is judged on the file, and the
+judgement GATES the delivery state. The overlays the plan placed are IN the
+file, at the size they were asked for. `library/tools/deliverable_qc.py` owns the
+five legs; `library/tools/reel_deliver.py` reads the one verdict.
+
+**What happened.** The captain has twice caught a render relayed as done that was
+wrong by eye: an overlay drawn at TWICE the size it was asked for, and a logo that
+was not in the file at all (2026-10-20, the "Ren - Comprehensive Development
+Punchlist", QA-002). Neither class of defect is visible to a check that reads a
+TIMELINE, and that is the whole reason they shipped: Resolve stores the transform
+it was given and reads it back cleanly, so the editor's own state is evidence of
+what was STORED and never of what the picture looks like. The delivery path
+measured the file's duration, its loudness and its codec, and never looked at the
+pixels.
+
+**Where it is.** `deliverable_qc.verify_picture_spec` is the one measurement the
+delivery verdict and the QC gate share, so the two cannot grade one file two
+ways:
+
+* `dimensions` - the delivery format's own size, on the file that is handed over;
+* `framing` - the picture fills the delivery frame and keeps one geometry
+  (`render_qa.measure_frame_occupancy`, the engine's own rule);
+* `overlays` - every overlay the plan placed is in the file, at the size it was
+  asked for (`render_qa.measure_delivered_overlay_geometry`);
+* `black_frames` and `freeze_frames` - the picture never goes away and never
+  stops moving, unless the plan declared it.
+
+**How the overlay leg measures.** The expectation is the ENGINE'S OWN: the
+asset's alpha says what the overlay draws, and the box sidecar step 4.05 writes
+beside a tight overlay says where that canvas sits in the frame. The measurement
+is a masked correlation of the overlay's SHAPE (its edge map - an alpha is a flat
+shape and a flat shape has no variance to correlate) against the delivered
+frame's own edge map, computed on centred values so a grade and an offset do not
+move it. It is deliberately NOT a diff against the source media: the source is
+graded, cropped and reframed on its way to the file, so a diff measures the
+grade. `measure_graphics_render` needs that source and asks a different question
+- DID anything change - which a grade answers on its own, which is why the
+missing logo got through.
+
+The size is read off the same correlation: the shape is correlated at every size
+on the ladder and the best-fitting one is named, so an overlay drawn at twice
+its size is reported with the size it was drawn at. The score ALONE cannot say
+"absent" - a busy picture correlates a little with every shape - so the
+measurement reads the score's EXCESS over the picture's own 99.5th percentile.
+Measured on a busy test pattern: an overlay that was NOT drawn reached 0.36
+against a floor of 0.24, and the same overlay drawn correctly reached 0.70
+against a floor of 0.18.
+
+**What it does not fix.** The overlay leg measures SHAPE, and an overlay with no
+luminance contrast against the picture underneath it cannot be measured: a flat
+picture is reported as UNMEASURED (never a pass, never a failure), and a low
+contrast overlay reads as absent. A tight overlay whose box sidecar is not on
+disk has no recorded place, so its geometry is unmeasured too. The position an
+overlay landed at is REPORTED, never failed: the defect the captain caught was a
+SIZE, and a placement that moved is a different rule. The picture spec adds
+passes over the delivered file - a frame sample, a freeze detection, and one
+correlation per declared overlay - at delivery time.

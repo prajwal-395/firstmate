@@ -85,6 +85,30 @@ declared is still on the file. The plan supplies only the INTENT
 taken from the file. It GATES when it ran, and reports itself
 unmeasured when it could not - an unmeasured caption is never a
 silently passing one.
+
+The PICTURE spec, verified on the file itself
+---------------------------------------------
+The audio spec above was written because a delivered file whose
+dialogue had gone missing still measured on target.  The picture has
+the same shape of defect, and the captain has caught it TWICE by eye:
+an overlay drawn at twice the size it was asked for, and a logo that
+was not in the file at all.  Both shipped as done.
+
+So the delivered file's picture is measured ON THE FILE, in one
+implementation the delivery verdict and this QC gate both read:
+
+* ``dimensions`` - the delivery format's own size, on the file that is
+  handed over;
+* ``framing`` - the picture fills the delivery frame, and one video
+  has one geometry (``render_qa.measure_frame_occupancy``);
+* ``overlays`` - every overlay the plan placed is IN the file, at the
+  size it was asked for (``render_qa.measure_delivered_overlay_geometry``);
+* ``black_frames`` - the picture never goes away undeclared;
+* ``freeze_frames`` - the picture never stops moving undeclared.
+
+A leg whose DECLARATION is missing is reported as unmeasured.  It is
+never a pass: an unchecked leg says so, and the verdict says which
+leg was not measured.
 """
 
 from __future__ import annotations
@@ -130,6 +154,11 @@ class DeliverableQCVerdict:
     #: supplied: an unmeasured caption is not a passing caption, and the
     #: verdict says so rather than passing it.
     caption_spec: Any = None
+    #: The delivered FILE's picture against what it was asked to show -
+    #: dimensions, framing, the overlays, black frames and frozen
+    #: frames. GATES with the rest: a file whose picture is wrong is
+    #: not a deliverable, whatever its audio measures.
+    picture: "PictureSpecVerdict" = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +184,164 @@ class AudioSpecVerdict:
     silence: RenderQAResult
     channels: RenderQAResult
     passed: bool
+
+
+@dataclass(frozen=True)
+class PictureSpecVerdict:
+    """The delivered FILE's picture, against what it was asked to show.
+
+    ``dimensions`` is the delivery format's own size, measured on the
+    file.  ``framing`` is whether the picture fills the delivery frame
+    and keeps one geometry.  ``overlays`` is whether every overlay the
+    plan placed is IN the file, at the size it was asked for - the
+    measurement that catches an overlay drawn at twice its size and a
+    logo that is not in the file at all.
+
+    ``black_frames`` and ``freeze_frames`` are the picture's own: the
+    picture must not go away and must not stop moving, unless the plan
+    declared it (``declared_black_beats`` / ``declared_freeze_spans``).
+
+    ``passed`` is all five.  A leg that could not be measured says so
+    in its own detail and is not counted as a failure - and it is not
+    counted as a pass either: the value says which legs were measured.
+    """
+
+    dimensions: RenderQAResult
+    framing: RenderQAResult
+    overlays: RenderQAResult
+    black_frames: RenderQAResult
+    freeze_frames: RenderQAResult
+    passed: bool
+
+
+def _not_checked(metric: str, why: str) -> RenderQAResult:
+    """A leg nobody could measure.
+
+    Not a pass and not a failure: the measurement was not made, and the
+    detail says why.  ``render_qa`` has its own spelling of this
+    (``framerate_not_checked``); this is the same shape for the
+    picture's legs.
+    """
+    return RenderQAResult(metric=metric, passed=True, value=None,
+                          threshold=None, severity="info", detail=why)
+
+
+def verify_picture_spec(video_path: str, *,
+                        expected_width: Optional[int] = None,
+                        expected_height: Optional[int] = None,
+                        framing_spans: Optional[Sequence] = None,
+                        overlay_expectations: Optional[Sequence] = None,
+                        declared_black_beats: Optional[List] = None,
+                        declared_freeze_spans: Optional[Sequence] = None,
+                        black_frames: Optional[RenderQAResult] = None
+                        ) -> PictureSpecVerdict:
+    """The delivered file's picture, measured on the file.
+
+    The one measurement the delivery VERDICT and the QC gate share, so
+    the two cannot grade the same file two ways.
+
+    ``framing_spans`` are the per-clip framing declarations
+    (``render_qa.FramingSpan``): with them, each stretch of the picture
+    is judged against the framing it was asked for.  Without them the
+    measurement is the engine's own default - the picture FILLS the
+    delivery frame (``library/tools/framing_intent.py``) - which is
+    what a delivery that declares nothing owes.
+
+    ``overlay_expectations`` are the overlays the plan placed
+    (``render_qa.OverlayExpectation``): each carries the asset and the
+    box it was placed at, and the measurement asks whether that asset's
+    shape is in the delivered file at that size.  None means nobody
+    declared an overlay, and the leg is then REPORTED as unmeasured.
+
+    ``declared_black_beats`` and ``declared_freeze_spans`` excuse the
+    black and the frozen run the plan DECLARED.  Nothing else is
+    excused.
+    """
+    from library.tools import render_qa
+
+    if expected_width and expected_height:
+        dimensions = render_qa.verify_resolution(
+            video_path, expected_width=int(expected_width),
+            expected_height=int(expected_height))
+    else:
+        dimensions = _not_checked(
+            "resolution",
+            "no delivery size was named, so the delivered file's "
+            "dimensions were not measured")
+
+    framing = render_qa.measure_frame_occupancy(
+        video_path, framing_spans=framing_spans)
+    if not framing.passed and framing.value is None:
+        # Every sampled frame carried no picture to measure a geometry
+        # off - a black file, or a composition inset in black on all
+        # four sides.  That is not a framing failure: the BLACK leg
+        # owns the question of a file with no picture in it.
+        framing = _not_checked("frame_occupancy", framing.detail)
+
+    overlays = render_qa.measure_delivered_overlay_geometry(
+        video_path, overlay_expectations)
+
+    black_frames = (black_frames if black_frames is not None
+                    else render_qa.detect_black_frames(
+                        video_path, declared_beats=declared_black_beats))
+    freeze_frames = render_qa.detect_freeze_frames(
+        video_path)
+    if declared_freeze_spans:
+        freeze_frames = _excuse_declared_freezes(
+            freeze_frames, declared_freeze_spans)
+
+    return PictureSpecVerdict(
+        dimensions=dimensions,
+        framing=framing,
+        overlays=overlays,
+        black_frames=black_frames,
+        freeze_frames=freeze_frames,
+        passed=bool(dimensions.passed and framing.passed
+                    and overlays.passed and black_frames.passed
+                    and freeze_frames.passed),
+    )
+
+
+def _excuse_declared_freezes(result: RenderQAResult,
+                              declared: Sequence) -> RenderQAResult:
+    """The frozen runs the plan declared, excused.
+
+    A declared ending may hold a frame - that is the ending, not a
+    defect - and the declaration says which seconds it holds.  A frozen
+    run outside every declared window is still a defect.
+    """
+    spans = []
+    for span in declared or ():
+        try:
+            spans.append((float(span[0]), float(span[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    segments = [s for s in (result.value or []) if isinstance(s, dict)]
+    undeclared = []
+    for segment in segments:
+        try:
+            start = float(segment.get("start"))
+            end = float(segment.get("end"))
+        except (TypeError, ValueError):
+            undeclared.append(segment)
+            continue
+        if not any(low - 0.05 <= start and end <= high + 0.05
+                   for low, high in spans):
+            undeclared.append(segment)
+    if not undeclared:
+        return RenderQAResult(
+            metric=result.metric, passed=True, value=segments,
+            threshold=result.threshold, severity="info",
+            detail=(f"no undeclared frozen frames "
+                    f"({len(segments) - len(undeclared)} declared freeze "
+                    f"window(s) allowed through)"))
+    return RenderQAResult(
+        metric=result.metric, passed=False, value=segments,
+        threshold=result.threshold, severity="error",
+        detail=(f"{len(undeclared)} undeclared frozen frame segment(s); "
+                f"the first runs "
+                f"{undeclared[0].get('start')}s to "
+                f"{undeclared[0].get('end')}s"))
 
 
 def _measured_lufs(result: RenderQAResult) -> Optional[bool]:
@@ -258,16 +445,21 @@ def run_deliverable_qc(
         declared_black_beats: Optional[List] = None,
         declared_silence_spans: Optional[Sequence] = None,
         caption_intents: Optional[Sequence] = None,
-        caption_spans: Optional[Sequence] = None
+        caption_spans: Optional[Sequence] = None,
+        expected_width: Optional[int] = None,
+        expected_height: Optional[int] = None,
+        framing_spans: Optional[Sequence] = None,
+        overlay_expectations: Optional[Sequence] = None,
+        declared_freeze_spans: Optional[Sequence] = None
         ) -> DeliverableQCVerdict:
     """Judge one rendered deliverable against its spec.
 
-    Duration, black frames and the AUDIO SPEC GATE. The grade delivery
-    gate (``render_qa.measure_grade_delivery``) and, when
-    ``subtitle_data`` is supplied, the existing subtitle-timing check
-    (``subtitle_qa.verify_subtitle_timing``) REPORT. An absent file
-    raises ``FileNotFoundError`` - an absent render is not a passing
-    one.
+    Duration, black frames, the AUDIO SPEC GATE and the PICTURE SPEC
+    GATE. The grade delivery gate (``render_qa.measure_grade_delivery``)
+    and, when ``subtitle_data`` is supplied, the existing
+    subtitle-timing check (``subtitle_qa.verify_subtitle_timing``)
+    REPORT. An absent file raises ``FileNotFoundError`` - an absent
+    render is not a passing one.
 
     The audio spec is the delivered FILE's own: its loudness against
     the spec, the digital silence under picture that catches missing
@@ -285,6 +477,11 @@ def run_deliverable_qc(
     run (no intent, or no way to read the delivered frames) it is
     REPORTED as unmeasured and does not gate - an unmeasured caption is
     never silently a passing one.
+
+    The picture spec is the delivered FILE's own too: its dimensions,
+    whether the picture fills the delivery frame, whether every
+    declared overlay is IN the file at the size it was asked for, and
+    whether the picture goes black or freezes without being declared.
     """
     from library.tools import render_qa
     from library.tools.subtitle_qa import verify_subtitle_timing
@@ -301,6 +498,14 @@ def run_deliverable_qc(
         video_path, spec,
         declared_silence_spans=declared_silence_spans,
         loudness=loudness)
+    picture = verify_picture_spec(
+        video_path,
+        expected_width=expected_width,
+        expected_height=expected_height,
+        framing_spans=framing_spans,
+        overlay_expectations=overlay_expectations,
+        declared_black_beats=declared_black_beats,
+        declared_freeze_spans=declared_freeze_spans)
     grade = render_qa.measure_grade_delivery(video_path, grade_spans)
     captions = (verify_subtitle_timing(
         subtitle_data, total_duration=expected_duration,
@@ -313,6 +518,7 @@ def run_deliverable_qc(
         platform=spec.platform,
         passed=bool(duration.passed and black_frames.passed
                     and audio.passed
+                    and picture.passed
                     and (caption_spec is None or caption_spec.passed)),
         duration=duration,
         black_frames=black_frames,
@@ -321,6 +527,7 @@ def run_deliverable_qc(
         captions=captions,
         audio=audio,
         caption_spec=caption_spec,
+        picture=picture,
     )
 
 

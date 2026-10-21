@@ -526,6 +526,9 @@ def verify_deliverable(video_path: str, expected_seconds: float,
                        expected_codec: str = "",
                        spec=None,
                        declared_silence_spans=None,
+                       overlay_expectations=None,
+                       framing_spans=None,
+                       declared_freeze_spans=None,
                        caption_intents=None,
                        caption_spans=None) -> dict:
     """`render_qa`'s verdict on one delivered file: duration, resolution,
@@ -592,9 +595,26 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     No intent means no caption spec: nothing was asked, so nothing is
     claimed, and the verdict says the captions were not judged rather
     than passing them.
+
+    THE PICTURE SPEC GATES. It did not, and the captain caught what
+    that cost twice: an overlay drawn at twice the size it was asked
+    for, and a logo that was not in the file at all - both relayed as
+    done. Nothing that reads a TIMELINE can see either of them, because
+    Resolve stores the transform it was given and reads it back
+    cleanly. So the delivered FILE's picture is measured here, by
+    `deliverable_qc`'s one implementation: its dimensions, whether the
+    picture fills the delivery frame, whether every declared overlay is
+    IN the file at the size it was asked for, and whether the picture
+    goes black or freezes without being declared.
+
+    `overlay_expectations` are the overlays the plan placed
+    (`render_qa.OverlayExpectation`): each carries the asset and the
+    box it was placed at. None means nobody declared an overlay, and
+    the leg is then REPORTED as unmeasured - never as a pass.
     """
     from library.tools import render_qa
     from library.tools.deliverable_qc import verify_audio_spec
+    from library.tools.deliverable_qc import verify_picture_spec
     from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
 
     if not os.path.isfile(video_path):
@@ -612,6 +632,14 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         video_path, spec or DEFAULT_DELIVERY_SPEC,
         declared_silence_spans=declared_silence_spans)
     black = render_qa.detect_black_frames(video_path)
+    picture = verify_picture_spec(
+        video_path,
+        expected_width=expected_width,
+        expected_height=expected_height,
+        framing_spans=framing_spans,
+        overlay_expectations=overlay_expectations,
+        declared_freeze_spans=declared_freeze_spans,
+        black_frames=black)
     codec = _verify_file_codec(video_path, expected_codec)
     loudness = audio.loudness
 
@@ -667,15 +695,101 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         "black_segments": segments,
         "opens_on_black": opens_on_black,
         "content_present": content_present,
+        # The PICTURE SPEC, leg by leg: what the delivered file's own
+        # pixels measure against what they were asked to show.
+        "picture_spec": {
+            "dimensions": _result_record(picture.dimensions),
+            "framing": _result_record(picture.framing),
+            "overlays": _result_record(picture.overlays),
+            "black_frames": _result_record(picture.black_frames),
+            "freeze_frames": _result_record(picture.freeze_frames),
+            "passed": bool(picture.passed),
+        },
         "passed": bool(duration.passed and resolution.passed
                        and content_present
                        and audio.passed
+                       and picture.passed
                        and codec["passed"]
                        and caption_spec_passed),
     }
     if caption_spec is not None:
         verdict["caption_spec"] = caption_spec.as_dict()
     return verdict
+
+
+def _delivery_frame_size(timeline, settings=None) -> tuple:
+    """The frame the delivery is at, as ``(width, height)``.
+
+    The DELIVERY format's size is the frame the file is rendered at,
+    and an overlay's box sidecar records its place in exactly those
+    coordinates.  The timeline's own resolution is the fallback for a
+    caller whose settings name no size, and a size NEITHER of them
+    answers is ``(0, 0)`` - and then no overlay expectation is built,
+    so the picture's overlay leg is reported as unmeasured rather than
+    judged against a frame nobody named.
+    """
+    try:
+        width = int((settings or {})["width"])
+        height = int((settings or {})["height"])
+        if width > 0 and height > 0:
+            return width, height
+    except (KeyError, TypeError, ValueError):
+        pass
+    try:
+        width = int(timeline.GetSetting("timelineResolutionWidth"))
+        height = int(timeline.GetSetting("timelineResolutionHeight"))
+        if width > 0 and height > 0:
+            return width, height
+    except Exception:  # noqa: BLE001 - an unreadable timeline names no frame
+        pass
+    return (0, 0)
+
+
+def delivered_overlay_expectations(timeline, fps: float,
+                                   width: int, height: int) -> list:
+    """The overlays the built timeline carries, as expectations.
+
+    Read off the TIMELINE, which is the editor's own record of what was
+    placed on it - and the MEASUREMENT that follows is on the delivered
+    FILE, because a timeline cannot see a graphic that was placed and
+    never drawn, nor one that was drawn at twice the size it was asked
+    for.  Resolve reads the transform back cleanly either way.
+
+    Every row above the picture tracks is an overlay row.  A row whose
+    asset carries no alpha, or whose box the engine never recorded, is
+    SKIPPED: the measurement of that overlay is then unmeasured, which
+    is honest, rather than a guess about where it went.
+
+    Anything this cannot read is an empty list, and the picture's
+    overlay leg is then reported as unmeasured - never as a pass.
+    """
+    from library.tools import render_qa
+
+    expectations = []
+    try:
+        for track_index in range(3, 9):
+            items = timeline.GetItemListInTrack(track_index)
+            for item in (items or []):
+                try:
+                    media = item.GetMediaPoolItem()
+                    if media is None:
+                        continue
+                    path = media.GetClipProperty("FilePath")
+                    if not path:
+                        continue
+                    start = float(item.GetStart()) / float(fps)
+                    end = float(item.GetEnd()) / float(fps)
+                    name = item.GetName() or ""
+                except Exception:  # noqa: BLE001 - an unreadable item is skipped
+                    continue
+                expectation = render_qa.delivered_overlay_expectation(
+                    str(path), (int(width), int(height)),
+                    timeline_start=start, timeline_end=end, label=name)
+                if expectation is not None:
+                    expectations.append(expectation)
+    except Exception:  # noqa: BLE001 - an unreadable timeline declares nothing
+        return []
+    return expectations
 
 
 def _verify_file_codec(video_path: str, expected_codec: str) -> dict:
@@ -1035,6 +1149,14 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         # already says. (2026-09-13: every Reel 26 caption re-rendered
         # at the constant canvas decoded as its predecessor's width.)
         stale = overlay_staleness(project, timeline.GetName())
+        # What the built timeline carries, read while it is live: the
+        # delivered file's PICTURE is judged against the overlays that
+        # were placed on it, and a timeline cannot see a graphic that
+        # was placed and never drawn.
+        frame_width, frame_height = _delivery_frame_size(timeline, settings)
+        overlay_expectations = (delivered_overlay_expectations(
+            timeline, timeline_fps, frame_width, frame_height)
+            if frame_width and frame_height else [])
     if stale:
         raise DeliverRefused(
             "the reel's overlays changed underneath Resolve's pool metadata",
@@ -1100,6 +1222,7 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         # writes the record beside the file; the ledger is the
         # caller's half.
         declared_silence_spans=silence_spans,
+        overlay_expectations=overlay_expectations,
         write_ledger=False,
     )
     # The delivery is an ACT, so the retention decision belongs here and

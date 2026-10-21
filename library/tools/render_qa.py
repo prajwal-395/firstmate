@@ -119,6 +119,9 @@ two. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 **Pixel-level rendering (gap E9) reports three numbers and passes, and promoting each is one boolean.**
 `measure_transition_render` samples frames across each drawn transition's boundary and verifies the blend is intermediate (not a hard cut, not a freeze); `measure_vfx_render` samples each VFX's window and verifies the pixels differ from the untreated source; `measure_graphics_render` verifies each overlay's ink is present in the rendered frame. All three REPORT unless their `*_GATES` boolean is True - whether a misrendered transition, a VFX that drew nothing, or an overlay that failed to composite blocks delivery is a pending captain call, the same ruling P2 and P3 carry.
 
+**The DELIVERED file's overlays are measured on the delivered file, and a wrong one is a defect.**
+`measure_delivered_overlay_geometry` asks, of the pixels that are handed over, whether each overlay the plan placed is IN the file and at what SIZE it landed - the two defects the captain caught by eye (an overlay at twice its size, and a logo that is not in the file at all), neither of which a timeline read-back can see, because Resolve stores the transform it was given and reads it back cleanly. The measurement is a masked correlation of the overlay's own SHAPE against the delivered frame's edge map, computed on centred values so a grade and an encode do not move it, and the size is read off the same correlation: the shape is correlated at every size on the ladder and the best-fitting one is named. It GATES (`gate=True`): an overlay that is missing, or drawn at a size nobody asked for, is a defect in the delivered file. An overlay whose place the engine never recorded is UNMEASURED, never passed and never failed. [why](docs/RULE_EVIDENCE.md#the-delivery-that-could-not-see-its-own-picture)
+
 **Grade magnitude (gap E6) GATES, and the direction half reports.**
 `measure_grade_landing` asks whether the export lands at the CDL's demanded magnitude, computed from the source's measured luma and chroma through the CDL's exact math - a reference the pipeline/encode confound cannot touch, which is what resolved the shortfall confound and let the captain promote it (2026-10-05). `GRADE_LANDING_GATES` is True. The direction check `measure_grade_delivery` stays report-only: its dead zones are tighter than the landing tolerance in some directions and looser in others, and a direction failure is always a magnitude failure too, so the magnitude gate is the one that decides.
 
@@ -5223,6 +5226,672 @@ def measure_graphics_render(
         return RenderQAResult("graphics_render", True, str(e), None,
                               "warning",
                               f"Error measuring graphics render: {e}")
+
+
+# ── The delivered file's overlays: is the ink there, at the size asked ──
+#
+# The captain has caught a render relayed as done that was WRONG twice:
+# an overlay drawn at twice the size it was asked for, and a logo that
+# was not in the file at all.  Both are obvious to an eye and invisible
+# to every check that reads a TIMELINE, because Resolve stores the
+# transform it was given and reads it back cleanly - the read-back
+# proves the number was STORED, never that the picture is right.
+#
+# So this measures the DELIVERED FILE.  The expectation is the engine's
+# own: the asset's own alpha says what the overlay draws, and the box
+# sidecar step 4.05 writes beside a tight overlay says where that
+# canvas sits in the frame.  The measurement is whether the ink landed
+# there.
+#
+# THE MEASUREMENT IS A SHAPE CORRELATION.  The overlay's alpha is a
+# shape; the delivered frame's luminance is a field; the masked
+# correlation between them says whether that shape is in the frame, and
+# the size at which it correlates best says how big it was drawn.  A
+# correlation is computed on centred values, so a grade (a gain and an
+# offset) does not move it and neither does an encode.
+#
+# THE PICTURE UNDER THE OVERLAY IS NOT NEEDED, and that is the point:
+# the source media the render was cut from is graded, cropped and
+# reframed on its way to the file, so a diff against it measures the
+# grade rather than the overlay.  `measure_graphics_render` needs that
+# source and asks a different question - DID anything change - which a
+# grade answers on its own.  This one asks whether the OVERLAY'S OWN
+# SHAPE is in the file, which is the question a missing logo and a 2x
+# overlay are actually about.
+
+#: The correlation the overlay's shape must reach in the delivered
+#: frame before the measurement says the ink is there.  A shape match
+#: is scale-free and gain-free, so this number does not move with a
+#: grade or an encode; it moves with the shape being somewhere else.
+OVERLAY_SHAPE_NCC_MIN = 0.30
+
+#: How far the overlay's shape must stand ABOVE the noise floor - the
+#: correlation the picture's own edges reach anywhere - before the
+#: measurement says the ink is there.  The score alone cannot say
+#: "absent": a busy picture correlates a little with every shape, and
+#: the excess over its own floor is the number that separates an
+#: overlay that was drawn from one that was not.
+OVERLAY_SHAPE_EXCESS_MIN = 0.15
+
+#: How far the delivered overlay's size may sit from the size the plan
+#: asked for.  15% is wider than an encode's rounding and far narrower
+#: than the 2x the captain caught.  The ladder carries two steps either
+#: side of 1.0 so a correct overlay measures 0.9 or 1.1 and passes.
+OVERLAY_SCALE_TOLERANCE = 0.15
+
+#: How far the delivered overlay may sit from the place it was asked
+#: for, in delivery-frame pixels.  REPORTED, never failed: a placement
+#: that MOVED is a different defect from a placement that changed SIZE,
+#: and this measurement was asked for the size.
+OVERLAY_PLACE_TOLERANCE_PX = 24.0
+
+#: The sizes the measurement tries, as multiples of the size asked for.
+OVERLAY_SCALE_LADDER = (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0, 3.0)
+
+#: An overlay whose ink covers less than this share of the frame cannot
+#: be measured against the picture - twenty pixels on a 1080x1920 frame
+#: is noise - and is reported as unmeasured rather than passed.
+OVERLAY_MIN_INK_FRACTION = 0.002
+
+#: The tonal range the delivered picture must carry before the
+#: measurement may say an overlay is ABSENT.  A flat field cannot tell
+#: an overlay that was not drawn from an overlay that is invisible
+#: against its own background, so a flat field is UNMEASURED - never a
+#: pass and never a failure.  Measured as the frame's own standard
+#: deviation of luminance: a grey field reads 0, a graded picture tens.
+OVERLAY_MIN_PICTURE_CONTRAST = 2.0
+
+#: The working resolution the shape correlation runs at.  Half the
+#: delivered frame: the correlation is a shape match, and half a frame
+#: still carries a caption's strokes and a logo's shape.  The tolerances
+#: are read in DELIVERED pixels and converted here.
+OVERLAY_WORK_SCALE = 0.5
+
+
+class OverlayExpectation(NamedTuple):
+    """One overlay the plan placed, and the place it said it goes.
+
+    `overlay_path` is the asset the engine drew - a transparent file
+    carrying the overlay's own alpha.  `expected_box` is the canvas rect
+    that asset occupies in the DELIVERED FRAME, in delivered-frame
+    pixels: the box sidecar step 4.05 writes beside a tight overlay, or
+    the whole frame for a full-canvas one.  `timeline_start` /
+    `timeline_end` are the seconds it plays, and the measurement reads
+    the frame inside that window.
+
+    None for `expected_box` means nobody said where the overlay goes.
+    The measurement is then reported as unmeasured - never as a pass,
+    and never as a failure it cannot support.
+    """
+
+    label: str
+    overlay_path: str
+    timeline_start: float = 0.0
+    timeline_end: float = 0.0
+    expected_box: Optional[tuple] = None
+    kind: str = ""
+
+
+def _overlay_alpha_template(overlay_path: str, max_frames: int = 60):
+    """(width, height, alpha) of an overlay asset, or None.
+
+    The frame with the MOST ink is the one that shows the overlay's
+    shape: a caption that fades in has a blank first frame, and a
+    template read off a blank frame correlates with nothing.
+    """
+    import numpy as np
+
+    if not overlay_path or not os.path.exists(overlay_path):
+        return None
+    size = _probe_video_size(overlay_path)
+    if not size:
+        return None
+    width, height = size
+    result = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-i", overlay_path,
+         "-frames:v", str(max_frames), "-pix_fmt", "rgba",
+         "-f", "rawvideo", "-"],
+        capture_output=True, timeout=300, check=False)
+    raw = result.stdout or b""
+    frame_bytes = width * height * 4
+    if frame_bytes == 0 or len(raw) < frame_bytes:
+        return None
+    best = None
+    best_count = -1
+    for index in range(len(raw) // frame_bytes):
+        plane = np.frombuffer(
+            raw[index * frame_bytes:(index + 1) * frame_bytes],
+            dtype=np.uint8).reshape(height, width, 4)[:, :, 3]
+        count = int((plane >= OVERLAY_INK_ALPHA).sum())
+        if count > best_count:
+            best_count = count
+            best = plane
+    if best is None or best_count <= 0:
+        return None
+    return width, height, best.astype(np.float32) / 255.0
+
+
+def _edge_magnitude(image):
+    """The gradient magnitude of an image, as float."""
+    import numpy as np
+
+    values = np.asarray(image, dtype=np.float32)
+    padded = np.pad(values, 1, mode="edge")
+    rows, cols = np.gradient(padded)
+    rows = rows[1:-1, 1:-1]
+    cols = cols[1:-1, 1:-1]
+    return np.sqrt(rows * rows + cols * cols)
+
+
+def _dilate(mask, rounds: int = 1):
+    """A binary mask grown by `rounds` pixels in every direction."""
+    import numpy as np
+
+    grown = mask.copy()
+    for _ in range(max(0, int(rounds))):
+        padded = np.pad(grown, 1, mode="constant", constant_values=False)
+        grown = np.logical_or.reduce([
+            padded[dy:dy + grown.shape[0], dx:dx + grown.shape[1]]
+            for dy in range(3) for dx in range(3)])
+    return grown
+
+
+def _valid_correlation(image, kernel, spectra=None):
+    """`out[y, x] = sum(image[y+u, x+v] * kernel[u, v])` - the VALID
+    region of the correlation, over numpy's own FFT.
+
+    numpy and not scipy: `scipy.signal.fftconvolve` costs three seconds
+    to import, and a delivery check pays that import on the captain's
+    machine for a correlation that numpy does in milliseconds.
+
+    `spectra` is the image's own spectrum, computed once by the caller
+    and reused for every kernel: the image is the same for every size
+    the ladder tries, and its transform is the expensive half.
+    """
+    import numpy as np
+
+    height, width = image.shape
+    k_height, k_width = kernel.shape
+    if spectra is None:
+        full_size = (height + k_height - 1, width + k_width - 1)
+        image_spectrum = np.fft.rfft2(image, s=full_size)
+    else:
+        image_spectrum, full_size = spectra
+    kernel_spectrum = np.fft.rfft2(kernel[::-1, ::-1], s=full_size)
+    full = np.fft.irfft2(image_spectrum * kernel_spectrum, s=full_size)
+    return full[k_height - 1:height, k_width - 1:width]
+
+
+def _shape_correlation(image, template, spectra=None):
+    """The best masked correlation of `template`'s SHAPE inside `image`.
+
+    Returns `(score, top, left, contrast)`: how well the template's
+    shape matches the image at the best place, where that place is, and
+    the local contrast of the image there.  None when the template has
+    no shape to correlate - an all-zero alpha is not a shape.
+
+    THE TEMPLATE IS AN EDGE MAP, NOT THE ALPHA ITSELF.  An overlay's
+    alpha is a flat shape - white text on transparent - and a flat
+    shape has no variance, so correlating it is dividing by zero.  Its
+    EDGES do have structure, and they are what the delivered frame
+    carries where the overlay was drawn: the picture's own edges are
+    everywhere, the overlay's are exactly where its strokes are.  That
+    is also what makes the measurement SIZE-SENSITIVE, which a
+    brightness comparison cannot be: an overlay drawn at twice the size
+    has its edges where the twice-size template says, and nowhere the
+    template at the asked-for size says.
+
+    The correlation is centred (the template's mean is subtracted, and
+    subtracting a constant from the image leaves the numerator
+    unchanged), so it is invariant to a gain and an offset - which is
+    what makes it a measurement of a GRADED file's picture.
+    """
+    import numpy as np
+
+    height, width = image.shape
+    t_height, t_width = template.shape
+    if t_height > height or t_width > width:
+        return None
+    ink = template >= 0.5
+    if int(ink.sum()) < 8:
+        return None
+
+    edges_image = _edge_magnitude(image)
+    edges_template = _edge_magnitude(template.astype(np.float32))
+    peak = float(edges_template.max())
+    if peak <= 1e-9:
+        return None
+    edges_template = edges_template / peak
+
+    # The mask holds the ink AND the pixels just outside it, because the
+    # overlay's edge sits on the boundary between the two.
+    mask = _dilate(ink, rounds=1).astype(np.float64)
+    ink_count = float(mask.sum())
+    if ink_count < 8:
+        return None
+
+    signal = edges_template * mask
+    centred = (signal - signal.sum() / ink_count) * mask
+    norm = float(np.sqrt((centred ** 2).sum()))
+    if norm <= 1e-9:
+        return None
+
+    if spectra is None:
+        full = (height + t_height - 1, width + t_width - 1)
+        spectra = ((np.fft.rfft2(edges_image, s=full), full),
+                   (np.fft.rfft2(edges_image * edges_image, s=full), full))
+    image_spectrum, square_spectrum = spectra
+    correlation = _valid_correlation(edges_image, centred, image_spectrum)
+    sum_image = _valid_correlation(edges_image, mask, image_spectrum)
+    sum_square = _valid_correlation(edges_image * edges_image, mask,
+                                    square_spectrum)
+    variance = np.maximum(sum_square - (sum_image ** 2) / ink_count, 0.0)
+    denominator = np.sqrt(variance) * norm
+    with np.errstate(divide="ignore", invalid="ignore"):
+        scores = np.where(denominator > 1e-12,
+                          correlation / denominator, 0.0)
+    flat = int(np.argmax(scores))
+    top, left = divmod(flat, scores.shape[1])
+    contrast = float(np.sqrt(variance[top, left]) / max(ink_count, 1.0))
+    # The noise floor: the HIGH PERCENTILE of the map, which is what a
+    # template that is not in the picture scores at its best.  The
+    # picture's own edges correlate with the template's edges a little
+    # everywhere, so the score ALONE cannot say "absent" - the score's
+    # EXCESS over that floor can.  Measured on a busy test pattern: the
+    # best score of an overlay that was NOT drawn reached 0.36 and its
+    # 99.5th percentile 0.24, while the same overlay drawn correctly
+    # reached 0.70 against a 99.5th percentile of 0.18.
+    noise = float(np.percentile(scores, 99.5))
+    return (float(scores[top, left]), int(top), int(left), contrast, noise)
+
+
+def _resize_alpha(alpha, width: int, height: int):
+    """The alpha resized to (width, height), as float.
+
+    The MASK is resized by MAX and the values by AREA, so a stroke one
+    pixel wide survives the halving as a stroke rather than as a
+    half-grey smear that would correlate with nothing.
+    """
+    import numpy as np
+
+    source_h, source_w = alpha.shape
+    if width < 1 or height < 1:
+        return None
+    rows = np.linspace(0, source_h, height + 1)
+    cols = np.linspace(0, source_w, width + 1)
+    out = np.zeros((height, width), dtype=np.float32)
+    for y in range(height):
+        r0, r1 = int(rows[y]), max(int(rows[y]) + 1, int(rows[y + 1]))
+        for x in range(width):
+            c0, c1 = int(cols[x]), max(int(cols[x]) + 1, int(cols[x + 1]))
+            block = alpha[r0:r1, c0:c1]
+            if block.size == 0:
+                continue
+            out[y, x] = float(block.max())
+    return out
+
+
+def delivered_overlay_expectation(asset_path: str,
+                                  frame_size: tuple,
+                                  timeline_start: float = 0.0,
+                                  timeline_end: float = 0.0,
+                                  label: str = "") -> Optional["OverlayExpectation"]:
+    """The expectation for one overlay asset on a delivered frame.
+
+    The box is the ENGINE'S OWN record of where the overlay goes: the
+    box sidecar step 4.05 writes beside a tight overlay, and the WHOLE
+    FRAME for a full-canvas one, whose canvas IS the frame.
+
+    An asset that is neither - a tight overlay whose sidecar is not on
+    disk - has no recorded box, and None is returned.  The measurement
+    is then UNMEASURED for that overlay: a guess about where an
+    unrecorded overlay went would be a guess about the DEFECT, which is
+    the one thing this measurement must not be.
+    """
+    if not asset_path or not os.path.exists(asset_path):
+        return None
+    size = _probe_video_size(asset_path)
+    if not size:
+        return None
+    canvas_w, canvas_h = size
+    try:
+        frame_w, frame_h = int(frame_size[0]), int(frame_size[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if (canvas_w, canvas_h) == (frame_w, frame_h):
+        box = (0.0, 0.0, float(frame_w), float(frame_h))
+    else:
+        rect = _subtitle_canvas_rect(asset_path, frame_w, frame_h)
+        if (float(rect[0]), float(rect[1])) == (0.0, 0.0) and \
+                (float(rect[2]), float(rect[3])) == (float(frame_w),
+                                                    float(frame_h)):
+            return None
+        # The sidecar's rect is in the FULL-FRAME coordinates of the
+        # composition that drew it.  A delivery at another size has no
+        # recorded place for this overlay, and a place read from a
+        # different frame would be a guess about the SIZE - which is
+        # the thing this measurement is about.
+        if not (0.0 <= float(rect[0]) and 0.0 <= float(rect[1])
+                and float(rect[2]) <= float(frame_w)
+                and float(rect[3]) <= float(frame_h)):
+            return None
+        box = (float(rect[0]), float(rect[1]), float(rect[2]),
+               float(rect[3]))
+    return OverlayExpectation(
+        label=label or os.path.basename(str(asset_path)),
+        overlay_path=str(asset_path),
+        timeline_start=float(timeline_start),
+        timeline_end=float(timeline_end),
+        expected_box=box)
+
+
+def _delivered_luma_frame(video_path: str, at_seconds: float,
+                           width: int, height: int):
+    """The delivered frame's luminance at `at_seconds`, or None."""
+    import numpy as np
+
+    start = max(0.0, float(at_seconds))
+    for frame in _stream_raw_frames(video_path, 'gray', 1, width, height,
+                                    sample_fps=1.0, start_seconds=start,
+                                    duration_seconds=1.0):
+        return frame[0].astype(np.float32)
+    return None
+
+
+def measure_delivered_overlay_geometry(
+        video_path: str,
+        expectations: Optional[Sequence["OverlayExpectation"]] = None,
+        gate: bool = True) -> RenderQAResult:
+    """Each declared overlay's ink, measured ON THE DELIVERED FILE.
+
+    For every expectation the measurement asks two questions of the
+    delivered pixels and answers them with the overlay's OWN asset:
+
+    * is the overlay's shape in the file at all?  A shape that is not
+      there correlates with nothing, and that is the missing logo;
+    * at what SIZE did it land?  The shape is correlated at every size
+      on the ladder and the best-fitting one is read off, so an overlay
+      drawn at twice its size is named with the size it was drawn at.
+
+    The expectation is the engine's own: `expected_box` is the canvas
+    rect the asset occupies in the delivered frame (the box sidecar
+    step 4.05 writes beside a tight overlay, or the whole frame for a
+    full-canvas one).  A caller with no box for an asset has said
+    nothing about where it goes, and the overlay is then REPORTED as
+    unmeasured - never passed, and never failed on a guess.
+
+    `gate` decides whether a measured defect fails the check.  It is
+    True: an overlay that is missing or drawn at the wrong size is a
+    defect in the delivered file, and the captain has twice caught one
+    shipped as done.
+    """
+    import numpy as np
+
+    if expectations is None:
+        return RenderQAResult(
+            "overlay_geometry", True, None, None, "info",
+            "No overlay expectations were supplied, so the delivered "
+            "file's overlays were not measured. Pass expectations: the "
+            "overlay assets the plan placed, each with the box it was "
+            "placed at.")
+
+    expectations = list(expectations)
+    if not expectations:
+        return RenderQAResult(
+            "overlay_geometry", True,
+            {"overlays": [], "total_overlays": 0, "defects": 0},
+            {"ncc_min": OVERLAY_SHAPE_NCC_MIN,
+             "scale_tolerance": OVERLAY_SCALE_TOLERANCE,
+             "gates": gate},
+            "info",
+            "No overlay was declared on this deliverable - nothing to "
+            "measure.")
+
+    try:
+        size = _probe_video_size(video_path)
+        if not size:
+            return RenderQAResult("overlay_geometry", False, None, None,
+                                  "error", "No video stream found")
+        width, height = size
+    except Exception as e:  # noqa: BLE001 - a failed probe reports
+        return RenderQAResult("overlay_geometry", False, str(e), None,
+                              "error", f"Error probing the deliverable: {e}")
+
+    work_w = max(1, int(width * OVERLAY_WORK_SCALE))
+    work_h = max(1, int(height * OVERLAY_WORK_SCALE))
+
+    per_overlay = []
+    defects = 0
+    unmeasured = 0
+    for expectation in expectations:
+        record = _measure_one_overlay(
+            video_path, expectation, width, height, work_w, work_h)
+        per_overlay.append(record)
+        if record["verdict"] == "defect":
+            defects += 1
+        elif record["verdict"] == "unmeasured":
+            unmeasured += 1
+
+    failed = bool(gate and defects)
+    detail = (f"{defects} of {len(per_overlay)} overlay(s) are wrong in "
+              f"the delivered file")
+    if unmeasured:
+        detail += f"; {unmeasured} could not be measured"
+    if defects:
+        first = next(r for r in per_overlay if r["verdict"] == "defect")
+        detail += f" - {first['label']}: {first['detail']}"
+    elif not defects and not unmeasured:
+        detail = (f"every one of the {len(per_overlay)} declared "
+                  f"overlay(s) is in the delivered file, at the size it "
+                  f"was asked for")
+
+    return RenderQAResult(
+        metric="overlay_geometry",
+        passed=not failed,
+        value={
+            "overlays": per_overlay,
+            "total_overlays": len(per_overlay),
+            "defects": defects,
+            "unmeasured": unmeasured,
+        },
+        threshold={"ncc_min": OVERLAY_SHAPE_NCC_MIN,
+                   "scale_tolerance": OVERLAY_SCALE_TOLERANCE,
+                   "place_tolerance_px": OVERLAY_PLACE_TOLERANCE_PX,
+                   "min_picture_contrast": OVERLAY_MIN_PICTURE_CONTRAST,
+                   "scale_ladder": list(OVERLAY_SCALE_LADDER),
+                   "gates": gate},
+        severity=("error" if failed else
+                  ("warning" if defects else "info")),
+        detail=detail,
+    )
+
+
+def _measure_one_overlay(video_path: str, expectation: "OverlayExpectation",
+                          width: int, height: int,
+                          work_w: int, work_h: int) -> dict:
+    """One overlay's measured geometry on the delivered file."""
+    import numpy as np
+
+    record = {
+        "label": expectation.label,
+        "kind": expectation.kind,
+        "verdict": "unmeasured",
+        "detail": "",
+        "score": None,
+        "measured_scale": None,
+        "expected_scale": None,
+    }
+
+    asset = _overlay_alpha_template(expectation.overlay_path)
+    if asset is None:
+        record["detail"] = (f"the overlay asset "
+                            f"{expectation.overlay_path!r} could not be "
+                            f"read, so its shape is unknown")
+        return record
+    canvas_w, canvas_h, alpha = asset
+
+    if not expectation.expected_box:
+        record["detail"] = (f"nobody said where {expectation.label!r} goes "
+                            f"in the frame, so its geometry was not "
+                            f"measured")
+        return record
+    try:
+        x0, y0, x1, y1 = (float(v) for v in expectation.expected_box)
+    except (TypeError, ValueError):
+        record["detail"] = (f"the box declared for {expectation.label!r} "
+                            f"is not readable, so its geometry was not "
+                            f"measured")
+        return record
+    if x1 <= x0 or y1 <= y0:
+        record["detail"] = (f"the box declared for {expectation.label!r} "
+                            f"is empty, so its geometry was not measured")
+        return record
+
+    # The canvas is drawn INTO the box, so the box carries the size the
+    # plan asked for and the ink box follows the canvas through it.
+    scale_x = (x1 - x0) / float(canvas_w or 1)
+    scale_y = (y1 - y0) / float(canvas_h or 1)
+    ink = alpha >= 0.5
+    if not bool(ink.any()):
+        record["detail"] = (f"the overlay asset for "
+                            f"{expectation.label!r} carries no ink")
+        return record
+    ys, xs = np.where(ink)
+    ink_box = (float(xs.min()), float(ys.min()),
+               float(xs.max()) + 1.0, float(ys.max()) + 1.0)
+    expected_ink = (x0 + ink_box[0] * scale_x, y0 + ink_box[1] * scale_y,
+                    x0 + ink_box[2] * scale_x, y0 + ink_box[3] * scale_y)
+    # The size the plan asked for IS the box: the canvas is drawn into
+    # it, so factor 1.0 on the ladder is the asked-for size and every
+    # other factor is a multiple of it.
+    record["expected_scale"] = 1.0
+    record["expected_ink_box"] = [round(v, 2) for v in expected_ink]
+
+    at = float(expectation.timeline_start)
+    if expectation.timeline_end > expectation.timeline_start:
+        at = (float(expectation.timeline_start)
+              + float(expectation.timeline_end)) / 2.0
+    frame = _delivered_luma_frame(video_path, at, width, height)
+    if frame is None:
+        record["detail"] = (f"no frame of the delivered file could be "
+                            f"read at {at:.2f}s")
+        return record
+
+    # The working image: half the frame, by area.
+    cropped = frame[:work_h * 2, :work_w * 2]
+    work = cropped.reshape(work_h, 2, work_w, 2).mean(axis=(1, 3))
+
+    best = None
+    per_scale = []
+    # The image's spectrum is computed ONCE for the whole ladder: the
+    # picture is the same at every size, and its transform is the
+    # expensive half of a correlation.
+    edges = _edge_magnitude(work)
+    largest = max(
+        (int(round(canvas_w * scale_x * factor * OVERLAY_WORK_SCALE)),
+         int(round(canvas_h * scale_y * factor * OVERLAY_WORK_SCALE)))
+        for factor in OVERLAY_SCALE_LADDER)
+    full = (work_h + largest[1] - 1, work_w + largest[0] - 1)
+    spectra = ((np.fft.rfft2(edges, s=full), full),
+               (np.fft.rfft2(edges * edges, s=full), full))
+    for factor in OVERLAY_SCALE_LADDER:
+        template_w = max(1, int(round(canvas_w * scale_x * factor
+                                      * OVERLAY_WORK_SCALE)))
+        template_h = max(1, int(round(canvas_h * scale_y * factor
+                                      * OVERLAY_WORK_SCALE)))
+        if template_w > work_w or template_h > work_h:
+            continue
+        template = _resize_alpha(alpha, template_w, template_h)
+        if template is None:
+            continue
+        ink_fraction = float((template >= 0.5).sum()) / float(
+            max(1, work_w * work_h))
+        if ink_fraction < OVERLAY_MIN_INK_FRACTION:
+            continue
+        outcome = _shape_correlation(work, template, spectra)
+        if outcome is None:
+            continue
+        score, top, left, contrast, noise = outcome
+        excess = score - noise
+        per_scale.append({"scale": factor, "score": round(score, 4),
+                          "noise": round(noise, 4),
+                          "excess": round(excess, 4)})
+        if best is None or excess > best["excess"]:
+            best = {"score": score, "excess": excess, "noise": noise,
+                    "scale": factor, "top": top, "left": left,
+                    "contrast": contrast, "template": (template_w, template_h)}
+
+    if best is None:
+        record["detail"] = (f"the overlay asset for "
+                            f"{expectation.label!r} has no shape that can "
+                            f"be correlated with the delivered frame")
+        return record
+
+    record["score"] = round(best["score"], 4)
+    record["noise_floor"] = round(best["noise"], 4)
+    record["excess"] = round(best["excess"], 4)
+    record["measured_scale"] = best["scale"]
+    record["scale_scores"] = per_scale
+
+    # A picture with no tonal range at all cannot tell an overlay that
+    # was not drawn from an overlay that is invisible against its own
+    # background: there is nothing for the shape to match or fail to
+    # match.  That is UNMEASURED, never a pass and never a failure.
+    frame_contrast = float(np.std(work))
+    record["picture_contrast"] = round(frame_contrast, 3)
+    if frame_contrast < OVERLAY_MIN_PICTURE_CONTRAST:
+        record["detail"] = (
+            f"the delivered picture carries almost no detail "
+            f"(luminance spread {frame_contrast:.1f}), so "
+            f"{expectation.label!r} cannot be measured against it")
+        return record
+
+    if best["excess"] < OVERLAY_SHAPE_EXCESS_MIN or \
+            best["score"] < OVERLAY_SHAPE_NCC_MIN:
+        record["verdict"] = "defect"
+        record["detail"] = (
+            f"{expectation.label!r} is NOT in the delivered file: its "
+            f"shape stands {best['excess']:.2f} above the "
+            f"{best['noise']:.2f} the picture's own edges score anywhere, "
+            f"and an overlay that was drawn stands at least "
+            f"{OVERLAY_SHAPE_EXCESS_MIN:.2f} above it (the best of "
+            f"{len(per_scale)} sizes tried)")
+        return record
+
+    measured = best["scale"]
+    expected = record["expected_scale"] or 1.0
+    error = abs(measured / expected - 1.0) if expected else 0.0
+    record["scale_error"] = round(error, 4)
+    if error > OVERLAY_SCALE_TOLERANCE:
+        record["verdict"] = "defect"
+        record["detail"] = (
+            f"{expectation.label!r} was drawn at {measured:g}x the size "
+            f"it was asked for ({expected:g}x): its shape correlates best "
+            f"at that size ({best['score']:.2f}), and the tolerance is "
+            f"{OVERLAY_SCALE_TOLERANCE:.0%}")
+        return record
+
+    # Where it landed, measured against where it was asked to land.
+    template_w, template_h = best["template"]
+    centre_x = (best["left"] + template_w / 2.0) / OVERLAY_WORK_SCALE
+    centre_y = (best["top"] + template_h / 2.0) / OVERLAY_WORK_SCALE
+    expected_centre = ((expected_ink[0] + expected_ink[2]) / 2.0,
+                       (expected_ink[1] + expected_ink[3]) / 2.0)
+    offset = ((centre_x - expected_centre[0]) ** 2
+              + (centre_y - expected_centre[1]) ** 2) ** 0.5
+    record["measured_centre"] = [round(centre_x, 1), round(centre_y, 1)]
+    record["expected_centre"] = [round(expected_centre[0], 1),
+                                 round(expected_centre[1], 1)]
+    record["place_offset_px"] = round(offset, 1)
+    record["verdict"] = "ok"
+    record["detail"] = (
+        f"{expectation.label!r} is in the delivered file at "
+        f"{measured:g}x the size it was asked for (correlation "
+        f"{best['score']:.2f}"
+        + (f", {offset:.0f}px from where it was placed"
+           if offset > OVERLAY_PLACE_TOLERANCE_PX else "") + ")")
+    return record
+
 
 def run_full_render_qa(video_path: str, expected_duration: float = None,
                        target_lufs: float = DEFAULT_LUFS_TARGET,

@@ -212,6 +212,15 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "(deliverable_qc.verify_audio_spec), so the channel layout and "
         "the mix are checked before delivery."),
     FindingReader(
+        "overlay_geometry", "render",
+        "Whether each overlay the plan placed is IN the delivered file, at "
+        "the size it was asked for. An overlay drawn at twice its size and "
+        "a graphic that is not in the file at all are invisible to a "
+        "timeline read-back - Resolve stores the transform it was given and "
+        "reads it back cleanly - so the delivered file's own pixels are "
+        "what measure it (render_qa.measure_delivered_overlay_geometry). "
+        "The build that placed the overlay owns the correction."),
+    FindingReader(
         "clipping", "render",
         "Clipped samples in the delivered audio. The run summary and "
         "rough-cut review surface the affected runs so the mix/export can "
