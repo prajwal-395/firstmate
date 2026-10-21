@@ -1291,6 +1291,80 @@ def _record_decoded_frame_cache(frames, regenerated_paths, elapsed,
             artifact_id=cache_artifact_id_from_environment(path, "decoded_frame"))
 
 
+#: How many coarse-frame extractions may run at once.
+#:
+#: Measured 2026-10-20 on the Ren-owned scratch copy (scout
+#: `scout-opt-latency`, FIX 5): the evidence stage spawned ONE ffmpeg
+#: per frame, serially - 1,096 processes for 1,096 frames, 519.6 s of a
+#: run's 552.6 s of measured work. The frames are independent (one
+#: seek, one output file each), so they are extracted in waves of this
+#: many instead of one after another: at N=8 the same 1,096 frames are
+#: ceil(1096/8) waves.
+#:
+#: The bytes do NOT change: the command, the timestamp and the output
+#: path are the same in every wave, so a frame written by a wave is
+#: byte-identical to the one the serial loop wrote. What changes is how
+#: many extractions are in flight.
+#:
+#: The width is the machine's own, capped: each worker is an ffmpeg
+#: decoding and JPEG-encoding a 4K frame, and the captain's box was
+#: already swapping during a build (scout FIX 3). The core count is
+#: read from `concurrency_routing.lane_width` - ONE reading of what
+#: this machine can carry - and the cap is what the scout measured as
+#: the sweet spot (N=8 on 8 cores); a run that wants a different width
+#: says so in `PIPELINE_FRAME_EXTRACT_WORKERS`.
+FRAME_EXTRACT_WORKERS_ENV = "PIPELINE_FRAME_EXTRACT_WORKERS"
+DEFAULT_FRAME_EXTRACT_WORKERS = 8
+MAX_FRAME_EXTRACT_WORKERS = 16
+
+
+def frame_extract_workers() -> int:
+    """How many coarse-frame extractions this run may keep in flight.
+
+    The declared default is the machine's own core count, capped at
+    `DEFAULT_FRAME_EXTRACT_WORKERS`: a two-core Mac and a ten-core
+    Studio answer differently because they ARE different. An explicit
+    `PIPELINE_FRAME_EXTRACT_WORKERS` wins, and an out-of-range or
+    unparseable one is REFUSED rather than silently clamped - a typo
+    that quietly halved the evidence stage would be a lie about the
+    width.
+    """
+    raw = os.environ.get(FRAME_EXTRACT_WORKERS_ENV)
+    if raw is not None and raw.strip():
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{FRAME_EXTRACT_WORKERS_ENV} must be an integer from 1 to "
+                f"{MAX_FRAME_EXTRACT_WORKERS}, got {raw!r}") from exc
+        if not 1 <= value <= MAX_FRAME_EXTRACT_WORKERS:
+            raise ValueError(
+                f"{FRAME_EXTRACT_WORKERS_ENV} must be from 1 to "
+                f"{MAX_FRAME_EXTRACT_WORKERS}, got {value}")
+        return value
+    from library.tools.concurrency_routing import lane_width
+    return max(1, min(lane_width(), DEFAULT_FRAME_EXTRACT_WORKERS))
+
+
+def _extract_one_frame(clip_path, timestamp, out_path) -> None:
+    """Write one frame with the pipeline's own ffmpeg command.
+
+    The command is the one the serial loop used, unchanged: same seek,
+    same timestamp, same output path, same encoder settings. That is
+    what makes a frame written by a parallel wave byte-identical to the
+    one the serial loop wrote.
+    """
+    subprocess.run(
+        ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
+         "-vframes", "1", "-q:v", "2", str(out_path)],
+        capture_output=True,
+    )
+    if not _usable_frame(out_path):
+        # A nonzero exit OR an empty file: either way there is no frame
+        # here, and leaving the husk would poison the cache.
+        _drop_frame(out_path)
+
+
 def _extract_frames(clip_path, duration, cache_dir, interval_s, *,
                     sample_times=None, cache_subdir=None, progress=None):
     cache_dir = Path(cache_dir).resolve()
@@ -1306,33 +1380,45 @@ def _extract_frames(clip_path, duration, cache_dir, interval_s, *,
     frames = []
     progress = progress or vision_progress.NullProgress()
 
-    for i, timestamp in enumerate(timestamps):
-        out_path = frame_dir / f"frame_{i:04d}.jpg"
+    # The plan is fixed before anything is written: frame i is always
+    # frame i of this source, whatever order the extractions finish in.
+    plan = [(i, timestamp, frame_dir / f"frame_{i:04d}.jpg")
+            for i, timestamp in enumerate(timestamps)]
 
-        # One frame is one unit of work. A long source asks for hundreds
-        # of them, and the extraction is silent while it runs: the parent
-        # needs to see that the child is inside it and moving.
+    def extract_one(row):
+        """One frame: one unit of work, one ffmpeg at most.
+
+        One frame is one unit of work. A long source asks for hundreds
+        of them, and the extraction is silent while it runs: the parent
+        needs to see that the child is inside it and moving.
+        """
+        i, timestamp, out_path = row
         token = progress.unit_begin(
             f"extract_frame:{i + 1}/{len(timestamps)}")
         try:
             if not _usable_frame(out_path):
-                result = subprocess.run(
-                    ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
-                     "-vframes", "1", "-q:v", "2", str(out_path)],
-                    capture_output=True,
-                )
-                if not _usable_frame(out_path):
-                    # A nonzero exit OR an empty file: either way there is no
-                    # frame here, and leaving the husk would poison the cache.
-                    _drop_frame(out_path)
-
-            if _usable_frame(out_path):
-                frames.append({
-                    "timestamp": round(timestamp, 3),
-                    "path": str(out_path),
-                })
+                _extract_one_frame(clip_path, timestamp, out_path)
         finally:
             progress.unit_done(token)
+
+    workers = min(frame_extract_workers(), len(plan)) if plan else 1
+    if workers <= 1:
+        for row in plan:
+            extract_one(row)
+    else:
+        # One seek and one output file each: the waves never touch the
+        # same path, so nothing collides and the result is the same set
+        # of frames the serial loop produced.
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix="frame-extract") as pool:
+            list(pool.map(extract_one, plan))
+
+    for _index, timestamp, out_path in plan:
+        if _usable_frame(out_path):
+            frames.append({
+                "timestamp": round(timestamp, 3),
+                "path": str(out_path),
+            })
 
     return frames
 

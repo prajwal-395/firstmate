@@ -1866,6 +1866,13 @@ def test_coarse_frame_cache_reuses_same_source_and_invalidates_mutation(
 
 def test_adaptive_frame_decode_uses_exact_policy_times_and_separate_cache(
         tmp_path, monkeypatch):
+    """The policy times are the times decoded - in any ORDER.
+
+    The coarse extraction runs in waves, so the ORDER the ffmpeg
+    processes are spawned in is not a contract any more; the times
+    asked for are. What the frames carry is pinned: frame i is the
+    i-th selected time, whatever order the waves finished in.
+    """
     source = tmp_path / "source.mov"
     source.write_bytes(b"source")
     calls = []
@@ -1882,9 +1889,15 @@ def test_adaptive_frame_decode_uses_exact_policy_times_and_separate_cache(
         policy_version="test-policy-v1")
 
     assert [row["timestamp"] for row in frames] == selected
-    assert [float(command[command.index("-ss") + 1]) for command in calls] == selected
+    assert sorted(float(command[command.index("-ss") + 1])
+                  for command in calls) == selected
     assert all("adaptive_" in row["path"] for row in frames)
     assert len(calls) == len(selected)
+    # Each frame's own path was decoded at its own timestamp.
+    by_path = {command[-1]: float(command[command.index("-ss") + 1])
+               for command in calls}
+    assert {row["path"]: row["timestamp"] for row in frames} == {
+        path: by_path[path] for path in by_path}
 
 
 def test_host_pipeline_extracts_the_fi08_plan(tmp_path, monkeypatch):
