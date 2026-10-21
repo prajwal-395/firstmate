@@ -9,6 +9,7 @@ from library.tools.jl_placement import (
     find_jl_placements,
     _trailing_pause,
     _leading_pause,
+    _block_words_timeline,
 )
 
 
@@ -168,3 +169,82 @@ class TestFindJlPlacements:
             _block(2, "c2", 10.0, 20.0, words=_words((11.0, 12.0))),
         ]
         assert find_jl_placements(blocks) == []
+
+
+class TestNonSpeechBlocks:
+    """The defect: a legal non-speech block killed the whole scan.
+
+    The spine contract lets a non-speech block carry `clip_id`,
+    `source_start` and `source_end` as None - the keys are present and
+    the values are None (`library/tools/spine_contract.py`). The
+    placement scan read them as 0.0 and as the string "None", and the
+    first one raised a TypeError on `float(None)`: step 4.02's
+    pre-bridge died before it could ask anything, on any real spine.
+    """
+
+    def _slot(self, position, tl_start, tl_end):
+        """A transition slot as the spine actually carries it."""
+        return {
+            "position": position,
+            "block_type": "transition_slot",
+            "clip_id": None,
+            "source_start": None,
+            "source_end": None,
+            "timeline_start": tl_start,
+            "timeline_end": tl_end,
+            "word_timestamps": [],
+        }
+
+    def test_a_slot_with_null_source_range_does_not_raise(self):
+        """The scout's repro: it must return a list, not raise."""
+        blocks = [
+            {"clip_id": "c1", "source_start": 1.0, "source_end": 5.0,
+             "timeline_start": 0.0, "timeline_end": 4.0,
+             "word_timestamps": [{"source_start": 1.0, "source_end": 2.0},
+                                 {"source_start": 4.0, "source_end": 5.0}]},
+            self._slot(1, 4.0, 6.0),
+            {"clip_id": "c2", "source_start": 0.0, "source_end": 3.0,
+             "timeline_start": 6.0, "timeline_end": 9.0,
+             "word_timestamps": [{"source_start": 0.5, "source_end": 1.5}]},
+        ]
+        assert find_jl_placements(blocks) == []
+
+    def test_a_block_with_no_source_range_has_no_word_spans(self):
+        """No source range means no anchor for a word on the timeline."""
+        block = self._slot(1, 0.0, 4.0)
+        assert _block_words_timeline(block) == []
+
+    def test_a_slot_with_no_clip_is_not_a_clip_called_none(self):
+        """`str(None)` is truthy, so the slot read as a clip."""
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, words=_words((0.0, 1.0), (5.0, 6.0))),
+            self._slot(1, 10.0, 12.0),
+            _block(2, "c2", 12.0, 22.0, words=_words((13.0, 14.0))),
+        ]
+        result = find_jl_placements(blocks)
+        assert result == []
+        for place in result:
+            assert place["outgoing_clip_id"] != "None"
+            assert place["incoming_clip_id"] != "None"
+
+    def test_the_guard_does_not_suppress_a_real_speech_placement(self):
+        """A measured pause on a speech-to-speech boundary still places.
+
+        The guard says a block with no source range carries no word
+        edge. It must not say a block WITH one carries none either.
+        """
+        blocks = [
+            _block(1, "c1", 0.0, 10.0, words=_words((0.0, 1.0), (5.0, 6.0))),
+            self._slot(1, 10.0, 12.0),
+            _block(2, "c2", 12.0, 22.0, words=_words((13.0, 14.0))),
+            _block(3, "c3", 22.0, 32.0, words=_words((24.0, 25.0))),
+        ]
+        result = find_jl_placements(blocks)
+        assert len(result) == 1
+        cut = result[0]
+        assert cut["cut_point_position"] == 3
+        assert cut["outgoing_clip_id"] == "c2"
+        assert cut["incoming_clip_id"] == "c3"
+        assert cut["kind"] == "j_cut"
+        assert cut["offset_seconds"] == 8.0
+

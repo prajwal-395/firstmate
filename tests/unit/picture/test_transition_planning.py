@@ -854,3 +854,81 @@ def test_a_transition_no_v1_cut_carries_downgrades_instead_of_failing(
         assert downgraded["shipped_type"] == "hard_cut"
         if reason:
             assert reason in downgraded["reason"], (ttype, at)
+
+
+# --------------------------------------------------------------------------
+# From the scout's C8: a legal non-speech block killed step 4.02.
+#
+# The spine contract lets a non-speech block carry `clip_id`,
+# `source_start` and `source_end` as None - the keys are present and the
+# values are None (`library/tools/spine_contract.py`). The pre-bridge
+# read `source_start` as a float, so `float(None)` raised a TypeError
+# and the planning step was dead on every real spine (the frozen
+# spine of the run of record has four transition slots and an outro
+# shaped exactly this way). The J/L placement scan is what read it; the
+# bridge hands it the spine unfiltered.
+
+def _null_slot(position, start, end):
+    """A transition slot as the spine actually carries it."""
+    return {
+        "position": position,
+        "block_type": "transition_slot",
+        "clip_id": None,
+        "source_start": None,
+        "source_end": None,
+        "timeline_start": start,
+        "timeline_end": end,
+        "word_timestamps": [],
+    }
+
+
+def _speech_with_words(position, clip, tl_start, tl_end, src_start, words):
+    return {
+        "position": position,
+        "block_type": "speech",
+        "clip_id": clip,
+        "source_start": src_start,
+        "source_end": src_start + (tl_end - tl_start),
+        "timeline_start": tl_start,
+        "timeline_end": tl_end,
+        "word_timestamps": [
+            {"word": f"w{i}", "source_start": s, "source_end": e}
+            for i, (s, e) in enumerate(words)
+        ],
+    }
+
+
+def test_the_bridge_survives_a_slot_that_carries_nulls():
+    """The pre-bridge must run on the spine the spine contract allows.
+
+    Before the guard, this spine raised `TypeError: float() argument
+    must be a string or a real number, not 'NoneType'` in
+    `library/tools/jl_placement.py` and step 4.02 never asked anything.
+    """
+    spine = [
+        _speech_with_words(1, "clip_001", 0.0, 10.0, 0.0,
+                           [(0.0, 1.0), (5.0, 6.0)]),
+        _null_slot(1, 10.0, 12.0),
+        _speech_with_words(2, "clip_002", 12.0, 22.0, 0.0, [(1.0, 2.0)]),
+        _speech_with_words(3, "clip_003", 22.0, 32.0, 0.0, [(2.0, 3.0)]),
+    ]
+    out = _run_bridge({
+        "timed_spine": {"structure": spine},
+        "music_selection": {},
+        "music_analysis": {},
+        "semantic_analysis": {},
+        "clip_catalog": [],
+        "b_roll_assignments": [],
+    })
+
+    rows = [line.split("\t") for line in out["cuts_toon"].splitlines()[1:]]
+    assert [r[0] for r in rows] == ["1", "2", "3", "end"]
+
+    jl = CUTS_HEADERS.index("jl_placement")
+    # The slot carries no speech, so no audio handoff is proposed across
+    # it - and the speech-to-speech boundary beside it is still measured
+    # and proposed, which is what the guard must NOT swallow.
+    cells = {r[0]: r[jl] for r in rows}
+    assert cells["1"].startswith("none")
+    assert cells["2"].startswith("none")
+    assert cells["3"].startswith("j_cut offset 8.000s")

@@ -22,6 +22,11 @@ The rule, stated
 ----------------
 - Both sides must carry speech: a J/L cut is an audio handoff between
   two speakers, so a boundary with a non-speech side is skipped.
+- A block with no SOURCE range has no word edge: the spine contract
+  allows a non-speech block to carry `source_start`/`source_end` as
+  None, and a word span is anchored to the timeline through that
+  range. Such a block carries no word spans, so it sizes no pause and
+  no placement is proposed across it.
 - The outgoing block's trailing pause (its end minus its last word)
   sizes a J cut; the incoming block's leading pause (its first word
   minus its start) sizes an L cut. The offset IS the measured pause -
@@ -49,10 +54,54 @@ def _fmt_pause(value) -> str:
     return f"{value:.3f}s" if value is not None else "none"
 
 
+def _block_source_range(block: dict):
+    """The block's source range as (start, end), or None when it has none.
+
+    The spine contract lets a NON-SPEECH block carry `source_start` and
+    `source_end` as None - the key is present and the value is None,
+    which is legal (`library/tools/spine_contract.py`). A word span is
+    placed on the timeline THROUGH that range, so a block with no
+    source range has no word spans at all: there is no anchor to put a
+    word on the timeline with, and reading the None as 0.0 would place
+    every word at the block's own start - a number that is not a
+    measurement.
+    """
+    start = block.get("source_start")
+    end = block.get("source_end")
+    if start is None or end is None:
+        return None
+    try:
+        return float(start), float(end)
+    except (TypeError, ValueError):
+        return None
+
+
+def _block_clip_id(block: dict):
+    """The block's source clip, or None when it names no clip.
+
+    Same shape as the source range: a non-speech block carries
+    `clip_id: None`. `str(None)` is the four-letter word "None", which
+    is TRUTHY, so a slot with no clip read as a clip called "None" -
+    and a cut was offered across it.
+    """
+    clip_id = block.get("clip_id")
+    if clip_id is None:
+        return None
+    clip_id = str(clip_id).strip()
+    return clip_id or None
+
+
 def _block_words_timeline(block: dict) -> list:
-    """The block's word spans in TIMELINE seconds, as (start, end) pairs."""
+    """The block's word spans in TIMELINE seconds, as (start, end) pairs.
+
+    A block with no source range has no word spans (see
+    `_block_source_range`), so it has no word edge to cut behind.
+    """
     spans = []
-    src_start = float(block.get("source_start", 0.0))
+    source_range = _block_source_range(block)
+    if source_range is None:
+        return spans
+    src_start = source_range[0]
     tl_start = float(block.get("timeline_start", 0.0))
     for entry in block.get("word_timestamps") or []:
         if not isinstance(entry, dict):
@@ -115,8 +164,8 @@ def find_jl_placements(spine_blocks: list) -> list:
 
     blocks = [b for b in spine_blocks or [] if isinstance(b, dict)]
     for outgoing, incoming in zip(blocks, blocks[1:]):
-        outgoing_clip = str(outgoing.get("clip_id", ""))
-        incoming_clip = str(incoming.get("clip_id", ""))
+        outgoing_clip = _block_clip_id(outgoing)
+        incoming_clip = _block_clip_id(incoming)
         if not outgoing_clip or not incoming_clip:
             continue
         if outgoing_clip == incoming_clip:
