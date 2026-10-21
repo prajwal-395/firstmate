@@ -530,7 +530,47 @@ def test_ensure_starts_the_default_socket_outside_a_worktree(
 
     monkeypatch.setattr(client, "_start_detached", fake_start)
     assert client.ensure(path=_production_socket(), timeout=2) is None
-    assert len(started) == 1
+    # A REBUILD MUST NEVER LEAVE THE MACHINE WITH NO BROKER: the old
+    # one is already retired by the time the replacement is started, so
+    # a replacement that never comes up is started again (the old
+    # broker's socket may not have been released yet).
+    assert len(started) == 2
+
+
+def test_a_replacement_that_never_comes_up_is_started_again(monkeypatch):
+    """A rebuild must never leave the machine with NO broker.
+
+    THE DEFECT (measured 2026-10-21, seen by the axi008b lane): the
+    broker retired itself for a changed source tree, the replacement
+    never started, and the machine was left with nothing serving it -
+    so every lane's write was refused with "ren-resolved is not
+    serving".
+
+    The old broker is already retired by the time the replacement is
+    started, so a replacement that dies (or never answers) is started
+    again: the machine ends with a broker serving it, or with the
+    reason it could not have one.
+    """
+    monkeypatch.setattr(client, "_in_pytest", lambda: False)
+    monkeypatch.setattr(client, "_is_linked_worktree", lambda root: False)
+    monkeypatch.setattr(client, "_is_default_socket", lambda path: True)
+    monkeypatch.setattr(client, "ping", lambda path=None: None)
+    started = []
+
+    class _Dead:
+        def poll(self):
+            return 1
+
+    def fake_start(target):
+        started.append(target)
+        return _Dead()
+
+    monkeypatch.setattr(client, "_start_detached", fake_start)
+
+    assert client.ensure(path=_production_socket(), timeout=1) is None
+    assert len(started) == 2, (
+        "the replacement was not tried again, so the machine was left "
+        "with no broker")
 
 
 def test_ensure_refuses_worktree_when_bin_ren_sets_engine_root(

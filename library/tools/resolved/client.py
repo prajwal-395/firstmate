@@ -718,17 +718,35 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                     os.environ["REN_RESOLVED_REBUILD_PENDING"] = ",".join(pending)
             except Exception:  # noqa: BLE001 - refresh never breaks ensure
                 pass
-            process = _start_detached(target)
-            deadline = time.time() + max(0.0, timeout)
-            while True:
-                answer = ping(target)
-                if answer is not None:
-                    return answer
-                if process.poll() is not None:
+            # A REBUILD MUST NEVER LEAVE THE MACHINE WITH NO BROKER.
+            # The old broker has already been retired by the time we
+            # start the replacement, so if the replacement dies - or
+            # never answers - the machine is left with nothing serving
+            # it, and every lane's write is refused with "ren-resolved
+            # is not serving" (measured 2026-10-21: the broker retired
+            # itself for a changed source tree and the replacement never
+            # started). So the start is TRIED AGAIN, and the machine
+            # ends with a broker serving it or with the reason it could
+            # not have one.
+            for attempt in range(2):
+                process = _start_detached(target)
+                # The first attempt waits the caller's own budget; the
+                # retry waits only long enough for a socket the old
+                # broker has not released yet to be free.
+                budget = max(0.0, timeout) if attempt == 0 else min(
+                    max(0.0, timeout), 5.0)
+                deadline = time.time() + budget
+                while True:
+                    answer = ping(target)
+                    if answer is not None:
+                        return answer
+                    if process.poll() is not None:
+                        break
+                    if time.time() >= deadline:
+                        break
+                    time.sleep(0.1)
+                if attempt:
                     return None
-                if time.time() >= deadline:
-                    return None
-                time.sleep(0.1)
         finally:
             if fcntl is not None:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
