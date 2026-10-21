@@ -269,6 +269,12 @@ FLOOR_NOTICE = (
     "claim that the subject is absent from the footage - it is a claim "
     "that this signal could not resolve the query."
 )
+VERIFIED_NOTICE = (
+    "Verified candidates: every window below was INSPECTED and its "
+    "evidence established the query, so each one is a find rather than a "
+    "place to look. Absence still cannot be concluded from this list - a "
+    "candidate that was rejected is not a candidate that does not exist."
+)
 
 # Action and gesture queries, refused rather than ranked.  Each pattern is
 # one measured failure or its close kin: the eval watched CLIP return
@@ -794,7 +800,8 @@ class FrameIndex:
                       max_range_s: float | None = MAX_RANGE_S,
                       max_range_frames: int | None = RANGE_SAMPLES,
                       per_source_pool: int | None = PER_SOURCE_POOL,
-                      repeated_events: int | None = None) -> dict:
+                      repeated_events: int | None = None,
+                      temporal: bool = False) -> dict:
         """Top frame hits merged into time ranges per clip.
 
         The range is the unit a person scrubs: adjacent pool hits on one
@@ -836,6 +843,22 @@ class FrameIndex:
         separated by more than the merge gap, because the editor asked
         for the occurrences and not for one sighting twice.  The query
         decides, not the score - `repeated_events` overrides the reading.
+
+        **The TEMPORAL PASS (`temporal`).**  A ranking says which frames
+        RESEMBLE the query; it does not say that the shot they are in
+        establishes it.  "The moment someone opens the laptop" is
+        answered by a ranking with the frames of a laptop, which is a
+        different thing.  So the candidate shots are put to the local
+        vision model - the index says where to look, the source memory
+        says what is there - and a candidate whose evidence does not
+        establish the query is REJECTED rather than offered with a
+        lower rank.  Every window the pass presents carries the verdict
+        that justified it, and the report carries the cost.
+
+        The pass is OFF by default in this primitive, because it costs a
+        model call per candidate and a caller that only wants the ranked
+        candidates should not pay for it.  The shipping callers - `ren
+        search --visual` and the plan-driven search - turn it ON.
         """
         report = self.search_frames(query, top_k=pool,
                                     include_actions=include_actions,
@@ -911,19 +934,194 @@ class FrameIndex:
         ranges.sort(key=lambda r: -r["best_score"])
         if window_floor is not None:
             ranges = [r for r in ranges if r["best_score"] >= window_floor]
-        report["ranges"] = self._select_windows(ranges, top_ranges,
-                                                repeats, merge_gap_s)
-        if not report["ranges"]:
-            # Candidates were found but every window was dropped (the
-            # window floor, or the pool held nothing mergeable).  The
-            # lane answered with nothing, so it says so rather than
-            # reporting the frames it ranked.
-            report["abstained"] = True
-            report["answer_status"] = "abstained"
-            report["abstention"] = self._abstain(
-                ran=True, found=False,
-                near_miss=report["results"][0] if report["results"] else None)
+        if temporal is False:
+            report["ranges"] = self._select_windows(ranges, top_ranges,
+                                                    repeats, merge_gap_s)
+            if not report["ranges"]:
+                # Candidates were found but every window was dropped
+                # (the window floor, or the pool held nothing
+                # mergeable).  The lane answered with nothing, so it
+                # says so rather than reporting the frames it ranked.
+                report["abstained"] = True
+                report["answer_status"] = "abstained"
+                report["abstention"] = self._abstain(
+                    ran=True, found=False,
+                    near_miss=(report["results"][0]
+                               if report["results"] else None))
+            return report
+        report.update(self._temporal_pass(
+            query, ranges, top_ranges, repeats=repeats,
+            merge_gap_s=merge_gap_s, required=temporal is True,
+            near_miss=(report["results"][0] if report.get("results") else None)))
         return report
+    def _temporal_pass(self, query: str, ranges: list, top_ranges: int,
+                       repeats: int = 1, merge_gap_s: float = MERGE_GAP_S,
+                       required: bool = False,
+                       near_miss: dict | None = None) -> dict:
+        """Put the candidate shots to the model and present the justified
+        ones.
+
+        The pass reads the SOURCE MEMORY's frame sample - the frames the
+        shared extraction already produced - and asks the local vision
+        model whether the shot establishes the query.  A shot whose
+        evidence does not establish it is rejected; the shots that
+        survive are presented, each carrying the verdict that justified
+        it.
+        """
+        from library.tools.retrieval import temporal_rerank
+
+        classification = temporal_rerank.classify(query)
+        if not classification["interval_evidence"]:
+            # An ORDER or a RELATIONSHIP is a claim about two things,
+            # and one interval cannot carry it.  The pass says so and
+            # names the lane that owns it, rather than answering badly.
+            return {
+                "ranges": self._select_windows(ranges, top_ranges,
+                                                repeats,
+                                                merge_gap_s),
+                "temporal_pass": {
+                    "status": "not_applicable",
+                    "reason": ("this query needs more than one interval: "
+                               + "; ".join(f"{kind} is answered by "
+                                           f"{classification['owner_lanes'][kind]}"
+                                           for kind in
+                                           classification["multi_interval_kinds"])),
+                    "classification": classification,
+                    "cost": None,
+                },
+            }
+        try:
+            frames_by_clip = self._source_frames(
+                {entry["clip_id"] for entry in ranges})
+        except Exception as error:  # noqa: BLE001 - the pass must not
+            # take the lane down with it
+            if required:
+                return {
+                    "ranges": [],
+                    "temporal_pass": {
+                        "status": "failed",
+                        "reason": (f"the temporal pass could not read the "
+                                   f"source memory: {error}"),
+                        "classification": classification,
+                        "cost": None,
+                    },
+                    "error": (f"the temporal pass could not read the source "
+                              f"memory: {error}"),
+                    "answer_status": "not_analyzed",
+                }
+            return {
+                "ranges": self._select_windows(ranges, top_ranges,
+                                                repeats,
+                                                merge_gap_s),
+                "temporal_pass": {
+                    "status": "unavailable",
+                    "reason": (f"the temporal pass could not read the "
+                               f"source memory: {error}"),
+                    "classification": classification,
+                    "cost": None,
+                },
+            }
+        result = temporal_rerank.rerank(
+            project_folder=self.project_folder, query=query, ranges=ranges,
+            frames_by_clip=frames_by_clip, top_ranges=top_ranges,
+            classification=classification, per_source=repeats,
+            different_event=lambda entry, picked, clip_id: (
+                _is_a_different_event(entry, picked, clip_id, merge_gap_s)))
+        if result.get("status") == "unavailable":
+            return {
+                "ranges": self._select_windows(ranges, top_ranges,
+                                                repeats,
+                                                merge_gap_s),
+                "temporal_pass": {
+                    "status": "unavailable",
+                    "reason": result.get("reason"),
+                    "classification": classification,
+                    "cost": result.get("cost"),
+                    "notice": (
+                        "The temporal pass could not run: the source memory "
+                        "holds no frame sample to inspect, so these candidates "
+                        "are ranked candidates and not verified finds."),
+                },
+            }
+        windows = result["ranges"]
+        for window in windows:
+            # The lane owns the window's own fields, and the timecode
+            # has to be the WINDOW's: what the pass presents is the
+            # shot the index proposed, and the lane is what says what
+            # time that shot covers.
+            window["timecode"] = (f"{self._timecode(window['start'])}"
+                                  f"-{self._timecode(window['end'])}")
+        if not windows:
+            # The lane's own abstention vocabulary: it RAN, over its
+            # whole scope, and every candidate it inspected failed to
+            # establish the query.  That is not "the footage lacks the
+            # moment" - it is "the candidates did not show it".
+            return {
+                "ranges": [],
+                "temporal_pass": {
+                    "status": "no_established_interval",
+                    "reason": ("no candidate shot established the query: "
+                               "every candidate the index proposed was "
+                               "rejected by the evidence"),
+                    "classification": classification,
+                    "cost": result["cost"],
+                    "candidates": result["candidates"],
+                },
+                "abstained": True,
+                "answer_status": "abstained",
+                "abstention": self._abstain(
+                    ran=True, found=False,
+                    scope_note=("the temporal pass inspected every "
+                                "candidate the index proposed and the "
+                                "evidence established none of them"),
+                    near_miss=near_miss),
+                "notice": (
+                    "No shot established this query. Every candidate the "
+                    "index proposed was inspected and rejected - that is "
+                    "not a claim that the footage lacks the moment, it is "
+                    "a claim that the candidates did not show it."),
+            }
+        return {
+            "ranges": windows,
+            "notice": VERIFIED_NOTICE,
+            "temporal_pass": {
+                "status": "ran",
+                "classification": classification,
+                "cost": result["cost"],
+                "candidates": result["candidates"],
+            },
+        }
+
+    def _source_frames(self, clip_ids) -> dict:
+        """The measured frame sample of each clip, as the pass sees it.
+
+        This is the shared M2 extraction - the frames the source memory
+        already decoded - read through the project's own read root, so
+        the pass inspects the same frames every other consumer sees and
+        decodes nothing of its own.
+        """
+        from library.tools import source_memory
+        from library.tools.analysis import footage_segments
+
+        catalog = {clip.get("clip_id"): clip
+                   for clip in footage_segments.load_catalog(self.project_folder)}
+        root = source_memory.project_read_root(self.project_folder)
+        out: dict = {}
+        for clip_id in clip_ids:
+            clip = catalog.get(clip_id)
+            if clip is None:
+                continue
+            digest, _basis = source_memory.digest_for_clip(
+                self.project_folder, clip)
+            if digest is None:
+                continue
+            record = source_memory.read_m2(digest, root)
+            frames = (record or {}).get("frames") or []
+            out[clip_id] = [
+                {"t": float(frame["t"]),
+                 "file": source_memory.frame_abspath(digest, frame, root)}
+                for frame in frames]
+        return out
 
     @staticmethod
     def _select_windows(ranges: list, top_ranges: int, per_source: int,
@@ -960,6 +1158,10 @@ class FrameIndex:
         return picked
 
     def _range(self, clip_id, filename, start, end, best, members) -> dict:
+        peak = None
+        for member in members or ():
+            if peak is None or member.get("score", 0) > peak.get("score", 0):
+                peak = member
         return {
             "clip_id": clip_id,
             "filename": filename,
@@ -968,6 +1170,10 @@ class FrameIndex:
             "duration": round(end - start, 3),
             "timecode": f"{self._timecode(start)}-{self._timecode(end)}",
             "best_score": round(float(best), 4),
+            # The sighting that scored best inside this range.  A
+            # temporal pass judges an EVENT on the seconds around this
+            # frame, so the range has to say which frame it was.
+            "peak_t": (peak or {}).get("t", start),
             "n_frames": len(members),
             "verified": False,
         }

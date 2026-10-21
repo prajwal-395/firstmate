@@ -365,7 +365,7 @@ def _visual_report(project_folder, query: str, top_k: int, frame_index):
     from library.tools.ren_refusal import RenRefusal
     try:
         index = frame_index if frame_index is not None else FrameIndex(project_folder)
-        report = index.search_ranges(query, top_ranges=top_k)
+        report = index.search_ranges(query, top_ranges=top_k, temporal=True)
     except RenRefusal as refused:
         return {}, refused.render(), refused.render()
     except (OSError, KeyError, ValueError) as error:

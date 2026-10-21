@@ -323,7 +323,7 @@ class _StubFrameIndex:
     def __init__(self, frames):
         self.frames = list(frames)
 
-    def search_ranges(self, query, top_ranges=5):
+    def search_ranges(self, query, top_ranges=5, temporal=False):
         return {"ranges": [], "results": []}
 
 
@@ -386,7 +386,7 @@ class _RefusingFrameIndex:
     def __init__(self):
         self.frames = []
 
-    def search_ranges(self, query, top_ranges=5):
+    def search_ranges(self, query, top_ranges=5, temporal=False):
         return {"ranges": [], "results": [],
                 "refused": {"matched": "gesturing",
                             "reason": "frame search covers objects, people "

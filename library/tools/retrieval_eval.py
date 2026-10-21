@@ -257,6 +257,8 @@ def score_visual(query: dict, report: dict, corpus: Corpus, rules: dict) -> dict
         for frame in frames
     ]
     out["search_policy"] = report.get("search_policy", {})
+    if report.get("temporal_pass"):
+        out["temporal_pass"] = report["temporal_pass"]
     if positive:
         judged = [r for r in rows if not r["ambiguous"]]
         touched = sum(1 for name, spans in positive.items() for span in spans
@@ -543,6 +545,11 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
            "requirements": _requirement_agreement(query),
            "refused": report.get("refused"),
            "error": report.get("error"), "degraded": report.get("degraded")}
+    # The temporal pass's own account of itself: what it classified,
+    # what it inspected, what it cost.  It is part of the measurement,
+    # not a footnote to it.
+    if report.get("temporal_pass"):
+        out["temporal_pass"] = report["temporal_pass"]
     if moments:
         out.update(kind="present", moments=len(moments),
                    moments_found=len(credited),
@@ -873,6 +880,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                 frame_index = FrameIndex(project)
             report = frame_index.search_ranges(
                 query["query"], top_ranges=rules["visual"]["top_k"],
+                temporal=True,
                 **_floor_kwargs(rules["visual"], "floor", "window_floor"))
             scored = score_visual(query, report, corpus, rules["visual"])
         elif family == "editorial":
@@ -892,6 +900,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                 visual_report = frame_index.search_ranges(
                     query["query"],
                     top_ranges=editorial_rules["top_k"],
+                    temporal=True,
                     **_floor_kwargs(editorial_rules, "visual_floor",
                                     "visual_window_floor"))
                 report = {
@@ -903,6 +912,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                     "ranges": visual_report.get("ranges") or [],
                     "candidate_frames": visual_report.get("results") or [],
                     "search_policy": visual_report.get("search_policy") or {},
+                    "temporal_pass": visual_report.get("temporal_pass"),
                     "abstained": visual_report.get("abstained"),
                     "refused": visual_report.get("refused"),
                     "error": visual_report.get("error"),
@@ -1226,7 +1236,47 @@ def summarise(results: List[dict], latency: Dict[str, list],
     out["latency_seconds"] = {f: {"median": round(sorted(v)[len(v) // 2], 3),
                                   "max": round(max(v), 3), "n": len(v)}
                               for f, v in latency.items()}
+    cost = _temporal_cost(results)
+    if cost:
+        out["temporal_pass"] = cost
     return out
+
+
+def _temporal_cost(results) -> dict:
+    """What the temporal pass cost, over every query that ran it.
+
+    The incremental cost of verification is part of the measurement: a
+    pass that buys recall with model calls the caller cannot see is a
+    pass nobody can decide to keep.
+    """
+    calls = cached = candidates = verified = rejected = 0
+    seconds = 0.0
+    ran = 0
+    for result in results:
+        record = result.get("temporal_pass") or {}
+        cost = record.get("cost") or {}
+        if not cost:
+            continue
+        ran += 1
+        calls += int(cost.get("calls") or 0)
+        cached += int(cost.get("cached_calls") or 0)
+        candidates += int(cost.get("candidates") or 0)
+        verified += int(cost.get("verified") or 0)
+        rejected += int(cost.get("rejected") or 0)
+        seconds += float(cost.get("seconds") or 0.0)
+    if not ran:
+        return {}
+    return {
+        "queries": ran,
+        "model_calls": calls,
+        "cached_calls": cached,
+        "candidates_inspected": candidates,
+        "candidates_established": verified,
+        "candidates_rejected": rejected,
+        "model_seconds": round(seconds, 1),
+        "seconds_per_candidate": (round(seconds / candidates, 2)
+                                  if candidates else None),
+    }
 
 
 def main(argv=None) -> int:

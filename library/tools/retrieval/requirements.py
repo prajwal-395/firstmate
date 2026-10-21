@@ -524,6 +524,45 @@ def _clauses_and_connectives(query: str) -> list[tuple[str, str]]:
     return list(zip(texts, connectives))
 
 
+def clauses(query: str) -> list[str]:
+    """The query's clauses, in order.
+
+    The split is the one `decompose` uses, exposed so that a caller
+    which needs the QUERY's own clause structure - rather than the
+    requirements it produced - asks the module that owns the split
+    instead of splitting the query a second time.
+    """
+    return [text for text, _connective in _clauses_and_connectives(query)
+            if text]
+
+
+def clauses_with_connectives(query: str) -> list[tuple[str, str]]:
+    """Each clause and the connective that FOLLOWS it."""
+    return [(text, connective)
+            for text, connective in _clauses_and_connectives(query)
+            if text]
+
+
+def visual_clauses(query: str) -> list[str]:
+    """The query's clauses that carry an UNAMBIGUOUS visual claim.
+
+    The ambiguity is decided PER CLAUSE, before the requirements of a
+    kind are merged across clauses: a clause with no framing cue may be
+    about the words rather than the picture, and such a clause claims
+    nothing for the picture.  A clause that names the picture - "the
+    shot of the woman wearing glasses" - claims it.
+    """
+    out: list[str] = []
+    for text, _connective in _clauses_and_connectives(query):
+        if not text:
+            continue
+        requirements = _requirements_for_clause(text)
+        if any(requirement.modality == "visual" and not requirement.ambiguous
+               for requirement in requirements):
+            out.append(text)
+    return out
+
+
 def _requirements_for_clause(clause: str) -> list[RetrievalRequirement]:
     """The requirements one clause names.
 

@@ -4527,8 +4527,26 @@ def _print_frame_report(report):
     for i, span in enumerate(report["ranges"]):
         print(f"\n{i + 1}. {span['clip_id']} ({span['filename']}) "
               f"{span['timecode']}  ({span['duration']:.1f}s)")
-        print(f"   best {span['best_score']:.3f} across {span['n_frames']} frame(s)"
-              f"  [UNVERIFIED]")
+        justification = span.get("justification") or {}
+        if justification:
+            print(f"   best {span['best_score']:.3f} across "
+                  f"{span['n_frames']} frame(s)  [VERIFIED]")
+            print(f"   established: {justification.get('statement')!r} - "
+                  f"{justification.get('reason')}")
+        else:
+            print(f"   best {span['best_score']:.3f} across "
+                  f"{span['n_frames']} frame(s)  [UNVERIFIED]")
+    pass_record = report.get("temporal_pass") or {}
+    if pass_record:
+        cost = pass_record.get("cost") or {}
+        print(f"\ntemporal pass: {pass_record.get('status')} - "
+              f"{cost.get('calls', 0)} model call(s), "
+              f"{cost.get('cached_calls', 0)} from the recorded verdicts, "
+              f"{cost.get('seconds', 0)}s of model time, "
+              f"{cost.get('verified', 0)} of {cost.get('candidates', 0)} "
+              f"candidates established")
+        if pass_record.get("reason"):
+            print(f"   {pass_record['reason']}")
 
 
 def _print_structured(answer):
@@ -4831,14 +4849,21 @@ def _frame_json_hits(report, sources) -> list:
     hits = []
     for span in report.get("ranges") or []:
         src = sources.get(span.get("clip_id", ""), {})
-        hits.append(_json_hit(
+        hit = _json_hit(
             source_digest=src.get("source_digest"),
             clip_id=span.get("clip_id"),
             file=span.get("filename") or src.get("file", ""),
             start_s=span.get("start"), end_s=span.get("end"),
             kind="visual",
             score=span.get("best_score"), dense=None,
-            band="unverified", text=""))
+            band="unverified", text="")
+        if span.get("justification"):
+            # The verdict that justified this window, and the frames it
+            # was judged on.  A window the temporal pass presented says
+            # WHY it was presented.
+            hit["justification"] = span["justification"]
+            hit["band"] = "verified"
+        hits.append(hit)
     return hits
 
 
@@ -4868,7 +4893,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
                 signal_merge=False, person=None, lane="text",
                 include_actions=False, index_dir=None,
                 external_hits=None, filters=None, quality=False,
-                visual_floor=LANE_FLOOR) -> dict:
+                visual_floor=LANE_FLOOR, temporal=True) -> dict:
     """One machine-readable answer for every `ren search` lane.
 
     `lane` is `text` (the default index), `sound`, `ocr`, `visual`
@@ -4906,7 +4931,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             visual_floor = footage_frames.MEASURED_QUERY_FLOOR
         report = vidx.search_ranges(query, top_ranges=top_k,
                                     include_actions=include_actions,
-                                    floor=visual_floor)
+                                    floor=visual_floor, temporal=temporal)
         if report["refused"] is not None:
             raise RenRefusal(
                 f"frame search refused {report['query']!r}",
@@ -4918,7 +4943,8 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             hits=_frame_json_hits(report, sources),
             error=report.get("error"),
             answer_status=report["answer_status"],
-            extra={"notice": report["notice"]})
+            extra={"notice": report["notice"],
+                   "temporal_pass": report.get("temporal_pass")})
     if lane == "chunks":
         idx = FootageIndex(project_folder, index_dir=index_dir)
         report = idx.search_chunks(query, top_k=top_k, floor=floor)
@@ -5186,6 +5212,12 @@ def main(argv=None):
     p_search.add_argument("--no-visual-floor", action="store_true",
                            help="with --visual: rank the frame candidates whatever "
                                 "they score, with no abstention floor at all")
+    p_search.add_argument("--no-temporal", action="store_true",
+                           help="with --visual: skip the temporal pass. The pass "
+                                "puts each candidate shot to the local vision model "
+                                "and rejects the ones whose evidence does not "
+                                "establish the query; skipping it returns ranked "
+                                "candidates with no verdict behind them")
     p_search.add_argument("--mode", choices=["hybrid", "dense", "lexical"], default="hybrid")
     p_search.add_argument("--signal-merge", action="store_true",
                           help="opt in to direct shot-facet and precise OCR-span "
@@ -5621,7 +5653,8 @@ def main(argv=None):
             answer = search_json(args.project, args.query, top_k=args.top_k,
                                  include_actions=args.include_actions,
                                  index_dir=args.index_dir, lane="visual",
-                                 visual_floor=visual_floor)
+                                 visual_floor=visual_floor,
+                                 temporal=not args.no_temporal)
             print(json.dumps(answer, indent=2))
             return 0
         from library.tools.analysis import footage_frames
@@ -5630,7 +5663,8 @@ def main(argv=None):
             visual_floor = footage_frames.MEASURED_QUERY_FLOOR
         report = vidx.search_ranges(args.query, top_ranges=args.top_k,
                                     include_actions=args.include_actions,
-                                    floor=visual_floor)
+                                    floor=visual_floor,
+                                    temporal=not args.no_temporal)
         elapsed = time.perf_counter() - started
         if report["refused"] is not None:
             raise RenRefusal(

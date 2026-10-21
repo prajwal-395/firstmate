@@ -105,6 +105,9 @@ UNCAPABLE_LOCK_SITES: dict = {
     "library.tools.span_verification:verify_spans":
         "`ren search` span verification - a ren verb rather than a "
         "registered capability",
+    "library.tools.span_verification:verify_intervals":
+        "`ren search` interval verification - the visual lane's temporal "
+        "pass - a ren verb rather than a registered capability",
     "library.tools.native_refresh:ensure_current":
         "native-part safe points (pipeline-run start, the broker "
         "starter, a driver session starting) - process infrastructure "

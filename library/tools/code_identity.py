@@ -248,6 +248,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # changes what the cached preflight rows resolve through.
         'library/tools/retrieval/abstention.py',
         'library/tools/timeline_structure.py',
+        # The frame lane's temporal reranking: the candidates the
+        # lane presents are the ones the pass established, so a change
+        # in the pass changes the cached result.
+        'library/tools/retrieval/temporal_rerank.py',
+        # The decomposition the pass classifies the query with.
+        'library/tools/retrieval/requirements.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -897,6 +903,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # changes what the cached preflight rows resolve through.
         'library/tools/retrieval/abstention.py',
         'library/tools/timeline_structure.py',
+        # The frame lane's temporal reranking: the candidates the
+        # lane presents are the ones the pass established, so a change
+        # in the pass changes the cached result.
+        'library/tools/retrieval/temporal_rerank.py',
+        # The decomposition the pass classifies the query with.
+        'library/tools/retrieval/requirements.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -1628,6 +1640,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # changes what the cached preflight rows resolve through.
         'library/tools/retrieval/abstention.py',
         'library/tools/timeline_structure.py',
+        # The frame lane's temporal reranking: the candidates the
+        # lane presents are the ones the pass established, so a change
+        # in the pass changes the cached result.
+        'library/tools/retrieval/temporal_rerank.py',
+        # The decomposition the pass classifies the query with.
+        'library/tools/retrieval/requirements.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/conversation_clock.py',
@@ -2284,6 +2302,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # changes what the cached preflight rows resolve through.
         'library/tools/retrieval/abstention.py',
         'library/tools/timeline_structure.py',
+        # The frame lane's temporal reranking: the candidates the
+        # lane presents are the ones the pass established, so a change
+        # in the pass changes the cached result.
+        'library/tools/retrieval/temporal_rerank.py',
+        # The decomposition the pass classifies the query with.
+        'library/tools/retrieval/requirements.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -3013,6 +3037,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # changes what the cached preflight rows resolve through.
         'library/tools/retrieval/abstention.py',
         'library/tools/timeline_structure.py',
+        # The frame lane's temporal reranking: the candidates the
+        # lane presents are the ones the pass established, so a change
+        # in the pass changes the cached result.
+        'library/tools/retrieval/temporal_rerank.py',
+        # The decomposition the pass classifies the query with.
+        'library/tools/retrieval/requirements.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/conversation_clock.py',

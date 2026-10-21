@@ -55,6 +55,40 @@ MAX_FRAMES_PER_SPAN = 4
 """Frames shown per span: all of a short span, else the four the
 candidate signal ranks closest (smallest distance), in time order."""
 
+# ── The INTERVAL family ─────────────────────────────────────────────
+#
+# The span prompt above is about ONE PERSON ("These are {n} frames of
+# one person"), because the predicates it was written for are about a
+# person.  A retrieval candidate is an INTERVAL of a scene, not a person,
+# and the question asked of it is a claim about the whole interval ("the
+# laptop is open", "someone opens the laptop").  So the interval family
+# has its own prompt and its own version, and its verdicts live beside
+# the span verdicts in the same M8 store under their own keys - a
+# verdict given to one family is never read as a verdict of the other.
+
+INTERVAL_PROMPT_VERSION = 1
+INTERVAL_PROMPT = (
+    "These are {n} frames from one video, in time order, about {gap} "
+    "seconds apart. Statement: \"{statement}\". Is the statement true "
+    "in these frames - in at least one frame, or across the sequence "
+    "of frames? Judge only what is visible. Reply with JSON only: "
+    "{{\"answer\": \"yes\" or \"no\", "
+    "\"frame\": <1-based number of the clearest frame, or null>, "
+    "\"reason\": \"<one short sentence>\"}}")
+"""Pre-registered verbatim for the interval family.
+
+The wording is the span family's wording with the person removed and the
+frames' spacing declared: an interval's frames are sampled seconds
+apart, and a reader of the prompt has to know that before judging
+"in at least one frame, or across the sequence"."""
+
+MAX_FRAMES_PER_INTERVAL = 4
+"""Frames shown per interval.  Four is the span family's number, and the
+same reason applies: more frames cost more tokens and more seconds than
+the extra evidence is worth at this size."""
+
+INTERVAL_VERDICT_MAX_TOKENS = 120
+
 VERDICT_MAX_TOKENS = 120
 
 VERIFY_LOCK_OWNER = "span-verification"
@@ -99,6 +133,20 @@ def verdict_key(statement: str, frame_times: Sequence[float],
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
 
+def interval_verdict_key(statement: str, frame_times: Sequence[float],
+                         model_id: str, gap_seconds: float = 0.0) -> str:
+    """The key an INTERVAL verdict is recorded under.
+
+    The family is in the key, so an interval verdict can never be read
+    as a span verdict (or the other way round) even when the statement
+    and the frame times happen to match.
+    """
+    raw = json.dumps(["interval", INTERVAL_PROMPT_VERSION, model_id,
+                      statement.strip().lower(), round(float(gap_seconds), 3),
+                      [round(t, 3) for t in frame_times]])
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
 def _verdicts_path(content_digest: str, root: Path | None) -> Path:
     return source_memory.source_dir(content_digest, root) / source_memory.SLOT_VERDICTS
 
@@ -119,6 +167,93 @@ def _write_verdicts(content_digest: str, verdicts: dict,
                     root: Path | None) -> None:
     source_memory.write_json(_verdicts_path(content_digest, root), {
         "content_digest": content_digest, "verdicts": verdicts})
+
+
+def select_interval_frames(interval: dict) -> list[dict]:
+    """The frames an interval is judged on, in time order.
+
+    The interval's own frames are the ones the caller chose (they are
+    spread across the interval, not a neighbourhood of its centre), so
+    this only enforces the order and the cap.
+    """
+    frames = sorted(interval.get("frames") or (), key=lambda f: f["t"])
+    return list(frames[:MAX_FRAMES_PER_INTERVAL])
+
+
+def verify_intervals(content_digest: str, intervals: list[dict], statement: str,
+                     gap_seconds: float = 0.0,
+                     root: Path | None = None,
+                     model=None,
+                     progress: Callable[[int, int, dict], None] | None = None
+                     ) -> list[dict]:
+    """One verdict per INTERVAL, in order.
+
+    An interval is a stretch of a scene, and the question asked of it is
+    a claim about the whole stretch ("the laptop is open", "someone opens
+    the laptop").  The verdicts are recorded in the same M8 store as the
+    span verdicts and under their own keys, so the same question over
+    the same footage costs nothing the second time.
+    """
+    from library.tools import vision_model
+    from library.tools.heavy_work_lock import heavy_work_lock
+
+    model_id = vision_model.MODEL_ID
+    recorded = read_verdicts(content_digest, root)
+    keys = [interval_verdict_key(statement,
+                                 [f["t"] for f in select_interval_frames(i)],
+                                 model_id, gap_seconds)
+            for i in intervals]
+    if all(key in recorded for key in keys):
+        return _verify_intervals(content_digest, intervals, keys, statement,
+                                  gap_seconds, recorded, model_id, root, model,
+                                  progress)
+    with heavy_work_lock(VERIFY_LOCK_OWNER):
+        return _verify_intervals(content_digest, intervals, keys, statement,
+                                  gap_seconds, recorded, model_id, root, model,
+                                  progress)
+
+
+def _verify_intervals(content_digest, intervals, keys, statement, gap_seconds,
+                      recorded, model_id, root, model, progress):
+    from library.tools import vision_model
+
+    paths_by_t = None
+    out = []
+    for n, (interval, key) in enumerate(zip(intervals, keys)):
+        frames = select_interval_frames(interval)
+        times = [f["t"] for f in frames]
+        verdict = recorded.get(key)
+        if verdict is not None:
+            verdict = {**verdict, "cached": True}
+        else:
+            if paths_by_t is None:
+                paths_by_t = _frame_files(content_digest, root)
+            if model is None:
+                model = vision_model.get_model()
+            images = [paths_by_t[round(t, 3)] for t in times]
+            started = time.perf_counter()
+            reply = model.analyze_images(
+                images,
+                INTERVAL_PROMPT.format(n=len(images), statement=statement,
+                                       gap=round(float(gap_seconds), 1)),
+                max_tokens=INTERVAL_VERDICT_MAX_TOKENS)
+            seconds = time.perf_counter() - started
+            parsed = parse_verdict(reply)
+            verdict = {**parsed,
+                       "frame_t": (times[parsed["frame"] - 1]
+                                   if parsed["frame"] and 1 <= parsed["frame"] <= len(times)
+                                   else None),
+                       "frames": times, "statement": statement,
+                       "model": model_id,
+                       "prompt_version": INTERVAL_PROMPT_VERSION,
+                       "seconds": round(seconds, 2), "reply": reply}
+            recorded[key] = verdict
+            _write_verdicts(content_digest, recorded, root)
+            verdict = {**verdict, "cached": False}
+        out.append(verdict)
+        if progress is not None:
+            progress(n, len(intervals), verdict)
+    return out
 
 
 def _frame_files(content_digest: str, root: Path | None) -> dict:
