@@ -132,7 +132,9 @@ def build_dataset(index: TemporalEventIndex, *,
 
     Every event whose action class the benchmark's vocabulary does not
     name is REPORTED in ``unmapped_actions`` instead of being dropped
-    or scored under a class that means something else.
+    or scored under a class that means something else.  An event that
+    names no action at all is not one of those: the benchmark scores
+    actions, so it is COUNTED per source and nothing else.
     """
     by_clip: dict[str, list[TemporalEvent]] = {}
     for event in index.events:
@@ -147,7 +149,16 @@ def build_dataset(index: TemporalEventIndex, *,
         source_id = (source_id_by_clip or {}).get(clip_id, clip_id)
         duration = index.clip_durations.get(clip_id)
         proposals: list[dict[str, Any]] = []
+        without_action = 0
         for number, event in enumerate(events):
+            if event.action is None:
+                # The event names no ACTION at all - a scene
+                # transition, a pause between words, a measured sound.
+                # The benchmark scores actions, so there is nothing to
+                # map: the event is counted, and it is NOT reported as
+                # an action the benchmark's vocabulary failed to name.
+                without_action += 1
+                continue
             event_class = benchmark_class(event.action)
             if event_class is None:
                 unmapped.append({
@@ -179,6 +190,7 @@ def build_dataset(index: TemporalEventIndex, *,
             "proposals": proposals,
             "events": [],
             "hard_negatives": [],
+            "events_without_action_class": without_action,
         })
     return {
         "schema_version": SCHEMA_VERSION,

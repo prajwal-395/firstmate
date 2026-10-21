@@ -956,12 +956,57 @@ MODEL_EVENT_KINDS: dict[str, tuple[str, str | None]] = {
     "drink_from_cup": ("action_state_change", "drink"),
     "object_position_change": ("action_state_change", "position_change"),
     "speaking": ("speech_start_end", None),
+    # The VI-09 cinematography hierarchy: the model holds a scene, a
+    # shot, a sub-shot and a sequence for every source it measured, and
+    # those four kinds ARE the model's own event kinds on real footage.
+    # Each one is read as the boundary it names - see
+    # ``CINEMATOGRAPHY_READING`` for the reading of each level.
+    "cinematography_sequence": ("scene_transition", None),
+    "cinematography_scene": ("scene_transition", None),
+    "cinematography_shot": ("scene_transition", None),
+    "cinematography_subshot": ("action_state_change", None),
 }
 """A Project Model event's ``kind``, and the typed event it becomes.
 
 A kind this table does not name is REPORTED, not guessed into a type:
 the index says which kinds it could not type, and the caller says so.
 """
+
+CINEMATOGRAPHY_LEVEL_BY_KIND: dict[str, str] = {
+    "cinematography_sequence": "sequence",
+    "cinematography_scene": "scene",
+    "cinematography_shot": "shot",
+    "cinematography_subshot": "subshot",
+}
+"""The VI-09 level a cinematography event names."""
+
+CINEMATOGRAPHY_READING: dict[str, tuple[str, str]] = {
+    "sequence": ("scene_transition",
+                 "the cut into a new group of adjacent scenes"),
+    "scene": ("scene_transition", "the cut into a new scene"),
+    "shot": ("scene_transition", "the cut into a new shot"),
+    "subshot": ("action_state_change",
+                "the picture's measured attributes change here"),
+}
+"""What each level of the cinematography hierarchy IS, as an event.
+
+The hierarchy is a hierarchy of the SAME boundaries: a sequence begins
+where a scene begins, a scene where a shot begins.  A sequence, a scene
+and a shot are therefore read as the CUT each one opens - one cut, one
+event, however many levels name it.  A sub-shot is a different thing
+altogether: it is a segment of a shot, and the boundary between two
+sub-shots is where the picture's measured attributes changed.
+
+The reading is not a taste: the levels are the model's own, and the
+boundary each one opens is measured by the scene-boundary measurement
+the model cites.
+"""
+
+CINEMATOGRAPHY_STATE_PROPERTIES: tuple[str, ...] = (
+    "framing", "camera_movement", "lighting_level", "color_character",
+    "motion_magnitude",
+)
+"""The measured attributes a sub-shot boundary can report a change of."""
 
 TICKS_PER_SECOND = 1_000_000
 
@@ -988,14 +1033,61 @@ def _model_boundary(row: Mapping[str, Any], name: str, seconds: float,
                     "the Project Model's own boundary quality")
 
 
-def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
-                                                   list[str]]:
+def _asset_clip_id(asset: Mapping[str, Any]) -> str | None:
+    """The clip an asset holds, when the model says which one it is.
+
+    The model's assets name their clip in ``metadata.clip_ids``.  An
+    asset that names none is not attributed to a clip: the index then
+    says the event has no clip rather than guessing the nearest one.
+    """
+    metadata = asset.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    clip_ids = metadata.get("clip_ids")
+    if not isinstance(clip_ids, Sequence) or isinstance(clip_ids, (str, bytes)):
+        return None
+    for clip_id in clip_ids:
+        if clip_id:
+            return str(clip_id)
+    return None
+
+
+def _speaker_entity_id(digest: str, voice_track: str) -> str:
+    """The entity id a voice track carries, in the model's own naming.
+
+    ``person_entity`` gives a diarized voice track the id
+    ``speaker-<content digest>-<track>``; the Project Model holds that
+    same id.  A project whose identity was never migrated still names
+    its speakers the same way, so the index names them the same way
+    too - and says so in the event's basis.
+    """
+    return f"speaker-{digest}-{voice_track}"
+
+
+def _asset_digest(asset_id: str) -> str:
+    """The content digest an asset id carries.
+
+    An asset id is ``asset-<content digest>``; the digest is what the
+    speaker entity id is built from.
+    """
+    if asset_id.startswith("asset-"):
+        return asset_id[len("asset-"):]
+    return asset_id
+
+
+def _model_events(model: Mapping[str, Any],
+                  catalog: Sequence[Mapping[str, Any]] | None = None,
+                  ) -> tuple[list[TemporalEvent], list[str]]:
     """The typed events a Project Model carries, and the kinds it could not.
 
     The Project Model is the canonical typed representation: its
     events name their participants, their evidence and their boundary
     quality.  Where it is present, its events are the strongest
     statement Ren has about what happened.
+
+    The VI-09 hierarchy is read as the boundary each level opens (see
+    ``CINEMATOGRAPHY_READING``), and a sub-shot boundary carries the
+    measured attributes that changed there.
     """
     clocks = {row["id"]: row for row in model.get("clocks") or []
               if isinstance(row, Mapping) and row.get("id")}
@@ -1003,6 +1095,10 @@ def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
               if isinstance(row, Mapping) and row.get("id")}
     entities = {row["id"]: row for row in model.get("entities") or []
                 if isinstance(row, Mapping) and row.get("id")}
+
+    catalog_by_clip = {str(clip.get("clip_id")): clip
+                       for clip in (catalog or ())
+                       if isinstance(clip, Mapping) and clip.get("clip_id")}
 
     entity_shots: dict[str, set[str]] = {}
     for track in model.get("tracks") or []:
@@ -1013,6 +1109,9 @@ def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
         if not entity_id or not clock_id:
             continue
         entity_shots.setdefault(entity_id, set()).add(clock_id)
+
+    records = _cinematography_records(model)
+    previous = _previous_cinematography_attributes(model, records)
 
     events: list[TemporalEvent] = []
     unmapped: list[str] = []
@@ -1036,9 +1135,12 @@ def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
         end = float(interval.get("end") or 0) / rate
         if end < start:
             continue
-        asset_id = str((assets.get(clock.get("domain", {}).get("asset_id")
-                                  if isinstance(clock.get("domain"), Mapping)
-                                  else "") or {}).get("id") or "")
+        asset = assets.get(str((clock.get("domain", {}).get("asset_id")
+                                if isinstance(clock.get("domain"), Mapping)
+                                else "") or ""))
+        asset_id = str((asset or {}).get("id") or "")
+        clip_id = _asset_clip_id(asset) if asset else None
+        frame = _frame_duration(catalog_by_clip.get(clip_id or "", {}))
         participants = [pid for pid in (row.get("participant_ids") or [])
                         if pid in entities]
         subject_ids = tuple(pid for pid in participants
@@ -1060,20 +1162,39 @@ def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
             for change in (row.get("state_changes") or [])
             if isinstance(change, Mapping))
 
+        level = CINEMATOGRAPHY_LEVEL_BY_KIND.get(kind)
+        basis = f"Project Model event kind {kind!r}"
+        if level is not None:
+            event_type, reading = CINEMATOGRAPHY_READING[level]
+            priority, _ = event_priority(event_type)
+            basis = f"Project Model {level}: {reading}"
+            record = records.get(str(row.get("id") or "")) or {}
+            if level in ("scene", "subshot"):
+                state_changes = _attribute_state_changes(
+                    asset_id, previous.get(str(row.get("id") or "")),
+                    record.get("attributes"))
+            if level != "subshot":
+                # A sequence, a scene and a shot open the SAME cut, so
+                # the cut is the event and its extent is one frame.
+                end = round(start + (frame or 0.0), 6)
+
         events.append(TemporalEvent(
             event_id=str(row.get("id") or ""),
             event_type=event_type,
             action=action,
             action_text=kind,
             asset_id=asset_id,
-            clip_id=None,
-            source_file=None,
+            clip_id=clip_id,
+            source_file=(str(asset.get("uri")) if asset and asset.get("uri")
+                         else None),
             clock_id=clock_id,
             start_seconds=start,
             end_seconds=end,
             onset=_model_boundary(row, "start_boundary", start, rate),
             intermediate_states=(),
-            completion=_model_boundary(row, "end_boundary", end, rate),
+            completion=(_model_boundary(row, "end_boundary", end, rate)
+                        if level == "subshot" else
+                        _cut_completion(end, frame)),
             subjects=subject_ids,
             subject_labels=subject_labels,
             objects=object_ids,
@@ -1092,9 +1213,802 @@ def _model_events(model: Mapping[str, Any]) -> tuple[list[TemporalEvent],
             state_changes=state_changes,
             priority=priority,
             producer="project_model",
-            basis=f"Project Model event kind {kind!r}",
+            basis=basis,
         ))
     return events, sorted(set(unmapped))
+
+
+def _cut_completion(end: float, frame: float | None) -> Boundary:
+    """The far edge of a cut, and how wide the cut is known to be.
+
+    A cut happens inside one frame of the reported time, so the edge's
+    radius IS that frame.  A source whose frame rate was never measured
+    has no measurable extent, and says so rather than claiming a
+    precision nobody measured.
+    """
+    if frame:
+        return Boundary(end, "estimated", frame,
+                        "the cut's extent is one frame")
+    return Boundary(end, "estimated", None,
+                    "the source frame rate was never measured, so the cut "
+                    "has no measurable extent")
+
+
+def _cinematography_records(model: Mapping[str, Any]) -> dict[str, dict]:
+    """The VI-09 record behind each cinematography event, by event id.
+
+    The model's event cites the observation that carries the record, so
+    the record is found through that citation rather than by guessing
+    which observation belongs to which event.
+    """
+    records: dict[str, dict] = {}
+    observations: dict[str, Mapping[str, Any]] = {}
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, Mapping):
+            continue
+        observation_id = observation.get("id")
+        if observation_id:
+            observations[str(observation_id)] = observation
+    for event in model.get("events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        kind = str(event.get("kind") or "")
+        if kind not in CINEMATOGRAPHY_LEVEL_BY_KIND:
+            continue
+        for evidence_id in event.get("evidence_ids") or ():
+            observation = observations.get(str(evidence_id))
+            if observation is None:
+                continue
+            payload = observation.get("payload")
+            if not isinstance(payload, Mapping):
+                continue
+            record = payload.get("record")
+            if isinstance(record, Mapping):
+                records[str(event.get("id") or "")] = dict(record)
+                break
+    return records
+
+
+def _previous_cinematography_attributes(
+        model: Mapping[str, Any],
+        records: Mapping[str, dict]) -> dict[str, dict]:
+    """The attributes of the level that came before each event, by id.
+
+    A state change needs a BEFORE.  The level before a sub-shot is the
+    sub-shot before it on the same clock, and the level before a scene
+    is the scene before it - so the two are read from the same chain.
+    """
+    clocks = {row["id"]: row for row in model.get("clocks") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    previous: dict[str, dict] = {}
+    last_by_clock: dict[str, dict] = {}
+    ordered = []
+    for event in model.get("events") or []:
+        if not isinstance(event, Mapping):
+            continue
+        kind = str(event.get("kind") or "")
+        if kind not in CINEMATOGRAPHY_LEVEL_BY_KIND:
+            continue
+        level = CINEMATOGRAPHY_LEVEL_BY_KIND[kind]
+        if level not in ("scene", "subshot"):
+            continue
+        interval = event.get("interval") or {}
+        clock_id = str(interval.get("clock_id") or "")
+        clock = clocks.get(clock_id) or {}
+        rate = float(clock.get("ticks_per_second") or TICKS_PER_SECOND)
+        if rate <= 0:
+            rate = float(TICKS_PER_SECOND)
+        start = float(interval.get("start") or 0) / rate
+        ordered.append((level, clock_id, start, str(event.get("id") or "")))
+    for level, clock_id, _start, event_id in sorted(
+            ordered, key=lambda row: (row[0], row[1], row[2], row[3])):
+        key = f"{level}:{clock_id}"
+        previous[event_id] = last_by_clock.get(key, {})
+        attributes = records.get(event_id, {}).get("attributes")
+        last_by_clock[key] = attributes if isinstance(attributes, Mapping) else {}
+    return previous
+
+
+def _attribute_state_changes(entity_id: str,
+                             previous: Mapping[str, Any] | None,
+                             current: Mapping[str, Any] | None,
+                             ) -> tuple[StateChange, ...]:
+    """The measured attributes that changed between two levels.
+
+    Only an attribute whose value actually differs is a change, and it
+    carries the evidence of BOTH readings - a transition is evidenced by
+    the state it left and the state it reached.
+    """
+    if not isinstance(current, Mapping):
+        return ()
+    changes: list[StateChange] = []
+    for name, current_attribute in sorted(current.items()):
+        if name not in CINEMATOGRAPHY_STATE_PROPERTIES:
+            continue
+        if not isinstance(current_attribute, Mapping):
+            continue
+        previous_attribute = ((previous or {}).get(name)
+                              if isinstance(previous, Mapping) else None)
+        if not isinstance(previous_attribute, Mapping):
+            continue
+        before = previous_attribute.get("value")
+        after = current_attribute.get("value")
+        if before == after:
+            continue
+        evidence = tuple(sorted(
+            {str(item) for item in (current_attribute.get("evidence_ids") or ())}
+            | {str(item) for item in (previous_attribute.get("evidence_ids") or ())}))
+        changes.append(StateChange(entity_id=entity_id, property=str(name),
+                                    before=before, after=after,
+                                    evidence_ids=evidence))
+    return tuple(changes)
+
+
+# ── The Project Model's MEASURED observations ───────────────────────
+
+MODEL_OBSERVATION_EVENTS: dict[str, tuple[str, str]] = {
+    "sound_event": ("audio_event", "a measured sound event"),
+    "scene": ("scene_transition", "a measured scene"),
+    "scene_boundary": ("scene_transition", "a measured scene boundary"),
+    "speech": ("speech_start_end", "a measured speech utterance"),
+    "voice_turn": ("speaker_change", "a measured voice turn"),
+    "speech_pause": ("word_phrase_boundary",
+                     "a measured pause between words"),
+}
+"""A Project Model OBSERVATION's modality, and the typed event it is.
+
+The model's ``events`` collection is not the only thing it knows: its
+``observations`` carry the MEASUREMENTS the lanes produced - the sound
+events step 1.04 measured, the scenes the vision lane measured, the
+words the transcriber timed, the voice turns the diarizer measured.
+An index that reads only the ``events`` collection therefore reports
+an empty surface on a model that holds the whole measurement.
+
+Each modality is read as the edit-critical thing it IS.  A sound event
+is an ``audio_event``; a scene is the cut that opens it; a voice turn
+is the change of speaker; a pause between words is a phrase boundary.
+"""
+
+
+def _model_observation_events(
+        model: Mapping[str, Any],
+        catalog: Sequence[Mapping[str, Any]] | None = None,
+) -> list[TemporalEvent]:
+    """The typed events a Project Model's MEASURED observations carry.
+
+    Every event here is a measurement the model already holds, read
+    through the vocabulary that names what it is.  Nothing is inferred
+    from it: the observation's own interval is the event's span, and
+    the observation is the event's evidence.
+    """
+    clocks = {row["id"]: row for row in model.get("clocks") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    assets = {row["id"]: row for row in model.get("assets") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    entities = {row["id"]: row for row in model.get("entities") or []
+                if isinstance(row, Mapping) and row.get("id")}
+    catalog_by_clip = {str(clip.get("clip_id")): clip
+                       for clip in (catalog or ())
+                       if isinstance(clip, Mapping) and clip.get("clip_id")}
+
+    voice_turns = _voice_turns(model)
+    events: list[TemporalEvent] = []
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, Mapping):
+            continue
+        modality = str(observation.get("modality") or "")
+        reading = MODEL_OBSERVATION_EVENTS.get(modality)
+        if reading is None:
+            continue
+        event_type, what = reading
+        interval = observation.get("interval") or {}
+        clock_id = str(interval.get("clock_id") or "")
+        clock = clocks.get(clock_id) or {}
+        rate = float(clock.get("ticks_per_second") or TICKS_PER_SECOND)
+        if rate <= 0:
+            rate = float(TICKS_PER_SECOND)
+        start = float(interval.get("start") or 0) / rate
+        end = float(interval.get("end") or 0) / rate
+        if end < start:
+            continue
+        asset = assets.get(str((clock.get("domain", {}).get("asset_id")
+                                if isinstance(clock.get("domain"), Mapping)
+                                else "") or ""))
+        asset_id = str((asset or {}).get("id") or "")
+        clip_id = _asset_clip_id(asset) if asset else None
+        frame = _frame_duration(catalog_by_clip.get(clip_id or "", {}))
+        payload = observation.get("payload")
+        payload = payload if isinstance(payload, Mapping) else {}
+
+        subjects: tuple[str, ...] = ()
+        subject_labels: tuple[str, ...] = ()
+        state_changes: tuple[StateChange, ...] = ()
+        if modality == "voice_turn":
+            voice_track = str(payload.get("voice_track") or "")
+            if voice_track:
+                entity_id = _speaker_entity_id(
+                    _asset_digest(asset_id), voice_track)
+                subjects = (entity_id,)
+                label = ""
+                if entity_id in entities:
+                    label = str(entities[entity_id].get("label") or "")
+                subject_labels = (label,)
+                # The turn measures that this voice took the floor: the
+                # speaker's own state changed there, and the turn is
+                # the evidence for it.
+                state_changes = (StateChange(
+                    entity_id=entity_id, property="speaking",
+                    before=False, after=True,
+                    evidence_ids=(str(observation.get("id") or ""),)),)
+        elif modality == "speech":
+            voice_track = _speaker_for_span(voice_turns, clock_id, start, end)
+            if voice_track:
+                entity_id = _speaker_entity_id(
+                    _asset_digest(asset_id), voice_track)
+                subjects = (entity_id,)
+                label = ""
+                if entity_id in entities:
+                    label = str(entities[entity_id].get("label") or "")
+                subject_labels = (label,)
+
+        action_text = _observation_action_text(modality, payload)
+        priority, _ = event_priority(event_type)
+        span_end = end
+        onset = Boundary(start, "estimated", None,
+                         "the observation's own interval edge; its "
+                         "precision was never recorded")
+        completion = Boundary(end, "estimated", None,
+                              "the observation's own interval edge; its "
+                              "precision was never recorded")
+        if event_type == "scene_transition":
+            # A scene is a SEGMENT; the cut is its first frame.
+            span_end = round(start + (frame or 0.0), 6)
+            completion = _cut_completion(span_end, frame)
+        events.append(TemporalEvent(
+            event_id=str(observation.get("id") or ""),
+            event_type=event_type,
+            action=None,
+            action_text=action_text,
+            asset_id=asset_id,
+            clip_id=clip_id,
+            source_file=(str(asset.get("uri")) if asset and asset.get("uri")
+                         else None),
+            clock_id=clock_id,
+            start_seconds=start,
+            end_seconds=span_end,
+            onset=onset,
+            intermediate_states=(),
+            completion=completion,
+            subjects=subjects,
+            subject_labels=subject_labels,
+            objects=(),
+            object_labels=(),
+            evidence_ids=(str(observation.get("id") or ""),),
+            status="verified",
+            certainty="measured",
+            priority=priority,
+            producer="project_model",
+            state_changes=state_changes,
+            basis=(f"{what} measured by the Project Model; its producer "
+                   f"is recorded on the observation"),
+        ))
+    return events
+
+
+def _observation_action_text(modality: str,
+                             payload: Mapping[str, Any]) -> str:
+    """What the observation says, in the event's own words.
+
+    An event's text is what a reader sees when they ask what happened
+    here, so it is the observation's own reading - the words, the
+    voice, the label, the place - and never a summary written here.
+    """
+    if modality == "voice_turn":
+        return str(payload.get("voice_track") or "")
+    if modality == "speech":
+        return str(payload.get("text") or "")
+    if modality == "speech_pause":
+        kind = str(payload.get("kind") or "pause")
+        gap = payload.get("gap_seconds")
+        if isinstance(gap, (int, float)):
+            return f"{kind} {gap}s"
+        return kind
+    if modality == "scene":
+        return str(payload.get("location") or payload.get("type") or "")
+    return str(payload.get("label") or payload.get("text") or "")
+
+
+def _voice_turns(model: Mapping[str, Any]) -> list[tuple[str, float, float, str]]:
+    """The model's voice turns: ``(clock_id, start, end, voice_track)``."""
+    clocks = {row["id"]: row for row in model.get("clocks") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    turns: list[tuple[str, float, float, str]] = []
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, Mapping):
+            continue
+        if observation.get("modality") != "voice_turn":
+            continue
+        interval = observation.get("interval") or {}
+        clock_id = str(interval.get("clock_id") or "")
+        clock = clocks.get(clock_id) or {}
+        rate = float(clock.get("ticks_per_second") or TICKS_PER_SECOND)
+        if rate <= 0:
+            rate = float(TICKS_PER_SECOND)
+        payload = observation.get("payload")
+        voice_track = str((payload or {}).get("voice_track") or "")
+        turns.append((clock_id,
+                      float(interval.get("start") or 0) / rate,
+                      float(interval.get("end") or 0) / rate,
+                      voice_track))
+    return turns
+
+
+def _speaker_for_span(turns: Sequence[tuple[str, float, float, str]],
+                       clock_id: str, start: float, end: float) -> str | None:
+    """The voice track speaking across a span, when one covers it.
+
+    The turn is the measurement of who spoke; the utterance inside it
+    is the measurement of what was said.  Joining them attributes the
+    utterance to its speaker without a second diarization pass.
+    """
+    for turn_clock, turn_start, turn_end, voice_track in turns:
+        if turn_clock != clock_id or not voice_track:
+            continue
+        if turn_start <= start and end <= turn_end:
+            return voice_track
+    return None
+
+
+# ── Who was in the picture (the model's own tracks) ────────────────
+
+TRACKED_PROPERTY = "tracked"
+"""The property a person's presence changes in.
+
+A region track measures that a person WAS TRACKED over a span.  It
+does not measure that the person entered, and it does not measure that
+the person left - a gap in a track is an absence of measurement, not a
+measurement of absence.  So the property is the tracking itself, and
+the event says so.
+"""
+
+
+def _presence_intervals(model: Mapping[str, Any]) -> list[dict]:
+    """Each person's TRACKED presence, as merged spans per clock.
+
+    A person's region is tracked in segments; the segments are one
+    presence, not many.  A gap between two segments is left as a gap:
+    the person was not tracked there, and this does not say they were
+    not there.
+
+    Each presence carries the observations that measured it, because a
+    state change has to cite the evidence it rests on.
+    """
+    entities = {row["id"]: row for row in model.get("entities") or []
+                if isinstance(row, Mapping) and row.get("id")}
+    clocks = {row["id"]: row for row in model.get("clocks") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    observations_by_track = _track_observation_ids(model)
+    spans: dict[tuple[str, str], list[tuple[float, float, str]]] = {}
+    for track in model.get("tracks") or []:
+        if not isinstance(track, Mapping):
+            continue
+        entity_id = str(track.get("entity_id") or "")
+        clock_id = str(track.get("clock_id") or "")
+        entity = entities.get(entity_id)
+        if entity is None or entity.get("kind") != "person":
+            continue
+        clock = clocks.get(clock_id) or {}
+        rate = float(clock.get("ticks_per_second") or TICKS_PER_SECOND)
+        if rate <= 0:
+            rate = float(TICKS_PER_SECOND)
+        ticks = [float(sample["tick"])
+                 for sample in track.get("samples") or []
+                 if isinstance(sample, Mapping)
+                 and isinstance(sample.get("tick"), (int, float))]
+        if not ticks:
+            continue
+        local_track_id = str(track.get("local_track_id") or "")
+        spans.setdefault((entity_id, clock_id), []).append(
+            (min(ticks) / rate, max(ticks) / rate, local_track_id))
+    presence: list[dict] = []
+    for (entity_id, clock_id), rows in sorted(spans.items()):
+        clock = clocks.get(clock_id) or {}
+        domain = clock.get("domain")
+        asset_id = str((domain or {}).get("asset_id") or "") \
+            if isinstance(domain, Mapping) else ""
+        rows.sort()
+        merged: list[tuple[float, float, list[str]]] = []
+        for start, end, local_track_id in rows:
+            evidence = observations_by_track.get((asset_id, local_track_id), [])
+            if merged and start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end),
+                              merged[-1][2] + evidence)
+            else:
+                merged.append((start, end, list(evidence)))
+        for start, end, evidence in merged:
+            presence.append({"entity_id": entity_id, "clock_id": clock_id,
+                             "asset_id": asset_id,
+                             "start": start, "end": end,
+                             "evidence_ids": tuple(sorted(set(evidence)))})
+    return presence
+
+
+def _track_observation_ids(model: Mapping[str, Any]) -> dict[tuple[str, str],
+                                                             list[str]]:
+    """The observations behind each track, by the asset and the track id.
+
+    A region's track is measured; the observation is the evidence the
+    model's own state changes must cite.  The track id alone is not
+    enough: two sources number their tracks the same way, so the asset
+    is part of the key.
+    """
+    by_track: dict[tuple[str, str], list[str]] = {}
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, Mapping):
+            continue
+        if observation.get("modality") != "region_track":
+            continue
+        payload = observation.get("payload")
+        if not isinstance(payload, Mapping):
+            continue
+        track_id = str(payload.get("track_id") or "")
+        observation_id = str(observation.get("id") or "")
+        asset_id = str(observation.get("asset_id") or "")
+        if track_id and observation_id:
+            by_track.setdefault((asset_id, track_id), []).append(observation_id)
+    return by_track
+
+
+def _presence_events(model: Mapping[str, Any],
+                     catalog: Sequence[Mapping[str, Any]] | None = None,
+                     ) -> list[TemporalEvent]:
+    """The events where a person's TRACKED presence began or ended.
+
+    These are the state changes the model's tracks actually measure:
+    a person was tracked from here, and stopped being tracked there.
+    They are not an entry and an exit - the footage never said that.
+    """
+    entities = {row["id"]: row for row in model.get("entities") or []
+                if isinstance(row, Mapping) and row.get("id")}
+    assets = {row["id"]: row for row in model.get("assets") or []
+              if isinstance(row, Mapping) and row.get("id")}
+    catalog_by_clip = {str(clip.get("clip_id")): clip
+                       for clip in (catalog or ())
+                       if isinstance(clip, Mapping) and clip.get("clip_id")}
+    presence = _presence_intervals(model)
+    if not presence:
+        return []
+    events: list[TemporalEvent] = []
+    priority, _ = event_priority("action_state_change")
+    for row in presence:
+        entity_id = row["entity_id"]
+        clock_id = row["clock_id"]
+        label = str((entities.get(entity_id) or {}).get("label") or "")
+        evidence = row["evidence_ids"]
+        asset = assets.get(row["asset_id"]) or {}
+        clip_id = _asset_clip_id(asset) if asset else None
+        frame = _frame_duration(catalog_by_clip.get(clip_id or "", {}))
+        for edge, edge_text, before, after in (
+                (row["start"], "tracked region begins", False, True),
+                (row["end"], "tracked region ends", True, False)):
+            span_end = round(edge + (frame or 0.0), 6)
+            events.append(TemporalEvent(
+                event_id=f"{entity_id}:{edge_text}:{edge:.6f}",
+                event_type="action_state_change",
+                action=None,
+                action_text=f"{entity_id} {edge_text}",
+                asset_id=row["asset_id"],
+                clip_id=clip_id,
+                source_file=(str(asset.get("uri")) if asset.get("uri")
+                             else None),
+                clock_id=clock_id,
+                start_seconds=edge,
+                end_seconds=span_end,
+                onset=Boundary(edge, "estimated", None,
+                               "the first or last tracked sample of the "
+                               "region; its precision was never recorded"),
+                intermediate_states=(),
+                completion=_cut_completion(span_end, frame),
+                subjects=(entity_id,),
+                subject_labels=(label,),
+                objects=(),
+                object_labels=(),
+                evidence_ids=evidence,
+                status="verified",
+                certainty="measured",
+                priority=priority,
+                producer="project_model",
+                state_changes=(StateChange(
+                    entity_id=entity_id, property=TRACKED_PROPERTY,
+                    before=before, after=after, evidence_ids=evidence),),
+                basis=(f"the person's region track: {edge_text}. A gap in "
+                       f"a track is an absence of measurement, not a "
+                       f"measurement of absence"),
+            ))
+    return events
+
+
+def _attach_present_people(events: Sequence[TemporalEvent],
+                            model: Mapping[str, Any]) -> list[TemporalEvent]:
+    """Name the people who were TRACKED during each event.
+
+    A participant is who the picture had in it.  The model's tracks say
+    who was tracked over a span, so a person tracked across an event is
+    in that event.
+    """
+    presence = _presence_intervals(model)
+    if not presence:
+        return list(events)
+    entities = {row["id"]: row for row in model.get("entities") or []
+                if isinstance(row, Mapping) and row.get("id")}
+    out: list[TemporalEvent] = []
+    for event in events:
+        people = []
+        for row in presence:
+            if row["clock_id"] != event.clock_id:
+                continue
+            if row["start"] <= event.start_seconds and event.end_seconds <= row["end"]:
+                people.append(row["entity_id"])
+                break
+        if not people:
+            out.append(event)
+            continue
+        subjects = list(event.subjects)
+        labels = list(event.subject_labels)
+        for entity_id in people:
+            if entity_id in subjects:
+                continue
+            subjects.append(entity_id)
+            labels.append(str((entities.get(entity_id) or {}).get("label") or ""))
+        out.append(replace(event, subjects=tuple(subjects),
+                           subject_labels=tuple(labels)))
+    return out
+
+
+
+# ── The project's own source memory ────────────────────────────────
+
+def _events_from_source_memory(project_folder: str,
+                               catalog: Sequence[Mapping[str, Any]],
+                               ) -> list[TemporalEvent]:
+    """The typed events the project's own SOURCE MEMORY carries.
+
+    The source memory is where the measurement lanes put what they
+    measured, and it is keyed by the content digest of the media.  The
+    temporal lane's own output lives there: the sound events step 1.04
+    measured are the M5 slot, and the voice turns the diarizer measured
+    are the M7 slot.
+
+    A project that carries footage but has no Project Model yet still
+    has these measurements, and the index reads them by the digest the
+    project's own catalog declares.
+    """
+    from library.tools import event_spans, source_memory
+
+    catalog_by_clip = {str(clip.get("clip_id")): clip
+                       for clip in catalog
+                       if isinstance(clip, Mapping) and clip.get("clip_id")}
+    try:
+        sources = event_spans.catalog_sources(project_folder)
+    except (OSError, ValueError):
+        return []
+    root = source_memory.project_read_root(project_folder)
+    events: list[TemporalEvent] = []
+    for clip_id, digest, source_file in sources:
+        clip = catalog_by_clip.get(str(clip_id), {})
+        frame = _frame_duration(clip)
+        asset_id = f"asset-{digest}"
+        clock_id = f"clock:{clip_id}"
+        events.extend(_sound_events_from_memory(
+            clip_id, digest, asset_id, clock_id, source_file, frame, root))
+        events.extend(_scene_events_from_memory(
+            clip_id, digest, asset_id, clock_id, source_file, frame, root))
+        events.extend(_voice_turn_events_from_memory(
+            clip_id, digest, asset_id, clock_id, source_file, frame, root))
+    return events
+
+
+def _sound_events_from_memory(clip_id: str, digest: str, asset_id: str,
+                              clock_id: str, source_file: str,
+                              frame: float | None, root) -> list[TemporalEvent]:
+    """The measured sound events the temporal lane wrote (M5)."""
+    from library.tools import source_memory
+
+    doc = source_memory.read_sound(digest, root=root)
+    if not doc:
+        return []
+    events: list[TemporalEvent] = []
+    priority, _ = event_priority("audio_event")
+    for number, row in enumerate(doc.get("sound_events") or []):
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            start = float(row.get("start"))
+            end = float(row.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        label = str(row.get("label") or "")
+        events.append(TemporalEvent(
+            event_id=f"{clip_id}:audio_event:{number:03d}",
+            event_type="audio_event",
+            action=None,
+            action_text=label,
+            asset_id=asset_id,
+            clip_id=clip_id,
+            source_file=source_file or None,
+            clock_id=clock_id,
+            start_seconds=start,
+            end_seconds=end,
+            onset=Boundary(start, "estimated", None,
+                           "the classifier's window; its own precision is "
+                           "not recorded"),
+            intermediate_states=(),
+            completion=Boundary(end, "estimated", None,
+                                 "the classifier's window; its own precision "
+                                 "is not recorded"),
+            subjects=(),
+            subject_labels=(),
+            objects=(),
+            object_labels=(),
+            evidence_ids=(f"sound_event:{digest}:{number:03d}",),
+            status="verified",
+            certainty="measured",
+            priority=priority,
+            producer="source_memory",
+            basis=(f"measured sound event {label!r} from the M5 slot, "
+                   f"written by the temporal lane"),
+        ))
+    return events
+
+
+def _scene_events_from_memory(clip_id: str, digest: str, asset_id: str,
+                              clock_id: str, source_file: str,
+                              frame: float | None, root) -> list[TemporalEvent]:
+    """The measured scenes the vision lane wrote (M4)."""
+    from library.tools import source_memory
+
+    doc = source_memory.read_scenes(digest, root=root)
+    if not doc:
+        return []
+    events: list[TemporalEvent] = []
+    priority, _ = event_priority("scene_transition")
+    for number, row in enumerate(doc.get("scenes") or []):
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            start = float(row.get("start"))
+        except (TypeError, ValueError):
+            continue
+        end = round(start + (frame or 0.0), 6)
+        events.append(TemporalEvent(
+            event_id=f"{clip_id}:scene_transition:{number:03d}",
+            event_type="scene_transition",
+            action=None,
+            action_text=str(row.get("location") or ""),
+            asset_id=asset_id,
+            clip_id=clip_id,
+            source_file=source_file or None,
+            clock_id=clock_id,
+            start_seconds=start,
+            end_seconds=end,
+            onset=Boundary(start, "estimated", frame,
+                           "the scene's own first frame; the cut happens "
+                           "inside one frame of it"),
+            intermediate_states=(),
+            completion=_cut_completion(end, frame),
+            subjects=(),
+            subject_labels=(),
+            objects=(),
+            object_labels=(),
+            evidence_ids=(f"m4_scene:{digest}:{number:03d}",),
+            status="verified",
+            certainty="measured",
+            priority=priority,
+            producer="source_memory",
+            basis="a measured scene from the M4 slot; its first frame is "
+                  "the cut into it",
+        ))
+    return events
+
+
+def _voice_turn_events_from_memory(clip_id: str, digest: str, asset_id: str,
+                                   clock_id: str, source_file: str,
+                                   frame: float | None,
+                                   root) -> list[TemporalEvent]:
+    """The measured voice turns the diarizer wrote (M7)."""
+    from library.tools import event_spans
+
+    doc = event_spans.read_m7(digest, root=root)
+    if not doc:
+        return []
+    speaking = (doc.get("predicates") or {}).get("speaking") or {}
+    events: list[TemporalEvent] = []
+    priority, _ = event_priority("speaker_change")
+    for number, row in enumerate(speaking.get("spans") or []):
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            start = float(row.get("start"))
+            end = float(row.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        voice_track = str(row.get("voice_track") or "")
+        entity_id = (_speaker_entity_id(digest, voice_track)
+                     if voice_track else "")
+        events.append(TemporalEvent(
+            event_id=f"{clip_id}:speaker_change:{number:03d}",
+            event_type="speaker_change",
+            action=None,
+            action_text=voice_track,
+            asset_id=asset_id,
+            clip_id=clip_id,
+            source_file=source_file or None,
+            clock_id=clock_id,
+            start_seconds=start,
+            end_seconds=end,
+            onset=Boundary(start, "estimated", None,
+                           "the diarizer's turn edge; its own precision is "
+                           "not recorded"),
+            intermediate_states=(),
+            completion=Boundary(end, "estimated", None,
+                                 "the diarizer's turn edge; its own precision "
+                                 "is not recorded"),
+            subjects=(entity_id,) if entity_id else (),
+            subject_labels=(voice_track,) if voice_track else (),
+            objects=(),
+            object_labels=(),
+            evidence_ids=(f"m7_voice_turn:{digest}:{number:03d}",),
+            status="verified",
+            certainty="measured",
+            priority=priority,
+            producer="source_memory",
+            state_changes=((StateChange(
+                entity_id=entity_id, property="speaking",
+                before=False, after=True,
+                evidence_ids=(f"m7_voice_turn:{digest}:{number:03d}",)),)
+                           if entity_id else ()),
+            basis=("a measured voice turn from the M7 slot; the speaker "
+                   "changes at its start"),
+        ))
+    return events
+
+
+# ── One event per instant ──────────────────────────────────────────
+
+def _dedupe_events(events: Sequence[TemporalEvent]) -> list[TemporalEvent]:
+    """One event per (clip, type, instant): the same boundary, twice.
+
+    The Project Model, the step files and the source memory measure the
+    same cut more than once.  A cut is one cut, so the index holds one
+    event for it - and the event keeps the evidence of every reading
+    that found it.
+    """
+    merged: dict[tuple, TemporalEvent] = {}
+    order: list[tuple] = []
+    for event in events:
+        key = (event.clip_id, event.event_type,
+               round(event.start_seconds, 6), round(event.end_seconds, 6))
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = event
+            order.append(key)
+            continue
+        changes = list(existing.state_changes)
+        seen = {(change.entity_id, change.property) for change in changes}
+        for change in event.state_changes:
+            if (change.entity_id, change.property) in seen:
+                continue
+            seen.add((change.entity_id, change.property))
+            changes.append(change)
+        evidence = tuple(sorted(set(existing.evidence_ids)
+                                | set(event.evidence_ids)))
+        merged[key] = replace(existing, state_changes=tuple(changes),
+                               evidence_ids=evidence)
+    return [merged[key] for key in order]
 
 
 # ── The index builder ──────────────────────────────────────────────────
@@ -1153,8 +2067,11 @@ def build_temporal_events(project_folder: str) -> TemporalEventIndex:
 
     Reads the project's OWN step outputs - the 1.04 temporal index, the
     1.03 vision profiles, the 1.07 OCR tracks - and, when the project
-    carries a Project Model, its typed events too.  Nothing is written:
-    the index is derived, so it cannot go stale against the footage.
+    carries a Project Model, its typed events AND the measurements its
+    observations carry.  A project whose measurements live in the
+    source memory but whose Project Model was never migrated is read
+    there too.  Nothing is written: the index is derived, so it cannot
+    go stale against the footage.
     """
     from library.tools.analysis import footage_segments
 
@@ -1186,8 +2103,16 @@ def build_temporal_events(project_folder: str) -> TemporalEventIndex:
     model = load_project_model(project_folder)
     if model:
         sources.append("project_model")
-        model_events, unmapped = _model_events(model)
+        model_events, unmapped = _model_events(model, catalog)
         events.extend(model_events)
+        events.extend(_model_observation_events(model, catalog))
+        events.extend(_presence_events(model, catalog))
+        events = _attach_present_people(events, model)
+    if catalog:
+        memory_events = _events_from_source_memory(project_folder, catalog)
+        if memory_events:
+            sources.append("source_memory")
+            events.extend(memory_events)
 
     durations: dict[str, float] = {}
     for clip in catalog:
@@ -1199,7 +2124,7 @@ def build_temporal_events(project_folder: str) -> TemporalEventIndex:
             durations[clip_id] = float(duration)
 
     return TemporalEventIndex(
-        events=assign_occurrences(events),
+        events=assign_occurrences(_dedupe_events(events)),
         unmapped_kinds=tuple(unmapped),
         sources=tuple(sources),
         clip_durations=durations,
