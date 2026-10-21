@@ -931,6 +931,14 @@ IFS= read -r -d '' SHARED_INFRA_RULE <<'EOF' || true
 EOF
 SHARED_INFRA_RULE=${SHARED_INFRA_RULE%$'\n'}
 
+# The one line every worker brief carries about the stash guard. The guard is
+# mechanical (bin/fm-git-stash-guard.sh, installed per task by bin/fm-spawn.sh),
+# so the brief states the rule and the reason rather than asking for obedience.
+IFS= read -r -d '' STASH_RULE <<'EOF' || true
+`git stash` is refused in this lane: every worktree of one repository shares a single stash, so a stash made here can be popped by another lane; commit your work to your own branch instead.
+EOF
+STASH_RULE=${STASH_RULE%$'\n'}
+
 if [ -n "$BASE_BRANCH" ]; then
   SETUP_BASE="You are in a disposable git worktree of $REPO, at a detached HEAD on a clean copy of its base branch.
 Base branch: $BASE_BRANCH"
@@ -960,6 +968,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 
 # Rules
 Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f\`, \`killall\`, or \`pgrep | xargs kill\`).
+$STASH_RULE
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
@@ -1053,6 +1062,7 @@ Never cd into it, edit, commit, branch, or run project code there; the only writ
 
 # Rules
 Stop processes only by exact PIDs you started; never kill by pattern (\`pkill -f\`, \`killall\`, or \`pgrep | xargs kill\`).
+$STASH_RULE
 $RULE1
 2. Stay inside that worktree; the firstmate-home paths below are outside it, not additional places to work.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
