@@ -121,3 +121,40 @@ def test_a_live_owners_job_stays_in_the_queue(monkeypatch):
 
     assert "live" in broker._queued
     assert not store.updates
+
+
+def test_a_receipt_left_waiting_by_a_stopped_broker_is_closed_at_startup(
+        tmp_path):
+    """A receipt a stopped broker left WAITING is closed at startup.
+
+    THE DEFECT: the queue is the broker's memory, so a job that was
+    waiting when the broker stopped never runs - and its receipt said
+    "queued" for ever, which every reader that counts the queue took
+    as a live wait (measured 2026-10-21: a broker that was never idle
+    because five dead-owner receipts sat in the queue).
+    """
+    from library.tools.resolved import server
+    from library.tools.resolved.store import JobStore
+
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    try:
+        store.insert({
+            "id": "waiting", "kind": "resolve_axi", "priority": "mutation",
+            "mode": "exclusive", "executed": True, "params": {},
+            "project": "", "timeline": "", "qualification": False,
+            "coalesce_key": None, "owner": DEAD, "description": "submitted",
+            "progress": "", "state": "queued", "subscribers": 1,
+            "submitted": __import__("time").time(),
+        })
+        receipt = store.recent(10)[0]
+        assert receipt["state"] == "queued"
+
+        broker = server.Broker(store, connect=lambda: None)
+        try:
+            closed = store.get(receipt["id"])
+            assert closed["state"] == "cancelled"
+            assert "stopped before this job ran" in closed["error"]
+        finally:
+            broker.stop()
+    finally:
+        store.close()

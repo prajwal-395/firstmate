@@ -103,6 +103,14 @@ pub struct Broker {
 
 impl Broker {
     pub fn new(store: Arc<JobStore>) -> Self {
+        // The QUEUE is this broker's memory: it starts empty, so a job
+        // that was WAITING when the last broker stopped is not waited
+        // for now - its receipt is history, and history that still says
+        // "queued" is read as a live wait by everything that counts the
+        // queue (the client's retirement check and the queue report).
+        // So a receipt left waiting is closed here, with the reason it
+        // was closed.
+        close_leftover_waits(&store);
         let state = Arc::new((
             Mutex::new(State {
                 queued: HashMap::new(),
@@ -835,6 +843,36 @@ fn run_job(
 /// A job that is ALREADY RUNNING finishes, and its receipt is recorded
 /// for whoever comes back: it may already have done its work. A LIVE
 /// owner is never reaped on idle time.
+/// Close the receipts a stopped broker left waiting.
+///
+/// The queue is the broker's memory, so a job that was still WAITING
+/// when the broker stopped is not waited for by its replacement - and
+/// nothing will ever run it. Its receipt says so, rather than reading
+/// "queued" for ever: a receipt that says "queued" is counted as a live
+/// wait by the client's retirement check and by the queue report
+/// (measured 2026-10-21: a broker that was never idle because five
+/// dead-owner receipts sat in the queue as if they were live waits).
+fn close_leftover_waits(store: &JobStore) {
+    for receipt in store.recent(1000) {
+        if receipt.state != "queued" {
+            continue;
+        }
+        store
+            .update(
+                &receipt.id,
+                &[
+                    ("state", json!("cancelled")),
+                    ("finished", json!(crate::store::now())),
+                    (
+                        "error",
+                        json!("the broker was stopped before this job ran"),
+                    ),
+                ],
+            )
+            .ok();
+    }
+}
+
 fn reap_dead_owners(state: &mut State, store: &JobStore) {
     let dead: Vec<String> = state
         .queued
@@ -1165,8 +1203,8 @@ mod tests {
         let db = scratch.join("jobs.sqlite3");
         let store = Arc::new(JobStore::open(&db).unwrap());
         let owner = format!("pid-{}", std::process::id());
-        queued_grant(&store, "live", &owner);
         let broker = Broker::new(Arc::clone(&store));
+        queued_grant(&store, "live", &owner);
         {
             let (lock, _) = &*broker.state;
             let mut state = lock.lock().unwrap();
@@ -1253,6 +1291,51 @@ mod tests {
         assert_eq!(receipt.state, "cancelled");
         assert_eq!(receipt.error, "reaped:owner-gone");
         drop(broker);
+        drop(store);
+        std::fs::remove_dir_all(scratch).ok();
+    }
+
+    /// A receipt left WAITING by a stopped broker is closed at startup.
+    ///
+    /// THE DEFECT: the queue is the broker's memory, so a job that was
+    /// waiting when the broker stopped never runs - and its receipt said
+    /// "queued" for ever, which every reader that counts the queue took
+    /// as a live wait (measured 2026-10-21: a broker that was never
+    /// idle because five dead-owner receipts sat in the queue).
+    #[test]
+    fn a_receipt_left_waiting_by_a_stopped_broker_is_closed_at_startup() {
+        let scratch = scratch_dir("leftover-waits");
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        store
+            .insert(&JobRecord {
+                id: "waiting".to_string(),
+                kind: "resolve_axi".to_string(),
+                priority: "mutation".to_string(),
+                mode: "exclusive".to_string(),
+                executed: true,
+                params: json!({}),
+                project: String::new(),
+                timeline: String::new(),
+                qualification: false,
+                coalesce_key: None,
+                interrupt_policy: String::new(),
+                owner: format!("pid-{DEAD_PID}"),
+                description: "submitted".to_string(),
+                progress: String::new(),
+                state: "queued".to_string(),
+                subscribers: 1,
+                submitted: crate::store::now(),
+            })
+            .unwrap();
+        let _broker = Broker::new(Arc::clone(&store));
+        let receipt = store.get("waiting").unwrap();
+        assert_eq!(receipt.state, "cancelled");
+        assert!(
+            receipt.error.contains("stopped before this job ran"),
+            "the receipt did not say why it was closed: {}",
+            receipt.error
+        );
         drop(store);
         std::fs::remove_dir_all(scratch).ok();
     }

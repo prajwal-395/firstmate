@@ -114,6 +114,12 @@ class Broker:
                  connect: Callable[[], object] | None = None,
                  watchdog: object | None = None):
         self.store = store
+        # The QUEUE is this broker's memory: it starts empty, so a job
+        # that was WAITING when the last broker stopped is not waited
+        # for now - its receipt is history, and history that still says
+        # "queued" is read as a live wait by everything that counts the
+        # queue. The Rust daemon does the same, and the two must agree.
+        self._close_leftover_waits()
         self._connect = connect or _default_connect
         self._resolve = None
         self._watchdog = watchdog
@@ -405,6 +411,25 @@ class Broker:
                 else:
                     self._started[job.id].set()
                 self._cond.notify_all()
+
+    def _close_leftover_waits(self) -> None:
+        """Close the receipts a stopped broker left waiting.
+
+        The queue is the broker's memory, so a job that was still
+        WAITING when the broker stopped is not waited for by its
+        replacement - and nothing will ever run it. Its receipt says so,
+        rather than reading "queued" for ever: a receipt that says
+        "queued" is counted as a live wait by the client's retirement
+        check and by the queue report (measured 2026-10-21: a broker
+        that was never idle because five dead-owner receipts sat in
+        the queue as if they were live waits).
+        """
+        for receipt in self.store.recent(1000):
+            if receipt["state"] != "queued":
+                continue
+            self.store.update(
+                receipt["id"], state="cancelled", finished=time.time(),
+                error="the broker was stopped before this job ran")
 
     def _reap_dead_owners(self) -> None:
         """Cancel a queued job whose owner is gone.
