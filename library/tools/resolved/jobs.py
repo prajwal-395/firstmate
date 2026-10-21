@@ -706,14 +706,41 @@ def open_project_name(resolve) -> str:
 
 
 def _open_project(resolve, name: str):
-    """The OPEN project, which must be `name`. The broker never switches."""
+    """The OPEN project, which must be `name`.
+
+    The broker does not switch projects on its own: a job that names a
+    project OPENS it, under the lease the job already holds, and puts
+    the borrowed project back when the job ends
+    (`library.tools.resolve_project_open`). So this reads the project
+    that job's own open brought, and refuses by name when the open
+    project is something else.
+    """
     project = resolve.GetProjectManager().GetCurrentProject()
     found = (project.GetName() or "") if project else ""
     if found != name:
         raise JobRefused(
-            f"Resolve has {found or 'no project'!r} open, not {name!r}; the "
-            f"broker never switches projects - open {name!r} first")
+            f"Resolve has {found or 'no project'!r} open, not {name!r}; "
+            f"the broker opens the project a job names, under the job's "
+            f"own lease, and refuses a job whose project is not the open "
+            f"one")
     return project
+
+
+@contextlib.contextmanager
+def _opened_project(resolve, name: str):
+    """The project `name` OPEN, under the lease this job holds.
+
+    The open project is GLOBAL session state: one Resolve instance, one
+    open project, and every lane's job sees it. So a job that names a
+    project opens it under its OWN lease - no other lane can move the
+    cursor between the open and the write - and the borrowed project is
+    put back when the job ends. A restore that fails is REPORTED, never
+    raised: a write that landed is not a failed write.
+    """
+    from library.tools import resolve_project_open
+
+    with resolve_project_open.opened(resolve, name) as project:
+        yield project
 
 
 def _timeline(project, name: str):
@@ -788,19 +815,19 @@ def _run_impl(job: dict, resolve) -> dict | None:
         from library.tools.resolved import cancellation
 
         _start_checkpoint(job)
-        project = _open_project(resolve, job["project"])
-        timeline = _timeline(project, job["timeline"])
-        with (write_scope(project=job["project"],
-                          timeline_name=job["timeline"],
-                          run_id=job.get("id")),
-              resolve_lock.cursor_excursion(project, timeline, purpose)):
-            cancellation.checkpoint(job["id"])
-            from library.tools import resolve_axi_core
-            try:
-                receipt = resolve_axi_core.execute_semantic_edit_job(
-                    job, resolve=resolve)
-            except ValueError as exc:
-                raise JobRefused(str(exc)) from exc
+        with _opened_project(resolve, job["project"]) as project:
+            timeline = _timeline(project, job["timeline"])
+            with (write_scope(project=job["project"],
+                              timeline_name=job["timeline"],
+                              run_id=job.get("id")),
+                  resolve_lock.cursor_excursion(project, timeline, purpose)):
+                cancellation.checkpoint(job["id"])
+                from library.tools import resolve_axi_core
+                try:
+                    receipt = resolve_axi_core.execute_semantic_edit_job(
+                        job, resolve=resolve)
+                except ValueError as exc:
+                    raise JobRefused(str(exc)) from exc
         if receipt.get("status") == "committed":
             return _commit_checkpoint(job, receipt)
         raise JobRefused(
@@ -851,70 +878,70 @@ def _run_impl(job: dict, resolve) -> dict | None:
     if kind == "reel.copy_tv_ending":
         from library.tools.resolved import reel_ending_copy
         return _commit_checkpoint(job, reel_ending_copy.run(job, resolve))
-    project = _open_project(resolve, job["project"])
-    if kind == "timeline.observe_current":
-        from library.tools import reel_read, timeline_shadow
-        timeline = project.GetCurrentTimeline()
-        if timeline is None:
-            raise JobRefused(
-                f"no current timeline in {project.GetName()!r}; "
-                "the broker will not select one for a background snapshot")
-        store = timeline_shadow.ShadowStore()
-        project_name, timeline_id, _timeline_name = timeline_shadow.timeline_key(
-            project, timeline)
-        head = store.head(project_name, timeline_id)
-        fingerprint = timeline_shadow.light_fingerprint(
-            reel_read.read_light_state(timeline))
-        if head is not None:
-            recorded = store.snapshot(head)
-            if fingerprint == timeline_shadow.light_fingerprint(
-                    timeline_shadow.light_state_of_snapshot(recorded)):
-                return head.summary()
-        return timeline_shadow.observe(project, timeline, store).summary()
-    if kind == "resolve.ui_transaction":
-        # The transaction establishes the timeline itself - the cursor
-        # moves to it - so it is NOT required to be current here, and
-        # the runner does the establishing under the exclusive lease.
-        from library.tools.resolved import ui_transaction
-        _start_checkpoint(job)
-        with write_scope(project=job.get("project"),
-                         timeline_name=job.get("timeline"),
-                         run_id=job.get("id")):
-            receipt = ui_transaction.run(job, resolve, project=project)
-            if receipt.get("status") == "committed":
-                return _commit_checkpoint(job, receipt)
-            return receipt
-    if kind == "timeline.drt_export_probe":
-        from library.tools.resolved import drt_export_probe
-        return drt_export_probe.run(job, resolve, project=project)
-    timeline = _timeline(project, job["timeline"])
-    if kind == "timeline.snapshot":
-        from library.tools import timeline_shadow
-        with resolve_lock.cursor_excursion(project, timeline, purpose):
-            return timeline_shadow.observe(project, timeline).summary()
-    if kind == "timeline.apply_patch":
-        from library.tools import edit_patch
-        # The excursion makes the patch's timeline current and puts the
-        # captain's cursor back after; `apply_patch` fences the write.
-        try:
-            from library.tools.resolved import cancellation
-            cancellation.checkpoint(job["id"])
-            patch = params["patch"]
-            with (write_scope(project=patch["project"],
-                              timeline_name=patch["timeline"],
-                              run_id=job.get("id")),
-                  resolve_lock.cursor_excursion(project, timeline, purpose)):
-                receipt = _jsonable(edit_patch.apply_patch(
-                    patch, resolve=resolve, project=project,
-                    timeline=timeline))
-            if receipt.get("status") == "committed":
-                return _commit_checkpoint(job, receipt)
-            return receipt
-        except edit_patch.PatchRefused as refused:
-            fields = {key: value for key, value in vars(refused).items()
-                      if not key.startswith("_")}
-            raise JobRefused(str(refused), result=_jsonable(
-                dict(fields, refusal=type(refused).__name__))) from refused
+    with _opened_project(resolve, job["project"]) as project:
+        if kind == "timeline.observe_current":
+            from library.tools import reel_read, timeline_shadow
+            timeline = project.GetCurrentTimeline()
+            if timeline is None:
+                raise JobRefused(
+                    f"no current timeline in {project.GetName()!r}; "
+                    "the broker will not select one for a background snapshot")
+            store = timeline_shadow.ShadowStore()
+            project_name, timeline_id, _timeline_name = timeline_shadow.timeline_key(
+                project, timeline)
+            head = store.head(project_name, timeline_id)
+            fingerprint = timeline_shadow.light_fingerprint(
+                reel_read.read_light_state(timeline))
+            if head is not None:
+                recorded = store.snapshot(head)
+                if fingerprint == timeline_shadow.light_fingerprint(
+                        timeline_shadow.light_state_of_snapshot(recorded)):
+                    return head.summary()
+            return timeline_shadow.observe(project, timeline, store).summary()
+        if kind == "resolve.ui_transaction":
+            # The transaction establishes the timeline itself - the cursor
+            # moves to it - so it is NOT required to be current here, and
+            # the runner does the establishing under the exclusive lease.
+            from library.tools.resolved import ui_transaction
+            _start_checkpoint(job)
+            with write_scope(project=job.get("project"),
+                             timeline_name=job.get("timeline"),
+                             run_id=job.get("id")):
+                receipt = ui_transaction.run(job, resolve, project=project)
+                if receipt.get("status") == "committed":
+                    return _commit_checkpoint(job, receipt)
+                return receipt
+        if kind == "timeline.drt_export_probe":
+            from library.tools.resolved import drt_export_probe
+            return drt_export_probe.run(job, resolve, project=project)
+        timeline = _timeline(project, job["timeline"])
+        if kind == "timeline.snapshot":
+            from library.tools import timeline_shadow
+            with resolve_lock.cursor_excursion(project, timeline, purpose):
+                return timeline_shadow.observe(project, timeline).summary()
+        if kind == "timeline.apply_patch":
+            from library.tools import edit_patch
+            # The excursion makes the patch's timeline current and puts the
+            # captain's cursor back after; `apply_patch` fences the write.
+            try:
+                from library.tools.resolved import cancellation
+                cancellation.checkpoint(job["id"])
+                patch = params["patch"]
+                with (write_scope(project=patch["project"],
+                                  timeline_name=patch["timeline"],
+                                  run_id=job.get("id")),
+                      resolve_lock.cursor_excursion(project, timeline, purpose)):
+                    receipt = _jsonable(edit_patch.apply_patch(
+                        patch, resolve=resolve, project=project,
+                        timeline=timeline))
+                if receipt.get("status") == "committed":
+                    return _commit_checkpoint(job, receipt)
+                return receipt
+            except edit_patch.PatchRefused as refused:
+                fields = {key: value for key, value in vars(refused).items()
+                          if not key.startswith("_")}
+                raise JobRefused(str(refused), result=_jsonable(
+                    dict(fields, refusal=type(refused).__name__))) from refused
     raise JobRefused(f"{kind} is not an executed job")
 
 

@@ -376,6 +376,38 @@ def _reopenable(manager, name: str) -> bool:
     return name in list(projects)
 
 
+def capture_open_project(resolve) -> dict:
+    """The project Resolve has OPEN, as a borrow record.
+
+    The record is what `restore` puts back: the project's exact name,
+    its Project Manager folder path, whether Resolve can reopen it by
+    name at all, the timeline that was current and the page the UI was
+    on. `borrowed()` builds one for the qualification borrow, and
+    `resolve_project_open.opened` builds one for the general borrow -
+    the same record, so the same restore puts both back.
+    """
+    manager = resolve.GetProjectManager()
+    if manager is None:
+        raise QualificationError(
+            "refusing to borrow Resolve: GetProjectManager() returned None "
+            "- Resolve is mid-switch or not fully loaded; retry after it "
+            "settles instead of switching projects under it")
+    project = manager.GetCurrentProject()
+    if not project:
+        raise QualificationError("Resolve has no project open to return to")
+    name = project.GetName()
+    timeline = project.GetCurrentTimeline()
+    reopenable = _reopenable(manager, name)
+    with _phase("project_folder_capture", qualification_isolation=True):
+        project_folder = _current_project_folder_path(manager)
+    return {"project": name,
+            "project_folder": project_folder,
+            "reopenable": reopenable,
+            "timeline_id": timeline.GetUniqueId() if timeline else None,
+            "timeline": timeline.GetName() if timeline else None,
+            "page": resolve.GetCurrentPage()}
+
+
 @contextmanager
 def borrowed(resolve, *, qualification_only: bool = False):
     """Use an open Qualification project, or borrow and restore the captain.
@@ -420,16 +452,8 @@ def borrowed(resolve, *, qualification_only: bool = False):
         raise QualificationError(
             f"Resolve is already on {QUALIFICATION_PROJECT!r}, so the "
             f"captain's project is unknown - reopen it by hand first")
-    timeline = project.GetCurrentTimeline()
-    reopenable = _reopenable(manager, name)
-    with _phase("project_folder_capture", qualification_isolation=True):
-        project_folder = _current_project_folder_path(manager)
-    found = {"project": name,
-             "project_folder": project_folder,
-             "reopenable": reopenable,
-             "timeline_id": timeline.GetUniqueId() if timeline else None,
-             "timeline": timeline.GetName() if timeline else None,
-             "page": resolve.GetCurrentPage()}
+    found = capture_open_project(resolve)
+    reopenable = found["reopenable"]
     with _phase("project_save_before_borrow",
                  qualification_isolation=True):
         # The save protects the captain's unsaved work from the reload

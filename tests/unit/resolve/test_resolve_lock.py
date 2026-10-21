@@ -1535,12 +1535,17 @@ def test_a_qualification_job_aimed_at_a_user_project_is_refused():
                      qualification=True)
 
 
-def test_the_broker_never_switches_projects_it_refuses_a_wrong_target():
-    """An operation naming a project Resolve does not have open is
-    refused at the execution boundary - the broker opens nothing, so a
-    job can never silently edit somebody else's project."""
+def test_the_broker_opens_the_project_a_job_names_and_refuses_a_wrong_target():
+    """A job names the project it edits, and the broker opens THAT one.
+
+    The open project is global session state, so a job that named a
+    project while another lane's project was open wrote into the wrong
+    one - or was refused, seven of ten live write attempts (measured
+    2026-10-21). The broker now opens the project the job names, under
+    the job's own lease, and still refuses BY NAME when the open
+    project is not the one the job named."""
     resolve = _Resolve(_Project_2("Podcast", ["Master"]))
-    with pytest.raises(jobs.JobRefused, match="never switches"):
+    with pytest.raises(jobs.JobRefused, match="opens the project a job names"):
         jobs._open_project(resolve, "Ren Qualification")
     assert jobs._open_project(resolve, "Podcast").GetName() == "Podcast"
 

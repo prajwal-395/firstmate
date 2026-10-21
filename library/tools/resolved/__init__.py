@@ -47,9 +47,13 @@ Two shapes of job, because Resolve's handles cannot cross a process:
   operation's calls. The operation's own leases are served by that one
   claim instead of asking for another.
 
-The broker never switches PROJECTS: an executed job names the open one
-or is refused. It moves the timeline cursor only inside its own
-exclusive section, through `resolve_lock.cursor_fence`.
+The broker opens the project a job names, under the lease that job
+holds, and puts the borrowed project back when the job ends: the open
+project is GLOBAL session state, so a job that named a project while
+another lane's project was open wrote into the wrong one (or was
+refused - seven of ten live write attempts, measured 2026-10-21). It
+moves the timeline cursor only inside its own exclusive section,
+through `resolve_lock.cursor_fence`.
 
     ren resolved serve            # foreground daemon
     ren resolved ensure           # start it detached if none serves

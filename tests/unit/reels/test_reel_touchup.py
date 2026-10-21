@@ -114,6 +114,19 @@ def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
         events.append("connect")
         return project
 
+    @contextmanager
+    def opener(resolve_name):
+        # The read now OPENS the project it reads, under the lease it
+        # already holds: the open project is global session state, and
+        # a read that found another lane's project open read that
+        # project's reels. This fake Resolve has no project manager, so
+        # the open is stubbed - and the stub asserts the guard the open
+        # must sit inside.
+        assert state["lease"] is True
+        assert resolve_name == "Podcast (field test)"
+        events.append("open")
+        yield
+
     def read_tracks(actual_timeline, *, resolve_project):
         assert state["lease"] is True
         assert state["excursion"] is True
@@ -134,12 +147,13 @@ def test_live_touchup_read_holds_lease_and_makes_reel_current(monkeypatch):
     monkeypatch.setattr(resolve_lock, "resolve_lease", lease)
     monkeypatch.setattr(resolve_lock, "cursor_excursion", excursion)
     monkeypatch.setattr(reel_read, "read_tracks", read_tracks)
+    monkeypatch.setattr(tu, "_project_open", opener)
 
     assert tu._live_tracks_for_reel("/project", 22,
                                     "Reel 22 - moment") == [
                                         {"name": "SpeakerOne"}]
-    assert events == ["lease-enter", "connect", "cursor-enter", "read",
-                      "cursor-exit", "lease-exit"]
+    assert events == ["lease-enter", "open", "connect", "cursor-enter",
+                      "read", "cursor-exit", "lease-exit"]
 
 
 # ── The composed class ───────────────────────────────────────────────

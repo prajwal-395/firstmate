@@ -183,6 +183,7 @@ docs/evidence/reel_touchup.md.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import sys
@@ -592,6 +593,35 @@ def touchup_all_reels(project_folder: str, *, old_clip: str = "",
             "ok": landed == len(per_reel)}
 
 
+@contextlib.contextmanager
+def _project_open(resolve_name: str):
+    """The project this touch edits, OPEN under the lease it holds.
+
+    The open project is GLOBAL session state: one Resolve instance, one
+    open project, and every lane's job sees it. A touch that edits a
+    reel in its own project therefore has to make that project the open
+    one - under the lease the touch already holds, so no other lane can
+    move the cursor between the open and the write - and the borrowed
+    project is put back when the touch ends.
+
+    Measured 2026-10-21: ten live write attempts on this machine, every
+    one refused, seven of them because another lane had opened its own
+    project first (once the captain's own `Podcast (field test)`).
+    """
+    from library.tools.marker_feedback import connect_resolve
+    from library.tools.resolve_project_open import opened
+
+    resolve = connect_resolve()
+    with opened(resolve, resolve_name):
+        yield
+
+
+@contextlib.contextmanager
+def _no_project_open(resolve_name: str):
+    """The null open: a caller that brought its own connection."""
+    yield
+
+
 def _live_tracks_for_reel(project_folder: str, reel: int,
                           final_name: str) -> list:
     """Tracks of the EXACT-named reel timeline, read live in Resolve."""
@@ -615,20 +645,21 @@ def _live_tracks_for_reel(project_folder: str, reel: int,
     # so read_tracks must run inside a cursor excursion to this reel.
     # The excursion restores the captain's entry timeline and timecode.
     with resolve_lease(f"read touchup {final_name}", exclusive=True):
-        project = _connect(resolve_name or "")
-        found = {timeline.GetName(): timeline for timeline
-                 in timelines_to_replace(project, {final_name})}
-        if final_name not in found:
-            raise TouchupRefused(
-                f"no timeline called {final_name!r} is in the "
-                f"open Resolve project",
-                "a touchup edits the reel's existing timeline, and there "
-                "is none to edit",
-                "build it first (`ren build <project>`), then touch it up")
-        with cursor_excursion(project, found[final_name],
-                              f"read touchup {final_name}"):
-            return _read.read_tracks(found[final_name],
-                                     resolve_project=project)
+        with _project_open(resolve_name):
+            project = _connect(resolve_name or "")
+            found = {timeline.GetName(): timeline for timeline
+                     in timelines_to_replace(project, {final_name})}
+            if final_name not in found:
+                raise TouchupRefused(
+                    f"no timeline called {final_name!r} is in the "
+                    f"open Resolve project",
+                    "a touchup edits the reel's existing timeline, and there "
+                    "is none to edit",
+                    "build it first (`ren build <project>`), then touch it up")
+            with cursor_excursion(project, found[final_name],
+                                  f"read touchup {final_name}"):
+                return _read.read_tracks(found[final_name],
+                                         resolve_project=project)
 
 
 def _spans_of(tracks: Sequence[Mapping]) -> dict:
@@ -3728,7 +3759,8 @@ def apply_touchup(project_folder: str, spec: Mapping,
                   rederiver_override=None,
                   accept_editor_changes=None,
                   resolve_app=None,
-                  staged_only: bool = False) -> dict:
+                  staged_only: bool = False,
+                  opener=None) -> dict:
     """Apply a structured change to a built reel's existing timeline.
 
     Stages a DUPLICATE beside the approved reel, conforms it, routes
@@ -3751,6 +3783,10 @@ def apply_touchup(project_folder: str, spec: Mapping,
 
     `connect` is a seam for tests: `connect(resolve_name) ->
     project`.  `rederiver_override` is the same for the comp pass.
+    `opener` is the seam for the PROJECT OPEN: `opener(resolve_name)`
+    is a context manager that makes that project the open one for the
+    length of the touch. A caller that brings its own `connect` owns
+    its own connection, and gets no open.
     """
     from library.tools import reel_signoff as _signoff
 
@@ -3790,23 +3826,28 @@ def apply_touchup(project_folder: str, spec: Mapping,
     if connect is None:
         from library.tools.reel_build import _connect_resolve_project as _connect
         connect = _connect
+        opener = opener or _project_open
+    else:
+        opener = opener or _no_project_open
     return _apply_under_lease(
         project_folder, spec, final, resolve_name, declared_drops,
         declared_supersede, declared_editor_acceptance, connect,
-        rederiver_override, resolve_app, started, staged_only)
+        rederiver_override, resolve_app, started, staged_only, opener)
 
 
 def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                        resolve_name: str, declared_drops,
                        declared_supersede, accept_editor_changes, connect,
                        rederiver_override, resolve_app,
-                       started: float, staged_only: bool = False) -> dict:
+                       started: float, staged_only: bool = False,
+                       opener=None) -> dict:
     from library.tools.resolve_lock import under_lease
     from library.tools.resource_leases import (
         LeaseDeclaration,
         ResourceRef,
         resource_lease,
     )
+    opener = opener or _project_open
 
     @under_lease(f"touch up {final}")
     def _guarded():
@@ -3829,12 +3870,13 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                 ),
                 purpose=f"touch up {final}",
             ):
-                return _apply_connected(
-                    project_folder, spec, final, resolve_name,
-                    declared_drops, declared_supersede,
-                    accept_editor_changes,
-                    connect, rederiver_override, resolve_app, started,
-                    staged_only=staged_only)
+                with opener(resolve_name):
+                    return _apply_connected(
+                        project_folder, spec, final, resolve_name,
+                        declared_drops, declared_supersede,
+                        accept_editor_changes,
+                        connect, rederiver_override, resolve_app, started,
+                        staged_only=staged_only)
 
     return _guarded()
 
