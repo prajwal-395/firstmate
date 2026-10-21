@@ -3280,6 +3280,35 @@ def test_edit_place_by_pool_unique_id_places_that_item(edit_patched, capsys):
     assert "place_plan" in out
 
 
+def test_edit_place_refuses_a_placement_of_the_wrong_media(edit_patched,
+                                                           monkeypatch,
+                                                           capsys):
+    """Defect: the place verb verified that the ITEM COUNT moved.
+
+    It never checked WHICH media landed, so a placement that answered
+    "success" and put a different pool item on the timeline was
+    reported as a success.  AXI-013: the target identity is captured
+    before the write and compared against the placed item's own media
+    identity after it.
+    """
+    env = edit_patched
+    pool = env["project"]._pool
+    original = pool.AppendToTimeline
+    other = pool.GetRootFolder().GetSubFolderList()[0].GetClipList()[0]
+
+    def place_the_wrong_media(payloads):
+        for entry in payloads or []:
+            entry["mediaPoolItem"] = other
+        return original(payloads)
+
+    monkeypatch.setattr(pool, "AppendToTimeline", place_the_wrong_media)
+    args = _place_ns(apply=True)
+
+    assert cmd_edit_place(args) == 1
+    out = capsys.readouterr().out
+    assert "the write changed the wrong item" in out
+
+
 def test_edit_place_by_pool_unique_id_refuses_an_unknown_id(edit_patched,
                                                             capsys):
     """An id no pool item answers to is a refusal, never a guess."""

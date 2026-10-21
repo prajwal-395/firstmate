@@ -90,7 +90,21 @@ _ROW_OPS = frozenset({
 #: change a target's media identity; nothing else may.
 _MEDIA_REPLACING_OPS = frozenset({
     "clip.replace", "clip.insert", "broll.insert",
+    # A restyled caption card is a NEW rendered file swapped onto the
+    # same item, so it replaces that item's media identity.  Without it
+    # here the swap reads as an unauthorized media change and the
+    # preservation verdict refuses a caption restyle that landed
+    # exactly as asked (AXI-013: the permitted delta must name what
+    # the operation was allowed to change).
+    "caption.style",
 })
+
+#: The domain a media replacement brings with it.  A new file has its
+#: own length and its own name, so the ITEM it lands on may read a
+#: different source range and a different name afterwards.  Only the
+#: item the operation names is affected; nothing else on the timeline
+#: is.
+_MEDIA_REPLACEMENT_DOMAIN = "timeline_structure"
 
 #: The field each operation declares it writes, where it declares one.
 #: An operation that declares no field authorizes its DOMAIN, not a
@@ -351,6 +365,13 @@ def scope_for(operations: Sequence[Mapping], *,
             media_pair = (target, SOURCE_IDENTITY)
             if media_pair not in pairs:
                 pairs.append(media_pair)
+            # The new file brings its own length and its own name, so
+            # the item it lands on may read a different source range
+            # and a different name.  That is the replacement's own
+            # doing, and only on the item it names.
+            carried_pair = (target, _MEDIA_REPLACEMENT_DOMAIN)
+            if carried_pair not in pairs:
+                pairs.append(carried_pair)
     return MutationScope(
         domains=tuple(dict.fromkeys(
             [str(domain) for domain in conflict_domains]

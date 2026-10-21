@@ -1017,6 +1017,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
 
     batch_receipt = None
     full_request_verification = None
+    single_request_verification = None
     # Hold the broker lease across the entire batch so another Ren
     # transaction cannot interleave between its operations.
     with resolve_lease(
@@ -1024,7 +1025,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             project=request.project, timeline=request.timeline,
             edit_ids=tuple(str(operation.get("unique_id", ""))
                            for operation in operations)):
-        from library.tools import timeline_shadow
+        from library.tools import mutation_verification, timeline_shadow
 
         current = [
             (head, live_snapshot)
@@ -1121,6 +1122,46 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     failed_index=len(operations),
                     evidence={"mutated": True,
                               "error": repr(exc)})
+        elif (refusal is None and batch_receipt is None
+              and mutation_verification.route_carries_gate(
+                  backend_id, operations)):
+            # AXI-013: a request the engine routes onto a qualified
+            # operation is judged by the ENGINE's own comparison of two
+            # fresh reads - the pre-write state and a post-write read -
+            # and not by the receipt the writer handed back.  The
+            # adapter's read-back is the writer's own; this is the
+            # engine's, and it is what catches a mutation that
+            # succeeded while changing the wrong thing.
+            try:
+                after = read_live_timeline(
+                    request.project, request.timeline)
+                baseline = mutation_verification.capture_baseline(
+                    project=request.project, timeline=request.timeline,
+                    revision=generation.generation, operations=operations,
+                    snapshot=snapshot,
+                    preservation_scope=tuple(compiled.conflict_domains))
+                delta_verification = mutation_verification.verify_delta(
+                    baseline=baseline, after=after,
+                    affected_spans=compiled.affected_spans,
+                    conflict_domains=compiled.conflict_domains)
+                if delta_verification["status"] != "verified":
+                    refusal = refused(
+                        "verification_failed",
+                        "the mutation did not produce the permitted delta "
+                        "on a fresh timeline snapshot",
+                        failed_index=0,
+                        evidence={"mutated": True,
+                                  "delta_verification": delta_verification})
+                else:
+                    single_request_verification = delta_verification
+            except Exception as exc:  # noqa: BLE001 - verify before success
+                refusal = refused(
+                    "verification_failed",
+                    f"the post-write read-back failed: "
+                    f"{type(exc).__name__}: {exc}",
+                    failed_index=0,
+                    evidence={"mutated": True,
+                              "error": repr(exc)})
         if refusal is not None and receipts:
             recovery = compensate_completed(refusal.get("failure_evidence"))
             recovery["failure_reason"] = refusal["refusal"]["reason"]
@@ -1156,7 +1197,8 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
         operations=operations, receipts=receipts,
         base_generation=generation.generation,
         committed_generation=committed_generation,
-        full_request_verification=full_request_verification)
+        full_request_verification=full_request_verification,
+        delta_verification=single_request_verification)
 
 
 def _registered_execution_receipt(*, backend: str, plan: Mapping,
@@ -1164,7 +1206,8 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
                                   receipts: Sequence[Mapping],
                                   base_generation: int,
                                   committed_generation: int,
-                                  full_request_verification: Mapping | None = None
+                                  full_request_verification: Mapping | None = None,
+                                  delta_verification: Mapping | None = None,
                                   ) -> dict:
     """Normalize a registered-backend batch with operation evidence."""
     from library.tools.transaction_orchestration import standardize_receipt
@@ -1219,6 +1262,7 @@ def _registered_execution_receipt(*, backend: str, plan: Mapping,
         "verification_evidence": acceptance_contracts,
         "full_request_verification": dict(
             full_request_verification or {}),
+        "delta_verification": dict(delta_verification or {}),
         "operations": receipts,
         "requested_operation_count": len(operations),
         "acceptance_contracts": acceptance_contracts,

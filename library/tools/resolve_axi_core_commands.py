@@ -5062,6 +5062,144 @@ def _pool_find_clip_by_id(project, clip_id: str):
     return clip, {"name": name, "bin": ""}
 
 
+def _item_uid(item) -> str:
+    """The item's unique id, or "" when the handle has not caught up."""
+    try:
+        uid = str(item.GetUniqueId() or "")
+    except Exception:  # noqa: BLE001 - an unreadable item has no id
+        return ""
+    return "" if uid in ("", "None") else uid
+
+
+def _timeline_items(timeline) -> list:
+    """Every item on the timeline, with the row it sits on."""
+    rows = []
+    for kind in ("video", "audio", "subtitle"):
+        try:
+            count = int(timeline.GetTrackCount(kind) or 0)
+        except Exception:  # noqa: BLE001 - an unreadable row is not a row
+            count = 0
+        for index in range(1, count + 1):
+            try:
+                items = list(timeline.GetItemListInTrack(kind, index) or ())
+            except Exception:  # noqa: BLE001
+                items = []
+            for item in items:
+                rows.append((kind, index, item))
+    return rows
+
+
+def _timeline_item_uids(timeline) -> set:
+    """Every item id on the timeline: the pre-write state, as ids."""
+    return {uid for _kind, _index, item in _timeline_items(timeline)
+            if (uid := _item_uid(item))}
+
+
+def _placed_item(timeline, before_uids: set, returned):
+    """The item the placement put on the timeline.
+
+    The timeline's own pre/post difference is the first answer, and it
+    is the fresh one: the handle `AppendToTimeline` returns may not have
+    caught up yet, and a placement that landed with a falsy answer is
+    only visible in the timeline's own reading.  The returned handle is
+    the fallback, and a placement that cannot be identified either way
+    is NOT identified: the caller refuses it.
+    """
+    from library.tools import resolve_write_settle
+
+    def fresh():
+        found = [item for _kind, _index, item in _timeline_items(timeline)
+                 if _item_uid(item) and _item_uid(item) not in before_uids]
+        return found[0] if len(found) == 1 else None
+
+    resolve_write_settle.wait_for(lambda: fresh() is not None)
+    item = fresh()
+    if item is not None:
+        return item
+    candidates = [item for item in (returned or ()) if item is not None]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _placed_track(item):
+    """The row a placed item sits on, as (kind, index), or None."""
+    try:
+        kind, index = item.GetTrackTypeAndIndex()
+    except Exception:  # noqa: BLE001 - an unreadable row is unknown
+        return None
+    try:
+        return str(kind), int(index)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pool_identity(clip) -> dict:
+    """The identity of one media-pool item, as the engine names it.
+
+    AXI-013: a mutation is about a THING, and the thing is captured
+    BEFORE the write so the write can be judged against it.  The unique
+    id is the identity the algebra carries; the name and the file path
+    are what a reader can see.
+    """
+    identity = {"unique_id": "", "name": "", "file": ""}
+    if clip is None:
+        return identity
+    try:
+        identity["unique_id"] = str(clip.GetUniqueId() or "")
+    except Exception:  # noqa: BLE001 - an unreadable item has no identity
+        pass
+    try:
+        identity["name"] = str(clip.GetName() or "")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        props = clip.GetClipProperty() or {}
+    except Exception:  # noqa: BLE001
+        props = {}
+    if isinstance(props, dict):
+        identity["file"] = str(props.get("File Path") or "")
+    return identity
+
+
+def _placed_pool_identity(item) -> dict:
+    """The identity of the media a PLACED timeline item carries.
+
+    The read waits for Resolve's handle to catch up: a freshly appended
+    item reports nothing about its media until the handle has caught up
+    (`library/tools/resolve_write_settle.py`).
+    """
+    from library.tools import resolve_write_settle
+
+    def identity() -> dict:
+        found = {"unique_id": "", "name": "", "file": ""}
+        try:
+            pool_item = item.GetMediaPoolItem()
+        except Exception:  # noqa: BLE001 - not settled yet
+            return found
+        if pool_item is None:
+            return found
+        try:
+            found["unique_id"] = str(pool_item.GetUniqueId() or "")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            found["name"] = str(pool_item.GetName() or "")
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            props = pool_item.GetClipProperty() or {}
+        except Exception:  # noqa: BLE001
+            props = {}
+        if isinstance(props, dict):
+            found["file"] = str(props.get("File Path") or "")
+        return found
+
+    settled, _waited = resolve_write_settle.wait_for(
+        lambda: identity().get("unique_id") or "")
+    found = identity()
+    found["settled"] = settled
+    return found
+
+
 def cmd_edit_place(args) -> int:
     """Append a pool clip onto the reel. The plan says where; the
     read-back says where it actually landed.
@@ -5170,6 +5308,10 @@ def cmd_edit_place(args) -> int:
             len(timeline.GetItemListInTrack(t, i) or [])
             for t in ("video", "audio", "subtitle")
             for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
+        # AXI-013: the pre-write state, captured so the placement can be
+        # judged against it - the item that appears is THE item the
+        # request named, on the row it named, at the frame it named.
+        before_uids = _timeline_item_uids(timeline)
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_place", "timeline": timeline.GetName(),
@@ -5178,6 +5320,10 @@ def cmd_edit_place(args) -> int:
                       "source_out": args.source_out,
                       "track": args.track, "record": args.record},
                 gate_class="edit_place") as (journal, journal_state):
+            # AXI-013: the target identity is captured BEFORE the write,
+            # so the write can be judged against the thing it was asked
+            # to place rather than against whatever landed.
+            requested_identity = _pool_identity(clip)
             try:
                 placed = project.GetMediaPool().AppendToTimeline([payload])
             except Exception as exc:
@@ -5215,6 +5361,77 @@ def cmd_edit_place(args) -> int:
                             f"- nothing landed.",
                             f"{TOOL} items --timeline "
                             f"\"{timeline.GetName()}\"")
+            # AXI-013: the item count moving says that SOMETHING was
+            # placed, not that the thing the request NAMED was placed.
+            # The requested pool item's identity, captured above, is
+            # compared against the placed item's own media identity, so
+            # a placement of the wrong media is refused instead of
+            # reported as a success.
+            placed_item = _placed_item(timeline, before_uids, new_items)
+            if placed_item is None:
+                return fail(
+                    "the placement could not be identified on the "
+                    "timeline - nothing is claimed. Verify by hand.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            placed_identity = _placed_pool_identity(placed_item)
+            if (not placed_identity.get("unique_id")
+                    or not requested_identity.get("unique_id")):
+                return fail(
+                    "the placed item's media identity could not be read "
+                    f"(requested {requested_identity.get('unique_id')!r}, "
+                    f"placed {placed_identity.get('unique_id')!r}) - the "
+                    "placement is not verified. Verify by hand.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            if (placed_identity["unique_id"]
+                    != requested_identity["unique_id"]):
+                return fail(
+                    f"the placement put "
+                    f"{placed_identity.get('name') or placed_identity['unique_id']!r} "
+                    f"on the timeline, not the requested "
+                    f"{requested_identity.get('name') or requested_identity['unique_id']!r} "
+                    "- the write changed the wrong item.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            if (requested_identity.get("file")
+                    and placed_identity.get("file")
+                    and placed_identity["file"] != requested_identity["file"]):
+                return fail(
+                    f"the placed item carries {placed_identity['file']!r}, "
+                    f"not the requested {requested_identity['file']!r} - the "
+                    "write changed the wrong media.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            placed_span = _item_span(placed_item)
+            if args.record is not None:
+                try:
+                    landed_at = int(placed_span["record_in"])
+                except (KeyError, TypeError, ValueError):
+                    landed_at = None
+                if landed_at is not None and landed_at != int(args.record):
+                    return fail(
+                        f"the item landed at record frame {landed_at}, not "
+                        f"the requested {int(args.record)} - the write "
+                        "changed the wrong place.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+            if args.track is not None:
+                placed_track = _placed_track(placed_item)
+                if placed_track is not None:
+                    kind, index = placed_track
+                    # `media="both"` places the pool item's own kind,
+                    # so only an explicit video or audio request names
+                    # the row's kind.
+                    expected_kind = (args.media if args.media in ("video",
+                                                                 "audio")
+                                     else None)
+                    if (int(index) != int(args.track)
+                            or (expected_kind is not None
+                                and kind in ("video", "audio")
+                                and kind != expected_kind)):
+                        return fail(
+                            f"the item landed on {kind}{index}, not the "
+                            f"requested {expected_kind or ''}{int(args.track)}"
+                            " - the write changed the wrong row.",
+                            f"{TOOL} items --timeline "
+                            f"\"{timeline.GetName()}\"")
             journal_state["success"] = True
         spans = [_item_span(item) for item in new_items] or [
             {"name": clip_name, "record_in": "", "record_out": "",
@@ -5223,7 +5440,9 @@ def cmd_edit_place(args) -> int:
                   "timeline": timeline.GetName(),
                   "clip": clip_name,
                   "items_delta": delta,
-                  "verified": ("yes (item count moved, no retry - a "
+                  "placed_media_id": placed_identity.get("unique_id", ""),
+                  "verified": ("yes (the placed item carries the requested "
+                               "media, at the requested place; no retry - a "
                                "retry would place it twice)"),
               }),
               table("new", spans,
