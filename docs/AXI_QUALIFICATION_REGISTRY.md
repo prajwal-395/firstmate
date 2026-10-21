@@ -65,7 +65,19 @@ python3 -m library.tools.axi_qualification --audit
 ```
 
 The audit reports every registered row, whether its boundary is explicit,
-and which rows still need a live re-measurement.
+and which rows still need a live re-measurement. It tells two states apart:
+
+- **not qualified** - the row's evidence did not pass. It qualifies
+  nothing, and that is an honest outcome rather than a defect.
+- **ineligible** - the row's evidence PASSED and its boundary is broken: a
+  predicate that names a place, a value the measurement cannot produce, or
+  a missing environment, semantic boundary or coverage. Such a row reads
+  as qualified and can never be routed.
+
+The audit is a GATE: it exits non-zero when a row is ineligible, so
+`python3 -m library.tools.axi_qualification --audit` fails on a registry
+that claims a qualification it cannot keep. `tests/contracts/
+test_axi_qualification_registry.py` holds the shipped registry to it.
 
 Regenerate the AXI reference matrix after importing evidence with:
 

@@ -17,11 +17,18 @@ python3 -m library.tools.axi_qualification \
     --import-result tests/live/reports/registry/<operation>__<backend>.json
 ```
 
-The run writes one `ren-axi-qualification-result/v1` document per
+The run writes one `ren-axi-qualification-result/v2` document per
 (operation, backend) pair the passing scenarios earned.  A pair that
 already has a registry row is NEVER overwritten: the new evidence is
 written beside it and the report names both, so a promotion stays a
 deliberate act on a file the operator chose.
+
+The ONE exception is a committed report in the LEGACY schema.  The
+importer refuses that schema outright - it carries no environment, no
+semantic boundary and no coverage, so it can never qualify anything -
+and a row promoted from one has an evidence document nobody can read
+back.  The fresh evidence REPLACES it at the canonical path, and the
+report names the replacement (`replaced_legacy_report`).
 
 ## The fixtures the lane needs
 

@@ -17,9 +17,9 @@
     "AXI-022",
     "AXI-023"
   ],
-  "scenarios": 32,
+  "scenarios": 33,
   "passed": 12,
-  "failed": 20,
+  "failed": 21,
   "results": [
     {
       "id": "insert_at_frame_on_track",
@@ -767,25 +767,29 @@
         "refusals": []
       },
       "observed": {
-        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 72\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2181\n  verified_at: 2026-10-20T18:26:50+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 72\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 100\n  verified_at: 2026-10-21T00:23:54+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
           },
           "targets": [
-            "e26fe3d3-1f98-4821-8f53-dc2a5f530def"
+            "85c8938a-bbfd-48f6-81f2-5933a872e1be"
           ],
           "missing_targets": []
         }
       },
-      "elapsed_seconds": 7.287210291004158,
+      "elapsed_seconds": 3.1427366249990882,
       "case": {
         "id": "remove_leaves_gap",
         "setup_receipts": [
@@ -812,7 +816,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,96,0,95,e26fe3d3-1f98-4821-8f53-dc2a5f530def\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,96,0,95,85c8938a-bbfd-48f6-81f2-5933a872e1be\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           },
           {
@@ -838,7 +842,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,168,0,71,ae5682d4-0f51-41a8-81fd-f5ad575e7d8b\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,168,0,71,aeeeaa83-0bc7-4bed-a50c-eeed8f99d605\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -863,7 +867,7 @@
           }
         ],
         "before": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -879,7 +883,7 @@
           "items": []
         },
         "after_setup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 168,
           "track_names": {
             "video": [
@@ -894,7 +898,7 @@
           },
           "items": [
             {
-              "unique_id": "e26fe3d3-1f98-4821-8f53-dc2a5f530def",
+              "unique_id": "85c8938a-bbfd-48f6-81f2-5933a872e1be",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -948,7 +952,7 @@
               "cdl": null
             },
             {
-              "unique_id": "ae5682d4-0f51-41a8-81fd-f5ad575e7d8b",
+              "unique_id": "aeeeaa83-0bc7-4bed-a50c-eeed8f99d605",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -1012,20 +1016,24 @@
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
           },
           "targets": [
-            "e26fe3d3-1f98-4821-8f53-dc2a5f530def"
+            "85c8938a-bbfd-48f6-81f2-5933a872e1be"
           ],
           "missing_targets": []
         },
         "after": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 168,
           "track_names": {
             "video": [
@@ -1040,7 +1048,7 @@
           },
           "items": [
             {
-              "unique_id": "ae5682d4-0f51-41a8-81fd-f5ad575e7d8b",
+              "unique_id": "aeeeaa83-0bc7-4bed-a50c-eeed8f99d605",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -1106,7 +1114,7 @@
             "--transforms"
           ],
           "exit_code": 0,
-          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 72\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2181\n  verified_at: 2026-10-20T18:26:50+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 1\n  placed_frames: 72\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 100\n  verified_at: 2026-10-21T00:23:54+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[1]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
           "stderr": ""
         },
         "cleanup": {
@@ -1115,13 +1123,13 @@
         },
         "removed_tracks": [],
         "removed_media": [
-          "fm-qual-owned-overlay-a.png",
           "fm-qual-owned-overlay-b.png",
-          "fm-qual-owned-a.mp4",
-          "fm-qual-owned-b.mp4"
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-b.mp4",
+          "fm-qual-owned-a.mp4"
         ],
         "after_cleanup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -1137,7 +1145,7 @@
           "items": []
         },
         "collateral_changes": [],
-        "elapsed_seconds": 7.287210291004158
+        "elapsed_seconds": 3.1427366249990882
       }
     },
     {
@@ -9985,25 +9993,29 @@
         "refusals": []
       },
       "observed": {
-        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 168\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2222\n  verified_at: 2026-10-20T18:28:26+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 168\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 103\n  verified_at: 2026-10-21T00:24:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
           },
           "targets": [
-            "938d0b51-33c2-4696-9f1f-ae85712f67b7"
+            "b8ad6873-f2b8-4cde-906f-50fab8dbd0b9"
           ],
           "missing_targets": []
         }
       },
-      "elapsed_seconds": 9.74450629200146,
+      "elapsed_seconds": 3.3803593330085278,
       "case": {
         "id": "retime_speed_change",
         "setup_receipts": [
@@ -10030,7 +10042,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,96,0,95,938d0b51-33c2-4696-9f1f-ae85712f67b7\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,96,0,95,b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           },
           {
@@ -10056,7 +10068,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,168,0,71,27e0c330-9eb2-4f33-81bb-2ce2aacea0a3\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,168,0,71,eb40b233-f948-4dc3-a958-b78bd74f34d3\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -10067,12 +10079,12 @@
               "retime-clip"
             ],
             "exit_code": 0,
-            "stdout": "{\"patch_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 2221, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"segments\": [{\"record_frame\": 0, \"percent\": 50.0}]}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"14938f19-6cc9-4a45-a42c-85b2780bddaf\", \"generation\": 2222, \"hash\": \"e48deac14d1bea645ed307b935ce2a68015939ce7bbdeac62ea853bc91ed1df9\", \"source\": \"patch\", \"patch_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"recorded_at\": 1792520904.35757, \"verified_at\": 1792520904.35757, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"operations\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"field\": \"right_offset\", \"domain\": \"timeline_structure\", \"before\": 0, \"after\": 96, \"authorized\": true}, {\"target\": \"clip:938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"field\": \"source_out_frame\", \"domain\": \"timeline_structure\", \"before\": 95, \"after\": 48, \"authorized\": true}, {\"target\": \"clip:938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"field\": \"speed\", \"domain\": \"timeline_structure\", \"before\": 100.0, \"after\": 50.0, \"authorized\": true}], \"expected\": [{\"target\": \"clip:938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"domain\": \"timeline_structure\", \"operation\": \"retime.segments\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 2.0356, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 2222, \"fingerprint\": \"e48deac14d1bea645ed307b935ce2a68015939ce7bbdeac62ea853bc91ed1df9\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 2221}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 2222, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"idempotency_key\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"938d0b51-33c2-4696-9f1f-ae85712f67b7\", \"segments\": [{\"record_frame\": 0, \"percent\": 50.0}]}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"14938f19-6cc9-4a45-a42c-85b2780bddaf\", \"generation\": 2222, \"hash\": \"e48deac14d1bea645ed307b935ce2a68015939ce7bbdeac62ea853bc91ed1df9\", \"source\": \"patch\", \"patch_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"recorded_at\": 1792520904.35757, \"verified_at\": 1792520904.35757, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 2222, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"retime.segments\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\", \"idempotency_key\": \"ren-92a59dcd11940b170df2e47a98218c98081e30f8d6c683ec4b91fde0be172f80\"}}}",
+            "stdout": "{\"patch_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 102, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"segments\": [{\"record_frame\": 0, \"percent\": 50.0}]}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 103, \"hash\": \"ab2e0fefc3a1d0b07b09695e989164515a99db4f81401dc46829038b8db2866d\", \"source\": \"patch\", \"patch_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"recorded_at\": 1792542242.245551, \"verified_at\": 1792542242.245551, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"operations\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"field\": \"right_offset\", \"domain\": \"timeline_structure\", \"before\": 0, \"after\": 96, \"authorized\": true}, {\"target\": \"clip:b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"field\": \"source_out_frame\", \"domain\": \"timeline_structure\", \"before\": 95, \"after\": 48, \"authorized\": true}, {\"target\": \"clip:b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"field\": \"speed\", \"domain\": \"timeline_structure\", \"before\": 100.0, \"after\": 50.0, \"authorized\": true}], \"expected\": [{\"target\": \"clip:b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"domain\": \"timeline_structure\", \"operation\": \"retime.segments\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.5427, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 103, \"fingerprint\": \"ab2e0fefc3a1d0b07b09695e989164515a99db4f81401dc46829038b8db2866d\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 102}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 103, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"idempotency_key\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"retime.segments\", \"unique_id\": \"b8ad6873-f2b8-4cde-906f-50fab8dbd0b9\", \"segments\": [{\"record_frame\": 0, \"percent\": 50.0}]}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 103, \"hash\": \"ab2e0fefc3a1d0b07b09695e989164515a99db4f81401dc46829038b8db2866d\", \"source\": \"patch\", \"patch_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"recorded_at\": 1792542242.245551, \"verified_at\": 1792542242.245551, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"retime.segments\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:retime.segments\", \"operation\": \"retime.segments\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 103, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"retime.segments\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\", \"idempotency_key\": \"ren-c3853f0f6266ebf4703a860ec21ee769fba171fb85239b72aad1c6f637588c79\"}}}",
             "stderr": ""
           }
         ],
         "before": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -10088,7 +10100,7 @@
           "items": []
         },
         "after_setup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 168,
           "track_names": {
             "video": [
@@ -10103,7 +10115,7 @@
           },
           "items": [
             {
-              "unique_id": "938d0b51-33c2-4696-9f1f-ae85712f67b7",
+              "unique_id": "b8ad6873-f2b8-4cde-906f-50fab8dbd0b9",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -10157,7 +10169,7 @@
               "cdl": null
             },
             {
-              "unique_id": "27e0c330-9eb2-4f33-81bb-2ce2aacea0a3",
+              "unique_id": "eb40b233-f948-4dc3-a958-b78bd74f34d3",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -10221,20 +10233,24 @@
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
           },
           "targets": [
-            "938d0b51-33c2-4696-9f1f-ae85712f67b7"
+            "b8ad6873-f2b8-4cde-906f-50fab8dbd0b9"
           ],
           "missing_targets": []
         },
         "after": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 168,
           "track_names": {
             "video": [
@@ -10249,7 +10265,7 @@
           },
           "items": [
             {
-              "unique_id": "938d0b51-33c2-4696-9f1f-ae85712f67b7",
+              "unique_id": "b8ad6873-f2b8-4cde-906f-50fab8dbd0b9",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -10303,7 +10319,7 @@
               "cdl": null
             },
             {
-              "unique_id": "27e0c330-9eb2-4f33-81bb-2ce2aacea0a3",
+              "unique_id": "eb40b233-f948-4dc3-a958-b78bd74f34d3",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -10369,7 +10385,7 @@
             "--transforms"
           ],
           "exit_code": 0,
-          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 168\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2222\n  verified_at: 2026-10-20T18:28:26+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 168\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 103\n  verified_at: 2026-10-21T00:24:02+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
           "stderr": ""
         },
         "cleanup": {
@@ -10380,11 +10396,11 @@
         "removed_media": [
           "fm-qual-owned-overlay-a.png",
           "fm-qual-owned-overlay-b.png",
-          "fm-qual-owned-b.mp4",
-          "fm-qual-owned-a.mp4"
+          "fm-qual-owned-a.mp4",
+          "fm-qual-owned-b.mp4"
         ],
         "after_cleanup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -10400,7 +10416,7 @@
           "items": []
         },
         "collateral_changes": [],
-        "elapsed_seconds": 9.74450629200146
+        "elapsed_seconds": 3.3803593330085278
       }
     },
     {
@@ -10890,25 +10906,29 @@
         "refusals": []
       },
       "observed": {
-        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 96\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2225\n  verified_at: 2026-10-20T18:28:36+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,48,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,144,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 96\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 105\n  verified_at: 2026-10-21T00:24:07+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,48,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,144,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
         "qualification_state": {
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
           },
           "targets": [
-            "775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff"
+            "9ed62168-26d3-4c52-8a31-2a081069b30e"
           ],
           "missing_targets": []
         }
       },
-      "elapsed_seconds": 4.849588249999215,
+      "elapsed_seconds": 4.47397429200646,
       "case": {
         "id": "fusion_matte_placed",
         "setup_receipts": [
@@ -10935,7 +10955,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,48,0,48,775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,48,0,48,9ed62168-26d3-4c52-8a31-2a081069b30e\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           },
           {
@@ -10961,7 +10981,7 @@
               "fm-scratch qualify"
             ],
             "exit_code": 0,
-            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,144,0,48,a82b7453-f5b5-4d46-8ff3-841c65fe77ad\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,144,0,48,8ae9c873-059b-4b43-87f7-b06cd8336f40\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
             "stderr": ""
           }
         ],
@@ -10972,12 +10992,12 @@
               "place-matte"
             ],
             "exit_code": 0,
-            "stdout": "{\"patch_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 2224, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"14938f19-6cc9-4a45-a42c-85b2780bddaf\", \"generation\": 2225, \"hash\": \"c2b0f844be326d58bd9d7aa14c798b6232fa6a621d406400e32e5868c1e6d5a2\", \"source\": \"patch\", \"patch_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"recorded_at\": 1792520916.06278, \"verified_at\": 1792520916.06278, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"operations\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"field\": \"fusion.comp_count\", \"domain\": \"fusion\", \"before\": 0, \"after\": 1, \"authorized\": true}, {\"target\": \"clip:775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"field\": \"fusion.comp_names\", \"domain\": \"fusion\", \"before\": [], \"after\": [\"fm-qual-matte\"], \"authorized\": true}, {\"target\": \"clip:775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"field\": \"fusion.mattes\", \"domain\": \"fusion\", \"before\": null, \"after\": {\"fm-qual-matte\": {\"geometry\": {\"Center\": {\"X\": 0.5, \"Y\": 0.5}, \"Width\": 1.0, \"Height\": 1.0, \"Invert\": 0.0}, \"keyframes\": []}}, \"authorized\": true}, {\"target\": \"clip:775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"field\": \"fusion.media_windows\", \"domain\": \"fusion\", \"before\": [], \"after\": [{\"comp_index\": 1, \"window\": {\"MediaSource\": \"Timeline\", \"MediaID\": \"\", \"AudioTrack\": \"Timeline Audio\", \"GlobalIn\": 0.0, \"GlobalOut\": 95.0, \"ClipTimeStart\": 0.0, \"ClipTimeEnd\": 95.0}, \"uncovered_reason\": null, \"tools\": [\"MediaIn\", \"MediaOut\", \"Merge\", \"RectangleMask\"]}], \"authorized\": true}], \"expected\": [{\"target\": \"clip:775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"domain\": \"fusion\", \"operation\": \"mask.create\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 1.3447, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 2225, \"fingerprint\": \"c2b0f844be326d58bd9d7aa14c798b6232fa6a621d406400e32e5868c1e6d5a2\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 2224}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 2225, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"idempotency_key\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"14938f19-6cc9-4a45-a42c-85b2780bddaf\", \"generation\": 2225, \"hash\": \"c2b0f844be326d58bd9d7aa14c798b6232fa6a621d406400e32e5868c1e6d5a2\", \"source\": \"patch\", \"patch_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"recorded_at\": 1792520916.06278, \"verified_at\": 1792520916.06278, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 2225, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"mask.create\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\", \"idempotency_key\": \"ren-4ba311e7c39117928b78a42156514a7c4d1c5c419a4f14f02ba04b44daf9ebc3\"}}}",
+            "stdout": "{\"patch_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"status\": \"committed\", \"resolve_write_status\": \"committed\", \"base_generation\": 104, \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"requested_operation_count\": 1, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"9ed62168-26d3-4c52-8a31-2a081069b30e\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"readback\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 105, \"hash\": \"1a80f5b3b838071467edba60433f5ca4ee0da955c1e511e0a2b38d0824676e26\", \"source\": \"patch\", \"patch_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"recorded_at\": 1792542246.997735, \"verified_at\": 1792542246.997735, \"model_revision\": null, \"nle_binding_ids\": []}, \"backend\": \"edit_patch\", \"idempotency_key\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"operations\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}], \"preservation\": {\"status\": \"preserved\", \"changes\": [{\"target\": \"clip:9ed62168-26d3-4c52-8a31-2a081069b30e\", \"field\": \"fusion.comp_count\", \"domain\": \"fusion\", \"before\": 0, \"after\": 1, \"authorized\": true}, {\"target\": \"clip:9ed62168-26d3-4c52-8a31-2a081069b30e\", \"field\": \"fusion.comp_names\", \"domain\": \"fusion\", \"before\": [], \"after\": [\"fm-qual-matte\"], \"authorized\": true}, {\"target\": \"clip:9ed62168-26d3-4c52-8a31-2a081069b30e\", \"field\": \"fusion.mattes\", \"domain\": \"fusion\", \"before\": null, \"after\": {\"fm-qual-matte\": {\"geometry\": {\"Center\": {\"X\": 0.5, \"Y\": 0.5}, \"Width\": 1.0, \"Height\": 1.0, \"Invert\": 0.0}, \"keyframes\": []}}, \"authorized\": true}, {\"target\": \"clip:9ed62168-26d3-4c52-8a31-2a081069b30e\", \"field\": \"fusion.media_windows\", \"domain\": \"fusion\", \"before\": [], \"after\": [{\"comp_index\": 1, \"window\": {\"MediaSource\": \"Timeline\", \"MediaID\": \"\", \"AudioTrack\": \"Timeline Audio\", \"GlobalIn\": 0.0, \"GlobalOut\": 95.0, \"ClipTimeStart\": 0.0, \"ClipTimeEnd\": 95.0}, \"uncovered_reason\": null, \"tools\": [\"MediaIn\", \"MediaOut\", \"Merge\", \"RectangleMask\"]}], \"authorized\": true}], \"expected\": [{\"target\": \"clip:9ed62168-26d3-4c52-8a31-2a081069b30e\", \"domain\": \"fusion\", \"operation\": \"mask.create\", \"fields\": []}], \"expected_not_observed\": [], \"unrelated_changes\": [], \"unobservable_domains\": [], \"unprovable_reason\": \"\"}, \"preservation_requirements\": [], \"stopped\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"journal\": {\"intent_persisted\": true, \"errors\": []}, \"postcondition_failures\": [], \"exclusive_hold_seconds\": 0.7194, \"project_model_commit\": {\"status\": \"not_required\", \"revision\": null}, \"project_model_reconcile\": {\"status\": \"not_required\", \"revision\": null}, \"generation\": 105, \"fingerprint\": \"1a80f5b3b838071467edba60433f5ca4ee0da955c1e511e0a2b38d0824676e26\", \"recovery\": null, \"planned\": {\"status\": \"planned\", \"patch_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\"}, \"validated\": {\"status\": \"validated\", \"base_generation\": 104}, \"prepared\": {\"status\": \"prepared\", \"journal\": {\"intent_persisted\": true, \"errors\": []}}, \"executing\": {\"status\": \"completed\", \"stopped\": null}, \"applied\": {\"status\": \"applied\", \"operations\": 1, \"requested\": 1, \"complete\": true}, \"verified\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"committed\": {\"status\": \"committed\", \"generation\": 105, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promoted\": {\"status\": \"not_requested\"}, \"delivered\": {\"status\": \"not_requested\"}, \"lifecycle\": {\"stage\": \"COMMITTED\", \"ids\": {\"transaction_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"idempotency_key\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\"}, \"expected_state\": {\"operations\": [{\"op\": \"mask.create\", \"unique_id\": \"9ed62168-26d3-4c52-8a31-2a081069b30e\", \"matte\": \"fm-qual-matte\"}], \"postconditions\": []}, \"actual_state\": {\"project\": \"Ren Qualification\", \"timeline\": \"fm-scratch qualify\", \"timeline_id\": \"d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\", \"generation\": 105, \"hash\": \"1a80f5b3b838071467edba60433f5ca4ee0da955c1e511e0a2b38d0824676e26\", \"source\": \"patch\", \"patch_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"recorded_at\": 1792542246.997735, \"verified_at\": 1792542246.997735, \"model_revision\": null, \"nle_binding_ids\": []}, \"affected_changes\": [{\"index\": 0, \"op\": \"mask.create\", \"returned\": true, \"failure\": null}], \"unrelated_changes\": [], \"backend\": \"edit_patch\", \"route_selection\": null, \"verification\": {\"outcome\": {\"status\": \"verified\", \"acceptance_contracts_passed\": true}, \"acceptance_contracts\": [{\"id\": \"acceptance:mask.create\", \"operation\": \"mask.create\", \"checks\": [\"operation_readback_matches_request\", \"unrelated_items_unchanged\"], \"structural_source\": \"timeline_readback\", \"passed\": true, \"results\": [{\"check\": \"operation_readback_matches_request\", \"passed\": true, \"status\": \"passed\", \"evidence\": null}, {\"check\": \"unrelated_items_unchanged\", \"passed\": true, \"status\": \"passed\", \"evidence\": true}], \"missing\": [], \"failed\": []}]}, \"recovery\": null, \"recovery_result\": {\"status\": \"not_attempted\", \"reason\": \"transaction verified\"}, \"persistence\": {\"status\": \"committed\", \"generation\": 105, \"project_model\": {\"status\": \"not_required\", \"revision\": null}}, \"promotion\": null, \"delivery\": {\"status\": \"not_requested\"}, \"history\": [\"PLANNED\", \"VALIDATED\", \"PREPARED\", \"EXECUTING\", \"APPLIED\", \"VERIFIED\", \"COMMITTED\"]}, \"execution_contract\": {\"status\": \"committed\", \"backend\": \"edit_patch\", \"verification\": {\"status\": \"verified\", \"checks\": [{\"passed\": true, \"operation\": \"mask.create\", \"failures\": []}], \"missing\": [], \"evidence\": {\"acceptance_check_count\": 1, \"readback_present\": true}, \"layers\": {\"stored_state\": {\"status\": \"verified\", \"checks\": 1}, \"rendered_pixels\": {\"status\": \"not_measured\", \"evidence\": {}}, \"rendered_audio\": {\"status\": \"not_measured\", \"evidence\": {}}}}, \"recovery\": {\"status\": \"not_attempted\", \"action\": \"none\", \"reason\": \"transaction verified\", \"evidence\": {\"recovery_record_present\": true}}, \"limitations\": [], \"receipt\": {\"transaction_id\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\", \"idempotency_key\": \"ren-62ed08ad3256c54a3ff13b0a63570a99187d05ff3781cf4d4c2cb18a5d61c34e\"}}}",
             "stderr": ""
           }
         ],
         "before": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -10993,7 +11013,7 @@
           "items": []
         },
         "after_setup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 144,
           "track_names": {
             "video": [
@@ -11008,7 +11028,7 @@
           },
           "items": [
             {
-              "unique_id": "775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff",
+              "unique_id": "9ed62168-26d3-4c52-8a31-2a081069b30e",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -11062,7 +11082,7 @@
               "cdl": null
             },
             {
-              "unique_id": "a82b7453-f5b5-4d46-8ff3-841c65fe77ad",
+              "unique_id": "8ae9c873-059b-4b43-87f7-b06cd8336f40",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -11126,20 +11146,24 @@
           "inspected": true,
           "state": {
             "resolve_version": "21.1.0.14",
-            "project_name": "Ren Qualification",
-            "timeline_name": "fm-scratch qualify",
-            "media_type": "video + audio",
+            "media_type": "video",
             "clip_composition": "single_video_clip",
             "linked_audio_configuration": "no_linked_audio",
-            "timeline_structure": "multi_item_timeline"
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "light",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "retiming"
           },
           "targets": [
-            "775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff"
+            "9ed62168-26d3-4c52-8a31-2a081069b30e"
           ],
           "missing_targets": []
         },
         "after": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 144,
           "track_names": {
             "video": [
@@ -11154,7 +11178,7 @@
           },
           "items": [
             {
-              "unique_id": "775f37fa-f3c1-4d8a-aea7-d3a4ad4fe7ff",
+              "unique_id": "9ed62168-26d3-4c52-8a31-2a081069b30e",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -11210,7 +11234,7 @@
               "cdl": null
             },
             {
-              "unique_id": "a82b7453-f5b5-4d46-8ff3-841c65fe77ad",
+              "unique_id": "8ae9c873-059b-4b43-87f7-b06cd8336f40",
               "kind": "video",
               "track": 1,
               "track_name": "Video 1",
@@ -11276,7 +11300,7 @@
             "--transforms"
           ],
           "exit_code": 0,
-          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 96\n  project: Ren Qualification\n  timeline_id: 14938f19-6cc9-4a45-a42c-85b2780bddaf\n  generation: 2225\n  verified_at: 2026-10-20T18:28:36+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,48,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,144,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 2\n  placed_frames: 96\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 105\n  verified_at: 2026-10-21T00:24:07+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[2]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,48,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,144,48,0,48,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
           "stderr": ""
         },
         "cleanup": {
@@ -11285,13 +11309,13 @@
         },
         "removed_tracks": [],
         "removed_media": [
-          "fm-qual-owned-overlay-b.png",
           "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
           "fm-qual-owned-b.mp4",
           "fm-qual-owned-a.mp4"
         ],
         "after_cleanup": {
-          "timeline": "14938f19-6cc9-4a45-a42c-85b2780bddaf",
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
           "end_frame": 0,
           "track_names": {
             "video": [
@@ -11307,7 +11331,7 @@
           "items": []
         },
         "collateral_changes": [],
-        "elapsed_seconds": 4.849588249999215
+        "elapsed_seconds": 4.47397429200646
       }
     },
     {
@@ -11752,15 +11776,848 @@
         "collateral_changes": [],
         "elapsed_seconds": 2.077301042008912
       }
+    },
+    {
+      "id": "delete_linked_effects",
+      "axi_item": "AXI-011",
+      "intent": "Delete a linked A/V clip with existing transforms and retiming",
+      "operation": "clip.delete",
+      "backend": "resolve_axi",
+      "production_entry": "resolve-axi edit delete",
+      "expectation": "commit",
+      "checks": {
+        "video_target_absent": false,
+        "linked_audio_preserved": true,
+        "other_items_untouched": true
+      },
+      "status": "fail",
+      "first_attempt": true,
+      "collateral_changes": [],
+      "receipt": {
+        "status": "refused",
+        "refusals": [
+          [
+            "edit",
+            "delete",
+            "--track",
+            "video1",
+            "--index",
+            "0",
+            "--apply",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify"
+          ]
+        ]
+      },
+      "observed": {
+        "items_readback": "items:\n  timeline: fm-scratch qualify\n  clips: 5\n  placed_frames: 384\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 101\n  verified_at: 2026-10-21T00:23:59+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[5]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,95,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,qual_c.mp4,0,48,48,0,47,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4,0.0,0.0,1.0,1.0,100.0\n  audio1,qual_a.mp4,0,96,96,0,95,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,,,,,\n  audio1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "068b5cdf-9d4b-4580-9093-dfa82fd31d9f"
+          ],
+          "missing_targets": []
+        }
+      },
+      "elapsed_seconds": 4.510813707995112,
+      "case": {
+        "id": "delete_linked_effects",
+        "setup_receipts": [
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "qual_a.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "95",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_a.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_a.mp4,0,96,0,95,068b5cdf-9d4b-4580-9093-dfa82fd31d9f\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "qual_b.mp4",
+              "--media",
+              "both",
+              "--track",
+              "1",
+              "--record",
+              "96",
+              "--source-in",
+              "0",
+              "--source-out",
+              "71",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_b.mp4\n  items_delta: 2\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_b.mp4,96,168,0,71,fba66186-6902-4cbd-9e43-c7608c56f5f2\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": [
+              "edit",
+              "place",
+              "--clip",
+              "qual_c.mp4",
+              "--media",
+              "video",
+              "--track",
+              "2",
+              "--record",
+              "0",
+              "--source-in",
+              "0",
+              "--source-out",
+              "47",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 0,
+            "stdout": "placed:\n  timeline: fm-scratch qualify\n  clip: qual_c.mp4\n  items_delta: 1\n  verified: yes (item count moved, no retry - a retry would place it twice)\nnew[1]{name,record_in,record_out,source_in,source_out,uid}:\n  qual_c.mp4,0,48,0,47,653578b0-d134-4fe4-93d6-ff0ca3e52ed0\njournal:\n  entry: not-journaled\n  why: no --project-folder: acted, not undone - `ren undo` cannot reverse it. Re-run with --project-folder <pipeline project> to journal it.\nhelp[1]:\n  Run `resolve-axi items --timeline \"fm-scratch qualify\"`\n",
+            "stderr": ""
+          },
+          {
+            "argv": {
+              "kind": "patch",
+              "operations": [
+                {
+                  "op": "clip.set_property",
+                  "unique_id": "$qual_a.mp4@video",
+                  "key": "Pan",
+                  "value": 24.0
+                }
+              ],
+              "conflict_domains": [
+                "picture_transform"
+              ],
+              "label": "delete-target-transform",
+              "capability": "reel.touchup"
+            },
+            "exit_code": 2,
+            "stdout": "",
+            "stderr": "error: argument command: invalid choice: 'kind' (choose from capabilities, operation-map, timeline, edit, edit-request, ingest, relink, render, markers, fusion, items, target, captions, cursor, frames, api, intellisearch-collect, luts, launch, project, ownership, audio, multicam, color, sense, pool, renders, run, workflow, setup, update)\nhelp: resolve-axi --help lists the valid flags\n"
+          }
+        ],
+        "commands": [
+          {
+            "argv": [
+              "edit",
+              "delete",
+              "--track",
+              "video1",
+              "--index",
+              "0",
+              "--apply",
+              "--project",
+              "Ren Qualification",
+              "--timeline",
+              "fm-scratch qualify"
+            ],
+            "exit_code": 1,
+            "stdout": "error: EditPatch refused or failed the delete (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runtime state does not satisfy recorded qualification predicates: timeline_density is 'moderate', not 'light')\n  fix: Qualify the operation on a live Resolve timeline and import the evidence, or route it under the protected experimental policy with explicit staging, preservation and verification guarantees.).\nhelp: resolve-axi items --timeline \"fm-scratch qualify\"\n",
+            "stderr": ""
+          }
+        ],
+        "before": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "after_setup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 168,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "068b5cdf-9d4b-4580-9093-dfa82fd31d9f",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "qual_a.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "12bc0f11-4d27-4c91-a145-b3c1afdf7165"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "fba66186-6902-4cbd-9e43-c7608c56f5f2",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "qual_b.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "a73a0896-a2e0-4636-bcd6-f3f7921123d2"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "653578b0-d134-4fe4-93d6-ff0ca3e52ed0",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "qual_c.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "12bc0f11-4d27-4c91-a145-b3c1afdf7165",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "qual_a.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "068b5cdf-9d4b-4580-9093-dfa82fd31d9f"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "a73a0896-a2e0-4636-bcd6-f3f7921123d2",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "qual_b.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "fba66186-6902-4cbd-9e43-c7608c56f5f2"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ],
+          "carried_cleanup": {
+            "clean": true,
+            "collateral_changes": []
+          },
+          "setup_refusals": [
+            {
+              "argv": {
+                "kind": "patch",
+                "operations": [
+                  {
+                    "op": "clip.set_property",
+                    "unique_id": "$qual_a.mp4@video",
+                    "key": "Pan",
+                    "value": 24.0
+                  }
+                ],
+                "conflict_domains": [
+                  "picture_transform"
+                ],
+                "label": "delete-target-transform",
+                "capability": "reel.touchup"
+              },
+              "stdout": "",
+              "stderr": "error: argument command: invalid choice: 'kind' (choose from capabilities, operation-map, timeline, edit, edit-request, ingest, relink, render, markers, fusion, items, target, captions, cursor, frames, api, intellisearch-collect, luts, launch, project, ownership, audio, multicam, color, sense, pool, renders, run, workflow, setup, update)\nhelp: resolve-axi --help lists the valid flags\n"
+            }
+          ]
+        },
+        "qualification_state": {
+          "inspected": true,
+          "state": {
+            "resolve_version": "21.1.0.14",
+            "media_type": "video",
+            "clip_composition": "linked_video_clip",
+            "linked_audio_configuration": "linked_audio_present",
+            "track_layout": "video+audio",
+            "track_occupancy": "mixed",
+            "timeline_density": "moderate",
+            "timeline_structure": "multi_item_timeline",
+            "project_settings": "landscape_1920x1080",
+            "frame_rate": "24",
+            "existing_effects": "none"
+          },
+          "targets": [
+            "068b5cdf-9d4b-4580-9093-dfa82fd31d9f"
+          ],
+          "missing_targets": []
+        },
+        "after": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 168,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": [
+            {
+              "unique_id": "068b5cdf-9d4b-4580-9093-dfa82fd31d9f",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "qual_a.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "12bc0f11-4d27-4c91-a145-b3c1afdf7165"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "fba66186-6902-4cbd-9e43-c7608c56f5f2",
+              "kind": "video",
+              "track": 1,
+              "track_name": "Video 1",
+              "name": "qual_b.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "a73a0896-a2e0-4636-bcd6-f3f7921123d2"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "653578b0-d134-4fe4-93d6-ff0ca3e52ed0",
+              "kind": "video",
+              "track": 2,
+              "track_name": "V2",
+              "name": "qual_c.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 47,
+              "record_in": 0,
+              "record_out": 48,
+              "transform": {
+                "Pan": 0.0,
+                "Tilt": 0.0,
+                "ZoomX": 1.0,
+                "ZoomY": 1.0,
+                "ZoomGang": true,
+                "RotationAngle": 0.0,
+                "AnchorPointX": 0.0,
+                "AnchorPointY": 0.0,
+                "Pitch": 0.0,
+                "Yaw": 0.0,
+                "FlipX": false,
+                "FlipY": false,
+                "CropLeft": 0.0,
+                "CropRight": 0.0,
+                "CropTop": 0.0,
+                "CropBottom": 0.0,
+                "CropSoftness": 0.0,
+                "CropRetain": false,
+                "DynamicZoomEase": 0,
+                "CompositeMode": 0,
+                "Opacity": 100.0,
+                "Distortion": 0.0,
+                "RetimeProcess": 0,
+                "MotionEstimation": 0,
+                "Scaling": 0,
+                "ResizeFilter": 0,
+                "TransformEnabled": true,
+                "CroppingEnabled": true,
+                "DynamicZoomEnabled": false,
+                "CompositeEnabled": true,
+                "LensCorrectionEnabled": true,
+                "RetimeAndScalingEnabled": true
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [],
+              "speed": {
+                "Percentage": 100.0
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "12bc0f11-4d27-4c91-a145-b3c1afdf7165",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "qual_a.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 95,
+              "record_in": 0,
+              "record_out": 96,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "068b5cdf-9d4b-4580-9093-dfa82fd31d9f"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            },
+            {
+              "unique_id": "a73a0896-a2e0-4636-bcd6-f3f7921123d2",
+              "kind": "audio",
+              "track": 1,
+              "track_name": "Audio 1",
+              "name": "qual_b.mp4",
+              "source_path": "/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4",
+              "media_type": "Video + Audio",
+              "source_in": 0,
+              "source_out": 71,
+              "record_in": 96,
+              "record_out": 168,
+              "transform": {
+                "AudioVolumeEnabled": true,
+                "AudioVolume": 0.0,
+                "AudioPanEnabled": true,
+                "AudioPan": 0.0,
+                "AudioPitchEnabled": true,
+                "AudioPitchSemiTones": 0,
+                "AudioPitchCents": 0,
+                "AudioVoiceIsolationEnabled": false,
+                "AudioVoiceIsolationAmount": 0,
+                "AudioDialogueLevelerEnabled": false,
+                "AudioDialogueLevelerMode": 0,
+                "AudioDialogueLevelerReduceLoudDialogue": false,
+                "AudioDialogueLevelerLiftSoftDialogue": false,
+                "AudioDialogueLevelerBackgroundReduction": false,
+                "AudioDialogueLevelerOutputGain": 0.0
+              },
+              "enabled": true,
+              "fusion_comps": [],
+              "linked_unique_ids": [
+                "fba66186-6902-4cbd-9e43-c7608c56f5f2"
+              ],
+              "speed": {
+                "Percentage": 100.0,
+                "PitchCorrection": true
+              },
+              "cdl": null
+            }
+          ]
+        },
+        "items_readback": {
+          "argv": [
+            "items",
+            "--project",
+            "Ren Qualification",
+            "--timeline",
+            "fm-scratch qualify",
+            "--refresh-live",
+            "--transforms"
+          ],
+          "exit_code": 0,
+          "stdout": "items:\n  timeline: fm-scratch qualify\n  clips: 5\n  placed_frames: 384\n  project: Ren Qualification\n  timeline_id: d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648\n  generation: 101\n  verified_at: 2026-10-21T00:23:59+00:00\n  source: live refresh\n  freshness: captured during this read\nclips[5]{track,name,record_in,record_out,duration,source_in,source_out,source_file,pan,tilt,zoomx,zoomy,opacity}:\n  video1,qual_a.mp4,0,96,96,0,95,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,0.0,0.0,1.0,1.0,100.0\n  video1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,0.0,0.0,1.0,1.0,100.0\n  video2,qual_c.mp4,0,48,48,0,47,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_c.mp4,0.0,0.0,1.0,1.0,100.0\n  audio1,qual_a.mp4,0,96,96,0,95,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_a.mp4,,,,,\n  audio1,qual_b.mp4,96,168,72,0,71,/Users/prajwal/.local/share/vep/qualification/622307e41719/qual_b.mp4,,,,,\nsource_out is inclusive (GetSourceEndFrame); record_out is exclusive - the mix-up that cost a frame is visible here\nhelp[1]:\n  Run `resolve-axi frames --timeline \"fm-scratch qualify\"`\n",
+          "stderr": ""
+        },
+        "cleanup": {
+          "clean": true,
+          "collateral_changes": []
+        },
+        "removed_tracks": [],
+        "removed_media": [
+          "fm-qual-owned-overlay-a.png",
+          "fm-qual-owned-overlay-b.png",
+          "fm-qual-owned-a.mp4",
+          "fm-qual-owned-b.mp4"
+        ],
+        "after_cleanup": {
+          "timeline": "d1e01bf0-2b3a-4d66-b7ff-3ff66a8b3648",
+          "end_frame": 0,
+          "track_names": {
+            "video": [
+              "Video 1",
+              "V2",
+              "V3"
+            ],
+            "audio": [
+              "Audio 1"
+            ],
+            "subtitle": []
+          },
+          "items": []
+        },
+        "collateral_changes": [],
+        "elapsed_seconds": 4.510813707995112
+      }
     }
   ],
-  "registry_results": [],
-  "promotion_gaps": [
+  "registry_results": [
     {
+      "path": "tests/live/reports/registry/clip.delete__resolve_axi.json",
       "operation_id": "clip.delete",
       "backend": "resolve_axi",
-      "scenario": "remove_leaves_gap",
-      "reason": "the run did not measure qualification dimensions: project_settings, timeline_density, existing_effects, frame_rate, track_occupancy, track_layout"
+      "existing_row_left_in_place": false,
+      "replaced_legacy_report": true
+    },
+    {
+      "path": "tests/live/reports/registry/retime.segments__edit_patch.json",
+      "operation_id": "retime.segments",
+      "backend": "edit_patch",
+      "existing_row_left_in_place": false,
+      "replaced_legacy_report": true
+    },
+    {
+      "path": "tests/live/reports/registry/mask.create__edit_patch.json",
+      "operation_id": "mask.create",
+      "backend": "edit_patch",
+      "existing_row_left_in_place": false,
+      "replaced_legacy_report": true
     }
-  ]
+  ],
+  "promotion_gaps": []
 }

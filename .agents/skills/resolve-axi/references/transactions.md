@@ -40,7 +40,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `hold.repair_window` | implemented_unqualified | `unique_id` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.add` | implemented_unqualified | `frame`, `color`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `marker.delete` | implemented_unqualified | `frame` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `mask.create` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_create |
+| `mask.create` | implemented_qualified | `unique_id`, `matte` | yes | yes | yes | yes | post-write snapshot checked by _verify_mask_create |
 | `mask.delete` | implemented_unqualified | `unique_id`, `matte` | yes | yes | no | no | post-write snapshot checked by _verify_mask_delete |
 | `mask.edit` | implemented_unqualified | `unique_id`, `matte`, `geometry` | yes | yes | no | no | post-write snapshot checked by _verify_mask_edit |
 | `mask.track` | implemented_unqualified | `unique_id`, `matte`, `track` | yes | yes | no | no | post-write snapshot checked by _verify_mask_track |
@@ -55,7 +55,7 @@ Before a write, use AXI's available typed operation path and its dry-run/guarded
 | `picture.keyframe` | implemented_unqualified | `unique_id`, `param`, `keyframes` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
 | `reel.opening` | implemented_unqualified | `unique_id`, `brief`, `edits` | yes | yes | no | no | post-write snapshot checked by _verify_reel_opening |
 | `retime` | implemented_unqualified | `unique_id`, `percent` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
-| `retime.segments` | implemented_unqualified | `unique_id`, `segments` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |
+| `retime.segments` | implemented_qualified | `unique_id`, `segments` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.add` | implemented_qualified | `track_type`, `name` | yes | yes | yes | yes | post-write snapshot checked by the operation-specific algebra verifier |
 | `track.delete` | implemented_unqualified | `track_type`, `track_index` | yes | yes | no | no | post-write snapshot checked by verify |
 | `track.rename` | implemented_unqualified | `track_type`, `track_index`, `name` | yes | yes | no | no | post-write snapshot checked by the operation-specific algebra verifier |

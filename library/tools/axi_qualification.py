@@ -586,11 +586,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--registry", type=Path, default=REGISTRY_PATH)
     parser.add_argument("--audit", action="store_true",
                         help="report every registered row and whether its "
-                             "boundary is explicit")
+                             "boundary is explicit; exits non-zero when a "
+                             "row claims a qualification it cannot keep")
     args = parser.parse_args(argv)
     if args.audit:
-        print(json.dumps(audit(args.registry), indent=2, sort_keys=True))
-        return 0
+        report = audit(args.registry)
+        print(json.dumps(report, indent=2, sort_keys=True))
+        # The audit is a GATE: it exits non-zero when a row that claims a
+        # qualification cannot keep it. A row whose evidence failed is
+        # not that - it qualified nothing in the first place.
+        return 1 if report["ineligible"] else 0
     if args.import_result is None:
         parser.error("--import-result is required unless --audit is given")
     op_id, backend = import_result(args.import_result, args.registry)

@@ -19,6 +19,8 @@ defect in the harness is named before it costs a live run:
 
 from __future__ import annotations
 
+import json
+
 from library.tools import axi_qualification, edit_algebra
 from tests.live import axi_primitive_qualification as qual
 
@@ -192,6 +194,41 @@ def test_the_predicates_widen_over_the_states_they_were_measured_in():
     assert by_field["clip_composition"]["value"] == [
         "single_video_clip", "linked_video_clip"]
     assert by_field["resolve_version"]["operator"] == "equals"
+
+
+def test_a_legacy_committed_report_is_replaced_by_the_current_evidence(
+        tmp_path, monkeypatch):
+    """A report the importer refuses cannot be the evidence of a row.
+
+    The legacy schema carries no environment, no semantic boundary and
+    no coverage, so the importer refuses it outright - a row promoted
+    from one has an evidence document nobody can read back. The fresh
+    evidence REPLACES it at the canonical path, and the beside-file for
+    the same pair is refreshed with it rather than left stale.
+    """
+    monkeypatch.setattr(qual, "REGISTRY_DIR", tmp_path / "registry")
+    legacy = tmp_path / "registry" / "clip.trim__resolve_axi.json"
+    beside = tmp_path / "registry" / "clip.trim__resolve_axi__axi-primitive.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(json.dumps({
+        "schema": axi_qualification.LEGACY_REPORT_SCHEMA,
+        "operation_id": "clip.trim", "backend": "resolve_axi",
+        "result": "passed"}), encoding="utf-8")
+    beside.write_text(json.dumps({
+        "schema": axi_qualification.LEGACY_REPORT_SCHEMA,
+        "operation_id": "clip.trim", "backend": "resolve_axi",
+        "result": "passed"}), encoding="utf-8")
+    report = {"results": [_passed_row("trim_narrows_source_range",
+                                      {"source_range_narrowed": True})]}
+
+    written, _gaps = qual._write_registry_results(report)
+
+    assert written[0]["replaced_legacy_report"] is True
+    assert written[0]["existing_row_left_in_place"] is False
+    assert json.loads(legacy.read_text(encoding="utf-8"))["schema"] == \
+        axi_qualification.REPORT_SCHEMA
+    assert json.loads(beside.read_text(encoding="utf-8"))["schema"] == \
+        axi_qualification.REPORT_SCHEMA
 
 
 def test_both_resolve_source_endpoint_forms_read_as_the_same_range():

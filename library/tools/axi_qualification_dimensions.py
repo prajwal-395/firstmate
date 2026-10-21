@@ -434,17 +434,35 @@ def _effects_of(row: Mapping) -> set[str]:
     return found
 
 
+#: The IDENTITY of each transform parameter. A clip whose transform is
+#: exactly these values carries NO transform: Resolve reports a zoom of
+#: 1.0 and a pan of 0.0 on every item it places, so reading "is the pan
+#: non-zero" as "does the clip carry a transform" reported the IDENTITY
+#: as a measurement - every freshly placed clip read as carrying
+#: transforms, and a qualification predicate written from that reading
+#: claimed the evidence was earned on a transformed clip when it was
+#: earned on an untouched one (measured 2026-10-20 on the AXI-011 delete
+#: scenarios: a clip with an identity zoom was refused because its
+#: recorded predicate said `existing_effects is 'transforms', not
+#: 'none'`).
+TRANSFORM_IDENTITIES: dict[str, float] = {
+    "Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0, "ZoomY": 1.0,
+}
+
+
 def _has_transform(row: Mapping) -> bool:
     """Whether the item carries a transform that is not the identity."""
     transform = row.get("transform")
     if not isinstance(transform, Mapping) or not transform:
         return False
-    for key in ("Pan", "Tilt", "ZoomX", "ZoomY"):
+    for key, identity in TRANSFORM_IDENTITIES.items():
+        if key not in transform:
+            continue
         try:
-            value = float(transform.get(key, 0) or 0)
+            value = float(transform[key])
         except (TypeError, ValueError):
             continue
-        if abs(value) > 1e-6:
+        if abs(value - identity) > 1e-6:
             return True
     return False
 

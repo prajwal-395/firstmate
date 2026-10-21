@@ -2023,26 +2023,58 @@ def _registry_rows(report: dict) -> tuple[list[tuple[tuple[str, str], dict]],
     return rows, gaps
 
 
+def _is_legacy_report(path: Path) -> bool:
+    """Whether a committed report predates the explicit boundary format.
+
+    A legacy report carries no environment, no semantic boundary and no
+    coverage, so the importer REFUSES it (`library/tools/axi_qualification.py`
+    refuses the v1 schema outright) - it can never qualify anything, and
+    a registry row promoted from one is a row whose committed evidence
+    cannot be read back.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return payload.get("schema") == axi_qualification.LEGACY_REPORT_SCHEMA
+
+
 def _write_registry_results(report: dict) -> tuple[list[dict], list[dict]]:
     """Write one registry-shaped result per earned pair.
 
     An existing row is NEVER overwritten: the new evidence is written
     beside it and the report names both, so a promotion stays a
     deliberate act on a file the operator chose.
+
+    The ONE exception is a committed report in the LEGACY schema. It
+    cannot be imported at all - the importer refuses it - so it is not a
+    promotion anybody could make, and the fresh evidence REPLACES it at
+    the canonical path. The canonical path is the row's committed
+    evidence: the contract reads it back and requires it to re-import to
+    the row the registry holds, so leaving a stale legacy document there
+    would keep a row that claims a qualification nothing can satisfy.
     """
     rows, gaps = _registry_rows(report)
     written = []
     REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
     for (operation, backend), result in rows:
-        path = REGISTRY_DIR / f"{operation}__{backend}.json"
-        replaced = path.exists()
-        if replaced:
-            path = REGISTRY_DIR / f"{operation}__{backend}__axi-primitive.json"
-        path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n",
-                        encoding="utf-8")
+        canonical = REGISTRY_DIR / f"{operation}__{backend}.json"
+        beside = REGISTRY_DIR / f"{operation}__{backend}__axi-primitive.json"
+        legacy = canonical.exists() and _is_legacy_report(canonical)
+        path = canonical if legacy else beside
+        document = json.dumps(result, indent=2, sort_keys=True) + "\n"
+        path.write_text(document, encoding="utf-8")
+        # A legacy document BESIDE the canonical one is stale evidence of
+        # the same pair, and the importer refuses it as firmly as it
+        # refuses the canonical one - so it is refreshed with the same
+        # current evidence rather than left claiming a boundary the
+        # current format cannot express.
+        if legacy and beside.exists() and _is_legacy_report(beside):
+            beside.write_text(document, encoding="utf-8")
         written.append({"path": _reported_path(path),
                         "operation_id": operation, "backend": backend,
-                        "existing_row_left_in_place": replaced})
+                        "existing_row_left_in_place": not legacy,
+                        "replaced_legacy_report": legacy})
     return written, gaps
 
 

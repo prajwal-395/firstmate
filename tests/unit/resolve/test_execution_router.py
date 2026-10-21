@@ -272,7 +272,12 @@ def test_protected_experimental_route_requires_all_guarantees():
         "verify_after_write": True,
     })
     assert decision.backend == "edit_patch"
-    assert decision.qualification_gaps == (("clip.delete", ("edit_patch",), ()),)
+    # clip.delete is qualified on BOTH writers: the EditPatch executor
+    # and the semantic AXI adapter. The qualified list is the registry's
+    # truth, so it says both - and the production list stays empty,
+    # because the runtime state was not inspected here.
+    assert decision.qualification_gaps == (
+        ("clip.delete", ("edit_patch", "resolve_axi"), ()),)
     assert any("protected experimental policy" in reason
                for reason in decision.reasons)
 

@@ -183,6 +183,27 @@ def test_the_frame_rate_is_named_the_way_the_dimension_names_it(
     assert dimensions.frame_rate(reported) == expected
 
 
+def test_an_identity_transform_is_not_a_transform_the_item_carries():
+    """Resolve reports the identity on every item it places.
+
+    A zoom of 1.0 and a pan of 0.0 are the IDENTITY, not a treatment:
+    reading "is the pan non-zero" as "does the clip carry a transform"
+    reported the identity as a measurement, so every freshly placed clip
+    read as carrying transforms - and a qualification predicate written
+    from that reading claimed the evidence was earned on a transformed
+    clip when it was earned on an untouched one.
+    """
+    assert dimensions.existing_effects(
+        [_clip(transform={"Pan": 0.0, "Tilt": 0.0,
+                          "ZoomX": 1.0, "ZoomY": 1.0})]) == "none"
+    assert dimensions.existing_effects(
+        [_clip(transform={"Pan": 24.0, "Tilt": 0.0,
+                          "ZoomX": 1.0, "ZoomY": 1.0})]) == "transforms"
+    assert dimensions.existing_effects(
+        [_clip(transform={"Pan": 0.0, "Tilt": 0.0,
+                          "ZoomX": 2.0, "ZoomY": 1.0})]) == "transforms"
+
+
 def test_the_existing_effects_are_what_the_item_already_carries():
     """AXI-028: the states where an edit can destroy work."""
     assert dimensions.existing_effects([_clip()]) == "none"

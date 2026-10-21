@@ -175,19 +175,49 @@ def test_a_one_of_version_predicate_imports_in_the_same_reading():
         "21.1.0.14", "21.1.0.15"]
 
 
+def _committed_evidence_reports() -> dict:
+    """Every committed evidence report, indexed by the pair it qualifies.
+
+    A report is EVIDENCE when the importer accepts it: it states its
+    environment, its semantic boundary, its coverage and its
+    predicates. A report the importer refuses is a document, not
+    evidence.
+    """
+    directory = Path(__file__).resolve().parents[1] / "live" / "reports"
+    reports: dict = {}
+    for path in sorted(directory.glob("**/*.json")):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        try:
+            pair, record = axi_qualification.parse_result(payload)
+        except axi_qualification.QualificationReportError:
+            continue
+        reports.setdefault(pair, []).append((path, record))
+    return reports
+
+
 def test_every_promoted_row_is_derived_from_a_committed_evidence_report():
     """The registry stores observations; the reports are the observations.
 
     A promoted row whose evidence report is not in the repository is a
     promotion nobody can read back: the registry says a record exists
     and the report it came from is somewhere else. Every production
-    enabled row must re-import from its committed report to the record
+    enabled row must re-import from a committed report to the record
     the registry holds - so the registry cannot drift from the evidence.
+
+    The report that backs a row is not always the one in the registry
+    directory: the product-format lane commits its own evidence beside
+    its own reports, and a promotion names the evidence it was imported
+    from. So the search is over every committed evidence report, and
+    the test says WHICH report backs each row - a mapping a reader can
+    check, not a count.
     """
-    directory = (Path(__file__).resolve().parents[1] / "live" / "reports"
-                 / "registry")
-    reports = {path.stem: path for path in directory.glob("*.json")}
-    assert reports, "the registry holds no evidence report"
+    reports = _committed_evidence_reports()
+    assert reports, "the repository holds no committed evidence report"
 
     registry = json.loads(
         (Path(__file__).resolve().parents[2] / "library" / "tools"
@@ -200,21 +230,18 @@ def test_every_promoted_row_is_derived_from_a_committed_evidence_report():
     }
     assert promoted, "the registry promotes nothing"
 
+    backing = {}
     for key in sorted(promoted):
         op_id, backend = key.split("::", 1)
-        stem = f"{op_id}__{backend}"
-        assert stem in reports, (
+        matches = [path for path, record
+                   in reports.get((op_id, backend), [])
+                   if record == stored[key]]
+        assert matches, (
             f"{op_id} on {backend} is promoted with no committed evidence "
-            f"report named {stem}.json under {directory}")
-        report_path = reports[stem]
-        parsed = json.loads(report_path.read_text(encoding="utf-8"))
-        assert parsed["operation_id"] == op_id
-        assert parsed["backend"] == backend
-        assert parsed["result"] == "passed"
-        _pair, record = axi_qualification.parse_result(parsed)
-        assert record == stored[key], (
-            f"{op_id} on {backend}: the committed report and the registry "
-            f"row disagree")
+            f"report that re-imports to the row the registry holds")
+        backing[key] = str(matches[0].relative_to(
+            Path(__file__).resolve().parents[1]))
+    assert backing, "no promoted row is backed by a committed report"
 
 
 def test_registered_dispatch_refuses_a_backend_other_than_the_router_choice():
@@ -340,10 +367,78 @@ def test_every_registered_record_names_only_measurable_predicates():
     """The shipped registry is held to the same vocabulary as a new report.
 
     A record whose predicate names a state the measurement cannot
-    produce reads as qualified and can never be routed.
+    produce reads as qualified and can never be routed. The audit is the
+    GATE: a row whose evidence passed has to keep the qualification it
+    claims. A row whose evidence FAILED is reported under `failed` - it
+    qualifies nothing, and it is not a broken boundary.
     """
     audit = axi_qualification.audit()
 
     assert audit["ineligible"] == 0, audit["rows"]
     for row in audit["rows"]:
         assert row["production_eligible"], row
+
+
+def _registry_with(record: dict, tmp_path) -> Path:
+    """A one-row registry, for the audit to read."""
+    path = tmp_path / "registry.json"
+    path.write_text(json.dumps(
+        {"schema": axi_qualification.REGISTRY_SCHEMA,
+         "records": {"clip.delete::resolve_axi": record},
+         "compound_records": {}}), encoding="utf-8")
+    return path
+
+
+def test_a_row_whose_evidence_failed_is_not_qualified_and_not_ineligible(
+        tmp_path):
+    """A failed attempt is an honest outcome, not a broken boundary.
+
+    The two are different facts: a row whose evidence did not pass
+    qualifies nothing and says so, while a row whose evidence PASSED
+    and whose boundary is broken claims a qualification it cannot keep.
+    Counting them as one would refuse the registry for the row that had
+    already refused itself, and would hide the rows that need fixing.
+    """
+    path = _registry_with(
+        {"result": "failed",
+         "evidence": "a run that did not pass"}, tmp_path)
+
+    audit = axi_qualification.audit(path)
+
+    assert audit["rows"] == []
+    assert len(audit["failed"]) == 1
+    assert audit["failed"][0]["key"] == "clip.delete::resolve_axi"
+    assert audit["ineligible"] == 0
+    assert audit["eligible"] == 0
+
+
+def test_the_audit_names_a_row_whose_predicate_names_a_place(tmp_path):
+    """A predicate that names a project is a pointer to the test."""
+    record = _passed_report("clip.delete", "resolve_axi")
+    record["qualification_predicates"] = [
+        {"field": "project_name", "operator": "equals",
+         "value": "Ren Qualification"}]
+    path = _registry_with(record, tmp_path)
+
+    audit = axi_qualification.audit(path)
+
+    assert audit["ineligible"] == 1
+    assert any("identity" in problem
+               for problem in audit["rows"][0]["problems"])
+
+
+def test_the_audit_is_a_gate_that_can_fail(tmp_path):
+    """`--audit` exits non-zero when a row cannot keep its qualification.
+
+    A gate that cannot fail is not a gate: the command a reader runs to
+    ask "is the registry honest?" has to answer with the exit code as
+    well as the printout.
+    """
+    record = _passed_report("clip.delete", "resolve_axi")
+    record["qualification_predicates"] = [
+        {"field": "timeline_name", "operator": "equals",
+         "value": "fm-scratch qualify"}]
+    path = _registry_with(record, tmp_path)
+
+    assert axi_qualification.main(["--audit", "--registry", str(path)]) == 1
+    assert axi_qualification.main(["--audit"]) == 0
