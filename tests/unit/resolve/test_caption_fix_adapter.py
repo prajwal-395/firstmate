@@ -20,25 +20,52 @@ import pytest
 from library.tools import edit_execution_adapters as adapters
 
 
-def _card_props(text="the wrong number"):
-    """One rendered caption card's render props."""
+def _cue(text="the wrong number"):
+    """One caption cue, with the word windows it was measured with."""
     return {
-        "subtitles": [{
-            "text": text,
-            "startFrame": 0,
-            "endFrame": 48,
-            "emphasisWords": ["number"],
-            "words": [{"word": "the", "startFrame": 0, "endFrame": 8},
-                      {"word": "wrong", "startFrame": 8, "endFrame": 24},
-                      {"word": "number", "startFrame": 24, "endFrame": 48}],
-            "fitScale": 1.0,
-        }],
+        "text": text,
+        "startFrame": 0,
+        "endFrame": 48,
+        "emphasisWords": ["number"],
+        "words": [{"word": "the", "startFrame": 0, "endFrame": 8},
+                  {"word": "wrong", "startFrame": 8, "endFrame": 24},
+                  {"word": "number", "startFrame": 24, "endFrame": 48}],
+        "fitScale": 1.0,
+    }
+
+
+def _project_style(project_folder, speaker="Akshita"):
+    """The style the render entry expects for this project."""
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    return resolve_subtitle_style({}, {}, str(project_folder),
+                                  speaker=speaker, reel_name=None)
+
+
+def _card_props(project_folder, text="the wrong number",
+                speaker="Akshita"):
+    """One rendered caption card's render props - a TIGHT card.
+
+    A real reel's captions are tight: the renderer draws the card
+    natively at the tight canvas and writes the tight props beside it,
+    so this is what a caption fix reads off a built reel.
+    """
+    from library.tools.tight_box import constant_caption_box
+
+    full = {
+        "subtitles": [_cue(text)],
         "fps": 30,
         "width": 1080,
         "height": 1920,
         "durationInFrames": 60,
-        "style": {"fontSize": 64, "captionMaxWidth": 900},
+        "style": dict(_project_style(project_folder)),
+        "_speaker": speaker,
     }
+    box = constant_caption_box(full)
+    tight = dict(box.props)
+    tight["subtitles"] = full["subtitles"]
+    tight["_speaker"] = full["_speaker"]
+    return tight
 
 
 def _clip(source_file, unique_id="card-1"):
@@ -70,12 +97,27 @@ def _context(operation, snapshot):
 
 
 @pytest.fixture
-def card(tmp_path):
+def project_dir(tmp_path):
+    """A project that declares the delivery frame and the tight look."""
+    (tmp_path / "project.yaml").write_text(
+        "project_name: caption-fix-adapter\n"
+        "pipeline:\n"
+        "  delivery_format: vertical_1080x1920\n"
+        "  subtitle_typography:\n"
+        "    font: Montserrat\n"
+        "    size: 51\n"
+        "  subtitle_overlay_geometry: tight\n",
+        encoding="utf-8")
+    return tmp_path
+
+
+@pytest.fixture
+def card(tmp_path, project_dir):
     """A card on disk with its render props beside it."""
     old_file = tmp_path / "card.mov"
     old_file.write_bytes(b"old")
     (tmp_path / "card_props.json").write_text(
-        json.dumps(_card_props()), encoding="utf-8")
+        json.dumps(_card_props(project_dir)), encoding="utf-8")
     return old_file
 
 
@@ -95,10 +137,14 @@ def render(monkeypatch, tmp_path):
         for pair in pairs:
             new_file = tmp_path / "card_new.mov"
             new_file.write_bytes(b"new")
-            props = dict(pair["props"])
-            # The renderer draws the card tight; the props it writes
-            # beside the file carry the tight canvas.
-            props["width"], props["height"] = 480, 120
+            # The renderer draws the card TIGHT: it re-derives the tight
+            # canvas from the full props it is handed, and the props it
+            # writes beside the file carry that tight canvas.
+            from library.tools.tight_box import constant_caption_box
+
+            box = constant_caption_box(dict(pair["props"]))
+            props = dict(box.props)
+            props["subtitles"] = pair["props"]["subtitles"]
             (tmp_path / "card_new_props.json").write_text(
                 json.dumps(props), encoding="utf-8")
             report["rendered"] += 1
@@ -136,13 +182,9 @@ def live(monkeypatch):
 
 @pytest.fixture
 def project(monkeypatch, tmp_path):
-    """The project folder and its delivery frame."""
-    from library.tools import delivery_format
-
+    """The project folder a caption fix renders into."""
     monkeypatch.setattr(adapters, "_project_folder",
                         lambda _context: str(tmp_path))
-    monkeypatch.setattr(delivery_format, "resolve_delivery_format",
-                        lambda _project: (1080, 1920))
     return tmp_path
 
 
@@ -254,3 +296,119 @@ def test_a_caption_fix_that_moved_the_timing_is_refused(card, render, live,
         caption_rewrite.rewrite_props = original
 
     assert render == []
+
+
+def test_a_caption_fix_rebuilds_a_tight_card_as_the_projects_own_props(
+        card, render, live, project, project_dir):
+    """The defect a real reel exposed: the card's sidecar records the
+    TIGHT canvas and the tight style geometry, while the render entry
+    refuses anything that is not the project's own frame and geometry.
+    A fix that handed the sidecar straight back refused on every reel."""
+    live["reads"] = [_snapshot(_clip(card)),
+                     _snapshot(_clip(project / "card_new.mov"))]
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(card)))
+
+    adapters._caption_fix(context)
+
+    props = render[0]["pairs"][0]["props"]
+    assert (props["width"], props["height"]) == (1080, 1920)
+    assert props["style"]["safeArea"] == _project_style(project_dir)[
+        "safeArea"]
+    # The card's own typography rides through: the approved styling is
+    # what the re-render draws.
+    assert props["style"]["fontSize"] == _card_props(project_dir)[
+        "style"]["fontSize"]
+
+
+def test_a_caption_fix_refuses_before_mutation_when_the_card_would_be_redrawn_on_another_canvas(
+        card, render, live, project, tmp_path, project_dir):
+    """Defect: the placement carries a transform computed for the
+    canvas the card was drawn on, so a card redrawn on another canvas
+    would sit in the wrong box."""
+    props = json.loads((tmp_path / "card_props.json").read_text(
+        encoding="utf-8"))
+    props["width"] = 640
+    (tmp_path / "card_props.json").write_text(json.dumps(props),
+                                              encoding="utf-8")
+    live["reads"] = [_snapshot(_clip(card))]
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(card)))
+
+    with pytest.raises(RuntimeError, match="canvas"):
+        adapters._caption_fix(context)
+
+    assert render == []
+
+
+def test_a_caption_fix_refuses_a_card_whose_wrap_no_longer_matches_the_project(
+        card, render, live, project, tmp_path, project_dir):
+    """A re-render at the project's width would redraw an approved card
+    with different line breaks."""
+    props = json.loads((tmp_path / "card_props.json").read_text(
+        encoding="utf-8"))
+    props["style"] = dict(props["style"], captionMaxWidth=400)
+    (tmp_path / "card_props.json").write_text(json.dumps(props),
+                                              encoding="utf-8")
+    live["reads"] = [_snapshot(_clip(card))]
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(card)))
+
+    with pytest.raises(RuntimeError, match="no longer matches"):
+        adapters._caption_fix(context)
+
+    assert render == []
+
+
+def test_a_caption_fix_proves_the_approved_styling_survived(
+        card, render, live, project):
+    """The fix changes what the card says, never how it looks."""
+    live["reads"] = [_snapshot(_clip(card)),
+                     _snapshot(_clip(project / "card_new.mov"))]
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(card)))
+
+    receipt = adapters._caption_fix(context)
+
+    acceptance = receipt["acceptance_contracts"][0]
+    assert "caption_styling_preserved" in acceptance["checks"]
+    assert acceptance["passed"] is True
+
+
+def test_the_project_folder_resolves_from_the_resolve_project_name(
+        monkeypatch, tmp_path):
+    """Defect: the production request names the RESOLVE project - that
+    is what the broker keys on and what every AXI verb addresses - and
+    the caption adapters could not resolve the project folder from it,
+    so a caption fix could not run on a real project at all."""
+    from library.tools import project_registry
+
+    monkeypatch.setattr(project_registry, "project_folder_for_resolve_name",
+                        lambda name: str(tmp_path / "scratch"))
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(tmp_path / "card.mov")))
+    context.request.project = "Ren Scratch - a reel"
+
+    assert adapters._project_folder(context) == str(tmp_path / "scratch")
+
+
+def test_a_project_folder_reference_still_resolves(monkeypatch, tmp_path):
+    """A request that names the folder itself still resolves the same
+    way it always did."""
+    from library.tools import project_registry
+
+    (tmp_path / "project.yaml").write_text("project_name: x\n",
+                                           encoding="utf-8")
+    monkeypatch.setattr(project_registry, "project_folder_for_resolve_name",
+                        lambda name: "")
+    context = _context({"op": "caption_fix", "unique_id": "card-1",
+                        "text": "the right number"},
+                       _snapshot(_clip(tmp_path / "card.mov")))
+    context.request.project = str(tmp_path)
+
+    assert adapters._project_folder(context) == str(tmp_path)

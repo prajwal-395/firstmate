@@ -107,6 +107,7 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
     elif op_id == "caption_fix":
         checks = ["target_identity", "requested_record_span",
                   "caption_text_applied", "caption_timing_preserved",
+                  "caption_styling_preserved",
                   "unrelated_items_unchanged"]
         return {"id": f"acceptance:{op_id}", "operation": op_id,
                 "checks": checks, "structural_source": "timeline_readback",

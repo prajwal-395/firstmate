@@ -129,13 +129,16 @@ def test_acceptance_reports_unavailable_readback_as_missing_evidence():
     assert "caption_timing_preserved" in result["missing"]
 
 
-def test_caption_fix_contract_demands_the_text_and_the_timing():
+def test_caption_fix_contract_demands_the_text_the_timing_and_the_styling():
     """Defect: a fix that claimed the new text while the card kept its
-    old timing would read as a fix and ship a re-timing."""
+    old timing would read as a fix and ship a re-timing; and a fix that
+    redrew the card in another look would read as a fix and ship a
+    different caption."""
     contract = operation_acceptance.contract_for("caption_fix")
     assert contract["checks"] == [
         "target_identity", "requested_record_span", "caption_text_applied",
-        "caption_timing_preserved", "unrelated_items_unchanged"]
+        "caption_timing_preserved", "caption_styling_preserved",
+        "unrelated_items_unchanged"]
     assert contract["rendered_source"] == "caption_asset_rerender"
     evidence = {check: True for check in contract["checks"]}
     result = operation_acceptance.evaluate(

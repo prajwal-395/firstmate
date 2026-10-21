@@ -8,6 +8,14 @@ own span refuses instead of being drawn.
 
 These tests pin that fit, and the refusals that keep a fix from
 quietly becoming a re-timing.
+
+They also pin the CARRYING, which the product's own reels exposed: a
+real reel's caption card is a TIGHT card, and its sidecar records the
+tight canvas and the tight style geometry, while the render entry
+refuses anything that is not the project's own frame and geometry.  A
+fix that handed the sidecar straight back therefore refused on every
+real reel - the product's caption medium was the one thing a caption
+fix could not address.
 """
 from __future__ import annotations
 
@@ -16,7 +24,9 @@ import pytest
 from library.tools.caption_rewrite import (
     CaptionRewriteError,
     caption_fix_operation,
+    carrying_matches,
     fit_words,
+    full_frame_props,
     rewrite_props,
 )
 
@@ -158,3 +168,129 @@ def test_an_operation_without_a_card_or_a_text_refuses():
         caption_fix_operation("", "the right number")
     with pytest.raises(ValueError, match="needs the card's new text"):
         caption_fix_operation("clip-17", "   ")
+
+
+# ── The carrying: a tight card's sidecar, rebuilt for the render ──────
+
+
+def _project(tmp_path):
+    """A project that declares the delivery frame and the tight look."""
+    (tmp_path / "project.yaml").write_text(
+        "project_name: caption-fix-test\n"
+        "pipeline:\n"
+        "  delivery_format: vertical_1080x1920\n"
+        "  subtitle_typography:\n"
+        "    font: Montserrat\n"
+        "    size: 51\n"
+        "  subtitle_overlay_geometry: tight\n",
+        encoding="utf-8")
+    return tmp_path
+
+
+def _project_style(project_folder, speaker="Akshita"):
+    """The style the render entry expects for this project."""
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    return resolve_subtitle_style({}, {}, str(project_folder),
+                                  speaker=speaker, reel_name=None)
+
+
+def _tight_card(project_folder, style=None):
+    """A real reel's caption card: the TIGHT props its sidecar records.
+
+    The renderer draws a tight card natively at the tight canvas and
+    writes the tight props beside it, so this is what a caption fix
+    actually reads off a built reel.
+    """
+    from library.tools.tight_box import constant_caption_box
+
+    style = style if style is not None else _project_style(project_folder)
+    full = _props()
+    full["width"], full["height"] = 1080, 1920
+    full["style"] = dict(style)
+    full["_speaker"] = "Akshita"
+    box = constant_caption_box(full)
+    tight = dict(box.props)
+    tight["subtitles"] = full["subtitles"]
+    return tight
+
+
+def test_a_tight_cards_sidecar_is_rebuilt_as_the_projects_own_props(tmp_path):
+    """The defect: the render entry refuses a tight cards props, so a
+    fix on a real reel refused before anything was drawn."""
+    project = _project(tmp_path)
+    tight = _tight_card(project)
+    expected = _project_style(project)
+
+    rebuilt = full_frame_props(tight, str(project))
+
+    assert (rebuilt["width"], rebuilt["height"]) == (1080, 1920)
+    assert rebuilt["style"]["safeArea"] == expected["safeArea"]
+    assert (rebuilt["style"]["captionMaxWidth"]
+            == expected["captionMaxWidth"])
+    # The card's own typography and colours are carried through: the
+    # approved styling is what the re-render draws.
+    for key in ("fontFamily", "fontSize", "fontWeight", "fontColor",
+                "accentColor", "outlineColor", "outlineWidth", "position"):
+        assert rebuilt["style"][key] == tight["style"][key], key
+    # The text and the timing are untouched by the rebuild.
+    assert rebuilt["subtitles"] == tight["subtitles"]
+
+
+def test_a_card_whose_wrap_no_longer_matches_the_project_refuses(tmp_path):
+    """Defect: a re-render at the projects width would redraw an
+    approved card with different line breaks - a fix that changes the
+    look is not a fix."""
+    project = _project(tmp_path)
+    tight = _tight_card(project)
+    tight["style"] = dict(tight["style"], captionMaxWidth=400)
+
+    with pytest.raises(CaptionRewriteError, match="no longer matches"):
+        full_frame_props(tight, str(project))
+
+
+def test_the_re_render_lands_on_the_cards_own_canvas(tmp_path):
+    """The placement carries a transform computed for the canvas the
+    card was drawn on."""
+    project = _project(tmp_path)
+    tight = _tight_card(project)
+    rebuilt = full_frame_props(tight, str(project))
+
+    ok, reason = carrying_matches(tight, rebuilt, str(project))
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_a_re_render_onto_another_canvas_is_refused(tmp_path):
+    """Defect: a card redrawn on another canvas would leave the placed
+    transform pointing at the wrong box."""
+    project = _project(tmp_path)
+    tight = _tight_card(project)
+    rebuilt = full_frame_props(tight, str(project))
+    other = dict(tight, width=640, height=480)
+
+    ok, reason = carrying_matches(other, rebuilt, str(project))
+
+    assert ok is False
+    assert "canvas" in reason
+
+
+def test_a_full_canvas_card_is_matched_against_the_delivery_frame(tmp_path):
+    """A project that declares no tight captions draws on the frame."""
+    project = tmp_path / "full"
+    project.mkdir()
+    (project / "project.yaml").write_text(
+        "project_name: caption-fix-full\n"
+        "pipeline:\n"
+        "  delivery_format: vertical_1080x1920\n"
+        "  subtitle_overlay_geometry: full\n",
+        encoding="utf-8")
+    full = _props()
+    full["width"], full["height"] = 1080, 1920
+    full["style"] = dict(_project_style(project))
+
+    ok, reason = carrying_matches(full, full, str(project))
+
+    assert ok is True
+    assert reason == ""

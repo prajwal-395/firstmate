@@ -30,6 +30,25 @@ what the card says, never when it says it - and the emphasis words are
 re-derived from the new text by the planner's own rule
 (`step_4_01_plan_subtitles.identify_emphasis_words`), because an
 emphasis word the new text does not contain would scale nothing.
+
+THE CARRYING, and the refusal a real reel exposed.  A card's sidecar
+records the card AS IT WAS DRAWN: for a project that declares tight
+captions that is the tight canvas (720x480 on a 1080x1920 delivery) and
+the tight style geometry, because the renderer draws a tight card
+natively at its own canvas.  The render entry, however, refuses props
+whose frame or whose style geometry is not the PROJECT's - it re-derives
+the tight canvas itself and refuses to draw a card whose wrap or whose
+safe area belongs to another frame.  So a fix that hands the sidecar
+straight back refuses on every real reel, and the product's own caption
+medium is the one thing a caption fix cannot address.
+
+`full_frame_props` rebuilds the props the render entry expects from the
+card's own: the delivery frame, and the PROJECT's geometry for this
+reel and speaker, with the card's own typography, colours, outline,
+position and wrap width carried through untouched.  The re-derived
+canvas is then checked against the card's own (`carrying_matches`), so
+a fix that would redraw the card on a different canvas - and so break
+the transform its placement carries - refuses BEFORE anything renders.
 """
 
 from __future__ import annotations
@@ -154,6 +173,101 @@ def fit_words(words: Sequence[Mapping], tokens: Sequence[str], *,
                            "endFrame": cursor + length})
             cursor += length
     return fitted
+
+
+def full_frame_props(props: Mapping[str, Any], project_folder: str,
+                     reel_name: str | None = None) -> dict[str, Any]:
+    """The card's own props, rebuilt as the RENDER ENTRY needs them.
+
+    The sidecar records the card as it was drawn - for a tight card, the
+    tight canvas and the tight style geometry - while the render entry
+    refuses anything that is not the project's own frame and geometry.
+    This rebuilds the props the entry expects, from the card's own:
+
+    * the frame is the PROJECT's delivery frame;
+    * the style's `safeArea` and `captionMaxWidth` are the PROJECT's,
+      resolved for this reel and this speaker exactly as the render
+      entry resolves them;
+    * everything else - the typeface, the size, the weight, the colours,
+      the outline, the position, the speaker - is the CARD's own, so the
+      approved styling is what the re-render draws.
+
+    A card whose own wrap width no longer matches the project's is
+    REFUSED: re-rendering it at the project's width would redraw an
+    approved card differently (the words would wrap differently), and a
+    fix that changes the look is not a fix.
+    """
+    from library.tools.delivery_format import resolve_delivery_format
+    from library.tools.subtitle_style import resolve_subtitle_style
+
+    style = props.get("style")
+    if not isinstance(style, Mapping):
+        raise CaptionRewriteError(
+            "the card carries no style - the re-render would have to "
+            "guess the typography the captain approved")
+    width, height = resolve_delivery_format(project_folder)
+    expected = resolve_subtitle_style(
+        {}, {}, project_folder, speaker=props.get("_speaker"),
+        reel_name=reel_name or None)
+    card_width = style.get("captionMaxWidth")
+    project_width = expected.get("captionMaxWidth")
+    if card_width != project_width:
+        raise CaptionRewriteError(
+            f"the card's wrap width ({card_width}px) no longer matches "
+            f"the project's ({project_width}px) - re-rendering it would "
+            "redraw an approved card with different line breaks, and a "
+            "fix that changes the look is not a fix")
+    new_style = dict(style)
+    new_style["safeArea"] = expected.get("safeArea")
+    new_style["captionMaxWidth"] = project_width
+    new_props = dict(props)
+    new_props["width"], new_props["height"] = int(width), int(height)
+    new_props["style"] = new_style
+    return new_props
+
+
+def carrying_matches(original: Mapping[str, Any], render_props: Mapping,
+                     project_folder: str) -> tuple[bool, str]:
+    """Whether the re-render lands on the card's OWN canvas.
+
+    A caption card's placement carries a transform computed for the
+    canvas it was drawn on, so a fix that redraws the card on a
+    different canvas would leave the placed transform pointing at the
+    wrong box.  The canvas the renderer will produce is computed here
+    from the same inputs the renderer uses - the project's declared
+    geometry and the props - and compared with the card's own.
+
+    Returns `(ok, reason)`; the reason names what differs.
+    """
+    from library.tools.delivery_format import resolve_delivery_format
+    from library.tools.overlay_mode import resolve_overlay_geometry
+
+    try:
+        was = (int(original.get("width") or 0),
+               int(original.get("height") or 0))
+    except (TypeError, ValueError):
+        return False, "the card's own canvas is unreadable"
+    geometry = resolve_overlay_geometry(project_folder or None)
+    if geometry == "tight":
+        from library.tools.tight_box import constant_caption_box
+
+        try:
+            box = constant_caption_box(dict(render_props))
+        except Exception as exc:  # noqa: BLE001 - any refusal is a refusal
+            return False, f"the tight canvas cannot be computed: {exc}"
+        if box is None:
+            return False, "the card draws no subtitles, so it has no canvas"
+        now = (int(box.width), int(box.height))
+    else:
+        frame = resolve_delivery_format(project_folder)
+        now = (int(frame[0]), int(frame[1]))
+    if now != was:
+        return False, (
+            f"the re-render would draw the card on a {now[0]}x{now[1]} "
+            f"canvas where the card is a {was[0]}x{was[1]} one - the "
+            "placement's own transform belongs to the canvas the card "
+            "was drawn on")
+    return True, ""
 
 
 def rewrite_props(props: Mapping[str, Any], new_text: str) -> dict[str, Any]:

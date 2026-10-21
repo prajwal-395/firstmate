@@ -413,6 +413,21 @@ def _verified_command(context, command: list[str], operation: dict,
     }
 
 
+def _changed_fields(before, after) -> str:
+    """The fields that differ between two readings of one item.
+
+    A refusal that names WHAT changed is a refusal a reader can act on:
+    "an unrelated item changed" is not, and neither is the whole item
+    printed twice.
+    """
+    if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+        return "unreadable"
+    keys = sorted(set(before) | set(after))
+    changed = [key for key in keys
+               if before.get(key) != after.get(key)]
+    return ", ".join(changed[:6]) or "nothing"
+
+
 def _unrelated_changes(before: Mapping, after: Mapping, target_id: str,
                        *, affected_spans=(), id_map=None,
                        allowed_target_ids=()) -> list:
@@ -726,12 +741,17 @@ def _caption_fix(context) -> dict:
 
     from library.tools.caption_rewrite import (
         CaptionRewriteError,
+        carrying_matches,
+        full_frame_props,
         rewrite_props,
     )
 
     _track, clip = _caption_style_prepared_target(
         context, unique_id, operation_id)
-    _caption_style_revalidate_live(context, dict(clip), operation_id)
+    # The live read the revalidation makes is also the BEFORE state the
+    # post-swap read is compared against.
+    before_live = _caption_style_revalidate_live(context, dict(clip),
+                                                 operation_id)
     project_folder = _project_folder(context)
     old_file = str(clip["source_file"])
     old_props = _caption_style_props(old_file, operation_id)
@@ -740,16 +760,29 @@ def _caption_fix(context) -> dict:
     except CaptionRewriteError as exc:
         raise RuntimeError(
             f"caption_fix refused: {exc}") from None
-    # A rendered sidecar records the TIGHT canvas (the carrying), while
-    # the render entry re-validates props against the project's delivery
-    # frame: re-rendering tight dims is refused as a wrong-frame props.
-    # Restore the full frame from the project - the renderer re-derives
-    # tight itself - using the same reading the validator uses, so the
-    # two agree by construction.
-    from library.tools.delivery_format import resolve_delivery_format
-
-    full_width, full_height = resolve_delivery_format(project_folder)
-    new_props["width"], new_props["height"] = full_width, full_height
+    # A rendered sidecar records the card AS IT WAS DRAWN - for a tight
+    # card, the tight canvas and the tight style geometry - while the
+    # render entry re-validates props against the project's delivery
+    # frame and the project's own geometry. Handing the sidecar straight
+    # back refuses on every real reel, so the props are rebuilt from the
+    # card's own: the project's frame and geometry, the card's own
+    # typography and colours (`caption_rewrite.full_frame_props`).
+    try:
+        new_props = full_frame_props(
+            new_props, project_folder,
+            reel_name=str(context.request.timeline or "") or None)
+    except CaptionRewriteError as exc:
+        raise RuntimeError(
+            f"caption_fix refused: {exc}") from None
+    # The re-render must land on the card's OWN canvas: the placement
+    # carries a transform computed for that canvas, and a fix that
+    # redrew the card on another one would leave the placed transform
+    # pointing at the wrong box.
+    canvas_ok, canvas_reason = carrying_matches(
+        old_props, new_props, project_folder)
+    if not canvas_ok:
+        raise RuntimeError(
+            f"caption_fix refused: {canvas_reason}")
     # The fix changes what the card says, never when it says it: the
     # cue's own frames must ride through unchanged.
     old_timing = _caption_cue_timing(old_props)
@@ -782,8 +815,17 @@ def _caption_fix(context) -> dict:
             f"{report.get('already_current') or []}) - refusing rather "
             "than claiming a fix")
 
-    after = resolve_axi_core.read_live_timeline(
-        context.request.project, context.request.timeline)
+    # Resolve's handle does not catch up with a write the instant it
+    # lands: a dense reel reads the state from BEFORE the swap for a
+    # moment, so a read taken straight after the write reports a fix
+    # that landed as one that did not.  The post-swap read waits for the
+    # handle through the ONE reading of a settled timeline.
+    from library.tools import resolve_write_settle, timeline_shadow
+
+    after, _settled, _waited = resolve_write_settle.settled_snapshot(
+        lambda: resolve_axi_core.read_live_timeline(
+            context.request.project, context.request.timeline),
+        before_hash=timeline_shadow.snapshot_hash(before_live))
     live_hits = [live for track in after["tracks"]
                  for live in track["clips"]
                  if str(live.get("unique_id")) == unique_id]
@@ -801,6 +843,21 @@ def _caption_fix(context) -> dict:
     if len(cues) == 1:
         rendered_text = str(cues[0].get("text") or "")
         rendered_timing = _caption_cue_timing(rendered_props)
+    # The APPROVED STYLING, read back off the re-rendered card: the same
+    # canvas and the same style - the typeface, the size, the weight, the
+    # colours, the outline, the position - as the card the fix replaced.
+    # A fix that changed the look would be a different card, not the
+    # captain's caption with the right words.
+    rendered_style = rendered_props.get("style")
+    old_style = old_props.get("style")
+    styling_preserved = (
+        isinstance(rendered_style, Mapping)
+        and isinstance(old_style, Mapping)
+        and dict(rendered_style) == dict(old_style)
+        and int(rendered_props.get("width") or 0)
+        == int(old_props.get("width") or 0)
+        and int(rendered_props.get("height") or 0)
+        == int(old_props.get("height") or 0))
 
     evidence = {
         "target_identity": len(live_hits) == 1,
@@ -822,6 +879,7 @@ def _caption_fix(context) -> dict:
             and int(live_hits[0]["source_out_frame"])
             == int(clip["source_out_frame"])
             and rendered_timing == old_timing),
+        "caption_styling_preserved": styling_preserved,
     }
     operation_matches = all(evidence.values())
     unrelated = _unrelated_changes(context.snapshot, after, unique_id)
@@ -833,9 +891,17 @@ def _caption_fix(context) -> dict:
     if not acceptance["passed"]:
         missing = ", ".join(acceptance["missing"]) or "none"
         failed = ", ".join(acceptance["failed"]) or "none"
+        # A refusal that says WHAT moved: a collateral change nobody can
+        # name is a collateral change nobody can judge.
+        moved = ", ".join(
+            f"{entry.get('unique_id')} "
+            f"({str((entry.get('after') or {}).get('name') or '')}: "
+            f"{_changed_fields(entry.get('before'), entry.get('after'))})"
+            for entry in unrelated[:5]) or "none"
         raise RuntimeError(
             f"AXI read-back acceptance failed for {operation_id}: "
-            f"missing evidence [{missing}], failed checks [{failed}]")
+            f"missing evidence [{missing}], failed checks [{failed}], "
+            f"items that moved [{moved}]")
     target_identity = {
         key: operation[key]
         for key in ("unique_id", "client_unique_id")

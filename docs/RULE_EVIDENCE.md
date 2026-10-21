@@ -10231,3 +10231,69 @@ so the caller widens or moves the window instead of receiving a wrong frame.
 speaker, and the engine measures the HAND while the ground truth measured the
 KEYS the hand holds - two quantities that are close but not the same, and the
 report says which one each number came from.
+
+## the-caption-fix-that-could-not-address-a-real-reel
+
+**The punch list, AXI-009, 2026-10-20.** "Complete rendered-caption
+text editing. - Finish the live qualification left outstanding in PR
+#3024. - Re-render only the affected caption card. - Preserve unchanged
+word timing and cue boundaries. - Verify the actual rendered caption
+text, including insertion and replacement cases. - Confirm neighboring
+cards and approved styling are unchanged. - Promote `caption_fix` only
+when independent verification succeeds."
+
+**What was wrong.** Every caption in a real Ren reel is a TIGHT card:
+the renderer draws it natively at the tight canvas (720x480 on a
+1080x1920 delivery) and writes the tight props beside it. The render
+entry refuses props whose frame or whose style geometry is not the
+PROJECT's - it re-derives the tight canvas itself, and refuses to draw
+a card whose wrap or safe area belongs to another frame. PR #3024 made
+`caption_fix` render a card and swap it back, and handed the card's
+sidecar straight to the render entry. On the synthetic fixture that
+worked (a fixture's card is full-frame, in the fixture's own format);
+on a real reel it refused before anything was drawn:
+
+    ValueError: Subtitle style geometry ['safeArea'] in '<reel>' does
+    not match the project's delivery format; regenerate the style
+    before rendering.
+
+The product's own caption medium was the one thing a caption fix could
+not address, and the qualification could not see it: the fixture's
+cards are full-frame.
+
+**Measured, live, on a Ren-owned scratch copy of a built reel in the
+product format** (2026-10-21; `tests/live/reports/caption-fix-qualification/caption-fix-evidence.json`):
+
+- before: 1 of 1 real-reel caption cards refused before mutation;
+- after: 1 of 1 measured replacement cases committed, 10 of 10 checks
+  passed - the card was re-rendered on the SAME canvas (`constant
+  720x480 (full 1080x1920)`), the swap landed and its own post-check
+  passed, the OCR read the new card as `absolutely, this is not Al's
+  today` where the card before read `absolutely; this is not Al's
+  fault:`, and the cue frames, the surviving words' windows, the
+  approved styling, the canvas, the placement's span and transform, the
+  neighbouring cards and every other item read unchanged;
+- the insertion case (a word ADDED) is UNMEASURED - the card the run
+  picked had adjacent words, so an inserted word has no window to take,
+  and the engine refused that by design. Unmeasured is not zero.
+- `caption_fix` stays UNQUALIFIED: the promotion needs a complete live
+  run, and it has not had one.
+
+**The rule.** A card's sidecar records the card AS IT WAS DRAWN, and a
+re-render is handed the PROJECT's frame and geometry - rebuilt FROM the
+card's own typography, colours, outline, position and wrap width, never
+from the sidecar's. A fix that cannot be timed on the card's own
+windows refuses; a fix that would redraw the card on another canvas
+refuses, because the placement's transform belongs to the canvas the
+card was drawn on; and a card whose wrap no longer matches the project
+refuses, because re-rendering it at the project's width would change
+the line breaks of an approved card. And the TEXT is read back from the
+RENDERED FRAMES, not from the props beside the file: the props say what
+the renderer was told to draw, and only the pixels say what the card
+says.
+
+`library/tools/caption_rewrite.py` owns the rebuild and the canvas
+check; `library/tools/edit_execution_adapters.py::_caption_fix` runs
+them and proves the styling survived;
+`tests/live/caption_fix_qualification.py` is the live qualification on
+a real reel.
