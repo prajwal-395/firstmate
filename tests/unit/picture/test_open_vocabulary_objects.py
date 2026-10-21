@@ -183,14 +183,16 @@ def _observations_by_modality(model, modality):
 def test_seed_score_travels_verbatim():
     seeds = seg.check_seed_boxes([{
         "box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-        "category": "laptop", "detector": "owlv2", "score": 0.87}])
+        "category": "laptop", "detector": "owlv2", "score": 0.87,
+        "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}])
     assert seeds[0].score == 0.87
 
 
 def test_seed_without_score_reads_as_unrecorded():
     seeds = seg.check_seed_boxes([{
         "box": [0.1, 0.1, 0.4, 0.4], "label": "white mug",
-        "category": "mug", "detector": "grounding_dino"}])
+        "category": "mug", "detector": "grounding_dino",
+        "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}])
     assert seeds[0].score is None
 
 
@@ -198,14 +200,16 @@ def test_seed_score_outside_unit_range_is_refused():
     with pytest.raises(ValueError):
         seg.check_seed_boxes([{
             "box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-            "category": "laptop", "detector": "owlv2", "score": 1.4}])
+            "category": "laptop", "detector": "owlv2", "score": 1.4,
+            "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}])
 
 
 def test_seed_key_ignores_score_only_changes():
     from library.steps.step_1_06_object_segmentation import step as s1
 
     base = {"box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-            "category": "laptop", "detector": "owlv2"}
+            "category": "laptop", "detector": "owlv2",
+            "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}
     assert s1._seed_key([base]) == s1._seed_key(
         [dict(base, score=0.87)])
 

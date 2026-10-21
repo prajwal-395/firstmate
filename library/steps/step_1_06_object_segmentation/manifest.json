@@ -34,7 +34,7 @@
         "name": "object_seeds_by_clip",
         "type": "object",
         "required": false,
-        "description": "Explicit clip_id to detector-seed list map (MU-15): each seed is {box, label, category, detector} from an open-vocabulary detector answering Gemma's object phrases. OPTIONAL: a wanted clip carrying seeds is segmented for its named objects even where no face box reaches it; absent means face-only seeding."
+        "description": "Explicit clip_id to detector-seed list map (MU-15): each seed is {box, label, category, detector, frame} from an open-vocabulary detector answering Gemma's object phrases, where frame is {time_seconds, width, height} - the frame the box was measured on and that frame's pixel size. The tracker prompts the seed's own frame, so a box measured at 5.5s is not placed at the clip's first frame (D-02); a seed whose frame is a rotated or cropped rendering of the clip is refused rather than misplaced. OPTIONAL: a wanted clip carrying seeds is segmented for its named objects even where no face box reaches it; absent means face-only seeding."
       },
       {
         "name": "color_grade_spec",

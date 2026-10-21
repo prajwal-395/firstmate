@@ -170,6 +170,7 @@ def box_iou(left: Iterable[float], right: Iterable[float]) -> float:
 def tracker_seed(*, prepared_box: Iterable[float], transform: ImageTransform,
                  label: str, category: str, detector: str,
                  instance_id: str, evidence_id: str,
+                 frame_time_seconds: float,
                  score: float | None = None) -> dict[str, Any]:
     """Convert a grounded box into the existing normalized SAM 2 seed shape.
 
@@ -177,6 +178,13 @@ def tracker_seed(*, prepared_box: Iterable[float], transform: ImageTransform,
     an explicitly selected region; a point alone never invents object size.
     Instance and evidence identifiers travel with the adapter result for
     audit, while ``seed`` is directly consumable by ``check_seed_boxes``.
+
+    ``frame_time_seconds`` says when the box was measured: the tracker
+    prompts the frame the box was measured on, so a seed without it
+    would land on whatever sits under the box at the clip's first frame
+    (D-02). The seed's frame carries the source frame's pixel size, so
+    a box measured on a rotated or cropped rendering is refused rather
+    than placed on the wrong content.
     """
     if not all(isinstance(v, str) and v.strip() for v in (label, category, detector, instance_id, evidence_id)):
         raise GroundingGeometryError("label, category, detector, instance_id and evidence_id are required")
@@ -186,7 +194,11 @@ def tracker_seed(*, prepared_box: Iterable[float], transform: ImageTransform,
     # The tracker contract expects xyxy normalized coordinates, which is
     # narrower than the full grounder record. Its validator clamps edges.
     return {"seed": {"box": normalized, "label": label,
-                     "category": category, "detector": detector, "score": score},
+                     "category": category, "detector": detector, "score": score,
+                     "frame": {"time_seconds": _finite("frame_time_seconds",
+                                                       frame_time_seconds),
+                               "width": transform.source_width,
+                               "height": transform.source_height}},
             "instance_id": instance_id, "evidence_id": evidence_id,
             "source_frame": {"width": transform.source_width,
                              "height": transform.source_height}}
@@ -262,6 +274,7 @@ def score_grounding(rows: list[dict[str, Any]], *, box_iou_threshold: float = 0.
 def point_tracker_seed(*, prepared_point: Iterable[float], transform: ImageTransform,
                        source_radius_px: float, label: str, category: str,
                        detector: str, instance_id: str, evidence_id: str,
+                       frame_time_seconds: float,
                        score: float | None = None) -> dict[str, Any]:
     """Convert a point to a tracker box using an explicit source-pixel radius.
 
@@ -282,4 +295,4 @@ def point_tracker_seed(*, prepared_point: Iterable[float], transform: ImageTrans
     return tracker_seed(prepared_box=prepared_box, transform=transform,
                         label=label, category=category, detector=detector,
                         instance_id=instance_id, evidence_id=evidence_id,
-                        score=score)
+                        frame_time_seconds=frame_time_seconds, score=score)

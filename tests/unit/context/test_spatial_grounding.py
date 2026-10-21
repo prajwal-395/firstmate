@@ -49,11 +49,17 @@ def test_tracker_seed_uses_original_source_coordinates_and_existing_contract():
     result = tracker_seed(prepared_box=(100, 100, 300, 400),
                           transform=transform, label="red mug", category="cup",
                           detector="grounder-a", instance_id="mug-2",
-                          evidence_id="frame-11-grounding")
+                          evidence_id="frame-11-grounding",
+                          frame_time_seconds=5.5)
     assert result["instance_id"] == "mug-2"
     assert result["source_frame"] == {"width": 4000, "height": 3000}
     parsed = check_seed_boxes([result["seed"]])
     assert parsed[0].box == pytest.approx([0.1, 0.1333, 0.3, 0.5333])
+    # The seed names the frame it was measured on, so the tracker
+    # prompts that frame and not the clip's first one (D-02).
+    assert parsed[0].frame_time_seconds == 5.5
+    assert parsed[0].frame_width == 4000
+    assert parsed[0].frame_height == 3000
 
 
 def test_point_box_and_instance_metrics_are_separate():
@@ -96,10 +102,11 @@ def test_point_tracker_seed_requires_explicit_radius_and_clamps_to_frame():
     result = point_tracker_seed(prepared_point=(2, 2), transform=transform,
                                 source_radius_px=20, label="cup", category="cup",
                                 detector="point-model", instance_id="cup-1",
-                                evidence_id="frame-1")
+                                evidence_id="frame-1",
+                                frame_time_seconds=0.0)
     assert result["seed"]["box"] == pytest.approx([0, 0, 0.03, 0.06])
     with pytest.raises(GroundingGeometryError, match="radius"):
         point_tracker_seed(prepared_point=(1, 1), transform=transform,
                            source_radius_px=0, label="cup", category="cup",
                            detector="point-model", instance_id="cup-1",
-                           evidence_id="frame-1")
+                           evidence_id="frame-1", frame_time_seconds=0.0)

@@ -1,0 +1,299 @@
+{
+  "format": "ren_seed_grounding_measurement/1",
+  "clip": "IMG_1808",
+  "detector": "owlv2",
+  "score_threshold": 0.1,
+  "object": "baseball cap",
+  "sample_fps": 2.0,
+  "frames": [
+    {
+      "sample_index": 11,
+      "time_seconds": 5.5,
+      "label_box": [
+        0.295,
+        0.13,
+        0.66,
+        0.31
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.25,
+        "box": [
+          0.31656951904296876,
+          0.13646036783854168,
+          0.6598878224690755,
+          0.5114846688729745
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.31656951904296876,
+        0.13646036783854168,
+        0.6598878224690755,
+        0.5114846688729745
+      ],
+      "detector_box_iou": 0.4417,
+      "segment_seconds": 33.65,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2) on frame 11; each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": 11,
+      "track_frames": 45,
+      "track_iou_by_label": {
+        "11": 0.4189,
+        "15": 0.3662,
+        "19": 0.2896,
+        "23": 0.2837
+      },
+      "track_iou_at_label": 0.4189,
+      "seed_inherited_iou": 0.9077,
+      "track_boxes_head": [
+        {
+          "frame": 11,
+          "box": [
+            587,
+            149,
+            690,
+            423
+          ]
+        },
+        {
+          "frame": 12,
+          "box": [
+            622,
+            174,
+            695,
+            433
+          ]
+        },
+        {
+          "frame": 13,
+          "box": [
+            174,
+            134,
+            912,
+            560
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 15,
+      "time_seconds": 7.5,
+      "label_box": [
+        0.3,
+        0.13,
+        0.62,
+        0.29
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.274,
+        "box": [
+          0.3373551368713379,
+          0.1380249164722584,
+          0.6399496714274089,
+          0.46038267347547746
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.3373551368713379,
+        0.1380249164722584,
+        0.6399496714274089,
+        0.46038267347547746
+      ],
+      "detector_box_iou": 0.406,
+      "segment_seconds": 18.77,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2) on frame 15; each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": 15,
+      "track_frames": 41,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.4064,
+        "19": 0.4187,
+        "23": 0.3589
+      },
+      "track_iou_at_label": 0.4064,
+      "seed_inherited_iou": 0.9556,
+      "track_boxes_head": [
+        {
+          "frame": 15,
+          "box": [
+            642,
+            149,
+            599,
+            343
+          ]
+        },
+        {
+          "frame": 16,
+          "box": [
+            621,
+            147,
+            577,
+            325
+          ]
+        },
+        {
+          "frame": 17,
+          "box": [
+            534,
+            195,
+            415,
+            257
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 19,
+      "time_seconds": 9.5,
+      "label_box": [
+        0.25,
+        0.21,
+        0.4,
+        0.31
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.256,
+        "box": [
+          0.26647931734720864,
+          0.21323907640245227,
+          0.4350043614705404,
+          0.37254327844690394
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.26647931734720864,
+        0.21323907640245227,
+        0.4350043614705404,
+        0.37254327844690394
+      ],
+      "detector_box_iou": 0.4466,
+      "segment_seconds": 14.81,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2) on frame 19; each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": 19,
+      "track_frames": 36,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.3992,
+        "23": 0.3979
+      },
+      "track_iou_at_label": 0.3992,
+      "seed_inherited_iou": 0.8945,
+      "track_boxes_head": [
+        {
+          "frame": 19,
+          "box": [
+            513,
+            235,
+            321,
+            181
+          ]
+        },
+        {
+          "frame": 20,
+          "box": [
+            495,
+            246,
+            328,
+            184
+          ]
+        },
+        {
+          "frame": 21,
+          "box": [
+            573,
+            236,
+            273,
+            189
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 23,
+      "time_seconds": 11.5,
+      "label_box": [
+        0.26,
+        0.21,
+        0.4,
+        0.33
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.162,
+        "box": [
+          0.28481483459472656,
+          0.21604153668438947,
+          0.4360743204752604,
+          0.4061165138527199
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.28481483459472656,
+        0.21604153668438947,
+        0.4360743204752604,
+        0.4061165138527199
+      ],
+      "detector_box_iou": 0.4048,
+      "segment_seconds": 14.36,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2) on frame 23; each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": 23,
+      "track_frames": 32,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.0,
+        "23": 0.3925
+      },
+      "track_iou_at_label": 0.3925,
+      "seed_inherited_iou": 0.9528,
+      "track_boxes_head": [
+        {
+          "frame": 23,
+          "box": [
+            543,
+            238,
+            294,
+            203
+          ]
+        },
+        {
+          "frame": 24,
+          "box": [
+            551,
+            239,
+            282,
+            197
+          ]
+        },
+        {
+          "frame": 25,
+          "box": [
+            516,
+            241,
+            293,
+            198
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "labelled_frames": 4,
+    "seeded_frames": 4,
+    "tracked_frames": 4,
+    "detector_box_iou_mean": 0.4248,
+    "seed_inherited_iou_mean": 0.9276,
+    "track_box_iou_mean": 0.4042,
+    "track_box_iou_at_or_above_0_5": 0
+  }
+}

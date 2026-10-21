@@ -8637,3 +8637,52 @@ engine did not wait for it - so the row carries no wall rather than one invented
 timestamp. And a run that asked no model anything reads its model cost as UNMEASURED, never as
 a measured zero.
 
+## the-seed-that-named-a-box-and-not-a-frame
+
+**The rule:** A detector seed names the frame it was measured on, and the
+tracker is prompted on that frame. `library/tools/analysis/object_segmentation.py`
+(`check_seed_boxes`, `seed_sample_index`, `seed_geometry_matches`).
+
+**What happened.** A detector seed carried a box, a label, a category and a
+detector - and no frame. `ObjectSegmenter.segment_clip` prompted SAM 2 on
+frame 0 for every such seed, whatever frame the box was measured on. Measured
+on 2026-10-21 on a Ren-owned scratch copy of one captain clip (Apple 001
+`IMG_1808`), with four hand-labelled frames of the cap the subject wears: the
+detector's own box sat on the object (IoU 0.4248 mean against the hand
+label), and the seeded track covered 1-3 frames of the clip's START - the
+car's roof lining under the cap's box at t=0 - and never reached the frame
+the box was measured on. Track box IoU at the labelled frame: 0.0 on every
+frame. The tracker had inherited a seed that was never grounded.
+
+**Why it hid.** The seed's own frame was recorded nowhere, so nothing
+downstream could say which frame a track was born on, and the track's box
+looked like a track. The 2026-10-16 lane-3 calibration had already measured
+seed boxes against labels at IoU 0.000-0.019 and read it as a label
+disagreement; the frame was the thing neither side carried.
+
+**Where it is.** The seed contract now carries `frame: {time_seconds, width,
+height}`: the time of the frame the box was measured on and that frame's
+pixel size. A seed without it is refused, because a box that does not say
+where it came from IS the defect. The seeder maps the seed's time onto the
+nearest sample and prompts the tracker there; the track records the frame it
+was seeded on (`TrackedObject.seed_frame`). A seed whose declared frame size
+has another aspect than the clip's frames is refused rather than placed: a
+normalized box cannot be mapped across a rotation or a crop, and a phone clip
+carries its rotation as side data, so the same clip decodes at two sizes. A
+seed measured on a DOWNSCALED copy still maps - a resized frame keeps its
+aspect - so the guard refuses rotations, not resizes.
+
+**After.** On the same sample and the same labelled frames: seed inherited
+IoU 0.9276 mean (the tracker's box at the seed frame IS the seed's box),
+track box IoU at the labelled frame 0.4042 against 0.0 before, and the
+seeded track holds the object across the other labelled frames (0.28-0.42).
+The end-to-end number is bounded by the detector's own box (0.4248), which
+the fix does not move. Numbers, method and limits:
+`docs/benchmarks/2026-10-21-seed-grounding.md`. Defect-naming tests:
+`tests/unit/picture/test_seed_grounding.py`.
+
+**What it does not fix.** The detector's box quality (D-01), the track's own
+drift (D-03), a crop that keeps the aspect (the contract carries no crop
+record), and the frames before the seed: a track cannot exist before the
+frame its evidence comes from, and the frames it used to occupy held the
+wrong object.

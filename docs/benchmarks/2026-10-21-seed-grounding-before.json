@@ -1,0 +1,272 @@
+{
+  "format": "ren_seed_grounding_measurement/1",
+  "clip": "IMG_1808",
+  "detector": "owlv2",
+  "score_threshold": 0.1,
+  "object": "baseball cap",
+  "sample_fps": 2.0,
+  "frames": [
+    {
+      "sample_index": 11,
+      "time_seconds": 5.5,
+      "label_box": [
+        0.295,
+        0.13,
+        0.66,
+        0.31
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.25,
+        "box": [
+          0.31656951904296876,
+          0.13646036783854168,
+          0.6598878224690755,
+          0.5114846688729745
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.31656951904296876,
+        0.13646036783854168,
+        0.6598878224690755,
+        0.5114846688729745
+      ],
+      "detector_box_iou": 0.4417,
+      "segment_seconds": 23.48,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2); each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": null,
+      "track_frames": 1,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.0,
+        "23": 0.0
+      },
+      "track_iou_at_label": 0.0,
+      "seed_inherited_iou": 0.0,
+      "track_boxes_head": [
+        {
+          "frame": 0,
+          "box": [
+            671,
+            331,
+            369,
+            136
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 15,
+      "time_seconds": 7.5,
+      "label_box": [
+        0.3,
+        0.13,
+        0.62,
+        0.29
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.274,
+        "box": [
+          0.3373551368713379,
+          0.1380249164722584,
+          0.6399496714274089,
+          0.46038267347547746
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.3373551368713379,
+        0.1380249164722584,
+        0.6399496714274089,
+        0.46038267347547746
+      ],
+      "detector_box_iou": 0.406,
+      "segment_seconds": 25.21,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2); each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": null,
+      "track_frames": 2,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.0,
+        "23": 0.0
+      },
+      "track_iou_at_label": 0.0,
+      "seed_inherited_iou": 0.0,
+      "track_boxes_head": [
+        {
+          "frame": 0,
+          "box": [
+            614,
+            222,
+            609,
+            267
+          ]
+        },
+        {
+          "frame": 55,
+          "box": [
+            121,
+            289,
+            455,
+            348
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 19,
+      "time_seconds": 9.5,
+      "label_box": [
+        0.25,
+        0.21,
+        0.4,
+        0.31
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.256,
+        "box": [
+          0.26647931734720864,
+          0.21323907640245227,
+          0.4350043614705404,
+          0.37254327844690394
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.26647931734720864,
+        0.21323907640245227,
+        0.4350043614705404,
+        0.37254327844690394
+      ],
+      "detector_box_iou": 0.4466,
+      "segment_seconds": 24.9,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2); each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": null,
+      "track_frames": 3,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.0,
+        "23": 0.0
+      },
+      "track_iou_at_label": 0.0,
+      "seed_inherited_iou": 0.0,
+      "track_boxes_head": [
+        {
+          "frame": 0,
+          "box": [
+            541,
+            266,
+            283,
+            146
+          ]
+        },
+        {
+          "frame": 54,
+          "box": [
+            604,
+            219,
+            848,
+            484
+          ]
+        },
+        {
+          "frame": 55,
+          "box": [
+            0,
+            411,
+            269,
+            199
+          ]
+        }
+      ]
+    },
+    {
+      "sample_index": 23,
+      "time_seconds": 11.5,
+      "label_box": [
+        0.26,
+        0.21,
+        0.4,
+        0.33
+      ],
+      "detection": {
+        "detected": true,
+        "score": 0.162,
+        "box": [
+          0.28481483459472656,
+          0.21604153668438947,
+          0.4360743204752604,
+          0.4061165138527199
+        ]
+      },
+      "seeded": true,
+      "seed_box": [
+        0.28481483459472656,
+        0.21604153668438947,
+        0.4360743204752604,
+        0.4061165138527199
+      ],
+      "detector_box_iou": 0.4048,
+      "segment_seconds": 24.66,
+      "seed_note": "detector_seeded: 1 object target(s) 'baseball cap' (owlv2); each mints an ObjectClass from its category on migration.",
+      "track_object_id": "obj_1",
+      "seed_frame": null,
+      "track_frames": 3,
+      "track_iou_by_label": {
+        "11": 0.0,
+        "15": 0.0,
+        "19": 0.0,
+        "23": 0.0
+      },
+      "track_iou_at_label": 0.0,
+      "seed_inherited_iou": 0.0,
+      "track_boxes_head": [
+        {
+          "frame": 0,
+          "box": [
+            542,
+            267,
+            284,
+            183
+          ]
+        },
+        {
+          "frame": 54,
+          "box": [
+            605,
+            221,
+            308,
+            221
+          ]
+        },
+        {
+          "frame": 55,
+          "box": [
+            0,
+            411,
+            271,
+            205
+          ]
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "labelled_frames": 4,
+    "seeded_frames": 4,
+    "tracked_frames": 4,
+    "detector_box_iou_mean": 0.4248,
+    "seed_inherited_iou_mean": 0.0,
+    "track_box_iou_mean": 0.0,
+    "track_box_iou_at_or_above_0_5": 0
+  }
+}

@@ -134,14 +134,16 @@ def test_seed_boxes_refused_without_class():
     with pytest.raises(ValueError):
         seg.check_seed_boxes([{
             "box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-            "category": "", "detector": "owlv2"}])
+            "category": "", "detector": "owlv2",
+            "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}])
 
 
 def test_seed_boxes_refused_without_area():
     with pytest.raises(ValueError):
         seg.check_seed_boxes([{
             "box": [0.4, 0.4, 0.4, 0.4], "label": "black laptop",
-            "category": "laptop", "detector": "owlv2"}])
+            "category": "laptop", "detector": "owlv2",
+            "frame": {"time_seconds": 0.0, "width": 1920, "height": 1080}}])
 
 
 def test_normalize_seed_box_clamps_but_never_invents():
@@ -463,7 +465,9 @@ def test_step_cache_key_covers_detector_seeds(tmp_path):
     from library.steps.step_1_06_object_segmentation import step as s1
 
     seeds = [{"box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-              "category": "laptop", "detector": "owlv2"}]
+              "category": "laptop", "detector": "owlv2",
+              "frame": {"time_seconds": 0.0, "width": 1920,
+                        "height": 1080}}]
     assert s1._seed_key(None) == []
     assert s1._seed_key(seeds) != []
     other = [dict(seeds[0], detector="florence2")]
@@ -481,7 +485,9 @@ def test_step_reuses_face_only_but_remeasures_new_seeds(tmp_path):
     assert s1._stored_segmentation_reusable(
         stored, str(clip), None, 2.0) is not None
     seeds = [{"box": [0.1, 0.1, 0.4, 0.4], "label": "black laptop",
-              "category": "laptop", "detector": "owlv2"}]
+              "category": "laptop", "detector": "owlv2",
+              "frame": {"time_seconds": 0.0, "width": 1920,
+                        "height": 1080}}]
     assert s1._stored_segmentation_reusable(
         stored, str(clip), None, 2.0, seeds) is None
     s1._stamp_segmentation_identity(stored, str(clip), None, 2.0, seeds)

@@ -206,6 +206,15 @@ class ObjectSeed:
     refuses a seed with no area, no label or no class: a track
     without a class mints no `ObjectClass`, which is the whole point
     of seeding it.
+
+    `frame_time_seconds`, `frame_width` and `frame_height` say WHERE
+    the box was measured: the time of the frame the detector answered
+    on, and that frame's pixel size. They are not decoration. A
+    normalized box is a box in a named frame, and a tracker that
+    prompts a frame it was never told about tracks whatever happens to
+    sit under the box - the seed grounds nothing, and the track
+    inherits a seed that was never grounded (D-02). `check_seed_boxes`
+    refuses a seed that does not declare them.
     """
 
     box: List[float]
@@ -213,6 +222,29 @@ class ObjectSeed:
     category: str
     detector: str
     score: Optional[float] = None
+    frame_time_seconds: Optional[float] = None
+    """The source time of the frame the box was measured on. The
+    tracker prompts the sample at this time, not the clip's first
+    frame."""
+    frame_width: Optional[int] = None
+    """The pixel width of the frame the box was measured in. The seed's
+    box is normalized against it, so a frame of another aspect (a
+    rotated or cropped rendering) cannot be mapped onto the clip's
+    frames and is refused rather than silently misplaced."""
+    frame_height: Optional[int] = None
+    """The pixel height of the frame the box was measured in."""
+
+
+SEED_ASPECT_TOLERANCE = 0.01
+"""How far a seed's frame aspect may differ from the clip's frames'.
+
+A resized frame keeps its aspect, so a seed measured on a downscaled
+copy still maps. A rotated or cropped frame does not, and a normalized
+box cannot be mapped across one without a rotation or crop record
+this contract does not carry - so the seed is refused with that
+reason rather than placed on the wrong content. One percent absorbs
+the rounding an even-height downscale introduces; a rotation changes
+the aspect by far more."""
 
 
 def _check_seed_score(value: Any, label: str) -> Optional[float]:
@@ -233,6 +265,47 @@ def _check_seed_score(value: Any, label: str) -> Optional[float]:
             f"object seed {label!r} score {number} is outside 0..1: "
             f"not a detector score")
     return number
+
+
+def _check_seed_anchor(entry: dict, label: str) -> tuple[float, int, int]:
+    """The frame a seed was measured on: its time and its pixel size.
+
+    Refused when any of the three is missing or unusable. A seed
+    without a frame is the D-02 defect: the tracker would prompt the
+    clip's first frame with a box measured somewhere else, the track
+    would be born on whatever sits under that box at t=0, and the
+    tracker would inherit a seed that was never grounded.
+    """
+    frame = entry.get("frame")
+    if not isinstance(frame, dict):
+        raise TypeError(
+            f"object seed {label!r} names no frame: a seed must say "
+            f"which frame its box was measured on "
+            f"(frame: {{time_seconds, width, height}}), or the "
+            f"tracker prompts a frame the box was never measured on.")
+    try:
+        time_seconds = float(frame.get("time_seconds"))
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"object seed {label!r} frame time_seconds "
+            f"{frame.get('time_seconds')!r} is not a number") from None
+    if time_seconds < 0:
+        raise ValueError(
+            f"object seed {label!r} frame time_seconds {time_seconds} "
+            f"is negative: a frame before the clip is not a frame")
+    try:
+        width = int(frame.get("width"))
+        height = int(frame.get("height"))
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"object seed {label!r} frame size "
+            f"{(frame.get('width'), frame.get('height'))!r} is not a "
+            f"pixel size") from None
+    if width <= 0 or height <= 0:
+        raise ValueError(
+            f"object seed {label!r} frame size {width}x{height} has no "
+            f"area: the box was normalized against nothing")
+    return time_seconds, width, height
 
 
 def track_fragments(sample_indices, total_samples: int) -> Dict[str, Any]:
@@ -316,11 +389,72 @@ def check_seed_boxes(seed_boxes) -> List[ObjectSeed]:
             raise ValueError(
                 f"object seed {entry!r} needs a label, a category and a "
                 f"detector; a track without a class mints no ObjectClass")
+        frame_time, frame_width, frame_height = _check_seed_anchor(
+            entry, label)
         seeds.append(ObjectSeed(box=box, label=label, category=category,
                                 detector=detector,
                                 score=_check_seed_score(
-                                    entry.get("score"), label)))
+                                    entry.get("score"), label),
+                                frame_time_seconds=frame_time,
+                                frame_width=frame_width,
+                                frame_height=frame_height))
     return seeds
+
+
+def seed_sample_index(seed: ObjectSeed, sample_fps: float,
+                      frame_count: int) -> int:
+    """The tracker's sample index a seed's frame maps to.
+
+    The segmenter samples the clip at `sample_fps` from t=0, so a
+    frame at `t` seconds sits at sample `round(t * sample_fps)`.
+    NEAREST, like `mask_seed.frame_to_sample`: a floored sample can be
+    a full sample period away from the frame the box was measured on.
+
+    Refused when the sample falls outside the clip: a box measured
+    beyond the clip's last frame has no frame to prompt.
+    """
+    try:
+        rate = float(sample_fps)
+        total = int(frame_count)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"seed {seed.label!r} cannot be placed: the sample rate "
+            f"{sample_fps!r} or the frame count {frame_count!r} is not "
+            f"a number") from None
+    if rate <= 0:
+        raise ValueError(
+            f"seed {seed.label!r} cannot be placed: the sample rate "
+            f"{rate} is not positive")
+    if total <= 0:
+        raise ValueError(
+            f"seed {seed.label!r} cannot be placed: the clip has no "
+            f"sampled frames")
+    index = round(float(seed.frame_time_seconds) * rate)
+    if index < 0 or index >= total:
+        raise ValueError(
+            f"seed {seed.label!r} was measured at "
+            f"{seed.frame_time_seconds}s, which is sample {index} of a "
+            f"{total}-sample clip: the frame it names is not in this "
+            f"clip")
+    return index
+
+
+def seed_geometry_matches(seed: ObjectSeed, width: int, height: int) -> bool:
+    """Whether a seed's box can be mapped onto a frame of this size.
+
+    A resized frame keeps its aspect, so a seed measured on a
+    downscaled copy still maps. A rotated or cropped frame does not,
+    and a normalized box cannot be mapped across one without a
+    rotation or crop record - so it is refused, not placed on the
+    wrong content.
+    """
+    try:
+        seed_aspect = float(seed.frame_width) / float(seed.frame_height)
+        frame_aspect = float(width) / float(height)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return False
+    return abs(seed_aspect - frame_aspect) <= (
+        frame_aspect * SEED_ASPECT_TOLERANCE)
 
 
 @dataclass
@@ -342,6 +476,11 @@ class TrackedObject:
     (VI-05); None everywhere else, including every file written before
     scores travelled. Metadata, never track identity: the content key
     does not cover it."""
+    seed_frame: Optional[int] = None
+    """The sample frame the target was PROMPTED on: the frame its seed
+    was measured on (D-02). None for a target that was never prompted
+    on a named frame (a face seed on the first frame, a blob), and for
+    every file written before seeds carried their frame."""
 
 @dataclass
 class MatchCutCandidate:
@@ -574,13 +713,22 @@ class ObjectSegmenter:
         #268 - on a wide shot that was a car window or a patch of road).
 
         `seed_boxes` (MU-15) is detector seeding: a list of
-        `{box, label, category, detector}` dicts (see `check_seed_boxes`)
-        from an open-vocabulary detector answering Gemma's object
-        phrases. Each box prompts one more SAM 2 target beside the face
-        seed, so a clip carries its subject AND its named objects ("mask
-        out the logo" finally has a track). A clip with detector seeds
-        but no face box is still segmented - named objects need no face -
-        while a clip with neither is declined exactly as before.
+        `{box, label, category, detector, frame}` dicts (see
+        `check_seed_boxes`) from an open-vocabulary detector answering
+        Gemma's object phrases. `frame` is `{time_seconds, width,
+        height}`: the frame the box was measured on and that frame's
+        pixel size. Each box prompts one more SAM 2 target beside the
+        face seed, on the frame the box was measured on, so a clip
+        carries its subject AND its named objects ("mask out the logo"
+        finally has a track). A clip with detector seeds but no face box
+        is still segmented - named objects need no face - while a clip
+        with neither is declined exactly as before.
+
+        A seed whose frame is outside the clip, or whose frame is a
+        rotated or cropped rendering this clip's frames cannot carry,
+        is refused with that reason (D-02): a normalized box cannot be
+        mapped across one, and placing it anyway would seed the tracker
+        on the wrong content.
 
         When face seeding is asked for and no box arrives (`require_face`
         with `face_box=None`, or a box covering no pixels after clamping),
@@ -769,8 +917,29 @@ class ObjectSegmenter:
                     # a seed that covers no pixels after clamping is
                     # refused loudly (a degenerate prompt tracks nothing
                     # and says nothing about it).
+                    #
+                    # The prompt goes on the frame the box was MEASURED
+                    # on (D-02), not on the clip's first frame. A box
+                    # measured at 5.5s and prompted at t=0 lands on
+                    # whatever happens to sit under it at t=0: the track
+                    # is born on the wrong content and inherits a seed
+                    # that was never grounded. A seed whose frame is
+                    # outside the clip, or whose frame was a rotated or
+                    # cropped rendering this clip's frames cannot carry,
+                    # is refused with that reason.
                     prompted = []
                     for seed in detector_seeds:
+                        if not seed_geometry_matches(seed, width, height):
+                            raise ValueError(
+                                f"object seed {seed.label!r} was measured "
+                                f"on a {seed.frame_width}x{seed.frame_height} "
+                                f"frame, and this clip's frames are "
+                                f"{width}x{height}: a rotated or cropped "
+                                f"frame cannot be mapped onto this one, so "
+                                f"the seed is not placed on the wrong "
+                                f"content.")
+                        seed_frame = seed_sample_index(
+                            seed, sample_fps, len(frame_files))
                         x1 = min(max(seed.box[0] * width, 0.0), float(width))
                         y1 = min(max(seed.box[1] * height, 0.0), float(height))
                         x2 = min(max(seed.box[2] * width, 0.0), float(width))
@@ -786,7 +955,7 @@ class ObjectSegmenter:
                             _, out_obj_ids, out_mask_logits = (
                                 predictor.add_new_points_or_box(
                                     inference_state=inference_state,
-                                    frame_idx=0,
+                                    frame_idx=seed_frame,
                                     obj_id=next_obj_id,
                                     box=pixel_box,
                                 ))
@@ -800,9 +969,11 @@ class ObjectSegmenter:
                             avg_area_ratio=0.0,
                             seed=f"{DETECTOR_SEED_PREFIX}{seed.detector}",
                             score=seed.score,
+                            seed_frame=seed_frame,
                         )
                         prompted.append(
-                            f"{seed.label!r} ({seed.detector})")
+                            f"{seed.label!r} ({seed.detector}) on frame "
+                            f"{seed_frame}")
                         next_obj_id += 1
                     seed_notes.append(
                         "detector_seeded: "

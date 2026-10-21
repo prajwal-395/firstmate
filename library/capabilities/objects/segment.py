@@ -36,13 +36,21 @@ def _seed_key(seed_boxes) -> list:
     class or detector re-measures, while key order never does. None
     (or an empty list) means face-only seeding, the key old stamps
     carry. A seed's detector score is metadata the track never read,
-    so it rides no key: a score-only change re-measures nothing."""
+    so it rides no key: a score-only change re-measures nothing.
+
+    The seed's FRAME rides the key (D-02): a box measured on another
+    frame of the same clip is another measurement, and the matte that
+    carries it was cut from the track the tracker grew on that frame.
+    """
     if not seed_boxes:
         return []
     return sorted(
         [[float(v) for v in (s.get("box") or [])],
          str(s.get("label") or ""), str(s.get("category") or ""),
-         str(s.get("detector") or "")]
+         str(s.get("detector") or ""),
+         float((s.get("frame") or {}).get("time_seconds") or 0.0),
+         int((s.get("frame") or {}).get("width") or 0),
+         int((s.get("frame") or {}).get("height") or 0)]
         for s in seed_boxes if isinstance(s, dict))
 
 
@@ -354,12 +362,17 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
     3.5s, is gone: a matte for nobody is not a measurement.
 
     `object_seeds_by_clip` (MU-15) maps clip_id to detector seeds -
-    `{box, label, category, detector}` dicts from an open-vocabulary
-    detector answering Gemma's object phrases. A wanted clip carrying
-    seeds is segmented for its named objects even where no face box
-    reaches it (a logo needs no face); the seeds ride the same SAM 2
-    run and the same file, and the content key covers them, so a new
-    seed re-measures rather than reusing a faceless matte.
+    `{box, label, category, detector, frame}` dicts from an
+    open-vocabulary detector answering Gemma's object phrases, where
+    `frame` is `{time_seconds, width, height}`: the frame the box was
+    measured on and that frame's pixel size. The frame is not
+    decoration - the tracker prompts the frame the box was measured on,
+    so a seed without it would land on whatever sits under the box at
+    the clip's first frame (D-02). A wanted clip carrying seeds is
+    segmented for its named objects even where no face box reaches it
+    (a logo needs no face); the seeds ride the same SAM 2 run and the
+    same file, and the content key covers them, so a new seed
+    re-measures rather than reusing a faceless matte.
 
     `raw_footage_files` is accepted and ignored: the catalog carries
     every path this step reads, and a declaration nothing reads is the

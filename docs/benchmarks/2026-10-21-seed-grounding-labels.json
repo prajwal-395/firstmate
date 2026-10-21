@@ -1,0 +1,54 @@
+{
+  "format": "ren_seed_grounding_labels/1",
+  "lane": "fm-d02-seed-grounding",
+  "purpose": "A hand-labelled sample for the D-02 seed-grounding measurement: the box a human reads off the frame, against the box a detector measures and the track that inherits it.",
+  "clip": {
+    "source_id": "IMG_1808",
+    "provenance": "A Ren-owned scratch copy of one captain raw clip (Apple 001 raw media). The source media was read only; the copy lives outside every checkout. No project, timeline or original file was touched.",
+    "scratch_copy_sha256": "07aa0915ccaeb3879aa7b864d45b71a08f08f723c5ebc54cd6adc645c1f7bbab",
+    "sample_fps": 2.0,
+    "sample_recipe": "ffmpeg -i <clip> -vf fps=2 -q:v 2 %05d.jpg - the recipe the tracker samples with, so a labelled index is the tracker's own sample index.",
+    "resolution": [1920, 1080]
+  },
+  "object": {
+    "label": "baseball cap",
+    "category": "cap",
+    "note": "The cap the subject wears. Hand-labelled by reading a tenth-grid overlay off the frame; the boxes are tight around the cap crown and brim, and are eyeballed to about plus or minus 0.015."
+  },
+  "labelling": {
+    "annotator": "the worker that ran the D-02 lane",
+    "method": "Each labelled frame was drawn with a 0.1-spaced normalized coordinate grid and the cap's box read off it by eye.",
+    "review": "Every labelled frame was looked at after labelling, with the label drawn onto the frame.",
+    "adjudication": "One annotator. The measurement compares a detector box and a tracked box against the same hand label, so no inter-annotator agreement is claimed."
+  },
+  "frames": [
+    {
+      "sample_index": 11,
+      "time_seconds": 5.5,
+      "image": "frames/00012.jpg",
+      "image_sha256": "3861843768eb4670badc051435c8d99549fe4881da9e6aa4d3683c224423f9a1",
+      "box": [0.295, 0.13, 0.66, 0.31]
+    },
+    {
+      "sample_index": 15,
+      "time_seconds": 7.5,
+      "image": "frames/00016.jpg",
+      "image_sha256": "5ad48565b2500d21c0d5406ee98c777d36fc35fdb9413a7ea1cc09c978f17e8f",
+      "box": [0.3, 0.13, 0.62, 0.29]
+    },
+    {
+      "sample_index": 19,
+      "time_seconds": 9.5,
+      "image": "frames/00020.jpg",
+      "image_sha256": "28a552e41465251c8646d5709f2c48421f98467c860baa92462db3e141f9c1c0",
+      "box": [0.25, 0.21, 0.4, 0.31]
+    },
+    {
+      "sample_index": 23,
+      "time_seconds": 11.5,
+      "image": "frames/00024.jpg",
+      "image_sha256": "eb18e0a6626043fca0796da508ffb67f7babb2912daae968a39336f28a401a08",
+      "box": [0.26, 0.21, 0.4, 0.33]
+    }
+  ]
+}
