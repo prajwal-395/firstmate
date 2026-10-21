@@ -1329,6 +1329,22 @@ def _target_timeline(project, name, resolve=None):
         return timeline_named(project, name), False, ""
     except TimelineIngestError:
         listed = _timeline_names(project)
+        exact = []
+        for index in range(1, (project.GetTimelineCount() or 0) + 1):
+            timeline = project.GetTimelineByIndex(index)
+            if timeline is not None and timeline.GetName() == name:
+                exact.append(timeline)
+        if len(exact) > 1:
+            candidates = []
+            for timeline in exact:
+                try:
+                    candidates.append(str(timeline.GetUniqueId()))
+                except Exception:  # noqa: BLE001 - keep refusal actionable
+                    candidates.append("(id unavailable)")
+            raise AxiError(
+                f"timeline name {name!r} is duplicated on project "
+                f"{project.GetName()!r}: {candidates}; pass its timeline id.",
+                f"{TOOL} timeline list") from None
         hits = [other for other in listed if other.startswith(name)]
         if len(hits) == 1:
             return (timeline_named(project, hits[0]), False,

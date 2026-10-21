@@ -385,6 +385,17 @@ def test_a_timeline_is_addressed_exactly_too(tmp_path):
         timeline_ingest.timeline_named(project, "Main Edit")
 
 
+def test_duplicate_timeline_names_require_a_unique_id():
+    first = FakeTimeline("fm-scratch qualify", uid="timeline-first")
+    second = FakeTimeline("fm-scratch qualify", uid="timeline-second")
+    project = FakeProject("Ren Qualification", [first, second])
+
+    with pytest.raises(TimelineIngestError, match="pass its timeline id"):
+        timeline_ingest.timeline_named(project, "fm-scratch qualify")
+
+    assert timeline_ingest.timeline_named(project, "timeline-second") is second
+
+
 # ── What it emits must pass the REAL checks ──────────────────────────
 
 

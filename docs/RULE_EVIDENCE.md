@@ -11099,3 +11099,36 @@ did not read back project folder" - a read-back that cannot read back,
 refusing a navigation that cannot be measured either way. A project in a
 folder the machine is not in is therefore UNREACHABLE, and the only
 projects a run can reach are the ones in the folder the machine is in.
+
+## the-qualification-fixture-name-that-was-not-unique
+
+**The rule:** A live timeline write names one timeline by unique ID or by an
+unambiguous exact name. A duplicate display name is a refusal, not a selector.
+`library/tools/timeline_ingest.py` owns the live timeline lookup.
+
+**What happened.** Measured on 2026-10-21 in the `Ren Qualification` project,
+through the shared Resolve broker: the AXI-11 fixture runner duplicated the
+timeline named `fm-scratch qualify` into a disposable timeline, then six requests
+failed during fixture setup because `edit place` left the new timeline at zero
+items. The recorded timeline inventory contained four timelines with that same
+name: two at one frame, one at 49 frames, and the 217-frame fixture. The source
+selector used the display name, and the live resolver returned the first exact
+name without checking whether another timeline shared it. The empty disposable
+was recorded as a fixture failure, not as an editorial pass.
+
+**Why it hid.** The selector was an exact string, so it looked precise in the
+command and its receipt. Resolve projects can retain multiple timelines under
+the same display name; an exact name alone did not establish which one was
+duplicated. The generated timeline name was unique, which made the wrong source
+look like a valid fixture copy.
+
+**Where it is.** `timeline_named` now accepts a stable timeline ID and refuses a
+duplicated exact name with the candidate IDs. The AXI target refusal also names
+those IDs so the caller can retry against one identity. The defect is covered by
+`tests/unit/resolve/test_timeline_ingest.py`. A live rerun against the identified
+fixture ID is still queued; production qualification is not claimed until that
+rerun reads back the expected fixture and the request results.
+
+**What it does not fix.** It does not establish that a selected timeline has
+the media, markers, captions, speech, or track layout a fixture needs. Those
+conditions still require a fresh read-back before the editorial request runs.

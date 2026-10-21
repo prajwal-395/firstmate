@@ -463,18 +463,49 @@ def resolve_project_in_declared_folder(project_manager, name: str,
 
 
 def timeline_named(project, name: str):
-    """The timeline named exactly `name` on `project`, or a refusal."""
+    """Resolve a timeline by unique id or unambiguous exact name.
+
+    Projects can contain several timelines with the same display name.
+    Returning the first one makes an exact name look trustworthy while
+    silently selecting a different timeline. A stable Resolve id is the
+    only selector that remains unambiguous in that case.
+    """
+    selector = str(name).strip()
     found = []
+    named = []
+    identified = []
     for i in range(1, (project.GetTimelineCount() or 0) + 1):
         timeline = project.GetTimelineByIndex(i)
         if timeline is None:
             continue
-        found.append(timeline.GetName())
-        if timeline.GetName() == name:
-            return timeline
+        timeline_name = str(timeline.GetName() or "")
+        try:
+            timeline_id = str(timeline.GetUniqueId() or "").strip()
+        except Exception:  # noqa: BLE001 - report unavailable identity below
+            timeline_id = ""
+        found.append((timeline_name, timeline_id))
+        if timeline_id and timeline_id == selector:
+            identified.append(timeline)
+        if timeline_name == selector:
+            named.append(timeline)
+    if len(identified) == 1:
+        return identified[0]
+    if len(identified) > 1:
+        raise TimelineIngestError(
+            f"timeline id {selector!r} is duplicated on project "
+            f"{project.GetName()!r}.")
+    if len(named) == 1:
+        return named[0]
+    if len(named) > 1:
+        candidates = [timeline_id or "(id unavailable)"
+                      for timeline_name, timeline_id in found
+                      if timeline_name == selector]
+        raise TimelineIngestError(
+            f"timeline name {selector!r} is duplicated on project "
+            f"{project.GetName()!r}: {candidates}; pass its timeline id.")
     raise TimelineIngestError(
-        f"No timeline named exactly {name!r} on project "
-        f"{project.GetName()!r}. It has: {found}.")
+        f"No timeline named exactly {selector!r} or with that id on "
+        f"project {project.GetName()!r}. It has: {found}.")
 
 
 # ── Reading ──────────────────────────────────────────────────────────
