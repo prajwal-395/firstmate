@@ -188,7 +188,7 @@ def _render_double():
 
 
 def _qc_double():
-    def _qc(path, spec, expected_seconds):
+    def _qc(path, spec, expected_seconds, *, declared_silence_spans=None):
         return {"platform": spec.platform, "passed": True,
                 "duration": {"passed": True}, "black_frames": {"passed": True},
                 "loudness": {"passed": True}, "grade": {"passed": True},

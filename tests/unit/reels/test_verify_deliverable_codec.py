@@ -34,6 +34,16 @@ def _stubbed(monkeypatch, codec="h264"):
     monkeypatch.setattr(render_qa, "measure_lufs",
                         lambda path, **kwargs: RenderQAResult(
                             "lufs", True, -14.0, -14.0, "info", "on target"))
+    # The AUDIO SPEC's other two legs, stubbed with the rest: these
+    # tests are about the codec, and the file here is not a real one.
+    monkeypatch.setattr(
+        render_qa, "measure_silence_under_picture",
+        lambda path, **kwargs: RenderQAResult(
+            "silence_under_picture", True, {}, None, "info", "no silence"))
+    monkeypatch.setattr(
+        render_qa, "verify_channel_presence",
+        lambda path: RenderQAResult(
+            "channels", True, {"channels": 2}, None, "info", "present"))
     monkeypatch.setattr(pool_stream_meta, "disk_stream",
                         lambda path: {"width": 1080, "height": 1920,
                                       "codec": codec})

@@ -445,7 +445,8 @@ def _record(result) -> dict:
             "severity": result.severity, "detail": result.detail}
 
 
-def run_qc(output_path: str, spec, expected_seconds: float) -> dict:
+def run_qc(output_path: str, spec, expected_seconds: float,
+           *, declared_silence_spans=None) -> dict:
     """`deliverable_qc`'s verdict on one delivered file, as plain data.
 
     Duration is judged against what the delivery itself verified moments
@@ -455,18 +456,46 @@ def run_qc(output_path: str, spec, expected_seconds: float) -> dict:
     measured here too, by the same `deliverable_qc` check the
     delivery verdict now uses, so the two cannot grade the same number
     two ways. Grade reports, never gates.
+
+    The AUDIO SPEC is measured here too - the same three legs, against
+    the same declared silence, so the batch's receipt and the delivery
+    verdict cannot disagree about a file's audio. `declared_silence_spans`
+    are the seconds where silence under picture is DELIBERATE, read
+    from the project's own declarations; the batch computes them per
+    reel and passes them here.
     """
     from library.tools.deliverable_qc import run_deliverable_qc
 
     verdict = run_deliverable_qc(
-        output_path, spec, float(expected_seconds))
+        output_path, spec, float(expected_seconds),
+        declared_silence_spans=declared_silence_spans)
     return {"platform": verdict.platform, "passed": bool(verdict.passed),
             "duration": _record(verdict.duration),
             "black_frames": _record(verdict.black_frames),
             "loudness": _record(verdict.loudness),
             "grade": _record(verdict.grade),
             "captions": ([_record(row) for row in verdict.captions]
-                         if verdict.captions is not None else None)}
+                         if verdict.captions is not None else None),
+            "audio": {
+                "loudness": _record(verdict.audio.loudness),
+                "silence": _record(verdict.audio.silence),
+                "channels": _record(verdict.audio.channels),
+                "passed": bool(verdict.audio.passed),
+            }}
+
+
+def _declared_silence(project_folder: str, timeline_name: str,
+                      duration_seconds: float, fps: float) -> list:
+    """Where this reel's silence is DELIBERATE, from its declarations.
+
+    The same spans the delivery verdict measured against, so the batch's
+    receipt and the delivery's own record grade one file one way.
+    """
+    from library.tools.declared_silence import declared_silence_spans
+
+    return declared_silence_spans(
+        project_folder, timeline_name,
+        duration_seconds=duration_seconds, fps=fps)
 
 
 # ── The batch ────────────────────────────────────────────────────
@@ -615,9 +644,13 @@ def deliver_all_approved(
         assignment_spine.end_act(act, ok=True)
         verification = full["verification"]
         out_path = verification["output_path"]
+        expected = _expected_seconds(full, moment)
+        silence_spans = _declared_silence(
+            project_folder, timeline, expected,
+            float(full.get("timeline_fps") or 0.0))
         try:
-            qc = qc_one(out_path, master_spec,
-                        _expected_seconds(full, moment))
+            qc = qc_one(out_path, master_spec, expected,
+                        declared_silence_spans=silence_spans)
             qc_passed = bool(qc.get("passed"))
         except Exception as exc:  # noqa: BLE001 - QC measures, never sinks
             qc = {"passed": False, "error": repr(exc)}
@@ -740,7 +773,11 @@ def deliver_all_approved(
                                "failed - see the failure row")})
                 continue
             try:
-                qc = qc_one(result["output_path"], spec, expected)
+                qc = qc_one(result["output_path"], spec, expected,
+                            declared_silence_spans=_declared_silence(
+                                project_folder, timeline, expected,
+                                float((master_fulls.get(number) or {}).get(
+                                    "timeline_fps") or 0.0)))
                 qc_passed = bool(qc.get("passed"))
             except Exception as exc:  # noqa: BLE001 - QC measures, never sinks
                 qc = {"passed": False, "error": repr(exc)}

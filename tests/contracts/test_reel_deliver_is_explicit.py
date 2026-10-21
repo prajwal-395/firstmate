@@ -336,6 +336,16 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
         return RenderQAResult("lufs", True, -14.0, -14.0, "info",
                               "on target")
 
+    def fake_silence(path, **kwargs):
+        # The AUDIO SPEC's silence leg: the same stand-in file, so it
+        # is stubbed with the rest.
+        return RenderQAResult("silence_under_picture", True, {}, None,
+                              "info", "no silence")
+
+    def fake_channels(path):
+        return RenderQAResult("channels", True, {"channels": 2}, None,
+                              "info", "present")
+
     with (patch("library.tools.reel_build._connect_resolve_project",
                  return_value=project),
            # The worker gate is pinned, not measured: this proves the
@@ -357,6 +367,10 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                 side_effect=fake_black),
           patch("library.tools.render_qa.measure_lufs",
                 side_effect=fake_lufs),
+          patch("library.tools.render_qa.measure_silence_under_picture",
+                side_effect=fake_silence),
+          patch("library.tools.render_qa.verify_channel_presence",
+                side_effect=fake_channels),
           # The success path runs against a clean pool: the stale case
           # is proven by test_deliver_refuses_on_stale_overlays_.
           patch("library.tools.reel_deliver.overlay_staleness",

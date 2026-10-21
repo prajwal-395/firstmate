@@ -99,7 +99,8 @@ class _QcDouble:
     def __init__(self):
         self.calls: list[str] = []
 
-    def __call__(self, path, spec, expected_seconds):
+    def __call__(self, path, spec, expected_seconds,
+                 *, declared_silence_spans=None):
         self.calls.append(path)
         return {"platform": spec.platform, "passed": True,
                 "duration": {"passed": True}, "black_frames": {"passed": True},

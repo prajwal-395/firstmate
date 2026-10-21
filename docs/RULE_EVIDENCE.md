@@ -8686,3 +8686,55 @@ drift (D-03), a crop that keeps the aspect (the contract carries no crop
 record), and the frames before the seed: a track cannot exist before the
 frame its evidence comes from, and the frames it used to occupy held the
 wrong object.
+
+## the-delivery-that-could-not-hear-its-own-file
+
+**The rule:** A delivered file's AUDIO SPEC is judged on the file, and the
+judgement GATES the delivery state. Loudness is not the whole of it.
+`library/tools/deliverable_qc.py` owns the three legs; `library/tools/reel_deliver.py`
+reads the one verdict.
+
+**What happened.** Measured on 2026-10-20 on the delivery path itself: a file whose
+last 16 of 20 seconds were digital silence under picture came back `passed: True`
+from BOTH `reel_deliver.verify_deliverable` and `deliverable_qc.run_deliverable_qc`.
+Loudness was the only audio measurement, and integrated loudness is a GATED
+measurement (BS.1770 drops everything below the absolute gate), so the silence was
+not counted and the words that survived measured on target: -13.98 LUFS against a
+-14.0 target, a PASS. The delivery state read "delivered" over a file with no
+dialogue in it. The same file also showed the rule's other half: a file that is
+silent ON PURPOSE failed with "-inf LUFS is inf dB off the target" - a number
+nobody can act on, for a file that is correct.
+
+The demo round 2 (PR 3015) had already measured the loudness half of this and said
+so: its export measured -20.88 LUFS against -14.0 +/-1.0 and the loudness check
+failed. That export SHOULD have failed, and the check that caught it was the
+harness's own, not the delivery path's - the file was rendered by
+`resolve-axi render inspect`, which is not a delivery, so nothing in the delivery
+state ever looked at it.
+
+**Where it is.** `deliverable_qc.verify_audio_spec` is the one measurement the
+delivery verdict and the QC gate share: the spec's loudness (`render_qa.measure_lufs`,
+the same call the mastering reads), the digital silence under picture
+(`render_qa.measure_silence_under_picture`, the engine's own rule, with the
+declared silence that excuses it), and the channel presence
+(`render_qa.verify_channel_presence` - a channel that carries no signal at all is a
+channel the delivery lost). A file with no audible content has NO loudness to be
+wrong: its loudness leg is NOT CHECKED and the silence leg decides it, so a
+DECLARED silent ending passes and an undeclared silence does not.
+`library/tools/declared_silence.py` answers the one question the silence leg needs -
+which seconds of this file are declared silent - out of the declarations that
+already exist: the compiled manifest's ending (`render_qa.declared_ending_spans`,
+the same vocabulary step 6.02's gate reads), a reel's own declared ending (the
+freeze hold plays a HELD frame and the audio is not held) and the project's
+full-frame tail cards (a card carries no audio onto the timeline). Nothing is
+invented: a project that declares nothing declares no silence, and every
+digital-zero run under picture is then undeclared.
+
+**What it does not fix.** The silence gate is the engine's own rule with its own
+two-frame floor, and it now runs on a delivered file as well as on a pipeline
+render: a reel whose tail is silent for a reason nobody declared will be refused,
+and the refusal names the seconds. The measurement costs three extra passes over
+the file (loudness, silence, one pass per audio channel), which is a delivery-time
+cost on a file that was just rendered. And the channel check measures the PEAKS
+per channel, not the mix: a channel carrying only room tone passes, which is
+right - it carries signal.

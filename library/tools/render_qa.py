@@ -4179,6 +4179,143 @@ def verify_audio_streams(video_path: str, min_streams: int = 1) -> RenderQAResul
         return RenderQAResult("audio_streams", False, str(e), None, "error", f"Error: {e}")
 
 
+#: The peak level at or below which a channel carries no signal at all.
+#: The delivery quantisation's own floor: int16 silence is -90.31 dBFS
+#: (``DIGITAL_ZERO_DBFS``), so a channel whose peak sits at that floor
+#: carries NOTHING, whatever the file's other channels do.
+SILENT_CHANNEL_PEAK_DBFS = -90.0
+
+
+def _channel_peak_dbfs(video_path: str, channel: int) -> Optional[float]:
+    """The peak level of one audio channel, or None when unreadable.
+
+    Measured through the file's OWN samples: one channel is panned out
+    and its peak read.
+    """
+    cmd = [
+        "ffmpeg", "-nostdin", "-i", video_path,
+        "-map", "0:a:0", "-af", f"pan=mono|c0=c{channel},volumedetect",
+        "-f", "null", "-",
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace",
+                             timeout=300, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"max_volume:\s*(-?[\d.]+|-\w+)\s*dB", res.stderr)
+    if not match:
+        return None
+    raw = match.group(1)
+    if raw in ("-inf", "-Infinity"):
+        return float("-inf")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _audio_channel_count(video_path: str) -> Optional[int]:
+    """How many channels the file's first audio stream carries."""
+    cmd = [
+        "ffprobe", "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=channels", "-of", "csv=p=0", video_path,
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace",
+                             timeout=60, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    try:
+        return int(res.stdout.strip().splitlines()[0])
+    except (IndexError, ValueError):
+        return None
+
+
+def verify_channel_presence(video_path: str) -> RenderQAResult:
+    """CHANNEL PRESENCE: every channel the file declares carries signal.
+
+    A file with no audio stream at all fails on the stream count - the
+    ``audio_streams`` measurement owns that, and it is the same one this
+    check reads. A file that carries a channel with NOTHING in it lost
+    that channel, and a viewer hears a hole where the speaker was: the
+    loudness measurement cannot see it, because a channel that is
+    digital zero contributes nothing to the integrated value either.
+
+    The measurement is the file's own samples, one channel at a time.
+    """
+    streams = verify_audio_streams(video_path)
+    if not streams.passed:
+        return RenderQAResult(
+            metric="channels", passed=False, value=None, threshold=None,
+            severity="error",
+            detail=f"the file carries no audio: {streams.detail}")
+    count = _audio_channel_count(video_path)
+    if count is None or count <= 0:
+        return RenderQAResult(
+            metric="channels", passed=False, value=None, threshold=None,
+            severity="error",
+            detail="the file's audio channel count could not be read")
+    peaks = []
+    silent = []
+    unmeasured = []
+    for channel in range(count):
+        peak = _channel_peak_dbfs(video_path, channel)
+        if peak is None:
+            unmeasured.append(channel)
+            continue
+        peaks.append(round(peak, 2))
+        if peak <= SILENT_CHANNEL_PEAK_DBFS:
+            silent.append(channel)
+    if unmeasured:
+        return RenderQAResult(
+            metric="channels", passed=False,
+            value={"channels": count, "peak_dbfs": peaks,
+                   "unmeasured_channels": unmeasured},
+            threshold={"silent_channel_peak_dbfs": SILENT_CHANNEL_PEAK_DBFS},
+            severity="error",
+            detail=(f"the level of channel(s) {unmeasured} could not be "
+                    f"measured, so the file's channel presence is UNKNOWN "
+                    f"- an unmeasured channel is never a present one"))
+    if not peaks:
+        return RenderQAResult(
+            metric="channels", passed=False, value=None, threshold=None,
+            severity="error",
+            detail="the file's channel levels could not be measured at all")
+    if all(peak <= SILENT_CHANNEL_PEAK_DBFS for peak in peaks):
+        # NO channel carries any signal: the file is SILENT, and that is
+        # the silence check's question - a declared silent ending is
+        # correct, and an undeclared one is not. This check owns the
+        # case where a file has signal and a channel that does not.
+        return RenderQAResult(
+            metric="channels", passed=True,
+            value={"channels": count, "peak_dbfs": peaks,
+                   "silent_channels": list(range(len(peaks)))},
+            threshold={"silent_channel_peak_dbfs": SILENT_CHANNEL_PEAK_DBFS},
+            severity="info",
+            detail=(f"no channel of the {count} this file declares carries "
+                    f"any signal: the file is SILENT, and the silence "
+                    f"check owns that"))
+    if silent:
+        return RenderQAResult(
+            metric="channels", passed=False,
+            value={"channels": count, "peak_dbfs": peaks,
+                   "silent_channels": silent},
+            threshold={"silent_channel_peak_dbfs": SILENT_CHANNEL_PEAK_DBFS},
+            severity="error",
+            detail=(f"the file declares {count} channel(s) and channel(s) "
+                    f"{silent} carry no signal at all (peak at or below "
+                    f"{SILENT_CHANNEL_PEAK_DBFS:g} dBFS) - the delivery "
+                    f"lost that channel"))
+    return RenderQAResult(
+        metric="channels", passed=True,
+        value={"channels": count, "peak_dbfs": peaks},
+        threshold={"silent_channel_peak_dbfs": SILENT_CHANNEL_PEAK_DBFS},
+        severity="info",
+        detail=f"{count} channel(s), every one of them carries signal")
+
+
 # ── The encoding of the delivered file ──
 #
 # `verify_resolution`, `verify_framerate` and `verify_duration` say what

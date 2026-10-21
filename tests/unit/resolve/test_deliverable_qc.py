@@ -21,7 +21,7 @@ def _result(metric, passed=True):
 
 
 def _stubbed(monkeypatch, duration=True, black=True, loudness=True,
-             grade=True, captions=()):
+             grade=True, captions=(), silence=True, channels=True):
     from library.tools import render_qa
     from library.tools import subtitle_qa
 
@@ -40,6 +40,16 @@ def _stubbed(monkeypatch, duration=True, black=True, loudness=True,
     monkeypatch.setattr(render_qa, "measure_lufs", fake_lufs)
     monkeypatch.setattr(render_qa, "measure_grade_delivery",
                         lambda path, spans=None: _result("grade", grade))
+    # The AUDIO SPEC's other two legs: the silence under picture that
+    # catches missing dialogue, and the channel presence. They are
+    # stubbed with the rest, because this suite judges the QC's
+    # STRUCTURE (what gates, what reports), not the instruments.
+    monkeypatch.setattr(
+        render_qa, "measure_silence_under_picture",
+        lambda path, **kwargs: _result("silence_under_picture", silence))
+    monkeypatch.setattr(
+        render_qa, "verify_channel_presence",
+        lambda path: _result("channels", channels))
     monkeypatch.setattr(subtitle_qa, "verify_subtitle_timing",
                         lambda data, **kwargs: list(captions))
     return seen

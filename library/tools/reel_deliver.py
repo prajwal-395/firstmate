@@ -524,7 +524,8 @@ def render_file_name(timeline_name: str, naming: str, ext: str) -> str:
 def verify_deliverable(video_path: str, expected_seconds: float,
                        expected_width: int, expected_height: int,
                        expected_codec: str = "",
-                       spec=None) -> dict:
+                       spec=None,
+                       declared_silence_spans=None) -> dict:
     """`render_qa`'s verdict on one delivered file: duration, resolution,
     audio present, not black, loudness, and - when named - the encoded
     codec.
@@ -545,6 +546,21 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     by `deliverable_qc`'s own check against the same spec, so a route
     that skipped or weakened the master cannot ship quietly.
 
+    THE AUDIO SPEC GATES. Loudness alone is not the audio spec: BS.1770
+    gates the silence out of the integrated measurement, so a delivered
+    file that LOST its dialogue still measured on target and came back
+    `passed: True` (measured 2026-10-20 on this path: 16 of 20 seconds
+    of digital silence under picture, and the delivery state read
+    "delivered"). The file's own silence under picture and its channel
+    presence are measured here too, by `deliverable_qc`'s one
+    implementation, and the verdict fails when any of the three does.
+
+    `declared_silence_spans` are the `(start, end)` seconds where
+    silence under picture is DELIBERATE - a silent end card, a
+    TV-switch-off tail - read from the project's own declarations
+    (`library/tools/declared_silence.py`). A declared silent ending
+    PASSES; an undeclared silence does not.
+
     `spec` is the delivery spec the file is judged against - its
     loudness target, its tolerance and its true-peak ceiling. No spec
     means the registry's default, which is the same default
@@ -559,7 +575,7 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     `_disk_resolution` applies.
     """
     from library.tools import render_qa
-    from library.tools.deliverable_qc import measure_loudness
+    from library.tools.deliverable_qc import verify_audio_spec
     from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
 
     if not os.path.isfile(video_path):
@@ -573,10 +589,12 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     resolution = render_qa.verify_resolution(
         video_path, expected_width=expected_width,
         expected_height=expected_height)
-    audio = render_qa.verify_audio_streams(video_path)
+    audio = verify_audio_spec(
+        video_path, spec or DEFAULT_DELIVERY_SPEC,
+        declared_silence_spans=declared_silence_spans)
     black = render_qa.detect_black_frames(video_path)
     codec = _verify_file_codec(video_path, expected_codec)
-    loudness = measure_loudness(video_path, spec or DEFAULT_DELIVERY_SPEC)
+    loudness = audio.loudness
 
     segments = list(black.value or []) if black.value else []
     black_seconds = sum(float(s.get("duration", 0.0)) for s in segments
@@ -596,16 +614,25 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         "size_bytes": os.path.getsize(video_path),
         "duration": _result_record(duration),
         "resolution": _result_record(resolution),
-        "audio": _result_record(audio),
+        "audio": _result_record(audio.channels),
         "black": _result_record(black),
         "loudness": _result_record(loudness),
+        # The AUDIO SPEC, leg by leg: what the file's own audio measures
+        # against the spec it ships under. A reader that wants to know
+        # WHY a delivery was refused reads this, not just the verdict.
+        "audio_spec": {
+            "loudness": _result_record(audio.loudness),
+            "silence": _result_record(audio.silence),
+            "channels": _result_record(audio.channels),
+            "passed": bool(audio.passed),
+        },
         "codec": codec,
         "black_segments": segments,
         "opens_on_black": opens_on_black,
         "content_present": content_present,
         "passed": bool(duration.passed and resolution.passed
-                       and audio.passed and content_present
-                       and loudness.passed
+                       and content_present
+                       and audio.passed
                        and codec["passed"]),
     }
     return verdict
@@ -999,6 +1026,19 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     # are unchanged.
     from library.tools import deliver_and_verify
 
+    # Where this reel's silence is DELIBERATE: the freeze hold its own
+    # declared ending plays and the tail cards that carry no audio. The
+    # delivery's AUDIO SPEC judges the file's own silence under
+    # picture, and a declared silent ending is excused by the
+    # declaration - Reel 13's silent end card PASSES - while an
+    # undeclared silence is a missing dialogue and fails. Read from the
+    # project's own declarations, never invented here.
+    from library.tools.declared_silence import declared_silence_spans
+
+    silence_spans = declared_silence_spans(
+        project_folder, timeline_name,
+        duration_seconds=expected_seconds, fps=timeline_fps)
+
     full = deliver_and_verify.deliver_timeline(
         project_folder,
         timeline_name=timeline_name,
@@ -1019,6 +1059,7 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         # (`manage_project.py deliver-reel`, or the batch). This core
         # writes the record beside the file; the ledger is the
         # caller's half.
+        declared_silence_spans=silence_spans,
         write_ledger=False,
     )
     # The delivery is an ACT, so the retention decision belongs here and
@@ -1043,13 +1084,19 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     try:
         from library.tools import reel_acceptance as _acceptance
 
+        # The DELIVERED file is the mastered export - `full["render"]`
+        # is the render report the mastering rewrote to point at it.
+        # (This read `report`, a name this function does not have: the
+        # acceptance was never recorded, and the NameError was swallowed
+        # by the handler below. F821, 2026-10-21.)
+        delivered_path = str(full["render"]["output_path"])
         acceptance = _acceptance.record(
             project_folder, timeline_name,
             by="delivery",
             source="delivery",
             timeline_id=str(getattr(live_identity, "timeline_id", "") or ""),
-            delivered_file=str(report["output_path"]),
-            note=f"delivered as {os.path.basename(str(report['output_path']))}")
+            delivered_file=delivered_path,
+            note=f"delivered as {os.path.basename(delivered_path)}")
         full["acceptance"] = acceptance
     except Exception as acceptance_failed:  # noqa: BLE001
         # A delivery that cannot record its own acceptance is still a

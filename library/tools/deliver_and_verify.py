@@ -73,6 +73,7 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
                      assignment_reel: dict | None = None,
                      assignment_id: str | None = None,
                      qc_passed: bool | None = None,
+                     declared_silence_spans=None,
                      write_ledger: bool = True) -> dict:
     """Render, master, verify and RECORD one timeline. The core.
 
@@ -85,6 +86,14 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
     `source` names the route that asked for the delivery, and it goes
     into the record: a file delivered by `ren revise --deliver` says
     so, and one delivered by `ren deliver` says so.
+
+    `declared_silence_spans` are the seconds of the delivered file
+    where silence under picture is DELIBERATE (a silent end card, a
+    TV-switch-off tail), read from the project's own declarations by
+    `library/tools/declared_silence.py`. The AUDIO SPEC is judged on
+    the file that is handed over: its loudness against the spec, the
+    silence under picture that catches missing dialogue, and its
+    channel presence. A file that fails any of them is not delivered.
 
     Returns the report every caller reads: `render`, `verification`,
     `delivered`, `report_path`.
@@ -147,11 +156,15 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
     # (*args), so a keyword here would break every one of them. The
     # spec goes with it, so the verdict measures the loudness the
     # master was normalized to - the verdict's own loudness leg is the
-    # second ear on a route that skipped or weakened the master.
+    # second ear on a route that skipped or weakened the master. The
+    # declared silence goes with it too: the audio spec is judged on
+    # the file, and a declared silent ending is excused by the
+    # declaration.
     verdict = reel_deliver.verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"],
-        delivery_spec.codec, delivery_spec)
+        delivery_spec.codec, delivery_spec,
+        declared_silence_spans)
 
     full = {
         "timeline_name": timeline_name,
@@ -174,12 +187,17 @@ def deliver_timeline(project_folder: str, *, timeline_name: str,
     full["report_path"] = record["record_path"]
     if not verdict["passed"]:
         loudness = verdict.get("loudness") or {}
+        audio_spec = verdict.get("audio_spec") or {}
+        silence = audio_spec.get("silence") or {}
+        channels = audio_spec.get("channels") or {}
         raise _refusal(
             f"rendered {report['output_path']} but verification FAILED",
             f"duration={verdict['duration']['passed']}, "
             f"resolution={verdict['resolution']['passed']}, "
             f"audio={verdict['audio']['passed']}, "
             f"loudness={loudness.get('passed')}, "
+            f"silence_under_picture={silence.get('passed')}, "
+            f"channels={channels.get('passed')}, "
             f"codec={verdict['codec']['passed']}, "
             f"content_present={verdict['content_present']}. "
             f"Report: {record['record_path']}",
@@ -338,6 +356,13 @@ def deliver_committed_edit(project_folder: str, *, timeline_name: str = "",
     out_name = (file_name.strip() if file_name and file_name.strip()
                 else reel_deliver.render_file_name(
                     live_name, settings["naming"], settings["extension"]))
+    # Where the file's silence is DELIBERATE - a silent end card, a
+    # TV-switch-off tail - read from the project's own declarations.
+    from library.tools.declared_silence import declared_silence_spans
+
+    silence_spans = declared_silence_spans(
+        project_folder, live_name,
+        duration_seconds=expected_seconds, fps=fps)
     full = deliver_timeline(
         project_folder,
         timeline_name=live_name,
@@ -354,6 +379,7 @@ def deliver_committed_edit(project_folder: str, *, timeline_name: str = "",
         fps=fps,
         start_frame=start,
         end_frame=end,
+        declared_silence_spans=silence_spans,
     )
     _queue_retention(project_folder, full)
     return full

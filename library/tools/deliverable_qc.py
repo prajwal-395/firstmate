@@ -35,10 +35,43 @@ caption findings REPORT, never gate - ``measure_grade_delivery`` says
 so itself (a shortfall confounds grade, pipeline and encode), and the
 caption check is called exactly as it exists, never re-implemented as
 a second gate.
+
+The AUDIO spec, verified on the file itself
+--------------------------------------------
+Loudness alone is not the audio spec. Integrated loudness is a GATED
+measurement (BS.1770 drops everything below the absolute gate), so a
+delivered file that LOST its dialogue still measures on target: the
+silence is not counted, the words that survived are. Measured on this
+repo's own delivery path (2026-10-20), a file whose last 16 of 20
+seconds were digital silence came back ``passed: True`` from BOTH
+``verify_deliverable`` and ``run_deliverable_qc`` - the delivery state
+read "delivered" over a file with no dialogue in it.
+
+So the audio spec is three measurements of the DELIVERED FILE:
+
+* ``loudness`` - the spec's own target, tolerance and true-peak
+  ceiling, measured on the file that is handed over;
+* ``silence`` - digital silence under picture, which is the half that
+  sees MISSING DIALOGUE. The engine already owns that measurement
+  (``render_qa.measure_silence_under_picture``) and the declared
+  silence that excuses it, so this module calls that and does not
+  write a second silence rule;
+* ``channels`` - channel presence: a file that carries a channel with
+  no signal in it lost that channel, and a file with no audio stream
+  at all is not a delivery.
+
+INTENTIONAL SILENCE PASSES. A file with no audible content has no
+loudness to be wrong - its integrated loudness is ``-inf``, and
+"-inf LUFS is inf dB off the target" is not a loudness failure, it is
+a silence question. So the loudness leg is NOT CHECKED on such a file
+(``measure_lufs`` says so in its own detail) and the SILENCE leg
+decides: a declared silent ending - Reel 13's silent end card - is
+excused by the declaration, an undeclared silence is not.
 """
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
@@ -66,6 +99,111 @@ class DeliverableQCVerdict:
     loudness: RenderQAResult
     grade: RenderQAResult
     captions: Optional[List[RenderQAResult]]
+    #: The delivered FILE's audio against its spec - loudness, the
+    #: silence under picture that catches missing dialogue, and the
+    #: channel presence. GATES with the rest: a file that fails its
+    #: audio spec is not a deliverable, whatever its picture measures.
+    audio: "AudioSpecVerdict" = None
+
+
+@dataclass(frozen=True)
+class AudioSpecVerdict:
+    """The delivered FILE's audio, against the spec it ships under.
+
+    ``loudness`` is the spec's integrated target, tolerance and
+    true-peak ceiling, measured on the file that is handed over.
+    ``silence`` is the file's own digital silence under picture - the
+    half that sees MISSING DIALOGUE, which the loudness measurement
+    cannot see (BS.1770 gates the silence out, so a file that lost its
+    dialogue still measures on target). ``channels`` is the channel
+    presence: a file carrying a channel with no signal in it lost that
+    channel.
+
+    ``passed`` is all three. A file with no audible content has no
+    loudness to be wrong: its loudness leg is NOT CHECKED (the detail
+    says so) and the silence leg decides - a DECLARED silent ending
+    passes, an undeclared silence does not.
+    """
+
+    loudness: RenderQAResult
+    silence: RenderQAResult
+    channels: RenderQAResult
+    passed: bool
+
+
+def _measured_lufs(result: RenderQAResult) -> Optional[bool]:
+    """Whether the file carries audible content, or None when unknown.
+
+    ``True`` - the file's integrated loudness is a number.
+    ``False`` - the file carries NO audible content: its integrated
+    loudness is -inf, which is not a loudness to be wrong.
+    ``None`` - the measurement carries no loudness at all, so the
+    instrument's own verdict stands (an unmeasured file is never
+    turned into a passing one).
+    """
+    value = result.value if isinstance(result.value, dict) else {}
+    if "input_i" not in value:
+        return None
+    try:
+        measured = float(value["input_i"])
+    except (TypeError, ValueError):
+        return None
+    return math.isfinite(measured)
+
+
+def _silence_has_no_loudness(result: RenderQAResult) -> RenderQAResult:
+    """The loudness leg of a file that carries no audible content.
+
+    Not a pass and not a failure: the file has no loudness to be
+    wrong, and the SILENCE leg owns the question it does have. The
+    detail says that in words, because "-inf LUFS is inf dB off the
+    target" is not a thing a reader can act on.
+    """
+    return RenderQAResult(
+        metric=result.metric,
+        passed=True,
+        value=result.value,
+        threshold=result.threshold,
+        severity="info",
+        detail=("the file carries no audible content, so there is no "
+                "loudness to be wrong - the silence check owns this file, "
+                "and a DECLARED silent ending passes it"))
+
+
+def verify_audio_spec(video_path: str, spec: DeliverySpec, *,
+                      declared_silence_spans: Optional[Sequence] = None,
+                      loudness: Optional[RenderQAResult] = None
+                      ) -> AudioSpecVerdict:
+    """The delivered file's audio, against the spec it ships under.
+
+    The one measurement the delivery VERDICT and the QC gate share, so
+    the two cannot grade the same file two ways.
+
+    `declared_silence_spans` are the `(start, end)` seconds where
+    silence under picture is DELIBERATE - a silent end card, a
+    TV-switch-off tail. They come from the project's own declarations
+    (`library/tools/declared_silence.py`), so the file is excused only
+    where somebody said it should be.
+
+    `loudness` is a measurement the caller already made against the
+    same spec: passing it in keeps one measurement of one number, and
+    the loudness half of the file is measured ONCE.
+    """
+    from library.tools import render_qa
+
+    if loudness is None:
+        loudness = measure_loudness(video_path, spec)
+    if _measured_lufs(loudness) is False:
+        loudness = _silence_has_no_loudness(loudness)
+    silence = render_qa.measure_silence_under_picture(
+        video_path, declared_spans=declared_silence_spans)
+    channels = render_qa.verify_channel_presence(video_path)
+    return AudioSpecVerdict(
+        loudness=loudness,
+        silence=silence,
+        channels=channels,
+        passed=bool(loudness.passed and silence.passed
+                    and channels.passed))
 
 
 def measure_loudness(video_path: str, spec: DeliverySpec) -> RenderQAResult:
@@ -91,15 +229,23 @@ def run_deliverable_qc(
         grade_spans: Optional[Sequence] = None,
         subtitle_data: Optional[List[Dict]] = None,
         spine_blocks: Optional[Sequence] = None,
-        declared_black_beats: Optional[List] = None) -> DeliverableQCVerdict:
+        declared_black_beats: Optional[List] = None,
+        declared_silence_spans: Optional[Sequence] = None
+        ) -> DeliverableQCVerdict:
     """Judge one rendered deliverable against its spec.
 
-    Duration, black frames and loudness GATE. The grade delivery gate
-    (``render_qa.measure_grade_delivery``) and, when ``subtitle_data``
-    is supplied, the existing subtitle-timing check
+    Duration, black frames and the AUDIO SPEC GATE. The grade delivery
+    gate (``render_qa.measure_grade_delivery``) and, when
+    ``subtitle_data`` is supplied, the existing subtitle-timing check
     (``subtitle_qa.verify_subtitle_timing``) REPORT. An absent file
     raises ``FileNotFoundError`` - an absent render is not a passing
     one.
+
+    The audio spec is the delivered FILE's own: its loudness against
+    the spec, the digital silence under picture that catches missing
+    dialogue, and the channel presence. ``declared_silence_spans``
+    excuse the silence a project DECLARED (a silent end card); nothing
+    else is excused.
     """
     from library.tools import render_qa
     from library.tools.subtitle_qa import verify_subtitle_timing
@@ -112,6 +258,10 @@ def run_deliverable_qc(
     black_frames = render_qa.detect_black_frames(
         video_path, declared_beats=declared_black_beats)
     loudness = measure_loudness(video_path, spec)
+    audio = verify_audio_spec(
+        video_path, spec,
+        declared_silence_spans=declared_silence_spans,
+        loudness=loudness)
     grade = render_qa.measure_grade_delivery(video_path, grade_spans)
     captions = (verify_subtitle_timing(
         subtitle_data, total_duration=expected_duration,
@@ -121,10 +271,11 @@ def run_deliverable_qc(
     return DeliverableQCVerdict(
         platform=spec.platform,
         passed=bool(duration.passed and black_frames.passed
-                    and loudness.passed),
+                    and audio.passed),
         duration=duration,
         black_frames=black_frames,
-        loudness=loudness,
+        loudness=audio.loudness,
         grade=grade,
         captions=captions,
+        audio=audio,
     )

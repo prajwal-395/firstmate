@@ -121,7 +121,8 @@ class _QcDouble:
     def __init__(self):
         self.calls: list[dict] = []
 
-    def __call__(self, path, spec, expected_seconds):
+    def __call__(self, path, spec, expected_seconds,
+                 *, declared_silence_spans=None):
         self.calls.append({"path": path, "platform": spec.platform})
         return {"platform": spec.platform, "passed": True,
                 "duration": {"passed": True}, "black_frames": {"passed": True},
