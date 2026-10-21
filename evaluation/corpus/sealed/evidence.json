@@ -1,0 +1,281 @@
+{
+  "schema": "ren-editorial-corpus-evidence/1",
+  "corpus_id": "ren-editorial-validation-corpus/1",
+  "measured_on": "2026-10-21",
+  "measured_by": "the p-base003-corpus lane, by reading the footage",
+  "rule": "Every premise in this corpus was settled by looking at the footage - the transcript the master was transcribed from, the timeline's own items, and frames pulled from the media and looked at - and never by inferring it from the request. Captain media was READ only; nothing was written to it.",
+  "sources": {
+    "master_items": {
+      "what": "the master's own clips: every row, every span, every source file",
+      "where": "the scratch project 'Ren Scratch - breaktest', timeline 'GEO Podcast - Synced'",
+      "how": "bin/resolve-axi items --project 'Ren Scratch - breaktest' --timeline 'GEO Podcast - Synced' (the recorded generation, read only; no live session was opened and nothing was written)",
+      "what_it_said": "334 clips: video1 carries LC4930.MXF, LC4931.MXF and LC4932.MXF, video2 carries LCATL0011.MXF to LCATL0014.MXF, audio1 and audio2 follow their video rows. 63695 frames at 23.976 fps, which is 2656.57 seconds. There is no third video row and no music row."
+    },
+    "master_transcript": {
+      "what": "the master's speech, segment by segment, with each segment's speaker, words, timeline times and source file and source times",
+      "where": "the transcript of the same master, read from the source project's scratch output",
+      "how": "read the JSON; 477 segments, two speakers, every word timed",
+      "what_it_said": "every segment names the file it was spoken in, so the two camera chains can be told apart: Akshita's words come from LC4930, LC4931 and LC4932, Craig's from LCATL0011 to LCATL0014. The same conversation, two cameras."
+    },
+    "reel_items": {
+      "what": "the cut's own clips: every row, every span, every source file",
+      "where": "the scratch project 'Ren Scratch - breaktest', timeline 'Breaktest - Reel 13 - selected dc7fa3f8'",
+      "how": "bin/resolve-axi items --project 'Ren Scratch - breaktest' --timeline 'Breaktest - Reel 13 - selected dc7fa3f8' (recorded generation 5, read only)",
+      "what_it_said": "65 clips on eight video rows and two audio rows: video1 LC4932.MXF in four pieces then the freeze frame on frames 1815-1834, video2 LCATL0013.MXF in two pieces, video3 the TV frame, video4 forty-five caption cards, video5 two motion graphics, video6 the name card on frames 0-84 and the logo reveal on frames 1834-1906, video7 the social header, video8 the corner mark."
+    },
+    "delivered_file": {
+      "what": "the delivered cut itself",
+      "where": "the scratch project's rendered reel, 1080x1920, 1906 frames, 79.57 seconds",
+      "how": "ffmpeg, and the frames were looked at",
+      "what_it_said": "the picture cuts between two cameras of the same conversation, a caption card sits under nearly every line, the social header and the corner mark are on the frame, and the name card is on the opening. There is no cutaway shot anywhere in it: every frame is one of the two cameras."
+    },
+    "pool": {
+      "what": "every item in the scratch project's media pool",
+      "where": "the scratch project 'Ren Scratch - breaktest'",
+      "how": "bin/resolve-axi pool --project 'Ren Scratch - breaktest' (read only)",
+      "what_it_said": "241 items in 14 bins. The source footage bin holds the seven camera and recorder files and the rendered graphics; the music bin holds nothing; no item is a cutaway recording."
+    },
+    "marker_notes": {
+      "what": "the notes the user typed onto the cut's timeline",
+      "where": "the scratch project's marker feedback",
+      "how": "read the pulled marker files",
+      "what_it_said": "among the notes: 'take out the soft-focus overlay and close the gap', 'move the freeze frame to the end of the reel', 'make the captions bigger', 'the name bar is sitting on top of the captions - move it up so it stops fighting them, and keep it inside the safe area'."
+    }
+  },
+  "substrates": {
+    "podcast-master-synced": {
+      "cost_statement": {
+        "state": "present",
+        "how": "the transcript was searched for what the session says it costs, and the moment was read at its source and looked at",
+        "evidence": ["moment:cost-line"]
+      },
+      "repeated_passage": {
+        "state": "present",
+        "how": "the transcript's segments were compared with each other; one sentence occurs three times, and two of the three were looked at on camera",
+        "evidence": ["moment:definition-first", "moment:definition-second", "moment:definition-third"]
+      },
+      "second_camera_angle": {
+        "state": "present",
+        "how": "the master's items show two camera chains and the transcript attributes the two speakers' words to one chain each, so the same conversation was shot twice; the cut shows both angles of it",
+        "evidence": ["the master's video1 and video2 rows", "the reel's video1 and video2 rows", "delivered_file: two angles on the picture"]
+      },
+      "several_number_passages": {
+        "state": "present",
+        "how": "the transcript was searched for numbers and every passage that reads one out was listed",
+        "evidence": [
+          "master 349.95-358.63 Craig: 'you're a 10-man shop, you're a 50-person shop, maybe you're a hundred'",
+          "master 413.96-422.48 Craig: 'if you're a fifteen man shop or you have two hundred employees'",
+          "master 838.53-839.91 Craig: 'At the time only about twenty percent.'",
+          "master 1800.62-1804.76 Akshita: 'that's only twenty percent.'",
+          "master 278.12-285.42 and 426.51-432.36 and 636.76-649.64 read other figures out"
+        ]
+      },
+      "music_bed": {
+        "state": "absent",
+        "how": "the master's audio rows were counted and the pool's music bin was read",
+        "evidence": [
+          "the master has two audio rows and both are camera microphones",
+          "the pool's '02 - Music' bin holds 0 items"
+        ]
+      },
+      "matching_broll": {
+        "state": "absent",
+        "how": "every item of the pool was read",
+        "evidence": [
+          "the source footage bin holds the seven camera and recorder files and the rendered graphics, and no cutaway recording",
+          "no reel in the project carries a b-roll row: the track plan's b-roll flag is false for all fourteen reels"
+        ]
+      },
+      "dense_caption_cards": {
+        "state": "absent",
+        "how": "the master's rows were counted",
+        "evidence": ["the master has two video rows and two audio rows and no caption row"]
+      },
+      "lower_third_overlay": {
+        "state": "absent",
+        "how": "the master's rows were counted",
+        "evidence": ["the master has two video rows and two audio rows and no overlay row"]
+      },
+      "overlapping_speech": {
+        "state": "absent",
+        "how": "the transcript's segments were intersected for two speakers talking at once, and the two moments that came up were looked at",
+        "evidence": [
+          "master 1667.14-166.69 and master 1730.54-1735.60 carry overlapping times under two speakers",
+          "the frames at those moments show one person speaking and the other listening, so the overlap is the transcription's, not the footage's",
+          "the premise is therefore NOT carried, and no brief in this corpus rests on it"
+        ]
+      }
+    },
+    "reel-13-accounting-firm": {
+      "dense_caption_cards": {
+        "state": "present",
+        "how": "the cut's rows were counted and the delivered file was looked at frame by frame",
+        "evidence": [
+          "video4 holds forty-five rendered caption cards",
+          "the delivered file carries a caption under nearly every spoken line",
+          "the track plan records 51 caption spans for the reel"
+        ]
+      },
+      "lower_third_overlay": {
+        "state": "present",
+        "how": "the cut's items were read",
+        "evidence": [
+          "video6 carries b-soft-focus-craig.mov on frames 0-84, which is 3.50 seconds",
+          "the project declares the lower third's hold at 3.5 seconds",
+          "the delivered file's opening frame shows the name card"
+        ]
+      },
+      "hand_made_adjustments": {
+        "state": "present",
+        "how": "the notes the user typed onto the timeline were read, and the hand-set caption row was measured off the delivered file",
+        "evidence": [
+          "the timeline carries the user's own notes, including 'take out the soft-focus overlay and close the gap'",
+          "the caption ink on the delivered frame at 12 seconds sits on rows 1437 to 1556 of the 1920 frame, and the project declares the caption row at 0.8318, which is row 1597",
+          "the corner mark, the social header and the name card were placed by hand and sit on their own rows"
+        ]
+      },
+      "second_camera_angle": {
+        "state": "present",
+        "how": "the cut's items were read and the delivered file was looked at",
+        "evidence": [
+          "video1 carries LC4932.MXF and video2 carries LCATL0013.MXF, the two cameras of the same conversation",
+          "the delivered file opens on one camera and carries the other for the rest"
+        ]
+      },
+      "music_bed": {
+        "state": "absent",
+        "how": "the cut's rows and the track plan were read",
+        "evidence": [
+          "the cut has two audio rows and both are camera microphones",
+          "the track plan's music spans are empty"
+        ]
+      },
+      "matching_broll": {
+        "state": "absent",
+        "how": "the cut's rows and the track plan were read, and the delivered file was looked at",
+        "evidence": [
+          "the track plan's b-roll flag is false and its b-roll spans are empty",
+          "every frame of the delivered file is one of the two cameras"
+        ]
+      }
+    },
+    "single-camera-take": {
+      "long_pause": {
+        "state": "present",
+        "how": "the transcript's words were timed inside one continuous camera clip, and the longest stop inside a single answer was measured",
+        "evidence": [
+          "Akshita stops for 1.22 seconds inside one continuous LC4932 clip: master 2388.47 to 2389.69, file time 4563.64 to 4564.86, between 'now that you're asking about competitors' and 'it's better that you have those'",
+          "the master plays that stretch without a cut, so the stop is in the take and not in the edit"
+        ]
+      },
+      "second_camera_angle": {
+        "state": "absent",
+        "how": "the project's media and its pool were read",
+        "evidence": [
+          "the project holds one camera file, LC4932.MXF, and no other camera",
+          "the pool holds no second camera and no cutaway"
+        ]
+      },
+      "music_bed": {
+        "state": "absent",
+        "how": "the project's pool was read",
+        "evidence": ["no music item in the pool"]
+      },
+      "matching_broll": {
+        "state": "absent",
+        "how": "the project's pool was read",
+        "evidence": ["no cutaway item in the pool"]
+      },
+      "dense_caption_cards": {
+        "state": "absent",
+        "how": "the project's rows were read",
+        "evidence": ["the project carries no caption row"]
+      },
+      "lower_third_overlay": {
+        "state": "absent",
+        "how": "the project's rows were read",
+        "evidence": ["the project carries no overlay row"]
+      }
+    }
+  },
+  "moments": {
+    "cost-line": {
+      "speaker": "Craig",
+      "timeline_start": 13.84,
+      "timeline_end": 16.57,
+      "source_file": "LCATL0011.MXF",
+      "source_start": 109.14,
+      "source_end": 111.87,
+      "quote": "It's something that's going to continually eat into their budget.",
+      "how_verified": "the frame at source 109.14s was pulled with ffmpeg and looked at: Craig is speaking, mid-sentence, hands open on the table, and the other speaker's hands are in the bottom of the frame. The frame's sha256 is 55e7f3f339608179d3f2b9698e219701e74dd30017ec503c3f1f932aefa7a50e.",
+      "command": "ffmpeg -ss 109.14 -i LCATL0011.MXF -frames:v 1 -vf scale=640:-1 frame.jpg"
+    },
+    "definition-first": {
+      "speaker": "Akshita",
+      "timeline_start": 27.75,
+      "timeline_end": 31.26,
+      "source_file": "LC4930.MXF",
+      "source_start": 134.4,
+      "source_end": 137.9,
+      "quote": "SEO is about convincing an algorithm to rank your page higher.",
+      "how_verified": "the frame at source 134.40s was pulled and looked at: Akshita is speaking, hands mid-gesture, in the same room. sha256 e265a1112a0d02e7d233737ddd27f3a2c2e51770961210980002d1953286791d."
+    },
+    "definition-second": {
+      "speaker": "Akshita",
+      "timeline_start": 80.92,
+      "timeline_end": 88.24,
+      "source_file": "LC4931.MXF",
+      "source_start": 67.87,
+      "source_end": 75.19,
+      "quote": "SEO is but really convincing an algorithm to rank your page higher on Google, while for Geo, it's really about understanding.",
+      "how_verified": "the frame at source 67.87s was pulled and looked at: Akshita is speaking, in the same room, from the other camera of the setup. sha256 eb104039f59976407b232fa40a8b1850711d2d5acae675f65570420f7665fa9b.",
+      "why_it_matters": "the same sentence she said at 27.75s, said again: this is the repeat the brief asks about, and the other camera's recording of this stretch is the other chain's own material."
+    },
+    "definition-third": {
+      "speaker": "Akshita",
+      "timeline_start": 92.03,
+      "timeline_end": 96.08,
+      "source_file": "LC4931.MXF",
+      "source_start": 82.48,
+      "source_end": 86.53,
+      "quote": "For SEO, it's really about convincing an algorithm to rank your page higher on Google.",
+      "how_verified": "read in the transcript; the third telling of the same sentence"
+    },
+    "name-card": {
+      "substrate": "reel-13-accounting-firm",
+      "row": "video6",
+      "clip": "b-soft-focus-craig.mov",
+      "timeline_frames": [0, 84],
+      "seconds": 3.5,
+      "how_verified": "read off the cut's own items; the name card holds for the first 84 frames, which is 3.50 seconds, while the answer it sits over runs on past it"
+    },
+    "soft-focus-card": {
+      "substrate": "reel-13-accounting-firm",
+      "row": "video6",
+      "clip": "b-soft-focus-craig.mov",
+      "timeline_frames": [0, 84],
+      "note": "the note the user left on this timeline - 'take out the soft-focus overlay and close the gap' - is about this clip"
+    },
+    "opening-shot": {
+      "substrate": "reel-13-accounting-firm",
+      "row": "video2",
+      "clip": "LCATL0013.MXF",
+      "timeline_frames": [0, 75],
+      "seconds": 3.13,
+      "how_verified": "read off the cut's own items: the cut opens on his camera for the first 75 frames and then cuts to hers"
+    },
+    "mid-answer-stop": {
+      "substrate": "single-camera-take",
+      "speaker": "Akshita",
+      "source_file": "LC4932.MXF",
+      "source_start": 4563.64,
+      "source_end": 4564.86,
+      "timeline_start": 2388.47,
+      "timeline_end": 2389.69,
+      "seconds": 1.22,
+      "before": "now that you're asking about competitors",
+      "after": "it's better that you have those",
+      "how_verified": "measured off the transcript's word boundaries inside one continuous camera clip, so the stop is in the recording and not in the edit"
+    }
+  }
+}

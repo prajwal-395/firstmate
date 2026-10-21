@@ -1,0 +1,98 @@
+{
+  "schema": "ren-editorial-substrates/1",
+  "note": "BASE-003 - the substrates the representative validation corpus runs against. A substrate is MEASURED once, by reading the footage: the timeline's own items, the transcript the master was transcribed from, the frames that were looked at, and the delivered file. `features` are the facts the footage carries, `checked_features` are the facts somebody looked for and did not find. A fact in neither list was never looked for, and a premise resting on it is unknown rather than settled. Nothing here is written to make a brief pass, and the measurement behind every entry is in sealed/evidence.json.",
+  "substrates": [
+    {
+      "id": "podcast-master-synced",
+      "profile": "two_camera_interview",
+      "aliases": [
+        "GEO Podcast - Synced",
+        "the master",
+        "Ren Scratch - breaktest/GEO Podcast - Synced"
+      ],
+      "features": [
+        "cost_statement",
+        "repeated_passage",
+        "second_camera_angle",
+        "several_number_passages"
+      ],
+      "checked_features": [
+        "music_bed",
+        "matching_broll",
+        "dense_caption_cards",
+        "lower_third_overlay",
+        "overlapping_speech"
+      ],
+      "measured": {
+        "date": "2026-10-21",
+        "by": "the p-base003-corpus lane, reading a scratch copy",
+        "evidence": "sealed/evidence.json",
+        "what_was_read": [
+          "the master's own items, read through the recorded generation: 334 clips on two video rows and two audio rows",
+          "the transcript the master was transcribed from, segment by segment, with each segment's source file and source times",
+          "frames pulled from the source media at the source times the transcript names, and looked at",
+          "the media pool, item by item"
+        ]
+      },
+      "notes": "Two camera chains record the same conversation and the master cuts between them: video1 carries LC4930, LC4931 and LC4932 (the side Akshita is on) and video2 carries LCATL0011 to LCATL0014 (the side Craig is on). The two audio rows are the two camera microphones and nothing else - there is no music row, and the pool's music bin is empty. The transcript attributes every word to one of those two chains, which is how the second angle of a stretch is known to exist in the source media even where the master shows one of them. Overlapping speech was looked for and NOT established: two segments carry overlapping times under two speakers, but the frames at those moments show one person speaking and one listening, so the premise is treated as absent rather than carried."
+    },
+    {
+      "id": "reel-13-accounting-firm",
+      "profile": "caption_heavy_reel",
+      "aliases": [
+        "Breaktest - Reel 13 - selected dc7fa3f8",
+        "Reel 13 - the-accounting-firm-ai-called-healthcare",
+        "reel 13"
+      ],
+      "features": [
+        "dense_caption_cards",
+        "lower_third_overlay",
+        "hand_made_adjustments",
+        "second_camera_angle"
+      ],
+      "checked_features": [
+        "music_bed",
+        "matching_broll"
+      ],
+      "measured": {
+        "date": "2026-10-21",
+        "by": "the p-base003-corpus lane, reading a scratch copy",
+        "evidence": "sealed/evidence.json",
+        "what_was_read": [
+          "the reel's own items: 65 clips on eight video rows and two audio rows",
+          "the delivered file of the same reel, frame by frame, and the caption ink measured off one frame",
+          "the notes the user typed onto the timeline, pulled from the project's marker feedback"
+        ]
+      },
+      "notes": "A 79.55 second cut at 23.976 fps: two camera rows carrying the same conversation (LC4932 and LCATL0013), a caption row of 45 rendered cards over nearly every spoken line, a name card on the sixth row that holds for the first 84 frames (3.50 seconds), the corner mark and the social header on their own rows, and a freeze frame at the end. There is no music bed and no cutaway row: the track plan's music and b-roll spans are both empty. The hand-made adjustments are the notes the user typed onto this timeline and the caption row they set by hand."
+    },
+    {
+      "id": "single-camera-take",
+      "profile": "single_camera_talking_head",
+      "aliases": [
+        "one-camera project",
+        "LC4932.MXF only"
+      ],
+      "features": [
+        "long_pause"
+      ],
+      "checked_features": [
+        "second_camera_angle",
+        "music_bed",
+        "matching_broll",
+        "dense_caption_cards",
+        "lower_third_overlay"
+      ],
+      "measured": {
+        "date": "2026-10-21",
+        "by": "the p-base003-corpus lane",
+        "evidence": "sealed/evidence.json",
+        "what_was_read": [
+          "the project's media: one camera file, LC4932.MXF, 3840x2160 at 23.976 fps",
+          "the pool of that project, item by item"
+        ]
+      },
+      "notes": "The shape of footage a one-camera project holds: one continuous recording of one speaker, with no second angle of anything. It is here so a brief that asks for a second angle has somewhere honest to be asked, so the corpus can say the footage does not carry it, and so a brief that asks for an ordinary edit against one camera has a home."
+    }
+  ]
+}

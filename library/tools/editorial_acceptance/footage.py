@@ -74,6 +74,15 @@ FEATURES: dict[str, str] = {
     "lower_third_overlay": "a lower third carries a name",
     "workshop_bench_coverage": "the workshop bench was filmed",
     "named_logo_asset": "the new logo is in the project",
+    # Added for the representative validation corpus (BASE-003), whose
+    # briefs are written against footage that CARRIES the event they ask
+    # for. Each name is a fact a person can look for and settle.
+    "dense_caption_cards": "a caption card sits over nearly every "
+                           "spoken line",
+    "hand_made_adjustments": "a human changed the timeline outside Ren",
+    "several_number_passages": "the speaker reads numbers out in more "
+                               "than one place",
+    "long_pause": "the speech pauses long enough to be worth cutting out",
 }
 
 #: The shape of footage a brief is written against. A profile is what a
@@ -85,6 +94,13 @@ PROFILES: dict[str, str] = {
     "talking_head_with_graphics": "one speaker on camera with graphics over it",
     "interview_with_broll": "an interview with cutaway footage cut in",
     "product_demo": "a demonstration of a product or a workshop",
+    # Added for the representative validation corpus (BASE-003): the
+    # shapes of footage that corpus measures against. A profile is what
+    # a SUBSTRATE is, so a brief written against one shape is never
+    # answered by footage of another.
+    "caption_heavy_reel": "a short cut carrying a caption card over "
+                          "nearly every spoken line",
+    "single_camera_talking_head": "one speaker recorded on one camera",
 }
 
 #: What a requirement asks of the footage. A premise that must hold

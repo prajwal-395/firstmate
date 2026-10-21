@@ -1,0 +1,629 @@
+{
+  "schema": "ren-editorial-brief-set/1",
+  "description": "BASE-003 - the representative editorial validation corpus. Each brief is a user's request in the user's words; the oracle beside it is the evaluator's answer key and never reaches a run. The briefs here were written against footage that CARRIES the event they ask for, and every premise was checked by reading the footage - the transcript, the timeline's own items, and the frames. The eight-brief set in library/tools/editorial_acceptance/brief_set.json is untouched and stays scored as it is.",
+  "corpus_id": "ren-editorial-validation-corpus/1",
+  "measured_on": "2026-10-21",
+  "briefs": [
+    {
+      "id": "open-on-the-cost-line",
+      "title": "Open on what it costs, not on the setup",
+      "category": "podcast_edit",
+      "footage_shape": "two_camera_interview",
+      "outcome": "edit",
+      "instruction": "This cut opens on Craig doing the GEO 2.0 setup before she has even answered. I want it to open on the line where he says what this is going to cost a company, then let her answer run on from there. Do not lose a word she says, and leave the grade and the framing of both cameras exactly as they are.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand",
+          "the opening carries a name card that was placed by hand"
+        ],
+        "media_conditions": [
+          "one of the two camera takes is a soft focus take",
+          "the master has a short picture hole near its end"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "hook-first",
+          "statement": "The first line of the cut is Craig stating what it costs, not the setup that came before it."
+        },
+        {
+          "id": "nothing-lost",
+          "statement": "Every word Akshita says is still in the cut, in her order."
+        },
+        {
+          "id": "grade-untouched",
+          "statement": "The grade and both cameras' framing survive the change."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["reel.opening"],
+        "expected_target_roles": ["opening_section"],
+        "expected_moment_ids": ["budget-line"],
+        "allowed_operations": ["reel.opening", "clip.trim", "clip.remove"],
+        "footage_requirements": [
+          {"feature": "cost_statement", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "no-word-lost",
+            "statement": "No word she says may be dropped",
+            "terms": ["lose", "word"]
+          }
+        ],
+        "role_premises": {"opening_section": "cost_statement"},
+        "notes": "The moment is in the footage and the request names no span: the run has to find the line where the cost is stated. The measured moment is in the sealed evidence file.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "cut-the-repeated-definition",
+      "title": "She says the same thing twice in a row",
+      "category": "interview_edit",
+      "footage_shape": "two_camera_interview",
+      "outcome": "edit",
+      "instruction": "About a minute in, she explains what SEO is twice in a row, in nearly the same words. Cut the first of the two and keep the second one whole. Leave everything else alone, and do not take any of her other sentences with it.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the human trimmed the first ten seconds by hand and left the gap closed"
+        ],
+        "media_conditions": [
+          "one angle is a soft focus take",
+          "the two statements are said by the same speaker in the same session"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "repeat-removed",
+          "statement": "The earlier of the two explanations is gone and the later one is still in full."
+        },
+        {
+          "id": "nothing-else-lost",
+          "statement": "No other sentence is cut with it."
+        },
+        {
+          "id": "gap-closed",
+          "statement": "The gap the cut leaves is closed."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["clip.remove", "clip.trim"],
+        "expected_target_roles": ["earlier_statement"],
+        "expected_moment_ids": ["definition-first", "definition-second"],
+        "allowed_operations": ["clip.remove", "clip.trim", "clip.ripple"],
+        "footage_requirements": [
+          {"feature": "repeated_passage", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "keep-the-later",
+            "statement": "The later statement is the one that stays",
+            "terms": ["first", "second"]
+          }
+        ],
+        "role_premises": {"earlier_statement": "repeated_passage"},
+        "notes": "Both statements were read in the transcript and both were seen on camera. The run has to decide which of the two is the earlier one, and cut only that one.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "use-the-other-camera-on-that-answer",
+      "title": "Show his camera for that answer, then come back to hers",
+      "category": "interview_edit",
+      "footage_shape": "two_camera_interview",
+      "outcome": "edit",
+      "instruction": "She gives that explanation of SEO a second time further in and it lands much better the second time. For that stretch only, put his camera up instead of hers, and come back to her straight afterwards. Her voice stays exactly as it is.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand"
+        ],
+        "media_conditions": [
+          "the two cameras were rolling at the same time, so the other angle of that stretch exists",
+          "one of the two camera takes is a soft focus take"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "other-angle",
+          "statement": "While that stretch of her answer is on screen, the picture is his camera."
+        },
+        {
+          "id": "back-again",
+          "statement": "The picture is hers again immediately after that stretch."
+        },
+        {
+          "id": "audio-untouched",
+          "statement": "Her audio is continuous across the switch."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["clip.replace"],
+        "expected_target_roles": ["second_angle"],
+        "expected_moment_ids": ["definition-second"],
+        "allowed_operations": [
+          "clip.replace", "multicam.select_angle", "shot_selection", "clip.trim"
+        ],
+        "footage_requirements": [
+          {"feature": "second_camera_angle", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "only-that-stretch",
+            "statement": "The other camera is used for that stretch only",
+            "terms": ["only", "stretch"]
+          }
+        ],
+        "role_premises": {"second_angle": "second_camera_angle"},
+        "notes": "The second angle is the other camera's own recording of the same stretch; the sealed evidence names the source file and the frames that were read.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "lift-the-caption-row-but-keep-every-card",
+      "title": "The captions sit on the bottom edge",
+      "category": "caption_heavy_edit",
+      "footage_shape": "caption_heavy_reel",
+      "outcome": "edit",
+      "instruction": "On this one the captions sit too low, they are touching the bottom edge of the frame. Bring the caption row up so it is clear of the edge. Keep every caption that is already on there, and do not lose a word of what she says.",
+      "project_state": {
+        "footage_profile": "caption_heavy_reel",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand",
+          "the corner mark and the header were placed by hand"
+        ],
+        "media_conditions": [
+          "one caption card runs longer than the others"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "every-card-kept",
+          "statement": "No caption card is dropped."
+        },
+        {
+          "id": "row-moved",
+          "statement": "The caption row sits clear of the bottom edge of the frame."
+        },
+        {
+          "id": "words-kept",
+          "statement": "Every word she says still has its caption."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["caption.style"],
+        "expected_target_roles": ["caption_row"],
+        "expected_moment_ids": [],
+        "allowed_operations": ["caption.style", "overlay.position", "overlay.resize"],
+        "footage_requirements": [
+          {"feature": "dense_caption_cards", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "keep-the-cards",
+            "statement": "Every caption card that is already there stays",
+            "terms": ["keep", "every"]
+          }
+        ],
+        "role_premises": {"caption_row": "dense_caption_cards"},
+        "notes": "The caption row was measured off the delivered file: the caption ink sits on rows 1437 to 1556 of the 1920 frame. Moving the row must not drop a card.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "hold-the-name-card-until-she-finishes",
+      "title": "Her name card comes off while she is still answering",
+      "category": "caption_heavy_edit",
+      "footage_shape": "caption_heavy_reel",
+      "outcome": "edit",
+      "instruction": "Her name card comes off about three and a half seconds in, right while she is still answering. Hold it on the screen until she has finished that answer. Leave the corner mark and the header exactly where they are.",
+      "project_state": {
+        "footage_profile": "caption_heavy_reel",
+        "existing_adjustments": [
+          "the corner mark and the header were placed by hand"
+        ],
+        "media_conditions": [
+          "the answer runs on past where the card ends"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "card-held",
+          "statement": "The name card stays on screen until she has finished that answer."
+        },
+        {
+          "id": "mark-untouched",
+          "statement": "The corner mark and the header are where they were."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["retime.segments"],
+        "expected_target_roles": ["name_card"],
+        "expected_moment_ids": ["card-hold"],
+        "allowed_operations": [
+          "retime.segments", "overlay.position", "overlay.entry_motion"
+        ],
+        "footage_requirements": [
+          {"feature": "lower_third_overlay", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "only-the-card",
+            "statement": "Only the name card changes; the other graphics stay",
+            "terms": ["leave", "corner"]
+          }
+        ],
+        "role_premises": {"name_card": "lower_third_overlay"},
+        "notes": "The card was measured on the timeline: it occupies the first 84 frames, which is 3.50 seconds, and the answer it sits over runs on past that.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "take-out-the-soft-focus-card-i-asked-about",
+      "title": "The note I left on the timeline",
+      "category": "external_modification",
+      "footage_shape": "caption_heavy_reel",
+      "outcome": "edit",
+      "instruction": "I left a note on this timeline about the soft focus card that sits over the opening. Do what the note says: take that card out and close the gap it leaves. Do not touch anything else on the reel.",
+      "project_state": {
+        "footage_profile": "caption_heavy_reel",
+        "existing_adjustments": [
+          "I left a note on the timeline about the opening",
+          "the caption row for this series was set by hand"
+        ],
+        "media_conditions": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "card-gone",
+          "statement": "The soft focus card is not on the timeline any more."
+        },
+        {
+          "id": "gap-closed",
+          "statement": "The gap it left behind is closed."
+        },
+        {
+          "id": "rest-untouched",
+          "statement": "Every other clip on the reel is where it was."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["overlay.remove"],
+        "expected_target_roles": ["opening_overlay"],
+        "expected_moment_ids": ["soft-focus-overlay"],
+        "allowed_operations": ["overlay.remove", "clip.trim", "clip.ripple"],
+        "footage_requirements": [
+          {"feature": "hand_made_adjustments", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "nothing-else",
+            "statement": "Nothing else on the reel may change",
+            "terms": ["anything else", "do not"]
+          }
+        ],
+        "role_premises": {"opening_overlay": "hand_made_adjustments"},
+        "notes": "The note is a marker the user typed onto the timeline outside Ren; the sealed evidence quotes it and names the row it sits on.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "keep-my-captions-where-i-put-them",
+      "title": "Do not undo my caption row",
+      "category": "heavily_modified_timeline",
+      "footage_shape": "caption_heavy_reel",
+      "outcome": "edit",
+      "instruction": "I moved the captions by hand on this series and I do not want them put back where they used to be. Trim the first shot off the front of this reel, it is him setting up before she answers, and leave my captions exactly where I put them.",
+      "project_state": {
+        "footage_profile": "caption_heavy_reel",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand",
+          "the corner mark, the header and the name card were placed by hand"
+        ],
+        "media_conditions": [
+          "the reel opens on his camera and then cuts to hers"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "caption-row-kept",
+          "statement": "The caption row is where the hand put it."
+        },
+        {
+          "id": "first-shot-gone",
+          "statement": "The reel no longer opens on his first shot."
+        },
+        {
+          "id": "captions-kept",
+          "statement": "Every caption card is still on the reel."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["clip.trim", "clip.remove"],
+        "expected_target_roles": ["first_shot"],
+        "expected_moment_ids": ["opening-shot"],
+        "allowed_operations": ["clip.trim", "clip.remove", "clip.ripple"],
+        "footage_requirements": [
+          {"feature": "hand_made_adjustments", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "caption-row-holds",
+            "statement": "The caption row the hand set must not move",
+            "terms": ["captions", "exactly where"]
+          }
+        ],
+        "role_premises": {"first_shot": "hand_made_adjustments"},
+        "notes": "The hand-made caption row was measured off the delivered file (caption ink on rows 1437 to 1556 of 1920) and the opening shot was measured off the timeline's own items (his camera holds the first 75 frames).",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "take-out-the-pause-where-she-stops",
+      "title": "Take out the second where she stops",
+      "category": "single_camera_edit",
+      "footage_shape": "single_camera_talking_head",
+      "outcome": "edit",
+      "instruction": "She stops for about a second part way through that answer, right before she says it is better that you have those. Take that stop out so the sentence runs straight on. Leave the picture and the captions exactly as they are.",
+      "project_state": {
+        "footage_profile": "single_camera_talking_head",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand"
+        ],
+        "media_conditions": [
+          "one camera recorded the whole answer"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "stop-gone",
+          "statement": "The stop between the two halves of that sentence is not in the cut."
+        },
+        {
+          "id": "words-kept",
+          "statement": "Every word she says in that answer is still there, in her order."
+        },
+        {
+          "id": "nothing-else-moved",
+          "statement": "The picture and the caption row did not move."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": false,
+        "expected_operations": ["clip.trim", "clip.join"],
+        "expected_target_roles": ["silence_gap"],
+        "expected_moment_ids": ["mid-answer-stop"],
+        "allowed_operations": ["clip.trim", "clip.join", "clip.ripple"],
+        "footage_requirements": [
+          {"feature": "long_pause", "presence": "present"}
+        ],
+        "stated_constraints": [
+          {
+            "id": "keep-the-words",
+            "statement": "No word of that answer may be dropped with the stop",
+            "terms": ["runs straight on", "leave"]
+          }
+        ],
+        "role_premises": {"silence_gap": "long_pause"},
+        "notes": "The stop was measured off the transcript: 1.22 seconds between the two halves of that answer, inside one continuous camera clip. The run has to find it by listening to the words, not by reading the request.",
+        "expected_recovery_class": null
+      }
+    },
+    {
+      "id": "there-is-no-music-under-this",
+      "title": "Take the music out from under the opening",
+      "category": "negative_refuse",
+      "footage_shape": "two_camera_interview",
+      "outcome": "refuse",
+      "instruction": "The music under the opening is too loud, it fights her voice. Take the music out from under the first ten seconds and leave her voice alone.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand"
+        ],
+        "media_conditions": [
+          "the master carries two microphone tracks and nothing else"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "absence-reported",
+          "statement": "The run says there is no music bed in this project."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "No clip on the timeline changed."
+        }
+      ],
+      "oracle": {
+        "edge_case": "unavailable_asset",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "footage_requirements": [
+          {"feature": "music_bed", "presence": "absent"}
+        ],
+        "stated_constraints": [],
+        "role_premises": {},
+        "notes": "The master carries exactly two audio rows and both are camera microphones; the media pool's music bin holds nothing. There is no music to take out, so the correct outcome is to say so and change nothing.",
+        "expected_recovery_class": "refused"
+      }
+    },
+    {
+      "id": "cover-the-answer-with-a-screen-recording",
+      "title": "Cover the answer with a screen recording",
+      "category": "negative_refuse",
+      "footage_shape": "two_camera_interview",
+      "outcome": "refuse",
+      "instruction": "When she talks about what the AI actually answers with, cover it with a screen recording of the real results so the viewer sees it for themselves.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [],
+        "media_conditions": [
+          "the project holds the two camera files and the rendered graphics, and no cutaway footage"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "no-footage-reported",
+          "statement": "The run reports that the project holds no screen recording to cut in."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "No clip on the timeline changed."
+        }
+      ],
+      "oracle": {
+        "edge_case": "sparse_footage",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "footage_requirements": [
+          {"feature": "matching_broll", "presence": "absent"}
+        ],
+        "stated_constraints": [],
+        "role_premises": {},
+        "notes": "The media pool was read item by item: every video item is a camera file or a rendered graphic, and no reel carries a cutaway row. The footage that would cover the line is not in the project.",
+        "expected_recovery_class": "refused"
+      }
+    },
+    {
+      "id": "cut-to-the-wide-shot-of-both-of-them",
+      "title": "Cut to the wide shot of both of them",
+      "category": "negative_refuse",
+      "footage_shape": "single_camera_talking_head",
+      "outcome": "refuse",
+      "instruction": "While she is explaining that part, cut to the wide shot of the room, the one where you can see both of them at the table.",
+      "project_state": {
+        "footage_profile": "single_camera_talking_head",
+        "existing_adjustments": [],
+        "media_conditions": [
+          "the project holds one camera file and nothing else"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "no-second-angle-reported",
+          "statement": "The run reports that this footage has no second angle to cut to."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "No clip on the timeline changed."
+        }
+      ],
+      "oracle": {
+        "edge_case": "sparse_footage",
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "footage_requirements": [
+          {"feature": "second_camera_angle", "presence": "absent"}
+        ],
+        "stated_constraints": [],
+        "role_premises": {},
+        "notes": "This project holds one camera's continuous recording. There is no wide shot of the room in it, so the request's own referent does not exist here.",
+        "expected_recovery_class": "refused"
+      }
+    },
+    {
+      "id": "make-this-reel-punchier",
+      "title": "Make it punchier",
+      "category": "negative_decision",
+      "footage_shape": "caption_heavy_reel",
+      "outcome": "ask",
+      "instruction": "This reel drags a bit. Make it punchier.",
+      "project_state": {
+        "footage_profile": "caption_heavy_reel",
+        "existing_adjustments": [
+          "the caption row for this series was set by hand"
+        ],
+        "media_conditions": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "decision-requested",
+          "statement": "The run asks what to change instead of choosing one thing on its own."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "Nothing on the timeline changed before the answer came back."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "footage_requirements": [],
+        "stated_constraints": [],
+        "role_premises": {},
+        "notes": "Punchier names no target, no span and no measure. The run may propose, but the brief is measured on the question being asked and on nothing changing first.",
+        "expected_recovery_class": "needs_question"
+      }
+    },
+    {
+      "id": "cut-the-bit-where-she-reads-out-the-numbers",
+      "title": "Cut the bit with the numbers in it",
+      "category": "negative_insufficient_evidence",
+      "footage_shape": "two_camera_interview",
+      "outcome": "report",
+      "instruction": "Cut the bit where she reads out the numbers. You know the one, it is the part with the percentages in it.",
+      "project_state": {
+        "footage_profile": "two_camera_interview",
+        "existing_adjustments": [],
+        "media_conditions": [
+          "she reads numbers out in more than one place in this session"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "candidates-reported",
+          "statement": "The run reports every passage where she reads numbers and asks which one, instead of cutting one."
+        },
+        {
+          "id": "nothing-changed",
+          "statement": "No clip on the timeline changed."
+        }
+      ],
+      "oracle": {
+        "edge_case": null,
+        "expected_refusal": true,
+        "expected_operations": [],
+        "expected_target_roles": [],
+        "expected_moment_ids": [],
+        "allowed_operations": [],
+        "footage_requirements": [
+          {"feature": "several_number_passages", "presence": "present"}
+        ],
+        "stated_constraints": [],
+        "role_premises": {},
+        "notes": "The transcript carries several number passages and none of them is the one she means. The correct outcome is to name them and ask, not to cut the first one found.",
+        "expected_recovery_class": "needs_question"
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "corpus_id": "ren-editorial-validation-corpus/1",
+  "public_briefs_sha256": "b9b0d5f7f2a25ae78d4fd9a279b21de7a2135705187bd9d81d3f40ca9c5d488a",
+  "schema": "ren-editorial-corpus-manifest/1",
+  "shape": {
+    "brief_count": 13,
+    "categories_missing": [
+      "broll_heavy_edit"
+    ],
+    "category_counts": {
+      "broll_heavy_edit": 0,
+      "caption_heavy_edit": 2,
+      "external_modification": 1,
+      "heavily_modified_timeline": 1,
+      "interview_edit": 2,
+      "negative_decision": 1,
+      "negative_insufficient_evidence": 1,
+      "negative_refuse": 3,
+      "podcast_edit": 1,
+      "single_camera_edit": 1
+    },
+    "corpus_id": "ren-editorial-validation-corpus/1",
+    "edit_briefs": [
+      "open-on-the-cost-line",
+      "cut-the-repeated-definition",
+      "use-the-other-camera-on-that-answer",
+      "lift-the-caption-row-but-keep-every-card",
+      "hold-the-name-card-until-she-finishes",
+      "take-out-the-soft-focus-card-i-asked-about",
+      "keep-my-captions-where-i-put-them",
+      "take-out-the-pause-where-she-stops"
+    ],
+    "edit_share": 0.6154,
+    "footage_shape_counts": {
+      "caption_heavy_reel": 5,
+      "single_camera_talking_head": 2,
+      "two_camera_interview": 6
+    },
+    "negative_briefs": [
+      "there-is-no-music-under-this",
+      "cover-the-answer-with-a-screen-recording",
+      "cut-to-the-wide-shot-of-both-of-them",
+      "make-this-reel-punchier",
+      "cut-the-bit-where-she-reads-out-the-numbers"
+    ],
+    "outcome_counts": {
+      "ask": 1,
+      "edit": 8,
+      "refuse": 3,
+      "report": 1
+    }
+  }
+}
