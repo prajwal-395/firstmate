@@ -149,3 +149,37 @@ The 2 fps sheet of the result is
 `docs/evidence/explainer_beats/render-2fps-sheet_reel26.png`: every frame
 of the render at its second, with the progress mark travelling across the
 top as the piece's own clock.
+
+## Round three: a beat that BUILDS IN STEPS, and a transition that is the motion
+
+Firstmate's read of the 2 fps sheet, 2026-10-21:
+
+1. "long beats still read as one held composition ... Inside a beat, build
+   the picture in steps timed to the words in that beat ... so every 1-2 s
+   something new happens."
+2. "the gaps between beats drop to a near-empty frame ... make the
+   transition itself the motion ... with no empty frame."
+3. "the white document card at the bottom of every beat is the same
+   generic furniture and crowds the label text under it."
+
+**A beat may have STEPS**, and each step is anchored to its OWN word by
+SEARCH.  The step's quote is searched from the BEAT's own word onward,
+because a step belongs to its beat: a step that quotes a word the reel
+says twice was anchored to the FIRST saying, which may be a different
+sentence - "that" at 7.01 s instead of the beat's own "that" at 32.85 s.
+
+**The transition is the motion**: the exit OVERLAPS the next beat's
+arrival, so the old picture is still on the frame when the new one
+starts to arrive.  Where the next beat lands a picture on the SAME
+ground, the old one LEAVES as the new one arrives instead - two
+elements in one box print themselves over each other, and two titles in
+one box are the unreadable smear in the footer.
+
+**The measurement follows the crossfade**: the arrival is the frame in
+which the box changed MOST around the beat's own arrival, because "the
+first frame with ink" reads the old picture and "the first empty frame"
+never comes.
+
+The generic card is gone from the composition: the frame is the
+phrase's own picture, the mark that arrives with it, the note and the
+scene label.

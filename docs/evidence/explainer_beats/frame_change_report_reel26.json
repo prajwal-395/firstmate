@@ -1,0 +1,80 @@
+{
+  "frames": 950,
+  "duration_seconds": 39.623,
+  "threshold": 0.35,
+  "frames_that_differ_from_the_previous": 949,
+  "unchanged_timestamps": [],
+  "sheet_step_frames": 12,
+  "smallest_changes": [
+    {
+      "at": 11.929,
+      "difference": 0.39
+    },
+    {
+      "at": 27.277,
+      "difference": 0.525
+    },
+    {
+      "at": 1.335,
+      "difference": 0.54
+    },
+    {
+      "at": 1.376,
+      "difference": 0.586
+    },
+    {
+      "at": 27.319,
+      "difference": 0.591
+    },
+    {
+      "at": 11.97,
+      "difference": 0.664
+    },
+    {
+      "at": 1.293,
+      "difference": 0.685
+    },
+    {
+      "at": 1.418,
+      "difference": 0.728
+    },
+    {
+      "at": 31.49,
+      "difference": 0.779
+    },
+    {
+      "at": 27.236,
+      "difference": 0.813
+    },
+    {
+      "at": 17.976,
+      "difference": 0.877
+    },
+    {
+      "at": 29.363,
+      "difference": 0.918
+    }
+  ],
+  "adjacent_frame_smallest": [
+    {
+      "at": 17.726,
+      "difference": 0.031
+    },
+    {
+      "at": 0.501,
+      "difference": 0.038
+    },
+    {
+      "at": 27.027,
+      "difference": 0.042
+    },
+    {
+      "at": 27.069,
+      "difference": 0.042
+    },
+    {
+      "at": 0.626,
+      "difference": 0.052
+    }
+  ]
+}

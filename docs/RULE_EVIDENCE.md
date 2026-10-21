@@ -10545,7 +10545,6 @@ One enumeration, `library/tools/instruction_loop.py`; the gate is
 `evaluation/tools/plan011_instruction_loop.py` (the report:
 `docs/benchmarks/2026-10-23-plan011-instruction-loop.md`).
 
-=======
 ## the-measurement-that-could-not-say-where-it-was-measured
 
 **The rule.** A measurement carries at least one reference that reaches
@@ -10596,3 +10595,63 @@ Defect-naming tests: `tests/unit/context/test_source_reference.py` and
 the five Rust tests beside it. Detail: `docs/UNIVERSAL_SOURCE_REFERENCE.md`.
 
 
+=======
+## the-explainer-was-a-caption-rail
+
+**The incident.** The captain's verdict on the first full-screen
+explainer Ren produced over Reel 26 (2026-10-21), verbatim:
+
+> "the explainer animation that you made for reel 26 actually sucks, it
+> was just the subtitles animated into the screen but it wasn't even
+> times. there were no pictures or visual elements that actually composed
+> an animation"
+
+Two defects, and they are two defects:
+
+1. **What was drawn was the reel's own words.** The explainer's stage
+   route (`library/tools/explainer_plan.py`) builds ONE plan entry whose
+   copy runs are the stages - so the thing that appears IS the caption,
+   in pieces. A stage is COPY; a beat is a PICTURE.
+2. **Nothing landed on the words.** Nothing in the plan was tied to the
+   word a picture illustrates, so "it wasn't even times" was literally
+   true.
+
+**What was measured, and what it cost.** Reel 26's own audio, seven
+beats, every offset read off the RENDERED FILE and not off the plan
+(`explainer_plan.measure_beat_offsets`): every picture LEADS its word
+by 289-320 ms and every picture is COMPLETE within 55 ms of it. The
+frames that were looked at, and the contact sheet, are in
+`docs/evidence/explainer_beats.md`.
+
+**Three rounds of the same finding**, each one visible in the frames
+before it was fixed:
+
+- "one icon holding still for ~6 s, 7 icons in 40 s, with most of the
+  canvas empty" - a beat of one picture is not a composition, and a
+  picture that arrives and then stands still is a still. So: several
+  elements per beat, a `pulse` and a `spin` so something changes INSIDE
+  a beat, and a `carry` so one beat becomes the next.
+- "the gaps between beats drop to a near-empty frame" - the exit now
+  OVERLAPS the next beat's arrival, so the transition is the motion.
+  Where the next beat lands a picture on the SAME ground, the old one
+  leaves as the new one arrives instead: two elements in one box print
+  themselves over each other, and two titles in one box are the
+  unreadable smear in the footer.
+- "long beats still read as one held composition" - a beat may have
+  STEPS, each anchored to its OWN word, so the picture builds over the
+  words it covers. A step's quote is searched from the BEAT's own word
+  onward, because a step belongs to its beat: a step quoting a word the
+  reel says twice was anchored to the first saying, which may be a
+  different sentence.
+
+**The rule.** An explainer is a COMPOSED FRAME of PICTURES, timed to the
+words by SEARCH over the reel's own word timings, and the offset
+between each picture and its word is MEASURED off the rendered file and
+reported per beat. Text is at most a supporting label. The project owns
+the pictures, their boxes, their copy and every magnitude (AGENTS.md
+10.5, 14); the engine owns the composition and the timing, and states
+no look of its own.
+
+`library/tools/explainer_plan.py` owns the beat route,
+`library/tools/explainer_render.py` the scene renderer,
+`tests/unit/captions/test_explainer_beats.py` names each defect.

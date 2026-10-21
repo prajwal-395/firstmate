@@ -169,24 +169,96 @@ def test_the_picture_completes_on_the_word_it_illustrates():
     assert any(k["value"] == 1.0 for k in landing), keys
 
 
-def test_one_picture_is_gone_before_the_next_arrives():
-    """Two pictures are never on the frame together.
+def test_the_transition_is_the_motion_where_the_ground_is_free():
+    """The old picture is still on the frame when the new one arrives.
 
-    The picture is GONE one ramp before the next one arrives, so the
-    box is briefly empty between them - and an empty beat is what makes
-    the arrival MEASURABLE (a box that never empties cannot say which
-    change belongs to which picture).
+    The captain's frames dropped to a near-empty frame at 11.0 s,
+    17.0 s, 23.5 s, 26.0 s and 31.5 s - the gap between two beats.
+    So where the next beat lands somewhere ELSE, the exit OVERLAPS its
+    arrival: the transition is the motion and the frame is never bare.
     """
+    declaration = _declaration()
+    declaration["beats"] = [
+        {"quote": "answers specific questions",
+         "asset": "brand_assets/a.svg", "box": [60, 400, 500, 800]},
+        {"quote": "customer",
+         "asset": "brand_assets/b.svg", "box": [540, 400, 980, 800]},
+    ]
     anchored = ex.plan_beats(
-        _declaration()["beats"], _lines(), 10.0, resolve_asset=_resolve)
+        declaration["beats"], _lines(), 10.0, resolve_asset=_resolve)
     props = ex.beat_scene_props(
-        anchored.beats, _declaration(), width=1080, height=1920,
+        anchored.beats, declaration, width=1080, height=1920,
         fps=23.976, duration_frames=240, start_seconds=0.0)
     image = [l for l in props["layers"] if l["kind"] == "image"][0]
     keys = image["placement"]["opacity"]
-    # The next beat arrives at 4.10s; the first picture is gone by then.
     exits = [k for k in keys if k["value"] == 0.0]
-    assert exits and exits[-1]["at"] < 4.10, keys
+    assert exits, keys
+    # The next beat arrives at 4.10s: the picture is still up then.
+    assert exits[-1]["at"] > 4.10, keys
+
+
+def test_two_titles_in_the_same_box_leave_instead_of_printing_over_each_other():
+    """Two titles in one box are the unreadable smear the captain saw in
+    the footer (2026-10-21), so TYPE in a shared box CUTS.
+
+    A PICTURE in a shared box does not: it carries out - it holds until
+    the next picture starts arriving and then fades as it pushes away -
+    so the frame is never empty between two beats.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [
+        {"quote": "answers specific questions",
+         "elements": [{"id": "title-1", "text": [{"text": "one"}],
+                       "box": [60, 400, 980, 800]}],
+         "label": "one", "label_box": [60, 400, 980, 800]},
+        {"quote": "customer",
+         "elements": [{"id": "title-2", "text": [{"text": "two"}],
+                       "box": [60, 400, 980, 800]}],
+         "label": "two", "label_box": [60, 400, 980, 800]},
+    ]
+    anchored = ex.plan_beats(
+        declaration["beats"], _lines(), 10.0, resolve_asset=_resolve)
+    props = ex.beat_scene_props(
+        anchored.beats, declaration, width=1080, height=1920,
+        fps=23.976, duration_frames=240, start_seconds=0.0)
+    texts = [l for l in props["layers"]
+             if l["kind"] == "text" and str(l.get("id", "")).startswith("title-")]
+    assert texts
+    keys = texts[0]["placement"]["opacity"]
+    exits = [k for k in keys if k["value"] == 0.0]
+    assert exits, keys
+    # Gone as the next title arrives, and not a frame before it.
+    assert abs(exits[-1]["at"] - 4.10) < 0.05, keys
+
+
+def test_a_picture_carries_out_rather_than_leaving_a_hole():
+    """A picture holds until the next one arrives, then pushes away.
+
+    The captain's frames at 7.0 s, 26.5 s and 32.0 s were empty except
+    the header, and 11.0 s, 17.0 s, 23.5 s and 31.5 s were a dim fade
+    of the old picture: the transition was a fade-out then a fade-in.
+    It is now a carry-out - the old picture is still at full when the
+    new one starts to arrive.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [
+        {"quote": "answers specific questions",
+         "asset": "brand_assets/a.svg", "box": [60, 400, 980, 800]},
+        {"quote": "customer",
+         "asset": "brand_assets/b.svg", "box": [60, 400, 980, 800]},
+    ]
+    anchored = ex.plan_beats(
+        declaration["beats"], _lines(), 10.0, resolve_asset=_resolve)
+    props = ex.beat_scene_props(
+        anchored.beats, declaration, width=1080, height=1920,
+        fps=23.976, duration_frames=240, start_seconds=0.0)
+    image = [l for l in props["layers"] if l["kind"] == "image"][0]
+    keys = image["placement"]["opacity"]
+    exits = [k for k in keys if k["value"] == 0.0]
+    assert exits, keys
+    # It is still at FULL when the next picture arrives at 4.10s.
+    at_arrival = [k for k in keys if abs(k["at"] - 4.10) < 0.05]
+    assert at_arrival and at_arrival[0]["value"] == 1.0, keys
 
 
 def test_a_named_entrance_character_starts_the_picture_early():

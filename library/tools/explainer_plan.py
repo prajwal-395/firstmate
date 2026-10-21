@@ -174,6 +174,7 @@ REFUSALS: Tuple[str, ...] = (
     "nothing_to_draw",
     "no_picture",
     "asset_not_found",
+    "duplicate_element",
 )
 
 UNGROUNDED = "ungrounded"
@@ -183,6 +184,7 @@ NOT_DRAWABLE = "not_drawable"
 NOTHING_TO_DRAW = "nothing_to_draw"
 NO_PICTURE = "no_picture"
 ASSET_NOT_FOUND = "asset_not_found"
+DUPLICATE_ELEMENT = "duplicate_element"
 
 
 def assert_elements_stage() -> None:
@@ -431,7 +433,8 @@ def anchor_stages(parts: Sequence[Any], lines: Sequence[dict],
 
 
 def _anchor_one(needle: str, stream: Sequence[Tuple[str, float]],
-                haystacks: Sequence[Tuple[float, str]]):
+                haystacks: Sequence[Tuple[float, str]],
+                start: int = 0):
     """`(second, precision)` for one normalised quote, or `(None, "")`.
 
     Word first, line second.  Both are containment - present or absent,
@@ -439,17 +442,41 @@ def _anchor_one(needle: str, stream: Sequence[Tuple[str, float]],
     the anchor something a reader can re-run rather than trust, and it
     is the same check `reel_quality_bar.check_reading` grounds every
     other quote with.
+
+    `start` is where in the word stream the search begins, and it is
+    what makes a STEP find ITS word: a step belongs to a beat, so its
+    quote is searched from the beat's own word onward.  Without it a
+    step that quotes a word the reel says twice is anchored to the
+    FIRST saying, which may be a different sentence - "that" at 7.01 s
+    instead of the beat's own "that" at 32.85 s.
     """
     tokens = [t for t in needle.split(" ") if t]
     if tokens and stream:
         width = len(tokens)
-        for index in range(0, len(stream) - width + 1):
+        for index in range(max(0, start), len(stream) - width + 1):
             if [w for w, _ in stream[index:index + width]] == tokens:
                 return stream[index][1], WORD
     for at, says in haystacks:
         if needle in says:
             return at, LINE
     return None, ""
+
+
+def _anchor_index(needle: str, stream: Sequence[Tuple[str, float]],
+                  start: int = 0) -> int:
+    """Where in the word stream a quote matched, or -1.
+
+    The step's search starts AFTER its beat's own match, so a step is
+    anchored inside the beat it belongs to.
+    """
+    tokens = [t for t in needle.split(" ") if t]
+    if not tokens or not stream:
+        return -1
+    width = len(tokens)
+    for index in range(max(0, start), len(stream) - width + 1):
+        if [w for w, _ in stream[index:index + width]] == tokens:
+            return index
+    return -1
 
 
 # ── The declaration ──────────────────────────────────────────────────
@@ -674,6 +701,31 @@ def normalise_beats_declaration(raw: Any) -> dict:
                     raise ExplainerError(
                         f"{label}.drift is {drift!r}, which does not hold "
                         f"two numbers.") from None
+        for number, step in enumerate(beat.get("steps") or [], start=1):
+            label = f"beats[{position}].steps[{number}]"
+            if not isinstance(step, dict):
+                raise ExplainerError(
+                    f"{label} must be a mapping, got "
+                    f"{type(step).__name__}.")
+            if not str(step.get("quote") or "").strip():
+                raise ExplainerError(
+                    f"{label} carries no quote, so nothing puts it in "
+                    f"time. A step is anchored by the words it draws.")
+            for element_number, element in enumerate(step.get("elements") or [],
+                                                     start=1):
+                element_label = f"{label}.elements[{element_number}]"
+                if not isinstance(element, dict):
+                    raise ExplainerError(
+                        f"{element_label} must be a mapping, got "
+                        f"{type(element).__name__}.")
+                if not str(element.get("asset") or "").strip() \
+                        and not element.get("text"):
+                    raise ExplainerError(
+                        f"{element_label} names neither an asset nor "
+                        f"text. An element IS a picture or a line of "
+                        f"type.")
+                _absolute_box(element.get("box"), f"{element_label}.box")
+                _check_motion(element, element_label)
         for number, connector in enumerate(beat.get("connectors") or [],
                                            start=1):
             label = f"beats[{position}].connectors[{number}]"
@@ -1093,6 +1145,15 @@ class Beat:
     connectors: Tuple[dict, ...] = ()
     """The LINES between the beat's elements, which draw as they
     arrive."""
+    steps: Tuple[dict, ...] = ()
+    """The beat's STEPS - each a moment inside the beat, anchored to
+    its OWN word.
+
+    A beat that arrives whole and then holds is one composition held
+    for six seconds, and the viewer sees nothing happen while the
+    sentence is still being said.  A step is a piece of the beat that
+    arrives on its own word: the picture builds, one element at a
+    time, every second or so the words say something new."""
 
     @property
     def start_seconds(self) -> float:
@@ -1109,6 +1170,7 @@ class Beat:
                 "layers": [dict(layer) for layer in self.layers],
                 "elements": [dict(element) for element in self.elements],
                 "connectors": [dict(c) for c in self.connectors],
+                "steps": [dict(step) for step in self.steps],
                 "stay_seconds": round(self.stay_seconds, 3),
                 "motion": dict(self.motion),
                 "precision": self.precision}
@@ -1229,6 +1291,9 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
     means in this renderer and not a number anybody chose.
     """
     out = AnchoredBeats(reel_seconds=float(reel_seconds or 0.0))
+    # The element ids seen so far, and the CONTENT each one carried: an
+    # id is ONE element, drawn once and moved from beat to beat.
+    _seen_elements: Dict[str, tuple] = {}
     if reel_seconds is None or float(reel_seconds) <= 0:
         raise ExplainerError(
             "a reel with no length has no second to anchor a beat at; "
@@ -1342,6 +1407,24 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
         # instead of disappearing and reappearing.
         elements: List[dict] = []
         for number, element in enumerate(raw.get("elements") or [], start=1):
+            element_id = str(element.get("id") or f"beat-{index}-{number}")
+            # The CONTENT is what must not change under one id: a
+            # different BOX is the element MOVING, which is the point
+            # of `carry:`; a different picture or a different title is
+            # two elements wearing one name.
+            content = (str(element.get("asset") or ""),
+                       json.dumps(element.get("text"), sort_keys=True))
+            seen = _seen_elements.setdefault(element_id, content)
+            if seen != content:
+                out.refuse(text, DUPLICATE_ELEMENT,
+                           f"the element id {element_id!r} is used again "
+                           f"with different content. One id is ONE "
+                           f"element: an element that is drawn once and "
+                           f"moved from beat to beat carries its FIRST "
+                           f"content, and a title that keeps the first "
+                           f"beat's words for the whole reel is a lie.")
+                elements = []
+                break
             if not isinstance(element, dict):
                 raise ExplainerError(
                     f"beats[{index}].elements[{number}] must be a "
@@ -1419,6 +1502,80 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
                 lead = max(beat_ramp_seconds(c, fps) for c in characters)
             else:
                 lead = 0.0
+        # The beat's STEPS: each one is anchored to its OWN word, so
+        # the beat builds over the words it covers instead of arriving
+        # whole and holding.
+        steps: List[dict] = []
+        step_previous = -1.0
+        # A step is searched from the BEAT's own word onward: the step
+        # belongs to this beat, so a word the reel says twice is
+        # anchored to the saying INSIDE this beat.
+        beat_index = _anchor_index(_normalise(quote), stream)
+        for number, step in enumerate(raw.get("steps") or [], start=1):
+            label = f"beats[{index}].steps[{number}]"
+            if not isinstance(step, dict):
+                raise ExplainerError(
+                    f"{label} must be a mapping, got "
+                    f"{type(step).__name__}.")
+            step_quote = _collapse(str(step.get("quote") or ""))
+            if not step_quote:
+                raise ExplainerError(
+                    f"{label} carries no quote, so nothing puts it in "
+                    f"time. A step is anchored by the words it draws.")
+            step_at, step_precision = _anchor_one(
+                _normalise(step_quote), stream, haystacks,
+                start=beat_index)
+            if step_at is None:
+                out.refuse(text, UNGROUNDED,
+                           f"{step_quote!r} (step {number}) is not in the "
+                           f"words this reel plays")
+                steps = []
+                break
+            if step_at < step_previous:
+                out.refuse(text, OUT_OF_ORDER,
+                           f"step {number} is said at {step_at:.2f}s, "
+                           f"before the step before it at "
+                           f"{step_previous:.2f}s")
+                steps = []
+                break
+            step_elements = []
+            for element in (step.get("elements") or []):
+                name = str(element.get("asset") or "").strip()
+                if name and resolve_asset is not None \
+                        and not resolve_asset(name):
+                    out.refuse(text, ASSET_NOT_FOUND,
+                               f"{name!r} does not resolve to a file on "
+                               f"disk. A picture that is not there is a "
+                               f"hole in the frame.")
+                    steps = []
+                    break
+                step_elements.append({
+                    "id": str(element.get("id")
+                              or f"beat-{index}-step-{number}"),
+                    "asset": name,
+                    "text": element.get("text"),
+                    "box": tuple(int(v) for v in (element.get("box") or ())),
+                    "entrance": str(element.get("entrance") or ""),
+                    "motion": dict(element.get("motion") or {}),
+                    "drift": tuple(float(v) for v in (element.get("drift")
+                                                      or (0.0, 0.0))),
+                    "pulse": dict(element.get("pulse") or {}),
+                    "spin": element.get("spin"),
+                })
+            if steps == [] and step_elements == [] and (step.get("elements")
+                                                       or []):
+                break
+            steps.append({
+                "index": number,
+                "quote": step_quote,
+                "at_seconds": step_at,
+                "precision": step_precision,
+                "elements": step_elements,
+                "connectors": [dict(c) for c in (step.get("connectors") or [])],
+            })
+            step_previous = step_at
+        if steps == [] and (raw.get("steps") or []):
+            continue
         previous = at
         out.beats.append(Beat(
             index=index, quote=quote, at_seconds=at,
@@ -1430,6 +1587,7 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
             layers=tuple(layers),
             elements=tuple(elements),
             connectors=tuple(connectors),
+            steps=tuple(steps),
             stay_seconds=float(raw.get("stay_seconds") or 0.0),
             motion=dict(raw.get("motion") or {})))
     return out
@@ -1520,28 +1678,41 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         layers.append(layer)
 
     # ── the elements, merged across the beats they carry through ────
-    appearances: Dict[str, List[Tuple[Any, dict]]] = {}
+    #
+    # An element belongs to a BEAT or to a STEP inside it, and a step
+    # has its own word: the beat's own elements arrive with the beat,
+    # and each step's elements arrive with that step's word, so the
+    # picture builds over the words it covers.
+    appearances: Dict[str, List[Tuple[Any, dict, float, float]]] = {}
     order: List[str] = []
     for beat in ordered:
-        for entry in _beat_elements(beat):
+        entries = [(entry, _beat_arrival(beat, start_seconds),
+                    _beat_landing(beat, start_seconds))
+                   for entry in _beat_elements(beat)]
+        for step in (getattr(beat, "steps", None) or ()):
+            step_arrival = (float(step.get("at_seconds") or 0.0)
+                            - float(start_seconds))
+            step_landing = step_arrival
+            for entry in (step.get("elements") or ()):
+                entries.append((entry, step_arrival, step_landing))
+        for entry, arrival_at, landing_at in entries:
             key = str(entry.get("id") or f"beat-{beat.index}")
             if key not in appearances:
                 appearances[key] = []
                 order.append(key)
-            appearances[key].append((beat, entry))
+            appearances[key].append((beat, entry, arrival_at, landing_at))
 
     for key in order:
         apps = appearances[key]
         if not apps:
             continue
-        first_beat, first_entry = apps[0]
-        last_beat, last_entry = apps[-1]
-        landing = _beat_landing(first_beat, start_seconds)
-        arrival = _beat_arrival(first_beat, start_seconds)
+        first_beat, first_entry, arrival, landing = apps[0]
+        last_beat, last_entry = apps[-1][0], apps[-1][1]
         next_arrival = None
+        next_beat = None
         if ordered.index(last_beat) + 1 < len(ordered):
-            following = ordered[ordered.index(last_beat) + 1]
-            next_arrival = _beat_arrival(following, start_seconds)
+            next_beat = ordered[ordered.index(last_beat) + 1]
+            next_arrival = _beat_arrival(next_beat, start_seconds)
         stay = float(first_entry.get("stay_seconds",
                                      getattr(last_beat, "stay_seconds", 0.0))
                      or 0.0)
@@ -1549,8 +1720,20 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         if stay:
             exit_at = max(exit_at or 0.0, landing + stay)
         ramp = beat_ramp_seconds(first_entry.get("entrance") or "fade", fps)
+        # The EXIT, and it is where the transition is decided:
+        #
+        # - a PICTURE CARRIES OUT.  It holds at full until the next
+        #   beat's picture starts arriving and then fades as it pushes
+        #   away, so the two overlap and the frame is never a dim
+        #   empty rectangle between two beats (the captain's 7.0 s,
+        #   26.5 s and 32.0 s, and the dim fades at 11.0 s, 17.0 s,
+        #   23.5 s and 31.5 s).
+        # - TYPE in a SHARED box CUTS: two titles in one box are the
+        #   unreadable smear the captain saw in the footer.
+        shared = _shares_ground(first_entry.get("box"), next_beat)
+        cut_exit = bool(first_entry.get("text")) and shared
         if exit_at is not None:
-            exit_at = max(landing, exit_at - ramp)
+            exit_at = max(landing, exit_at)
         layer = _scene_layer(first_entry, prefix, width, height, fps,
                              label_size or 26.0, label_weight, label_colour)
         if layer is None:
@@ -1560,9 +1743,9 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         # The box track: one keyframe per beat the element appears in,
         # each at that beat's LANDING - so a carried element is in its
         # new place when the word says so.
-        for beat, entry in apps:
+        for beat, entry, _arrival_at, landing_at in apps:
             box = _world_box(entry["box"], width, height)
-            at = _beat_landing(beat, start_seconds)
+            at = landing_at
             for axis in ("x", "y", "width"):
                 placement[axis] = _put_key(placement.get(axis), at,
                                            box[axis])
@@ -1629,7 +1812,11 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         # engine holds no number of its own (AGENTS.md 10.5).  A frame
         # that cuts from one idea to the next is not a transformation.
         if exit_at is not None and ramp > 0:
-            fade_start = max(0.0, exit_at - ramp)
+            # The push-out happens as the NEXT picture arrives, not
+            # before it: the old picture is still in place when the
+            # new one starts to come in, so the two overlap and the
+            # frame is never empty between two beats.
+            fade_start = max(0.0, exit_at)
             if entrance == "scale":
                 track = placement.get("width")
                 if isinstance(track, list) and track:
@@ -1638,7 +1825,7 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
                                        .get("scale_from") or 1.0)
                     placement["width"] = list(track) + [
                         {"at": fade_start, "value": full},
-                        {"at": max(0.0, exit_at),
+                        {"at": max(0.0, exit_at + ramp),
                          "value": full * scale_from},
                     ]
             elif entrance == "slide":
@@ -1657,9 +1844,21 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
         opacity = [{"at": max(0.0, arrival), "value": 0.0},
                    {"at": max(0.0, landing), "value": 1.0}]
         if exit_at is not None:
-            fade_start = exit_at if ramp <= 0 else exit_at - ramp
-            opacity += [{"at": max(0.0, fade_start), "value": 1.0},
-                        {"at": max(0.0, exit_at), "value": 0.0}]
+            if cut_exit:
+                # TYPE in a shared box CUTS: two titles in one box are
+                # the unreadable smear the captain saw in the footer.
+                cut = min(ramp, 0.12)
+                opacity += [{"at": max(0.0, exit_at - cut), "value": 1.0},
+                            {"at": max(0.0, exit_at), "value": 0.0}]
+            else:
+                # A PICTURE carries out: it holds at full until the
+                # next picture starts arriving, then fades as it pushes
+                # away - so the two overlap and the frame is never a
+                # dim empty rectangle between two beats (the captain's
+                # 7.0 s, 26.5 s and 32.0 s, and the dim fades at
+                # 11.0 s, 17.0 s, 23.5 s and 31.5 s).
+                opacity += [{"at": max(0.0, exit_at), "value": 1.0},
+                            {"at": max(0.0, exit_at + ramp), "value": 0.0}]
         placement["opacity"] = opacity
         layers.append(layer)
 
@@ -1673,6 +1872,19 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
             if rule is not None:
                 rule["id"] = f"connector-{beat.index}-{number}"
                 layers.append(rule)
+        # A step's connectors draw with the STEP, on the step's word.
+        for step in (getattr(beat, "steps", None) or ()):
+            step_landing = (float(step.get("at_seconds") or 0.0)
+                            - float(start_seconds))
+            for number, connector in enumerate(step.get("connectors") or [],
+                                               start=1):
+                rule = _connector_rule(connector, beat, step_landing,
+                                       step_landing, width, height, fps)
+                if rule is not None:
+                    rule["id"] = (f"connector-{beat.index}-"
+                                  f"step-{step.get('index', number)}"
+                                  f"-{number}")
+                    layers.append(rule)
 
     # ── the supporting label ─────────────────────────────────────────
     for beat in ordered:
@@ -1761,6 +1973,37 @@ def _put_key(track: Any, at: float, value: float) -> List[dict]:
     keys = [k for k in keys if float(k["at"]) < at - 1e-9]
     keys.append({"at": at, "value": value})
     return keys
+
+
+def _shares_ground(box: Optional[Sequence[int]],
+                   other: Optional[Any]) -> bool:
+    """Do two elements want the same part of the frame?
+
+    Two boxes that OVERLAP cannot be on the frame together: the second
+    prints itself over the first, and two titles in the same box are
+    the unreadable smear the captain saw in the footer.
+    """
+    if not box or other is None:
+        return False
+    left, top, right, bottom = (int(v) for v in box)
+    for entry in _beat_elements(other):
+        other_box = entry.get("box")
+        if not other_box or len(other_box) != 4:
+            continue
+        o_left, o_top, o_right, o_bottom = (int(v) for v in other_box)
+        if (left < o_right and o_left < right
+                and top < o_bottom and o_top < bottom):
+            return True
+    for step in (getattr(other, "steps", None) or ()):
+        for entry in (step.get("elements") or ()):
+            other_box = entry.get("box")
+            if not other_box or len(other_box) != 4:
+                continue
+            o_left, o_top, o_right, o_bottom = (int(v) for v in other_box)
+            if (left < o_right and o_left < right
+                    and top < o_bottom and o_top < bottom):
+                return True
+    return False
 
 
 def _track_value_at(track: Any, at: float) -> float:
@@ -2051,26 +2294,22 @@ def measure_beat_offsets(rendered_path: str, beats: Sequence[Beat], *,
         # region spends most of its pixels on.  The MEDIAN is wrong
         # here and measurably so: a picture that is on screen for half
         # the clip puts the median BETWEEN the two tones, so every
-        # frame of bare ground reads as a deviation and the picture
-        # appears to arrive at 0.00s.
+        # frame of bare ground reads as a deviation.
         counts = np.bincount(region.reshape(-1), minlength=256)
         ground_level = float(int(np.argmax(counts)))
         deviation = np.abs(region - ground_level).max(axis=(1, 2))
         peak = float(deviation.max())
-        # The CHANGE in the box from one frame to the next.  A beat whose
-        # picture BUILDS BESIDE the one before it never leaves the box
-        # empty, so "the first frame with ink" reads the PREVIOUS
-        # picture's arrival for every beat.  The change is what says a
-        # new picture arrived, and it is the same measurement for a
-        # cut, a fade and a growth.
+        # The CHANGE in the box from one frame to the next: the
+        # reading that survives a crossfade between two beats, where
+        # the box never empties.
         difference = np.zeros(len(region), dtype=np.float64)
         if len(region) > 1:
             difference[1:] = np.abs(
-                region[1:].astype(np.float64) - region[:-1].astype(np.float64)
-            ).mean(axis=(1, 2))
+                region[1:].astype(np.float64)
+                - region[:-1].astype(np.float64)).mean(axis=(1, 2))
         curves[key] = {"deviation": deviation, "peak": peak,
-                       "difference": difference,
-                       "segments": _segments(deviation, peak)}
+                       "difference": difference}
+
     for beat in beats:
         key = _measure_box(beat)
         curve = curves.get(key)
@@ -2084,6 +2323,7 @@ def measure_beat_offsets(rendered_path: str, beats: Sequence[Beat], *,
             })
             continue
         deviation = curve["deviation"]
+        difference = curve["difference"]
         peak = float(curve["peak"])
         word_in_scene = beat.at_seconds - float(start_seconds)
         if peak < 1.0:
@@ -2096,47 +2336,23 @@ def measure_beat_offsets(rendered_path: str, beats: Sequence[Beat], *,
                 "note": "nothing was drawn in this beat's box",
             })
             continue
-        # The segment that carries this beat: the one the word falls
-        # INSIDE, because that is the stretch in which THIS picture was
-        # on the frame.  Nearest by EDGE when the word falls in a gap
-        # between two pictures - the middle of a segment is not a
-        # distance to it, and choosing by the middle picks the wrong
-        # picture whenever one beat is much longer than the one before.
-        segments = curve["segments"]
-        expected = word_in_scene * float(fps)
-        inside = [i for i, s in enumerate(segments)
-                  if s[0] <= expected <= s[1]]
-        if inside:
-            position = inside[0]
-        else:
-            position = min(
-                range(len(segments)),
-                key=lambda i: min(abs(expected - segments[i][0]),
-                                  abs(expected - segments[i][1])))
-        segment = segments[position]
-        # The picture's ARRIVAL: the frame in which the box changed
-        # MOST around the word.  The change is the arrival for a cut, a
-        # fade and a growth alike, and it is the only reading that
-        # survives a beat whose picture builds BESIDE the one before.
-        difference = curve["difference"]
-        # The arrival is the picture's FIRST ink in the stretch that
-        # carries this beat.  The stretch opens at half the peak, and a
-        # picture that builds is already on the frame before it is half
-        # there, so the scan runs back from the stretch's own start -
-        # and never across into the previous picture's stretch, which is
-        # a different picture.
-        first_ink = max(3.0, peak * 0.03)
-        lower = (segments[position - 1][1] + 1) if position else 0
-        back = int(segment[0])
-        while back > lower and deviation[back - 1] >= first_ink:
-            back -= 1
-        arrival_frame = back
-        # The picture's OWN peak, not the clip's: a dark picture on a
-        # dark ground never reaches the brightness of a white one, and
-        # a landing measured against another beat's peak is never
-        # reached at all.  The peak is read over the beat's own stretch
-        # - the arrival plus the ramp after it.
-        stretch_end = min(len(deviation) - 1, arrival_frame + int(1.2 * fps))
+        # The ARRIVAL: the frame in which the box changed MOST around
+        # the beat's own arrival.  The change is the reading, because
+        # the transition between two beats is now a CROSSFADE: the old
+        # picture is still on the frame when the new one arrives, so
+        # "the first frame with ink" would read the old picture and
+        # "the first empty frame" never comes.
+        expected_arrival = (beat.start_seconds - float(start_seconds)) * float(fps)
+        window = max(2, int(0.45 * float(fps)))
+        low = max(1, int(expected_arrival) - window)
+        high = min(len(difference) - 1, int(expected_arrival) + window)
+        if high <= low:
+            low, high = 1, max(2, len(difference) - 1)
+        arrival_frame = int(low + int(np.argmax(difference[low:high])))
+        # The LANDING: the first frame the picture is COMPLETE - its own
+        # local peak, not the clip's (a dark picture on a dark ground
+        # never reaches the brightness of a white one).
+        stretch_end = min(len(deviation) - 1, arrival_frame + int(1.6 * fps))
         local_peak = float(deviation[arrival_frame:stretch_end + 1].max()) \
             if stretch_end > arrival_frame else peak
         landed = np.where(deviation[arrival_frame:stretch_end + 1]
@@ -2145,7 +2361,7 @@ def measure_beat_offsets(rendered_path: str, beats: Sequence[Beat], *,
             else None
         arrival_seconds = arrival_frame / float(fps)
         landing_seconds = (landing_frame / float(fps)
-                            if landing_frame is not None else None)
+                           if landing_frame is not None else None)
         measured.append({
             "index": beat.index,
             "quote": beat.quote,
