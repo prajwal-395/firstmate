@@ -189,7 +189,7 @@ AXI is the only production boundary for Resolve inspection and mutation. Discove
 
 One Resolve instance and its broker/lease coordinate every writer. Never mutate through a direct API, MCP or UI path, overlap writers, or promote an unverified result. Use the [resolve-axi skill](.agents/skills/resolve-axi/SKILL.md) for discovery, execution and recovery; its generated references derive from `library/tools/edit_algebra.py`. Custom scripts follow [the AXI script safeguards](docs/RESOLVE_AXI_CUSTOM_SCRIPTS.md). Pipeline-owned composition and render details belong to [davinci_resolve_pipeline](.agents/skills/davinci_resolve_pipeline/SKILL.md) and their owning modules.
 
-**A WAIT for a machine resource runs OUTSIDE the broker's turn; the scratch-origin wait SAYS who holds it; a STOP names who asked, and a linked worktree never stops the machine's broker.** `library/tools/resolved/client.py`. [why](docs/RULE_EVIDENCE.md#the-wait-in-the-turn)
+**A WAIT for a machine resource runs OUTSIDE the broker's turn; a STOP names who asked, and a linked worktree never stops the machine's broker.** `library/tools/resolved/client.py`. [why](docs/RULE_EVIDENCE.md#the-wait-in-the-turn)
 
 **A COMPOUND request is a TRANSACTION: its write order and dependencies are declared, a preservation constraint that cannot hold refuses BEFORE the first write, a partial mutation is recovered and only claimed when a fresh read-back matches the validated generation, and a possibly committed mutation is never retried silently.** `library/tools/compound_transaction.py`.
 
@@ -357,8 +357,6 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.** `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
 **A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.** `library/tools/creative_direction.py`. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
-
-**A REFUSAL the engine already decided is REMEMBERED, and the same one again costs nothing.** `library/tools/retry_guard.py`. [why](docs/RULE_EVIDENCE.md#refusal-decided-twice)
 
 **A call with nothing to ask is not made.** `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 
