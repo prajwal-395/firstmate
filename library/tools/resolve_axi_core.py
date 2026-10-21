@@ -58,7 +58,15 @@ class AxiResult:
 
 @dataclass(frozen=True)
 class AxiTransaction:
-    """One generation-pinned transaction containing several native ops."""
+    """One generation-pinned transaction containing several native ops.
+
+    AXI-004: this is the LEGACY carrier of a request. It is not a
+    second meaning: ``to_edit_request`` reads it as the canonical
+    ``EditRequest``, and the durable patch it becomes is compiled from
+    THAT request (``library.tools.legacy_transaction``). The carrier
+    stays, because it is the shape the SDK's callers hand over, and
+    because the broker's durable key is the patch's id.
+    """
 
     id: str
     project: str
@@ -70,6 +78,11 @@ class AxiTransaction:
     operations: tuple[Mapping[str, Any], ...]
     preconditions: tuple[Mapping[str, Any], ...] = ()
     postconditions: tuple[Mapping[str, Any], ...] = ()
+    preservation: tuple[Mapping[str, Any], ...] = ()
+    """What this transaction must NOT change, in the requester's words.
+
+    The carrier used to have nowhere to put this, so a request that
+    named a preservation requirement lost it before the write."""
 
     def patch(self) -> dict[str, Any]:
         return {
@@ -83,7 +96,14 @@ class AxiTransaction:
             "operations": [dict(operation) for operation in self.operations],
             "preconditions": [dict(value) for value in self.preconditions],
             "postconditions": [dict(value) for value in self.postconditions],
+            "preservation": [dict(value) for value in self.preservation],
         }
+
+    def to_edit_request(self):
+        """The canonical request this carrier carries (AXI-004)."""
+        from library.tools import legacy_transaction
+
+        return legacy_transaction.request_for(self)
 
 
 @dataclass(frozen=True)
@@ -1648,6 +1668,19 @@ def _is_request_mapping(data: Mapping[str, Any]) -> bool:
                for op in operations)
 
 
+def _is_patch_mapping(data: Mapping[str, Any]) -> bool:
+    """Whether a plain dict is a patch shape, not a request shape.
+
+    A patch names the generation it was planned against, the capability
+    that governs the write and the extent it declares; a request names
+    its addressing vocabulary instead (see `_is_request_mapping`).
+    """
+    if not isinstance(data, Mapping):
+        return False
+    return ("base_generation" in data and "capability" in data
+            and "affected_spans" in data)
+
+
 def _shadow_project_key(project: str) -> str:
     """The shadow store's project key for a request's project.
 
@@ -2028,7 +2061,13 @@ def submit_edit_request_async(request, *, authorized: bool = False,
         _patch_capability(compiled), base_generation=generation.generation,
         project=request.project, timeline=request.timeline,
         idempotency_key=request.idempotency_key,
-        preconditions=request.preconditions)
+        preconditions=request.preconditions,
+        # AXI-004: the durable patch carries the request's preservation
+        # requirements. The semantic route judges them on the read-back
+        # through the request; the durable route judges them through the
+        # patch. A requirement the request states and the patch drops is
+        # a requirement nobody keeps.
+        preservation=request.preservation)
     from library.tools.resolved import client
     client.ensure()
     # The patch id IS the request's idempotency key, so the broker's own
@@ -2104,73 +2143,58 @@ def cancel_edit_request(job_id: str) -> dict[str, Any]:
 def plan_transaction(transaction) -> dict[str, Any]:
     """Validate a transaction against its recorded base without Resolve.
 
-    Accepts a typed legacy `AxiTransaction` or a semantic `EditRequest`.
-    Semantic requests are prepared and routed without Resolve contact;
-    legacy transactions retain their EditPatch contract. Neither path
-    queues or mutates anything.
+    Accepts a typed legacy `AxiTransaction`, a patch-shaped mapping, or
+    a semantic `EditRequest`. Semantic requests are prepared and routed
+    without Resolve contact; legacy transactions retain their
+    EditPatch contract. Neither path queues or mutates anything.
+
+    AXI-004: the legacy plan is the legacy plan's shape, but the
+    operations it reports are the canonical ones - the carrier is read
+    as an `EditRequest` and compiled, so both doors read one request
+    with one model.
     """
     from library.tools.edit_request import EditRequest
 
     if isinstance(transaction, EditRequest) or _is_request_mapping(
             transaction):
         return _plan_request(transaction)
-    if not isinstance(transaction, AxiTransaction):
-        raise TypeError(
-            "plan_transaction takes an AxiTransaction or an EditRequest, "
-            f"got {type(transaction).__name__}")
-    return _plan_transaction_patch(transaction)
+    if isinstance(transaction, AxiTransaction) or _is_patch_mapping(
+            transaction):
+        return _plan_transaction_patch(transaction)
+    raise TypeError(
+        "plan_transaction takes an AxiTransaction, a patch mapping or an "
+        f"EditRequest, got {type(transaction).__name__}")
 
 
 def _plan_transaction_patch(transaction: AxiTransaction) -> dict[str, Any]:
-    """The typed-transaction plan: EditPatch validation against the base."""
-    from library.tools import edit_patch, timeline_shadow
+    """The typed-transaction plan: EditPatch validation against the base.
 
-    patch = edit_patch.EditPatch.from_dict(transaction.patch())
-    store = timeline_shadow.ShadowStore()
-    candidates = [
-        (generation, snapshot)
-        for generation, snapshot in store.current_snapshots(patch.project)
-        if generation.timeline_name == patch.timeline
-    ]
-    if len(candidates) != 1:
-        raise ValueError(
-            f"recorded base for {patch.project!r}/{patch.timeline!r} "
-            f"resolved to {len(candidates)} timelines")
-    generation, snapshot = candidates[0]
-    if generation.generation != patch.base_generation:
-        raise ValueError(
-            f"transaction base generation {patch.base_generation} is stale; "
-            f"recorded head is {generation.generation}")
-    edit_patch.validate(patch, snapshot)
-    failures = edit_patch._judge(patch.preconditions, snapshot, snapshot)
-    if failures:
-        raise ValueError("transaction preconditions failed: " + "; ".join(failures))
-    return {
-        "status": "planned",
-        "transaction_id": patch.id,
-        "project": patch.project,
-        "timeline": patch.timeline,
-        "base_generation": patch.base_generation,
-        "backend": "edit_patch",
-        "backend_reason": "typed timeline transactions execute through the EditPatch coordinator",
-        "operations": [dict(operation) for operation in patch.operations],
-        "affected_spans": [list(span) for span in patch.affected_spans],
-        "conflict_domains": list(patch.conflict_domains),
-        "authorization_required": True,
-        "resolve_contacted": False,
-        "mutated": False,
-    }
+    AXI-004: the plan is the legacy plan's shape, but the operations it
+    reports are the CANONICAL ones - the carrier is read as an
+    ``EditRequest`` and compiled, so the write order is the order the
+    operations' declared dependencies require.
+    """
+    from library.tools import legacy_transaction
+
+    return legacy_transaction.plan_for(transaction)
 
 
 def submit_transaction_async(
-    transaction: AxiTransaction, *, owner: str = "resolve-axi"
+    transaction: AxiTransaction | Mapping[str, Any], *, owner: str = "resolve-axi"
 ) -> dict[str, Any]:
-    """Queue a multi-operation EditPatch and return its broker job handle."""
+    """Queue a multi-operation EditPatch and return its broker job handle.
+
+    AXI-004: the patch that is queued is compiled from the CANONICAL
+    request the carrier carries, so the durable write a legacy front
+    door makes is the same write the canonical front door would make.
+    """
+    from library.tools import legacy_transaction
     from library.tools.resolved import client
 
     client.ensure()
+    patch = legacy_transaction.patch_for(transaction)
     return client.submit(
-        "timeline.apply_patch", {"patch": transaction.patch()}, owner=owner
+        "timeline.apply_patch", {"patch": patch}, owner=owner
     )
 
 
@@ -2187,7 +2211,8 @@ def retrieve_transaction(job_id: str, *, wait: float = 0.0) -> dict[str, Any]:
 
 
 def submit_transaction(
-    transaction: AxiTransaction, *, owner: str = "resolve-axi", timeout: float = 120.0
+    transaction: AxiTransaction | Mapping[str, Any], *, owner: str = "resolve-axi",
+    timeout: float = 120.0
 ) -> dict[str, Any]:
     """Submit a multi-operation EditPatch and wait for its verified receipt."""
     submitted = submit_transaction_async(transaction, owner=owner)

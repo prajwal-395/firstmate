@@ -848,9 +848,20 @@ def from_algebra_ops(ops: Sequence[Mapping[str, Any]], *,
                      expected_model_revision: int | None = None,
                      originator: Mapping[str, Any] | None = None,
                      preconditions: Sequence[Mapping] = (),
+                     preservation: Sequence[Mapping] = (),
                      idempotency_key: str = "",
                      default_kind: str = DIRECT) -> EditRequest:
-    """Build a request from flat algebra ops (AXI / router callers)."""
+    """Build a request from flat algebra ops (AXI / router callers).
+
+    A flat op may carry the SEMANTIC keys the flat vocabulary carries -
+    ``kind``, ``expected_effect``, ``depends_on`` - and now also the
+    constraints a request states about one operation:
+    ``preconditions``, ``postconditions`` and ``preservation``. They
+    used to stay in the operation's parameters, which meant the
+    requirement was carried to the backend as an unknown parameter and
+    was never judged: a request that named what an operation must not
+    change lost the requirement on the way in.
+    """
     if default_kind not in KINDS:
         raise EditRequestError(
             f"default kind {default_kind!r} is unknown; "
@@ -864,13 +875,22 @@ def from_algebra_ops(ops: Sequence[Mapping[str, Any]], *,
         kind = str(raw.pop("kind", default_kind) or default_kind)
         expected = str(raw.pop("expected_effect", "") or "")
         depends = tuple(int(i) for i in (raw.pop("depends_on", None) or ()))
+        op_preconditions = tuple(dict(row) for row in
+                                 (raw.pop("preconditions", None) or ()))
+        op_postconditions = tuple(dict(row) for row in
+                                  (raw.pop("postconditions", None) or ()))
+        op_preservation = tuple(dict(row) for row in
+                                (raw.pop("preservation", None) or ()))
         target = _split_target(raw, op_id)
         if not expected:
             expected = (f"apply {op_id} "
                         f"{('to ' + (target.name or target.unique_id)) if target else ''}".strip())
         built.append(EditOperation(
             op=op_id, target=target, params=raw, kind=kind,
-            expected_effect=expected, depends_on=depends))
+            expected_effect=expected, depends_on=depends,
+            preconditions=op_preconditions,
+            postconditions=op_postconditions,
+            preservation=op_preservation))
     return EditRequest(
         id=_request_id(), project=project, timeline=timeline,
         timeline_id=timeline_id,
@@ -879,6 +899,7 @@ def from_algebra_ops(ops: Sequence[Mapping[str, Any]], *,
         originator=dict(originator or {"kind": "agent"}),
         operations=tuple(built),
         preconditions=tuple(dict(c) for c in preconditions),
+        preservation=tuple(dict(r) for r in preservation),
         idempotency_key=idempotency_key or "",
     )
 

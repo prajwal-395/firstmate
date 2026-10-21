@@ -10704,7 +10704,7 @@ Defect-naming tests: `tests/unit/context/test_source_reference.py` and
 the five Rust tests beside it. Detail: `docs/UNIVERSAL_SOURCE_REFERENCE.md`.
 
 
-=======
+
 ## the-explainer-was-a-caption-rail
 
 **The incident.** The captain's verdict on the first full-screen
@@ -10857,3 +10857,73 @@ work. The engine's speed did not regress; the queue grew. The
 per-operation split (queue wait / Resolve time / Ren time, with
 denominators) is now printed by `ren profile`, so that comparison is
 one command away instead of a subtraction over rows nobody can see.
+=======
+=======
+## the-request-two-doors-read-two-ways
+
+**The punch list, AXI-004, 2026-10-20.** "Audit the remaining
+`AxiTransaction` execution path alongside `EditRequest`. Use
+`EditRequest` as the canonical semantic meaning for user-driven edits.
+Adapt legacy execution paths behind it rather than rewriting working
+backends immediately. Preserve efficient bulk timeline construction.
+Remove legacy paths only after differential behavior and recovery tests
+prove equivalence."
+
+Acceptance: "No two semantic front doors can interpret the same request
+differently because they use different internal transaction models."
+
+**What was wrong.** One user-driven edit was carried by two models.
+The canonical `EditRequest` orders its operations by the dependencies
+they declare and carries the constraints the request names; the legacy
+`AxiTransaction` wrote its operations in the order the caller listed
+them and had nowhere to put a preservation requirement at all. Seven
+semantic front doors accept an edit; three of them read it with the
+legacy model.
+
+Three divergences, each a way for one request to mean two things:
+
+- the WRITE ORDER was the caller's listing on the legacy door and the
+  declared dependency order on the canonical one, so the same request
+  reached the timeline in two different orders;
+- a flat operation's `preservation` stayed in the operation's
+  PARAMETERS when the request was built, so the requirement travelled
+  to the backend as an unknown parameter and was never judged - on
+  either door;
+- the durable route compiled the canonical request into a patch
+  WITHOUT the request's `preservation`, so a requirement the request
+  stated and the write dropped was a requirement nobody kept.
+
+**Measured, before and after, with the denominators** (the tree, by
+`python3 -m library.tools.transaction_representations`; the "before" is
+the same measurement on the base commit `6d59e75cd`):
+
+- distinct semantic models in use by the front doors: 2 before, 1
+  after (denominator: 7 front doors);
+- front doors not reading the canonical model: 3 before, 0 after
+  (denominator: 7 front doors);
+- production construction sites of the legacy carrier: 2 before, 1
+  after (denominator: 1114 production Python files before, 1116 after -
+  the lane added two modules);
+- production reference sites of the legacy carrier: 13 before, 7 after
+  (same denominator).
+
+**The rule.** A request's MEANING is read with ONE model. A legacy
+carrier is an ADAPTER over the canonical request, not a second
+meaning: the door that accepts it reads it as an `EditRequest`, and
+the durable patch it becomes is compiled from THAT request, so the
+write order, the constraints and the preservation are the canonical
+ones. What a legacy carrier DECLARES - its extent, its capability -
+stays declared: replacing a declaration with a measurement would
+change what the write is judged against, and that is a change of
+behaviour, not a consolidation. A legacy path is removed only after a
+DIFFERENTIAL (the same request through both doors writes the same
+operations, in the same order) and a REPLAY (a recorded transaction
+rebuilds into the same patch, so a recovery undoes what was written)
+prove the equivalence - not before.
+
+One enumeration, `library/tools/transaction_representations.py`, holds
+the front doors and the models they read with, and a contract test
+refuses a door that reads a request with any model but the canonical
+one. The adapter is `library/tools/legacy_transaction.py`; the audit
+and the measurement are in `docs/AXI-004_CONSOLIDATION.md`.
+

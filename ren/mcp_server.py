@@ -316,9 +316,9 @@ def call_axi_transaction_plan(arguments: dict) -> dict:
             "ok": False, "exit": 2,
             "error": "transaction must be an EditPatch object"})}],
             "isError": True}
-    from library.tools.resolve_axi_sdk import AxiTransaction, plan
+    from library.tools.resolve_axi_sdk import plan
     try:
-        result = plan(_typed_axi_transaction(AxiTransaction, patch))
+        result = plan(patch)
         return {"content": [{"type": "text", "text": json.dumps(
             result, ensure_ascii=False, default=str)}]}
     except (KeyError, TypeError, ValueError) as exc:
@@ -338,10 +338,9 @@ def call_axi_transaction_submit(arguments: dict) -> dict:
             "ok": False, "exit": 2,
             "error": "transaction must be an EditPatch object"})}],
             "isError": True}
-    from library.tools.resolve_axi_sdk import AxiTransaction, submit_transaction_job
+    from library.tools.resolve_axi_sdk import submit_transaction_job
     try:
-        typed = _typed_axi_transaction(AxiTransaction, patch)
-        job = submit_transaction_job(typed)
+        job = submit_transaction_job(patch)
         return {"content": [{"type": "text", "text": json.dumps(
             job, ensure_ascii=False, default=str)}]}
     except (KeyError, TypeError, ValueError) as exc:
@@ -381,20 +380,6 @@ def call_axi_transaction_cancel(arguments: dict) -> dict:
             "ok": False, "exit": 4, "error": str(exc)})}], "isError": True}
 
 
-def _typed_axi_transaction(transaction_type, patch: dict):
-    return transaction_type(
-        id=patch["id"], project=patch["project"],
-        timeline=patch["timeline"],
-        base_generation=int(patch["base_generation"]),
-        capability=patch["capability"],
-        affected_spans=tuple(tuple(span) for span in patch["affected_spans"]),
-        conflict_domains=tuple(patch["conflict_domains"]),
-        operations=tuple(patch["operations"]),
-        preconditions=tuple(patch.get("preconditions", ())),
-        postconditions=tuple(patch.get("postconditions", ())),
-    )
-
-
 def call_axi(arguments: dict) -> dict:
     """Run a typed AXI call without a subprocess or a second dispatcher."""
     command, extra = arguments.get("command"), arguments.get("arguments")
@@ -425,20 +410,9 @@ def call_axi_transaction(arguments: dict) -> dict:
                    "error": "transaction must be an EditPatch object"}
         return {"content": [{"type": "text", "text": json.dumps(payload)}],
                 "isError": True}
-    from library.tools.resolve_axi_sdk import AxiTransaction, apply_transaction
+    from library.tools.resolve_axi_sdk import apply_transaction
     try:
-        typed = AxiTransaction(
-            id=patch["id"], project=patch["project"],
-            timeline=patch["timeline"],
-            base_generation=int(patch["base_generation"]),
-            capability=patch["capability"],
-            affected_spans=tuple(tuple(span) for span in patch["affected_spans"]),
-            conflict_domains=tuple(patch["conflict_domains"]),
-            operations=tuple(patch["operations"]),
-            preconditions=tuple(patch.get("preconditions", ())),
-            postconditions=tuple(patch.get("postconditions", ())),
-        )
-        receipt = apply_transaction(typed)
+        receipt = apply_transaction(patch)
         return {"content": [{"type": "text", "text": json.dumps(
             receipt, ensure_ascii=False, default=str)}],
             **({"isError": True} if receipt.get("status")

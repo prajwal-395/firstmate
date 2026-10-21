@@ -40,9 +40,19 @@ operations, one audited classification each - which changes the
 capability matrix and the generated skill references. The reel build's
 physical placement is a bulk construction from a plan rather than a list
 of per-clip algebra operations; turning it into `EditRequest`s is a
-larger change than this consolidation owns. The legacy `AxiTransaction`
-path (`resolve_axi_core.py:57`, `_plan_transaction_patch` `:1633`) still
-runs beside `EditRequest`.
+larger change than this consolidation owns.
+
+**Landed after this file was written (AXI-004, 2026-10-20).** The
+legacy `AxiTransaction` path (`resolve_axi_core.py`, `_plan_transaction_patch`)
+no longer runs beside `EditRequest` as a SECOND meaning: it is an
+ADAPTER over it. `library/tools/legacy_transaction.py` reads the
+carrier as the canonical request, and the durable patch it becomes is
+compiled from that request, so the write order, the constraints and the
+preservation are the canonical ones. The three `resolve_axi_transaction*`
+MCP doors read their input with the canonical model; the carrier's own
+DECLARED extent and capability stay declared. The audit, the
+measurement and what is still open are in
+`docs/AXI-004_CONSOLIDATION.md`.
 
 ## AXI-035 - backend selection lives inside AXI
 

@@ -17,7 +17,7 @@ def _request(**overrides):
     request = SimpleNamespace(
         id="request-1", idempotency_key="request-1", project="Project",
         timeline="Timeline", expected_base_generation=7,
-        expected_model_revision=None, preconditions=())
+        expected_model_revision=None, preconditions=(), preservation=())
     for key, value in overrides.items():
         setattr(request, key, value)
     return request
@@ -45,7 +45,8 @@ class _Compiled:
     conflict_domains = ()
 
     def to_patch(self, capability, *, base_generation, project, timeline,
-                 idempotency_key, preconditions=(), postconditions=()):
+                 idempotency_key, preconditions=(), postconditions=(),
+                 preservation=()):
         return {
             "id": idempotency_key, "project": project, "timeline": timeline,
             "base_generation": base_generation, "capability": capability,
@@ -54,6 +55,7 @@ class _Compiled:
             "operations": list(self.operations),
             "preconditions": list(preconditions),
             "postconditions": list(postconditions),
+            "preservation": list(preservation),
         }
 
 
