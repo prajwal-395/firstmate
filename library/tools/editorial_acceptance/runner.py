@@ -83,6 +83,11 @@ def _delivery_for(record: Mapping[str, Any], brief: Mapping[str, Any],
     Without a judge the record's own measurement is taken as it stands:
     the live lane may have measured the file with more than this
     harness knows about, and re-measuring it would throw that away.
+    That is also true WITH a judge: the record's own reading is
+    replaced by the judge's, but the record's own MEASUREMENTS are not
+    replaced by a second measurement of the same file - the file
+    supplies only what the record does not carry, which is the evidence
+    a judge looks at.
 
     With a judge, the judge is run HERE, on the delivered file, and the
     record's own reading is replaced by this one - so the independence
@@ -97,9 +102,11 @@ def _delivery_for(record: Mapping[str, Any], brief: Mapping[str, Any],
         path = str(section.get("path") or "").strip()
         if path:
             try:
-                section = delivery.build_render_evidence(path)
+                measured = delivery.build_render_evidence(path)
             except delivery.DeliveryError as exc:
                 section = {"path": path, "evidence_error": str(exc)}
+            else:
+                section = {**measured, **section}
     if judge is None:
         return section, assessment
     if not (section.get("sha256") and section.get("evidence")):

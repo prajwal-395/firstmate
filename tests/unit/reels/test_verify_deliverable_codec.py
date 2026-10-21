@@ -5,6 +5,9 @@ declaration was already checked at the preset, this checks what the
 encoder actually wrote - a render that encoded the wrong codec ships
 wrong even when the preset declared right. Instruments stubbed, no
 ffmpeg, no Resolve.
+
+The loudness leg is stubbed too: it is measured against the same file,
+and these tests are about the codec.
 """
 from __future__ import annotations
 
@@ -28,6 +31,9 @@ def _stubbed(monkeypatch, codec="h264"):
     monkeypatch.setattr(render_qa, "detect_black_frames",
                         lambda path, **kwargs: RenderQAResult(
                             "black", True, [], None, "info", "no black"))
+    monkeypatch.setattr(render_qa, "measure_lufs",
+                        lambda path, **kwargs: RenderQAResult(
+                            "lufs", True, -14.0, -14.0, "info", "on target"))
     monkeypatch.setattr(pool_stream_meta, "disk_stream",
                         lambda path: {"width": 1080, "height": 1920,
                                       "codec": codec})

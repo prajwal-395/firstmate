@@ -209,6 +209,35 @@ def test_a_record_with_a_file_and_no_measurement_is_measured_by_the_runner(
     assert report["results"][0]["delivery"]["sha256"] == "d" * 64
 
 
+def test_the_records_own_measurement_is_not_thrown_away(tmp_path,
+                                                        monkeypatch):
+    """The defect: the harness re-measured the file and REPLACED the
+    record's own measurement with the fresh one - so a delivery graded
+    against the run's declarations (a declared silent ending) came back
+    undeclared, and the report contradicted the record it read."""
+    from library.tools.editorial_acceptance import delivery
+
+    monkeypatch.setattr(
+        delivery, "build_render_evidence",
+        lambda path, **kwargs: {
+            "sha256": "d" * 64, "path": path, "duration_seconds": 12.0,
+            "evidence": [{"kind": "frame", "artifact": "/tmp/f.png",
+                          "observation": "the first frame"}],
+            "technical_verification": {"silence_under_picture": False},
+        })
+    record = _record()
+    record["delivery"] = {
+        "path": "/tmp/out.mp4",
+        "sha256": "c" * 64,
+        "duration_seconds": 30.0,
+        "technical_verification": {"silence_under_picture": True},
+    }
+    report = runner.run_acceptance([record])
+    row = report["results"][0]["delivery"]
+    assert row["technical_verification"]["silence_under_picture"] is True
+    assert row["sha256"] == "c" * 64
+
+
 def test_the_report_records_which_footage_each_brief_ran_against():
     """The defect: a set of briefs against representative real footage,
     and the report cannot say which footage any of them ran on."""

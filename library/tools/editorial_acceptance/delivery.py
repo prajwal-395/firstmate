@@ -19,6 +19,13 @@ when nothing was declared they are named in `technical_not_checked`
 rather than passed. The measurements that need no declaration - the
 audio stream, the loudness, the black and frozen frames, the silence
 under picture - are always run.
+
+The harness reads the SAME declaration vocabulary the product's own gate
+reads. A reel that ends on a silent end card is excused by
+`render_qa.declared_ending_spans` and by step 6.02's bridge, and this
+harness read that ending as undeclared silence - so the same file was
+condemned by one gate and cleared by the other. `declared_silence_spans`
+is that vocabulary, arriving here by the same road.
 """
 
 from __future__ import annotations
@@ -30,7 +37,10 @@ import subprocess
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - the type only
+    from library.tools.delivery_spec import DeliverySpec
 
 SCHEMA = "ren-editorial-delivery-evidence/1"
 
@@ -134,12 +144,22 @@ def technical_checks(media_path: str | Path, *,
                      expected_fps: float | None = None,
                      expected_duration: float | None = None,
                      declared_black_spans: list | None = None,
-                     target_lufs: float | None = None) -> dict[str, Any]:
+                     declared_silence_spans: list | None = None,
+                     target_lufs: float | None = None,
+                     lufs_tolerance: float | None = None,
+                     true_peak_ceiling: float | None = None) -> dict[str, Any]:
     """The file-only checks, and the ones that could not be run.
 
     Returns `{"checks": {name: bool}, "not_checked": [{"name", "reason"}],
     "details": {name: str}}`. The checks dict holds only the checks that
     RAN, so a caller that reads it as a verdict reads a truth.
+
+    `declared_silence_spans` are the `(start, end)` seconds of the
+    delivered file where silence under picture is DELIBERATE - the
+    silent end card, the TV-switch-on tail. They come from
+    `render_qa.declared_ending_spans`, which is where the engine reads
+    them from for its own gate; a harness that held its own idea of a
+    declared ending would grade the same file two ways.
     """
     from library.tools import render_qa
 
@@ -186,15 +206,110 @@ def technical_checks(media_path: str | Path, *,
             "reason": "no planned duration was declared, so the render was "
                       "not graded against one"})
     record(render_qa.verify_audio_streams(str(target)))
-    if target_lufs is None:
-        record(render_qa.measure_lufs(str(target)))
-    else:
-        record(render_qa.measure_lufs(str(target), target_lufs=float(target_lufs)))
+    loudness: dict[str, float] = {}
+    if target_lufs is not None:
+        loudness["target_lufs"] = float(target_lufs)
+    if lufs_tolerance is not None:
+        loudness["tolerance"] = float(lufs_tolerance)
+    if true_peak_ceiling is not None:
+        loudness["true_peak_ceiling"] = float(true_peak_ceiling)
+    record(render_qa.measure_lufs(str(target), **loudness))
     record(render_qa.detect_black_frames(
         str(target), declared_beats=declared_black_spans))
     record(render_qa.detect_freeze_frames(str(target)))
-    record(render_qa.measure_silence_under_picture(str(target)))
+    record(render_qa.measure_silence_under_picture(
+        str(target), declared_spans=declared_silence_spans))
     return {"checks": checks, "not_checked": not_checked, "details": details}
+
+
+def declared_ending_spans(assembly_manifest: Mapping[str, Any] | None
+                           ) -> dict[str, list]:
+    """The ending the manifest will draw, in the harness's vocabulary.
+
+    A thin pass-through to `render_qa.declared_ending_spans` on purpose:
+    the harness and the product's own gate must read ONE declaration, or
+    a reel that ends on a silent end card is excused by one and
+    condemned by the other. Returns `{"black": [...], "silence": [...]}`
+    - `(start, end)` seconds on the delivered file's clock.
+    """
+    from library.tools import render_qa
+
+    return render_qa.declared_ending_spans(assembly_manifest)
+
+
+def build_delivery_section(media_path: str | Path, *,
+                            spec: "DeliverySpec | None" = None,
+                            timeline_fps: float | None = None,
+                            timeline_frames: int | None = None,
+                            expected_duration: float | None = None,
+                            declared_black_spans: list | None = None,
+                            declared_silence_spans: list | None = None,
+                            assembly_manifest: Mapping[str, Any] | None = None,
+                            ) -> dict[str, Any]:
+    """The record's `delivery` section, produced from the FILE.
+
+    The section used to be typed by hand into a run's steps file, which
+    is how a delivery report came to carry three checks nobody ran and
+    a verdict nobody measured. This is the producer: a rendered file, the
+    delivery spec it is delivered against, and the timeline's own clock
+    in, and the record's own `delivery` section out - the digest, the
+    length, the technical checks that ran and the ones that could not.
+
+    `spec` is a `library.tools.delivery_spec.DeliverySpec`: it declares
+    the delivered frame and the loudness target. `timeline_fps` and
+    `timeline_frames` are the timeline's own clock: the frame rate is
+    the timeline's MEASURED rate, not the spec's recommendation, because
+    a master is rendered at the rate the edit was made at.
+
+    Nothing here declares an ending. A silent end card is the
+    captain's call about his own reel, so the spans are passed in - from
+    `declared_ending_spans` or from the caller - and never invented.
+    """
+    target = Path(media_path)
+    if not target.is_file():
+        raise DeliveryError(f"no delivered file at {target}")
+
+    black = list(declared_black_spans or [])
+    silence = list(declared_silence_spans or [])
+    if assembly_manifest is not None:
+        spans = declared_ending_spans(assembly_manifest)
+        black += list(spans.get("black") or [])
+        silence += list(spans.get("silence") or [])
+
+    duration = expected_duration
+    if duration is None and timeline_frames is not None and timeline_fps:
+        duration = float(timeline_frames) / float(timeline_fps)
+
+    resolution = None
+    target_lufs = None
+    tolerance = None
+    ceiling = None
+    if spec is not None:
+        resolution = (int(spec.width), int(spec.height))
+        target_lufs = float(spec.loudness_target_lufs)
+        tolerance = float(spec.loudness_tolerance_lufs)
+        ceiling = float(spec.true_peak_ceiling_dbtp)
+
+    technical = technical_checks(
+        target,
+        expected_resolution=resolution,
+        expected_fps=timeline_fps,
+        expected_duration=duration,
+        declared_black_spans=black or None,
+        declared_silence_spans=silence or None,
+        target_lufs=target_lufs,
+        lufs_tolerance=tolerance,
+        true_peak_ceiling=ceiling,
+    )
+    return {
+        "path": str(target),
+        "sha256": sha256_of(target),
+        "duration_seconds": duration_seconds(target),
+        "bytes": target.stat().st_size,
+        "technical_verification": technical["checks"],
+        "technical_not_checked": technical["not_checked"],
+        "technical_details": technical["details"],
+    }
 
 
 def build_render_evidence(media_path: str | Path, *,

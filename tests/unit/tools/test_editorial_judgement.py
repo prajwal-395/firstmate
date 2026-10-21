@@ -158,3 +158,61 @@ def test_a_panel_that_agrees_on_a_failure_is_a_failure():
         judge=_judge({"hook-first": "fail"}, name="editor two"))
     report = judgement.panel([first, second])
     assert report["verdict"] == "fail"
+
+
+def _three_criterion_brief() -> dict:
+    brief = _brief()
+    brief["acceptance_criteria"] = brief["acceptance_criteria"] + [
+        {"id": "third", "statement": "the third thing"}]
+    return brief
+
+
+def test_a_recorded_judgment_is_counted_by_the_scorer():
+    """The defect: the counts were typed by hand, and they disagreed with
+    the rows they claimed to count - a record said `passed 3, failed 4`
+    over rows that were three passes, three failures and four
+    unmeasured, with a score of `None` where the scorer computes a
+    number."""
+    criteria = [
+        {"id": "hook-first", "status": "pass", "rationale": "it opens on it",
+         "evidence": [{"artifact": "/tmp/frame-00.png",
+                       "observation": "the first frame"}]},
+        {"id": "nothing-lost", "status": "fail", "rationale": "a line went",
+         "evidence": [{"artifact": "/tmp/frame-00.png",
+                       "observation": "the first frame"}]},
+        {"id": "third", "status": "not_measured",
+         "rationale": "three stills cannot show it", "evidence": []},
+    ]
+    record = judgement.score_recorded(
+        task_id="t", brief=_three_criterion_brief(), render=_render(),
+        criteria=criteria, judge_name="an independent editor")
+    editorial = record["editorial"]
+    assert editorial["passed"] == 1
+    assert editorial["failed"] == 1
+    assert editorial["not_measured"] == 1
+    assert editorial["measured"] == 2
+    assert editorial["score"] == 0.5
+    assert editorial["status"] == "fail"
+    assert record["judge"] == "an independent editor"
+    assert record["independence"]["judge_did_not_see"]
+
+
+def test_a_recorded_judgment_nobody_measured_is_not_measured():
+    """The defect: a judgment that measured nothing reads as a pass
+    because the counts were typed."""
+    criteria = [{"id": "hook-first", "status": "not_measured",
+                 "rationale": "no evidence", "evidence": []}]
+    record = judgement.score_recorded(
+        task_id="t", brief=_brief(), render=_render(),
+        criteria=criteria, judge_name="an independent editor")
+    assert record["editorial"]["status"] == "not_measured"
+    assert record["editorial"]["score"] is None
+
+
+def test_a_recorded_judgment_with_no_judge_is_refused():
+    """The defect: an assessment with no judge behind it reads as an
+    independent reading."""
+    with pytest.raises(judgement.JudgementError):
+        judgement.score_recorded(
+            task_id="t", brief=_brief(), render=_render(),
+            criteria=[], judge_name="  ")

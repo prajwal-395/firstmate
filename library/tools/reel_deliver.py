@@ -74,6 +74,12 @@ Known unknowns, answered by reading (2026-09-13)
   verdict fails only when no picture exists at all (black covers the
   whole file). A naive any-black-fails check would fail the correct
   TV-switch-on reel; a whole-file check cannot.
+* LOUDNESS is measured by the verdict, against the delivery spec. It
+  was not: the verdict behind `ren deliver` said `passed` over a file
+  nine decibels under the target, because the master happened to have
+  been normalized upstream. A route that skipped the master shipped
+  quietly, and nothing downstream could hear it. The master's own
+  gate still fails closed; this is the second ear.
 """
 
 from __future__ import annotations
@@ -510,9 +516,11 @@ def render_file_name(timeline_name: str, naming: str, ext: str) -> str:
 
 def verify_deliverable(video_path: str, expected_seconds: float,
                        expected_width: int, expected_height: int,
-                       expected_codec: str = "") -> dict:
+                       expected_codec: str = "",
+                       spec=None) -> dict:
     """`render_qa`'s verdict on one delivered file: duration, resolution,
-    audio present, not black, and - when named - the encoded codec.
+    audio present, not black, loudness, and - when named - the encoded
+    codec.
 
     This wires the existing checker in rather than writing a second
     one: `verify_duration`, `verify_resolution`, `verify_audio_streams`
@@ -523,6 +531,18 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     TV-switch-on reel does not fail a correct file (see the module
     docstring).
 
+    LOUDNESS GATES. It did not, and that was a silent failure: the
+    verdict behind `ren deliver` said `passed` over a file nine decibels
+    under the delivery target, because the master happened to have been
+    normalized upstream. The file's own loudness is now measured here,
+    by `deliverable_qc`'s own check against the same spec, so a route
+    that skipped or weakened the master cannot ship quietly.
+
+    `spec` is the delivery spec the file is judged against - its
+    loudness target, its tolerance and its true-peak ceiling. No spec
+    means the registry's default, which is the same default
+    `render_qa` measures against when a caller names no target.
+
     `expected_codec` is the delivery spec's codec (capability 18: the
     declaration was already checked, this checks the FILE - a render
     that encoded the wrong codec ships wrong even when the preset
@@ -532,6 +552,8 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     `_disk_resolution` applies.
     """
     from library.tools import render_qa
+    from library.tools.deliverable_qc import measure_loudness
+    from library.tools.delivery_spec import DEFAULT_DELIVERY_SPEC
 
     if not os.path.isfile(video_path):
         raise DeliverRefused(
@@ -547,6 +569,7 @@ def verify_deliverable(video_path: str, expected_seconds: float,
     audio = render_qa.verify_audio_streams(video_path)
     black = render_qa.detect_black_frames(video_path)
     codec = _verify_file_codec(video_path, expected_codec)
+    loudness = measure_loudness(video_path, spec or DEFAULT_DELIVERY_SPEC)
 
     segments = list(black.value or []) if black.value else []
     black_seconds = sum(float(s.get("duration", 0.0)) for s in segments
@@ -568,12 +591,14 @@ def verify_deliverable(video_path: str, expected_seconds: float,
         "resolution": _result_record(resolution),
         "audio": _result_record(audio),
         "black": _result_record(black),
+        "loudness": _result_record(loudness),
         "codec": codec,
         "black_segments": segments,
         "opens_on_black": opens_on_black,
         "content_present": content_present,
         "passed": bool(duration.passed and resolution.passed
                        and audio.passed and content_present
+                       and loudness.passed
                        and codec["passed"]),
     }
     return verdict
@@ -979,11 +1004,13 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         true_peak_ceiling=delivery_spec.true_peak_ceiling_dbtp)
     # Positional: fakes of verify_deliverable in the suite take
     # (*args), so a keyword here would break every one of them; the
-    # parameter stays keyword-capable for direct callers.
+    # parameter stays keyword-capable for direct callers. The spec goes
+    # with it, so the verdict measures the loudness the master was
+    # normalized to.
     verdict = verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"],
-        delivery_spec.codec)
+        delivery_spec.codec, delivery_spec)
 
     full = {
         "timeline_name": timeline_name,
@@ -1004,11 +1031,13 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         json.dump(full, handle, indent=2, default=str)
     full["report_path"] = sidecar
     if not verdict["passed"]:
+        loudness = verdict.get("loudness") or {}
         raise DeliverRefused(
             f"rendered {report['output_path']} but verification FAILED",
             f"duration={verdict['duration']['passed']}, "
             f"resolution={verdict['resolution']['passed']}, "
             f"audio={verdict['audio']['passed']}, "
+            f"loudness={loudness.get('passed')}, "
             f"codec={verdict['codec']['passed']}, "
             f"content_present={verdict['content_present']}. "
             f"Report: {sidecar}",

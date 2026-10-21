@@ -108,6 +108,36 @@ def assess(*, task_id: str, brief: Mapping[str, Any],
     return record
 
 
+def score_recorded(*, task_id: str, brief: Mapping[str, Any],
+                   render: Mapping[str, Any],
+                   criteria: Sequence[Mapping[str, Any]],
+                   judge_name: str) -> dict[str, Any]:
+    """A RECORDED judgment, scored by the engine's scorer.
+
+    The per-criterion rows are the judge's work: what it saw in the
+    delivered file and what it concluded. The COUNTS, the score and the
+    verdict are the scorer's work, and they were being typed by hand -
+    which is how a record came to say `passed 3, failed 4` over rows
+    that were three passes, three failures and four unmeasured, with a
+    score of `None` where the scorer computes a number.
+
+    So the rows are kept and the counts are recomputed, here, by the
+    same scorer the live harness grades with. The judge is not re-run:
+    it already read the file, and re-running it would be a second
+    reading, not a scoring.
+    """
+    if not str(judge_name or "").strip():
+        raise JudgementError("a recorded judgment carries no judge to name")
+    rows = [dict(row) for row in criteria if isinstance(row, Mapping)]
+
+    def _replay(_brief: Mapping[str, Any],
+                _render: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {"judge": judge_name, "criteria": rows}
+
+    return assess(task_id=task_id, brief=brief, render=render,
+                  judge=_replay)
+
+
 def _criterion_status(record: Mapping[str, Any], criterion_id: str) -> str:
     editorial = record.get("editorial")
     editorial = editorial if isinstance(editorial, Mapping) else {}

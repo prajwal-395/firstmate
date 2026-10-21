@@ -451,9 +451,10 @@ def run_qc(output_path: str, spec, expected_seconds: float) -> dict:
     Duration is judged against what the delivery itself verified moments
     earlier - a stability re-read proving the file on disk still
     measures the same, not a second plan check (the timeline-exact
-    duration gate already ran inside `deliver_reel`). Loudness is the
-    real gate this adds: `verify_deliverable` never measures it. Grade
-    reports, never gates.
+    duration gate already ran inside `deliver_reel`). Loudness is
+    measured here too, by the same `deliverable_qc` check the
+    delivery verdict now uses, so the two cannot grade the same number
+    two ways. Grade reports, never gates.
     """
     from library.tools.deliverable_qc import run_deliverable_qc
 

@@ -68,6 +68,22 @@ class DeliverableQCVerdict:
     captions: Optional[List[RenderQAResult]]
 
 
+def measure_loudness(video_path: str, spec: DeliverySpec) -> RenderQAResult:
+    """The delivered file's loudness, against the spec's own target.
+
+    The one measurement this module exists to make, exposed on its own
+    so that the delivery VERDICT (`library.tools.reel_deliver`) grades
+    the same number by the same rule instead of writing a second one.
+    """
+    from library.tools import render_qa
+
+    return render_qa.measure_lufs(
+        video_path,
+        target_lufs=spec.loudness_target_lufs,
+        tolerance=spec.loudness_tolerance_lufs,
+        true_peak_ceiling=spec.true_peak_ceiling_dbtp)
+
+
 def run_deliverable_qc(
         video_path: str,
         spec: DeliverySpec,
@@ -95,11 +111,7 @@ def run_deliverable_qc(
     duration = render_qa.verify_duration(video_path, expected_duration)
     black_frames = render_qa.detect_black_frames(
         video_path, declared_beats=declared_black_beats)
-    loudness = render_qa.measure_lufs(
-        video_path,
-        target_lufs=spec.loudness_target_lufs,
-        tolerance=spec.loudness_tolerance_lufs,
-        true_peak_ceiling=spec.true_peak_ceiling_dbtp)
+    loudness = measure_loudness(video_path, spec)
     grade = render_qa.measure_grade_delivery(video_path, grade_spans)
     captions = (verify_subtitle_timing(
         subtitle_data, total_duration=expected_duration,

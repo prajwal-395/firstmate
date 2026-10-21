@@ -329,6 +329,13 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
         return RenderQAResult("black_frames", True, [], None, "info",
                               "no black")
 
+    def fake_lufs(path, **kwargs):
+        # The verdict now measures loudness too; the file this test
+        # renders is a stand-in with no audio in it, so the level is
+        # stubbed like the other file checks.
+        return RenderQAResult("lufs", True, -14.0, -14.0, "info",
+                              "on target")
+
     with (patch("library.tools.reel_build._connect_resolve_project",
                  return_value=project),
            # The worker gate is pinned, not measured: this proves the
@@ -348,6 +355,8 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
                 side_effect=fake_audio),
           patch("library.tools.render_qa.detect_black_frames",
                 side_effect=fake_black),
+          patch("library.tools.render_qa.measure_lufs",
+                side_effect=fake_lufs),
           # The success path runs against a clean pool: the stale case
           # is proven by test_deliver_refuses_on_stale_overlays_.
           patch("library.tools.reel_deliver.overlay_staleness",

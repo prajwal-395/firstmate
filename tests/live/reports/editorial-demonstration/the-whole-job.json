@@ -1,5 +1,6 @@
 {
   "assessment": {
+    "brief_sha256": "7e611a76536079672317454db2d78a0fca878dec9cf2d0b4fefdbd71f9370faf",
     "editorial": {
       "criteria": [
         {
@@ -101,74 +102,78 @@
           "status": "fail"
         }
       ],
-      "failed": 4,
-      "not_measured": 3,
+      "failed": 3,
+      "measured": 6,
+      "not_measured": 4,
       "passed": 3,
+      "score": 0.5,
       "status": "fail"
     },
+    "evaluation_level": 4,
     "independence": {
       "judge_did_not_see": [
+        "edge_case",
+        "expected_refusal",
         "expected_operations",
         "expected_target_roles",
         "expected_moment_ids",
         "allowed_operations",
-        "edge_case",
-        "the edit plan",
-        "the receipts"
+        "notes"
       ],
       "judge_saw": [
-        "brief.instruction",
-        "brief.project_state",
-        "brief.acceptance_criteria",
+        "acceptance_criteria",
+        "instruction",
+        "project_state",
         "render.sha256",
         "render.evidence",
         "render.duration_seconds"
       ]
     },
     "judge": "the crewmate agent, reading the DELIVERED FILE only: the brief's public half, the file's digest, four stills and the file's own measurements",
+    "render_sha256": "04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
+    "request_id": "the-whole-job",
+    "schema": "ren-editorial-brief-score/1",
     "technical": {
       "checks": {
         "audio_streams": true,
-        "black_frames": false,
+        "black_frames": true,
+        "duration": true,
+        "framerate": true,
         "freeze_frames": true,
         "lufs": false,
-        "silence_under_picture": false
+        "resolution": true,
+        "silence_under_picture": true
       },
-      "not_checked": [
-        "resolution",
-        "framerate",
-        "duration"
-      ],
-      "reason": "the loudness check fails (-23.18 LUFS against -14.0 +/-1.0), one undeclared black frame segment is present, and 3.253s of picture plays over digital silence at 75.701-79.529s; resolution, frame rate and duration were not graded because nothing was declared",
       "status": "fail"
     }
   },
   "brief_id": "the-whole-job",
   "delivery": {
     "bytes": 111267627,
+    "declared_ending_source": "the reel's own timeline (reel13.drt, read-only): the freeze hold at frames 1815-1834 and the closer at frames 1834-1906, on a 1906-frame timeline at 24000/1001. The captain ruled on 2026-10-21 that the silent end card is intended and the outro is not to be trimmed.",
     "duration_seconds": 79.573333,
-    "path": "/tmp/bench/renders/vep-bench-demo-export.mp4",
+    "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
     "sha256": "04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
-    "technical_not_checked": [
-      {
-        "name": "resolution",
-        "reason": "no delivery frame was declared, so the render was not graded against one"
-      },
-      {
-        "name": "framerate",
-        "reason": "no frame rate was declared, so the render was not graded against one"
-      },
-      {
-        "name": "duration",
-        "reason": "no planned duration was declared, so the render was not graded against one"
-      }
-    ],
+    "technical_details": {
+      "audio_streams": "Found 1 audio streams",
+      "black_frames": "No undeclared black frames (1 declared black beat(s) allowed through)",
+      "duration": "Duration is 79.57s (expected 79.50s)",
+      "framerate": "Framerate is 23.98fps",
+      "freeze_frames": "No freeze frames detected",
+      "lufs": "LUFS: -23.18, True Peak: -4.49 - integrated -23.18 LUFS is 9.18 dB off the -14.0 target (tolerance +/-1.0)",
+      "resolution": "Resolution is 1080x1920",
+      "silence_under_picture": "3.828s of the 79.529s master is at digital zero (4.8%), 3.253s of it with a picture on screen (4.1%); reported and not judged: 3.253s under -80 dBFS, 3.253s under -70 dBFS, 3.253s under -60 dBFS; 3.253s of picture over digital silence falls inside declared ending spans"
+    },
+    "technical_not_checked": [],
     "technical_verification": {
       "audio_streams": true,
-      "black_frames": false,
+      "black_frames": true,
+      "duration": true,
+      "framerate": true,
       "freeze_frames": true,
       "lufs": false,
-      "silence_under_picture": false
+      "resolution": true,
+      "silence_under_picture": true
     }
   },
   "execution": {

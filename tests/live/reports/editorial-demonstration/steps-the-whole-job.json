@@ -1,11 +1,189 @@
 {
+  "assessment": {
+    "criteria": [
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/still_1_5s.png",
+            "observation": "the delivered file's first second"
+          },
+          {
+            "artifact": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/ren-editorial-delivery-1_0id_y2/frame-02.png",
+            "observation": "the hook line is at 66.31s of the delivered file"
+          }
+        ],
+        "id": "hook-chosen",
+        "rationale": "the reel still opens on Craig's 'And that's what happened with that company' at 1.5s; the strongest line in it - 'Search didn't change, the question changed' - sits at 66s, at the END",
+        "status": "fail"
+      },
+      {
+        "evidence": [],
+        "id": "pauses-removed",
+        "rationale": "three stills cannot show a pause, and no pause was measured off the delivered file",
+        "status": "not_measured"
+      },
+      {
+        "evidence": [],
+        "id": "angle-replaced",
+        "rationale": "a still cannot show which camera a turn was shot on, and the delivered file's camera turn was not compared shot by shot",
+        "status": "not_measured"
+      },
+      {
+        "evidence": [],
+        "id": "broll-chosen",
+        "rationale": "no inserted cutaway is visible in the delivered file's stills, and the absence of one was not established from the file",
+        "status": "not_measured"
+      },
+      {
+        "evidence": [],
+        "id": "caption-corrected",
+        "rationale": "no caption card in this reel carries a number - the ten card texts were read off the project's own rendered cards - so there is no wrong number to correct",
+        "status": "not_measured"
+      },
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/still_1_5s.png",
+            "observation": "the name bar inside the picture, above the caption row"
+          }
+        ],
+        "id": "lower-third-adjusted",
+        "rationale": "the name bar sits inside the picture at the bottom left and clear of the caption row, so the collision the request describes does not exist in this copy and the criterion's end state already holds",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
+            "observation": "integrated -23.18 LUFS, true peak -4.49 dBTP"
+          }
+        ],
+        "id": "levels-balanced",
+        "rationale": "the delivered file measures -23.18 LUFS integrated, 9.18 dB under the -14.0 target, and the reel carries no music bed at all",
+        "status": "fail"
+      },
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/still_1_5s.png",
+            "observation": "the grade, the TV frame, the post header, the brand bug and the name bar are all present and unchanged"
+          },
+          {
+            "artifact": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/ren-editorial-delivery-1_0id_y2/frame-00.png",
+            "observation": "the captions are present and unchanged at 13.26s"
+          }
+        ],
+        "id": "human-work-preserved",
+        "rationale": "the timeline's shadow generation did not move (2 before and after the run) and the delivered file carries the grade, the framing, the graphics and the captions intact",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
+            "observation": "the exported mp4, 1080x1920 at 23.976, 79.573s"
+          }
+        ],
+        "id": "exported",
+        "rationale": "a file was exported from the timeline: 111,267,627 bytes, 79.573s, sha256 04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
+        "status": "pass"
+      },
+      {
+        "evidence": [
+          {
+            "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
+            "observation": "the exported mp4; -23.18 LUFS, 1 undeclared black frame segment, 3.253s of picture over digital silence at 75.701-79.529s"
+          }
+        ],
+        "id": "export-verified",
+        "rationale": "the file was inspected and it carries NONE of the requested changes: it is the imported copy unchanged, and it also fails its own loudness check, carries an undeclared black segment and 3.253s of picture over digital silence",
+        "status": "fail"
+      }
+    ],
+    "judge": "the crewmate agent, reading the DELIVERED FILE only: the brief's public half, the file's digest, four stills and the file's own measurements"
+  },
   "brief_id": "the-whole-job",
-  "task_id": "the-whole-job",
+  "delivery": {
+    "declared_ending": {
+      "black": [
+        [
+          75.7006,
+          76.4931
+        ]
+      ],
+      "silence": [
+        [
+          75.7006,
+          79.4961
+        ]
+      ],
+      "source": "the reel's own timeline (reel13.drt, read-only): the freeze hold at frames 1815-1834 and the closer at frames 1834-1906, on a 1906-frame timeline at 24000/1001. The captain ruled on 2026-10-21 that the silent end card is intended and the outro is not to be trimmed."
+    },
+    "path": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo/exports/vep-bench-demo-export.mp4",
+    "timeline": {
+      "fps": 23.976023976023978,
+      "frames": 1906
+    }
+  },
+  "execution": {
+    "attempts": 1,
+    "checks": {
+      "approved_edits_preserved": true,
+      "no_mutation": true,
+      "timeline_generation_unchanged": true
+    },
+    "collateral_changes": [],
+    "receipt": {
+      "error": "Resolve has 'Ren Scratch - breaktest' open, not 'Ren Scratch - vep-bench-demo'; the broker never switches projects - open 'Ren Scratch - vep-bench-demo' first",
+      "id": "960766a25885d269",
+      "status": "refused"
+    },
+    "recovery": {
+      "note": "an earlier partial_failure receipt asked for a read-back before any retry; the read-back was taken and the shadow generation did not move (generation 2 before and after)",
+      "state": "none",
+      "verified": true
+    },
+    "route": "reel_touchup (protected experimental) - the route the lower-third move was given before the write was refused"
+  },
   "instruction": "This is the launch reel and it is not finished. Please do the whole job on it: find the most engaging moment we could open on, take out the pauses and the places she says the same thing twice, swap the one camera angle that is doing nothing for the other angle we shot of the same moment, put in the cutaway that actually matches what she is saying, fix the caption that gets the number wrong, move the name bar so it stops fighting the captions, and get the levels so her voice sits on top of the music. Leave the grade, the transitions, the framing, the linked audio and everything the human already changed exactly as it is. Then export it, and check the export rather than the timeline.",
-  "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo",
-  "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare",
-  "resolve_project": "Ren Scratch - vep-bench-demo",
   "interpretation": {
+    "resolved_targets": [
+      {
+        "resolved": true,
+        "role": "opening_section",
+        "target": "the closing statement - 'Search didn't change, the question changed' - on V1, record 1584..1906"
+      },
+      {
+        "resolved": true,
+        "role": "repeated_passages",
+        "target": "Craig's 'it's not necessarily AI's fault' (V1, record 1038..1141) and Akshita's 'this is not AI's fault' (V1, record 1141..1503)"
+      },
+      {
+        "resolved": true,
+        "role": "weak_angle_turn",
+        "target": "V1 clip 11f638c4-d231-4612-9760-1e4cc85809fc, record 1038..1503, where Craig speaks but the shot is Akshita's camera"
+      },
+      {
+        "resolved": true,
+        "role": "broll_cover_range",
+        "target": "Akshita's case-study passage, V1 record 248..1821, with LCATL0013.MXF (the other camera) as the matching cutaway"
+      },
+      {
+        "resolved": false,
+        "role": "wrong_caption_card",
+        "target": "no caption card in this reel carries a number; the ten card texts were read and the only quantity is 'a couple years ago'"
+      },
+      {
+        "resolved": true,
+        "role": "name_lower_third",
+        "target": "b-soft-focus-craig.mov on V6, unique_id 2e9f8de7-9cc6-46ff-91af-19b75c66fd48, record 0..84"
+      },
+      {
+        "resolved": false,
+        "role": "music_bed",
+        "target": "the reel carries no music bed: its 65 clips are dialogue, captions, graphics, overlays and their linked audio"
+      }
+    ],
     "restated_outcome": "One launch reel, one pass, seven editorial changes and a verified export: open on the strongest moment, take the pauses and the repeated statements out, replace the camera angle that is doing nothing with the other angle of the same moment, insert the cutaway that matches the words, correct the caption that misstates a number, move the name bar off the captions, and balance the levels - leaving the grade, the transitions, the framing, the linked audio and every human edit exactly as they are - then export and check the FILE.",
     "selected_operations": [
       "reel.opening",
@@ -16,129 +194,49 @@
       "caption_fix",
       "overlay.position",
       "audio.gain"
-    ],
-    "resolved_targets": [
-      {
-        "role": "opening_section",
-        "resolved": true,
-        "target": "the closing statement - 'Search didn't change, the question changed' - on V1, record 1584..1906"
-      },
-      {
-        "role": "repeated_passages",
-        "resolved": true,
-        "target": "Craig's 'it's not necessarily AI's fault' (V1, record 1038..1141) and Akshita's 'this is not AI's fault' (V1, record 1141..1503)"
-      },
-      {
-        "role": "weak_angle_turn",
-        "resolved": true,
-        "target": "V1 clip 11f638c4-d231-4612-9760-1e4cc85809fc, record 1038..1503, where Craig speaks but the shot is Akshita's camera"
-      },
-      {
-        "role": "broll_cover_range",
-        "resolved": true,
-        "target": "Akshita's case-study passage, V1 record 248..1821, with LCATL0013.MXF (the other camera) as the matching cutaway"
-      },
-      {
-        "role": "wrong_caption_card",
-        "resolved": false,
-        "target": "no caption card in this reel carries a number; the ten card texts were read and the only quantity is 'a couple years ago'"
-      },
-      {
-        "role": "name_lower_third",
-        "resolved": true,
-        "target": "b-soft-focus-craig.mov on V6, unique_id 2e9f8de7-9cc6-46ff-91af-19b75c66fd48, record 0..84"
-      },
-      {
-        "role": "music_bed",
-        "resolved": false,
-        "target": "the reel carries no music bed: its 65 clips are dialogue, captions, graphics, overlays and their linked audio"
-      }
-    ]
-  },
-  "retrieval": {
-    "moments": [
-      {
-        "moment_id": "hook-moment",
-        "evidence_ids": [
-          "caption:sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612",
-          "item:V1:sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612"
-        ],
-        "note": "the strongest line in the reel - 'Search didn't change, the question changed' - at the end of the argument"
-      },
-      {
-        "moment_id": "repeated-passage",
-        "evidence_ids": [
-          "caption:sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808",
-          "caption:sub_akshita_5d01801c-6efe-48c6-ae1b_1983975-1985745",
-          "item:V1:11f638c4-d231-4612-9760-1e4cc85809fc"
-        ],
-        "note": "the AI's-fault idea is said twice in a row, once by Craig and once by Akshita"
-      },
-      {
-        "moment_id": "weak-angle-turn",
-        "evidence_ids": [
-          "item:V1:11f638c4-d231-4612-9760-1e4cc85809fc",
-          "item:V2:57877461-ae3e-4117-a7d5-8a545f1f7ae4",
-          "caption:sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808"
-        ],
-        "note": "record 1038..1141 is Craig's line on Akshita's camera; the other camera of the same moment is LCATL0013.MXF, already on V2"
-      },
-      {
-        "moment_id": "tooling-explanation",
-        "evidence_ids": [
-          "caption:sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374",
-          "clip:LCATL0013.MXF"
-        ],
-        "note": "the case-study passage a cutaway could cover; the only other footage the project holds is the other camera"
-      }
-    ],
-    "abstained": false,
-    "unavailable": [
-      "the edit_spec request's context carried no transcript, no footage observations and only the FILE NAME of the creative brief, so the opening decision could not be grounded in the context the request carried",
-      "no music bed exists on this reel, so 'her voice on top of the music' has nothing to be on top of"
     ]
   },
   "planning": {
     "operations": [
       {
         "op": "reel.opening",
-        "target_role": "opening_section",
-        "target": "the closing statement on V1, record 1584..1906"
+        "target": "the closing statement on V1, record 1584..1906",
+        "target_role": "opening_section"
       },
       {
         "op": "clip.trim",
-        "target_role": "repeated_passages",
-        "target": "the pause before 'it's not necessarily AI's fault'"
+        "target": "the pause before 'it's not necessarily AI's fault'",
+        "target_role": "repeated_passages"
       },
       {
         "op": "clip.remove",
-        "target_role": "repeated_passages",
-        "target": "the second, redundant 'this is not AI's fault' turn"
+        "target": "the second, redundant 'this is not AI's fault' turn",
+        "target_role": "repeated_passages"
       },
       {
         "op": "multicam.select_angle",
-        "target_role": "weak_angle_turn",
-        "target": "record 1038..1141 on V1"
+        "target": "record 1038..1141 on V1",
+        "target_role": "weak_angle_turn"
       },
       {
         "op": "broll.insert",
-        "target_role": "broll_cover_range",
-        "target": "Akshita's case-study passage on V1"
+        "target": "Akshita's case-study passage on V1",
+        "target_role": "broll_cover_range"
       },
       {
         "op": "caption_fix",
-        "target_role": "wrong_caption_card",
-        "target": "no card carries a number"
+        "target": "no card carries a number",
+        "target_role": "wrong_caption_card"
       },
       {
         "op": "overlay.position",
-        "target_role": "name_lower_third",
-        "target": "2e9f8de7-9cc6-46ff-91af-19b75c66fd48, dy -140 output pixels"
+        "target": "2e9f8de7-9cc6-46ff-91af-19b75c66fd48, dy -140 output pixels",
+        "target_role": "name_lower_third"
       },
       {
         "op": "audio.gain",
-        "target_role": "music_bed",
-        "target": "no music bed exists on this reel"
+        "target": "no music bed exists on this reel",
+        "target_role": "music_bed"
       }
     ],
     "requirements_covered": [
@@ -154,276 +252,132 @@
       "export-verified"
     ]
   },
-  "execution": {
-    "receipt": {
-      "status": "refused",
-      "id": "960766a25885d269",
-      "error": "Resolve has 'Ren Scratch - breaktest' open, not 'Ren Scratch - vep-bench-demo'; the broker never switches projects - open 'Ren Scratch - vep-bench-demo' first"
-    },
-    "checks": {
-      "approved_edits_preserved": true,
-      "no_mutation": true,
-      "timeline_generation_unchanged": true
-    },
-    "collateral_changes": [],
-    "attempts": 1,
-    "route": "reel_touchup (protected experimental) - the route the lower-third move was given before the write was refused",
-    "recovery": {
-      "state": "none",
-      "verified": true,
-      "note": "an earlier partial_failure receipt asked for a read-back before any retry; the read-back was taken and the shadow generation did not move (generation 2 before and after)"
-    }
-  },
-  "delivery": {
-    "path": "/tmp/bench/renders/vep-bench-demo-export.mp4",
-    "sha256": "04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
-    "duration_seconds": 79.573333,
-    "bytes": 111267627,
-    "technical_verification": {
-      "audio_streams": true,
-      "lufs": false,
-      "black_frames": false,
-      "freeze_frames": true,
-      "silence_under_picture": false
-    },
-    "technical_not_checked": [
-      {
-        "name": "resolution",
-        "reason": "no delivery frame was declared, so the render was not graded against one"
-      },
-      {
-        "name": "framerate",
-        "reason": "no frame rate was declared, so the render was not graded against one"
-      },
-      {
-        "name": "duration",
-        "reason": "no planned duration was declared, so the render was not graded against one"
-      }
-    ]
-  },
-  "run": {
-    "wall_seconds": 3309.0,
-    "instruction_to_verified_seconds": null,
-    "note": "from the first live read of the scratch copy (2026-10-20T22:19:59Z) to the end of the export's verification (2026-10-20T23:15:08Z); it includes the waits for the machine's single Resolve"
-  },
+  "project": "/Users/prajwal/Documents/content_stuff/video_projects/ren-scratch-bench-demo",
+  "reel": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+  "resolve_project": "Ren Scratch - vep-bench-demo",
   "resource": {
     "peak_rss_bytes": 379944960,
     "peak_rss_note": "the delivery-evidence build (ffmpeg render_qa + stills). The RENDER ran inside the broker process and Resolve's own process were NOT measured: unmeasured, never zero."
   },
+  "retrieval": {
+    "abstained": false,
+    "moments": [
+      {
+        "evidence_ids": [
+          "caption:sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612",
+          "item:V1:sub_akshita_5ae8f521-647e-49c6-bf3d_500712-505612"
+        ],
+        "moment_id": "hook-moment",
+        "note": "the strongest line in the reel - 'Search didn't change, the question changed' - at the end of the argument"
+      },
+      {
+        "evidence_ids": [
+          "caption:sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808",
+          "caption:sub_akshita_5d01801c-6efe-48c6-ae1b_1983975-1985745",
+          "item:V1:11f638c4-d231-4612-9760-1e4cc85809fc"
+        ],
+        "moment_id": "repeated-passage",
+        "note": "the AI's-fault idea is said twice in a row, once by Craig and once by Akshita"
+      },
+      {
+        "evidence_ids": [
+          "item:V1:11f638c4-d231-4612-9760-1e4cc85809fc",
+          "item:V2:57877461-ae3e-4117-a7d5-8a545f1f7ae4",
+          "caption:sub_craig_4b8cf09f-9c15-4a8c-aa8b_1974188-1977808"
+        ],
+        "moment_id": "weak-angle-turn",
+        "note": "record 1038..1141 is Craig's line on Akshita's camera; the other camera of the same moment is LCATL0013.MXF, already on V2"
+      },
+      {
+        "evidence_ids": [
+          "caption:sub_akshita_91fa13b1-1ad3-4e25-b84b_1945804-1958374",
+          "clip:LCATL0013.MXF"
+        ],
+        "moment_id": "tooling-explanation",
+        "note": "the case-study passage a cutaway could cover; the only other footage the project holds is the other camera"
+      }
+    ],
+    "unavailable": [
+      "the edit_spec request's context carried no transcript, no footage observations and only the FILE NAME of the creative brief, so the opening decision could not be grounded in the context the request carried",
+      "no music bed exists on this reel, so 'her voice on top of the music' has nothing to be on top of"
+    ]
+  },
+  "run": {
+    "instruction_to_verified_seconds": null,
+    "note": "from the first live read of the scratch copy (2026-10-20T22:19:59Z) to the end of the export's verification (2026-10-20T23:15:08Z); it includes the waits for the machine's single Resolve",
+    "wall_seconds": 3309.0
+  },
   "steps": [
     {
+      "detail": "the request was prepared and its context read; the context carried no transcript, no footage observations and only the file name of the creative brief, so the opening could not be decided from the evidence the request carried",
       "obligation": "opening",
       "operation": "reel.opening",
-      "status": "not_executed",
       "seconds": 0.63,
-      "detail": "the request was prepared and its context read; the context carried no transcript, no footage observations and only the file name of the creative brief, so the opening could not be decided from the evidence the request carried"
+      "status": "not_executed"
     },
     {
+      "detail": "the two candidate targets were found and measured (the pause before Craig's 'it's not necessarily AI's fault' and the second 'this is not AI's fault' turn); the write was not attempted because the machine's Resolve was held by another lane for the whole window",
       "obligation": "pauses",
       "operation": "clip.trim + clip.remove",
-      "status": "not_executed",
       "seconds": 0.0,
-      "detail": "the two candidate targets were found and measured (the pause before Craig's 'it's not necessarily AI's fault' and the second 'this is not AI's fault' turn); the write was not attempted because the machine's Resolve was held by another lane for the whole window"
+      "status": "not_executed"
     },
     {
+      "detail": "the reel carries two separate camera sources, not a multicam clip: the other angle of the same moment is LCATL0013.MXF on V2, and the angle turn is a source swap, not a multicam selection",
       "obligation": "angle",
       "operation": "multicam.select_angle",
-      "status": "not_available",
       "seconds": 0.0,
-      "detail": "the reel carries two separate camera sources, not a multicam clip: the other angle of the same moment is LCATL0013.MXF on V2, and the angle turn is a source swap, not a multicam selection"
+      "status": "not_available"
     },
     {
+      "detail": "the cover range was identified (Akshita's case-study passage); the only other footage the project holds is the other camera, so the matching cutaway is that camera; the write was not attempted (machine contention)",
       "obligation": "broll",
       "operation": "broll.insert",
-      "status": "not_executed",
       "seconds": 0.0,
-      "detail": "the cover range was identified (Akshita's case-study passage); the only other footage the project holds is the other camera, so the matching cutaway is that camera; the write was not attempted (machine contention)"
+      "status": "not_executed"
     },
     {
+      "detail": "every caption card in the reel was read: none carries a number, so the request's premise does not hold for this copy",
       "obligation": "caption",
       "operation": "caption_fix",
-      "status": "not_available",
       "seconds": 0.0,
-      "detail": "every caption card in the reel was read: none carries a number, so the request's premise does not hold for this copy"
+      "status": "not_available"
     },
     {
+      "detail": "translated, prepared, routed (protected experimental, reel_touchup) and resolved to 2e9f8de7-9cc6-46ff-91af-19b75c66fd48; the first attempt failed on a missing project file in the scratch copy (reel_proposals_v2.json) and the next attempts on the machine's open project being another lane's",
       "obligation": "lower-third",
       "operation": "overlay.position",
-      "status": "not_executed",
       "seconds": 1.65,
-      "detail": "translated, prepared, routed (protected experimental, reel_touchup) and resolved to 2e9f8de7-9cc6-46ff-91af-19b75c66fd48; the first attempt failed on a missing project file in the scratch copy (reel_proposals_v2.json) and the next attempts on the machine's open project being another lane's"
+      "status": "not_executed"
     },
     {
+      "detail": "the reel carries no music bed; the export's own measurement is -23.18 LUFS integrated, 9.18 dB under the -14.0 target",
       "obligation": "levels",
       "operation": "audio.gain",
-      "status": "not_available",
       "seconds": 0.0,
-      "detail": "the reel carries no music bed; the export's own measurement is -23.18 LUFS integrated, 9.18 dB under the -14.0 target"
+      "status": "not_available"
     },
     {
+      "detail": "the shadow generation of the reel did not move (generation 2 before and after the run) and no collateral change was recorded: the timeline is byte-for-byte the imported copy, so nothing was disturbed - trivially, because no edit landed",
       "obligation": "preservation",
       "operation": "none (a requirement)",
-      "status": "established",
       "seconds": 0.0,
-      "detail": "the shadow generation of the reel did not move (generation 2 before and after the run) and no collateral change was recorded: the timeline is byte-for-byte the imported copy, so nothing was disturbed - trivially, because no edit landed"
+      "status": "established"
     },
     {
+      "detail": "the scratch copy's timeline rendered to a 111,267,627 byte mp4, 79.573s, through the broker's exclusive render job",
       "obligation": "export",
       "operation": "resolve-axi render inspect",
-      "status": "delivered",
       "seconds": 195.0,
-      "detail": "the scratch copy's timeline rendered to a 111,267,627 byte mp4, 79.573s, through the broker's exclusive render job"
+      "status": "delivered"
     },
     {
+      "detail": "the FILE was inspected, not the timeline: audio streams ok, no freeze frames, but the loudness check fails (-23.18 LUFS against -14.0 +/-1.0), one undeclared black frame segment is present, and 3.253s of picture plays over digital silence at 75.701-79.529s; resolution, frame rate and duration were not graded because nothing was declared",
       "obligation": "verify",
       "operation": "delivery.build_render_evidence",
-      "status": "failed",
       "seconds": 28.89,
-      "detail": "the FILE was inspected, not the timeline: audio streams ok, no freeze frames, but the loudness check fails (-23.18 LUFS against -14.0 +/-1.0), one undeclared black frame segment is present, and 3.253s of picture plays over digital silence at 75.701-79.529s; resolution, frame rate and duration were not graded because nothing was declared"
+      "status": "failed"
     }
   ],
-  "assessment": {
-    "judge": "the crewmate agent, reading the DELIVERED FILE only: the brief's public half, the file's digest, four stills and the file's own measurements",
-    "independence": {
-      "judge_saw": [
-        "brief.instruction",
-        "brief.project_state",
-        "brief.acceptance_criteria",
-        "render.sha256",
-        "render.evidence",
-        "render.duration_seconds"
-      ],
-      "judge_did_not_see": [
-        "expected_operations",
-        "expected_target_roles",
-        "expected_moment_ids",
-        "allowed_operations",
-        "edge_case",
-        "the edit plan",
-        "the receipts"
-      ]
-    },
-    "technical": {
-      "status": "fail",
-      "reason": "the loudness check fails (-23.18 LUFS against -14.0 +/-1.0), one undeclared black frame segment is present, and 3.253s of picture plays over digital silence at 75.701-79.529s; resolution, frame rate and duration were not graded because nothing was declared",
-      "checks": {
-        "audio_streams": true,
-        "lufs": false,
-        "black_frames": false,
-        "freeze_frames": true,
-        "silence_under_picture": false
-      },
-      "not_checked": [
-        "resolution",
-        "framerate",
-        "duration"
-      ]
-    },
-    "editorial": {
-      "status": "fail",
-      "passed": 3,
-      "failed": 4,
-      "not_measured": 3,
-      "criteria": [
-        {
-          "id": "hook-chosen",
-          "status": "fail",
-          "rationale": "the reel still opens on Craig's 'And that's what happened with that company' at 1.5s; the strongest line in it - 'Search didn't change, the question changed' - sits at 66s, at the END",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/still_1_5s.png",
-              "observation": "the delivered file's first second"
-            },
-            {
-              "artifact": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/ren-editorial-delivery-1_0id_y2/frame-02.png",
-              "observation": "the hook line is at 66.31s of the delivered file"
-            }
-          ]
-        },
-        {
-          "id": "pauses-removed",
-          "status": "not_measured",
-          "rationale": "three stills cannot show a pause, and no pause was measured off the delivered file",
-          "evidence": []
-        },
-        {
-          "id": "angle-replaced",
-          "status": "not_measured",
-          "rationale": "a still cannot show which camera a turn was shot on, and the delivered file's camera turn was not compared shot by shot",
-          "evidence": []
-        },
-        {
-          "id": "broll-chosen",
-          "status": "not_measured",
-          "rationale": "no inserted cutaway is visible in the delivered file's stills, and the absence of one was not established from the file",
-          "evidence": []
-        },
-        {
-          "id": "caption-corrected",
-          "status": "not_measured",
-          "rationale": "no caption card in this reel carries a number - the ten card texts were read off the project's own rendered cards - so there is no wrong number to correct",
-          "evidence": []
-        },
-        {
-          "id": "lower-third-adjusted",
-          "status": "pass",
-          "rationale": "the name bar sits inside the picture at the bottom left and clear of the caption row, so the collision the request describes does not exist in this copy and the criterion's end state already holds",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/still_1_5s.png",
-              "observation": "the name bar inside the picture, above the caption row"
-            }
-          ]
-        },
-        {
-          "id": "levels-balanced",
-          "status": "fail",
-          "rationale": "the delivered file measures -23.18 LUFS integrated, 9.18 dB under the -14.0 target, and the reel carries no music bed at all",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
-              "observation": "integrated -23.18 LUFS, true peak -4.49 dBTP"
-            }
-          ]
-        },
-        {
-          "id": "human-work-preserved",
-          "status": "pass",
-          "rationale": "the timeline's shadow generation did not move (2 before and after the run) and the delivered file carries the grade, the framing, the graphics and the captions intact",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/still_1_5s.png",
-              "observation": "the grade, the TV frame, the post header, the brand bug and the name bar are all present and unchanged"
-            },
-            {
-              "artifact": "/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/ren-editorial-delivery-1_0id_y2/frame-00.png",
-              "observation": "the captions are present and unchanged at 13.26s"
-            }
-          ]
-        },
-        {
-          "id": "exported",
-          "status": "pass",
-          "rationale": "a file was exported from the timeline: 111,267,627 bytes, 79.573s, sha256 04343989cec1dface5631e9666a55816d4b38f00b638629d464799b429368f4f",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
-              "observation": "the exported mp4, 1080x1920 at 23.976, 79.573s"
-            }
-          ]
-        },
-        {
-          "id": "export-verified",
-          "status": "fail",
-          "rationale": "the file was inspected and it carries NONE of the requested changes: it is the imported copy unchanged, and it also fails its own loudness check, carries an undeclared black segment and 3.253s of picture over digital silence",
-          "evidence": [
-            {
-              "artifact": "/tmp/bench/renders/vep-bench-demo-export.mp4",
-              "observation": "the exported mp4; -23.18 LUFS, 1 undeclared black frame segment, 3.253s of picture over digital silence at 75.701-79.529s"
-            }
-          ]
-        }
-      ]
-    }
-  }
+  "task_id": "the-whole-job"
 }
