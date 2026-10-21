@@ -319,6 +319,25 @@ class EvidenceIndex:
                 for obs_id in sorted(self._entity_obs.get(entity_id, set()))
                 if obs_id in self._obs_by_id]
 
+    def observation(self, observation_id: str) -> dict | None:
+        """One observation by id, or None when the model has no such row."""
+        self._ensure_temporal()
+        return (self._obs_by_id or {}).get(observation_id)
+
+    def observations_by_ids(self, observation_ids: list[str]) -> list[dict]:
+        """The named observations the model holds, in the order named.
+
+        A name the model does not hold is skipped: the caller asked for
+        the rows that exist, and compares against its own count.
+        """
+        self._ensure_temporal()
+        rows = []
+        for observation_id in observation_ids or []:
+            row = (self._obs_by_id or {}).get(observation_id)
+            if row is not None:
+                rows.append(row)
+        return rows
+
     def resolve_entity(self, ref: str) -> dict[str, Any]:
         """Browse everything the model says about one entity (DATA-044).
 

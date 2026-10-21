@@ -52,9 +52,13 @@ from typing import Any
 try:
     from library.tools import evidence_contract
     from library.tools import occurrence_identity
+    from library.tools.identity_reassociation import IDENTITY_SCOPES
+    from library.tools.relation_classes import RELATION_CLASSES
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import evidence_contract
     from tools import occurrence_identity
+    from tools.identity_reassociation import IDENTITY_SCOPES
+    from tools.relation_classes import RELATION_CLASSES
 
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks, the convention
@@ -94,6 +98,20 @@ MEASURED_EVENTS = ("speaking", "on_screen")
 """M7 predicate spans: diarized turns attributed to a face, and visible
 face tracks. Anything else names an M7/M10 candidate kind and is never
 an answer until verified."""
+
+GRAPH_PREDICATES = ("entity", "identity_link", "relation", "interpretation",
+                    "event", "track")
+"""Predicate kinds answered from the Project Model's own collections.
+
+The interval predicates answer "what was measured over this window";
+these answer "what does the model hold about this thing". They are
+routed to :mod:`library.tools.evidence_graph` - the read layer that
+already indexes the model - and they never mix with the interval
+predicates: a plan asks ONE kind of question, because a join between a
+measured interval and a model row has no defined meaning."""
+
+LINK_STATUSES = ("candidate", "verified")
+"""The identity-link status vocabulary the model validates."""
 
 MODALITY_TO_LANE = {
     "source_metadata": "m0",
@@ -218,7 +236,7 @@ def _record_kind(obs: dict[str, Any]) -> str | None:
         obs.get("modality"))
 
 
-def _freshness_of(obs: dict[str, Any]) -> str:
+def freshness_of(obs: dict[str, Any]) -> str:
     native = _native_evidence(obs)
     freshness = (native or {}).get("freshness")
     if freshness in evidence_contract.COVERAGE_FRESHNESS:
@@ -226,7 +244,7 @@ def _freshness_of(obs: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _coverage_of(obs: dict[str, Any]) -> str:
+def coverage_of(obs: dict[str, Any]) -> str:
     native = _native_evidence(obs)
     coverage = (native or {}).get("coverage_status") or (native or {}).get("coverage")
     if isinstance(coverage, str) and coverage:
@@ -234,7 +252,7 @@ def _coverage_of(obs: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _certainty_of(obs: dict[str, Any]) -> str | None:
+def certainty_of(obs: dict[str, Any]) -> str | None:
     native = _native_evidence(obs)
     certainty = (native or {}).get("certainty")
     return certainty if isinstance(certainty, str) else None
@@ -267,12 +285,16 @@ def compile_plan(predicates: list[dict[str, Any]], *,
     ``{"predicate": "event_span", "event", ...}`` with optional
     ``participant_id`` and ``verified_only``, or
     ``{"predicate": "nth_event", "event_class", "nth", ...}`` which
-    names the n-th occurrence of a repeated event. ``scope`` is an
-    optional ``{"clock_id", "asset_id", "start_s", "end_s"}`` window
-    every predicate is read inside. Unknown measurement types,
-    evaluation or creative-judgment types, unknown predicate kinds and
-    inverted bounds raise: a plan that cannot name its evidence is
-    refused, never widened into a guess.
+    names the n-th occurrence of a repeated event, or one of the GRAPH
+    PREDICATES - ``entity``, ``identity_link``, ``relation``,
+    ``interpretation``, ``event``, ``track`` - which name a row of the
+    Project Model's own collections and are answered by
+    :mod:`library.tools.evidence_graph`. ``scope`` is an optional
+    ``{"clock_id", "asset_id", "start_s", "end_s"}`` window every
+    predicate is read inside. Unknown measurement types, evaluation or
+    creative-judgment types, unknown predicate kinds and inverted
+    bounds raise: a plan that cannot name its evidence is refused,
+    never widened into a guess.
     """
     if not isinstance(predicates, list) or not predicates:
         raise EvidenceQueryError("a plan asks at least one predicate")
@@ -304,6 +326,12 @@ def compile_plan(predicates: list[dict[str, Any]], *,
     if type(max_clock_error_ticks) is not int or max_clock_error_ticks < 0:
         raise EvidenceQueryError("max_clock_error_ticks must be a non-negative integer")
     compiled = [_compile_predicate(predicate) for predicate in predicates]
+    forms = {predicate.get("form", "interval") for predicate in compiled}
+    if len(forms) > 1:
+        raise EvidenceQueryError(
+            "a plan asks one kind of question: interval evidence "
+            "('measurement', 'event_span') or graph evidence "
+            f"{list(GRAPH_PREDICATES)}, never both")
     lanes = sorted({lane for lane in
                     (_required_lane(p) for p in compiled) if lane})
     return {"predicates": compiled, "required_lanes": lanes,
@@ -321,9 +349,98 @@ def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
         return _compile_event(predicate)
     if kind == "nth_event":
         return _compile_nth_event(predicate)
+    if kind in GRAPH_PREDICATES:
+        return _compile_graph(predicate)
     raise EvidenceQueryError(
         f"unknown predicate {kind!r}: this query answers "
-        f"'measurement', 'event_span' and 'nth_event' only")
+        f"'measurement', 'event_span', 'nth_event' and the graph predicates "
+        f"{list(GRAPH_PREDICATES)}")
+
+
+def _string_selector(predicate: dict[str, Any], key: str) -> str | None:
+    """One optional string selector, refused when it is not a string."""
+    value = predicate.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise EvidenceQueryError(f"{key} must be a non-empty string")
+    return value.strip()
+
+
+def _enum_selector(predicate: dict[str, Any], key: str,
+                   allowed: tuple[str, ...]) -> str | None:
+    """One optional selector drawn from a closed vocabulary."""
+    value = predicate.get(key)
+    if value is None:
+        return None
+    if value not in allowed:
+        raise EvidenceQueryError(
+            f"{key} {value!r} is not one of {list(allowed)}")
+    return value
+
+
+def _compile_graph(predicate: dict[str, Any]) -> dict[str, Any]:
+    """Compile one graph predicate: a named row of a model collection."""
+    kind = predicate["predicate"]
+    compiled: dict[str, Any] = {"predicate": kind, "form": "graph"}
+    if kind == "entity":
+        for key in ("entity_id", "label", "kind"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+        scope = _enum_selector(predicate, "identity_scope", IDENTITY_SCOPES)
+        if scope is not None:
+            compiled["identity_scope"] = scope
+    elif kind == "identity_link":
+        for key in ("entity_id", "observation_id", "method"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+        status = _enum_selector(predicate, "status", LINK_STATUSES)
+        if status is not None:
+            compiled["status"] = status
+    elif kind == "relation":
+        # The relation's own predicate is named ``relation_type``: a
+        # graph predicate already spends the word "predicate" on its
+        # kind, and one word cannot mean two things.
+        for key in ("relation_type", "subject_id", "object_id"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+        relation_class = _enum_selector(predicate, "relation_class",
+                                        RELATION_CLASSES)
+        if relation_class is not None:
+            compiled["relation_class"] = relation_class
+        status = _enum_selector(predicate, "status", LINK_STATUSES)
+        if status is not None:
+            compiled["status"] = status
+    elif kind == "interpretation":
+        for key in ("kind", "evidence_id"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+        certainty = _enum_selector(
+            predicate, "certainty",
+            tuple(state.value for state in evidence_contract.CertaintyState))
+        if certainty is not None:
+            compiled["certainty"] = certainty
+    elif kind == "event":
+        for key in ("kind", "participant_id"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+        status = _enum_selector(predicate, "status", LINK_STATUSES)
+        if status is not None:
+            compiled["status"] = status
+    elif kind == "track":
+        for key in ("entity_id", "clock_id"):
+            value = _string_selector(predicate, key)
+            if value is not None:
+                compiled[key] = value
+    # A graph predicate with no selector asks for EVERY row of its
+    # collection: the collection IS what it names, so the question is
+    # answerable and is never widened into a guess.
+    return compiled
 
 
 def _compile_measurement(predicate: dict[str, Any]) -> dict[str, Any]:
@@ -411,6 +528,10 @@ def _compile_nth_event(predicate: dict[str, Any]) -> dict[str, Any]:
 def _required_lane(compiled: dict[str, Any]) -> str | None:
     if compiled["predicate"] == "measurement":
         return MEASUREMENT_TO_LANE.get(compiled["measurement_type"])
+    if compiled.get("form") == "graph":
+        # A model row IS the answer: no lane produced it, and no lane's
+        # absence says anything about it.
+        return None
     if compiled["predicate"] == "nth_event":
         # The events lane: the model numbers the occurrences the lane
         # produced, so a missing lane means no occurrence was measured.
@@ -630,9 +751,9 @@ def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
                     continue
         matches.append({"clock_id": clock_id, "start": start, "end": end,
                         "obs": obs, "lane": _lane_of(obs),
-                        "freshness": _freshness_of(obs),
-                        "coverage": _coverage_of(obs),
-                        "certainty": _certainty_of(obs)})
+                        "freshness": freshness_of(obs),
+                        "coverage": coverage_of(obs),
+                        "certainty": certainty_of(obs)})
     return matches
 
 
@@ -752,25 +873,9 @@ def _map_interval(clock: str, start: int, end: int,
     return pieces, False
 
 
-def _source_placements(model: dict[str, Any], contributors: list[dict[str, Any]],
-                        project: str | None) -> list[dict[str, Any]]:
-    """Where each contributing observation came from, in the source file.
-
-    A row placed on a TIMELINE clock is placed there for the join; a
-    reader who wants to open the footage needs the source. The
-    placement comes from ``observation_provenance``, which owns the
-    transform algebra, so the answer and the provenance module cannot
-    disagree about where a moment is.
-
-    An observation that cannot be placed is in the list with its
-    reason, never dropped: a reader that cannot see the hole would read
-    the rest as complete.
-    """
-    observations = []
-    for match in contributors:
-        observation = match.get("obs")
-        if isinstance(observation, dict) and observation.get("id"):
-            observations.append(observation)
+def placements(model: dict[str, Any], observations: list[dict[str, Any]],
+               project: str | None) -> list[dict[str, Any]]:
+    """Where each observation came from: the file, and the exact seconds."""
     if not observations:
         return []
     try:
@@ -779,6 +884,224 @@ def _source_placements(model: dict[str, Any], contributors: list[dict[str, Any]]
             model, observations, project_folder=project)
     except (ImportError, ValueError):
         return []
+
+
+def placements_by_id(model: dict[str, Any],
+                     observations: list[dict[str, Any]],
+                     project: str | None) -> dict[str, dict[str, Any]]:
+    """The placements of many observations, in ONE pass, by id.
+
+    The placement algebra indexes the model, so it is paid once per
+    answer and never once per row.
+    """
+    rows = placements(model, observations, project)
+    return {row.get("observation_id"): row for row in rows
+            if isinstance(row.get("observation_id"), str)}
+
+
+def payload_of(observation: dict[str, Any]) -> dict[str, Any]:
+    """The observation's payload, when it has one."""
+    payload = observation.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def derivation_rows(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """What produced each observation: the derivation, and its references.
+
+    An answer that names the evidence but not the derivation cannot
+    answer "what produced this". Every observation gets a row, and a row
+    whose derivation was never recorded says so - a hole is visible, not
+    filled with a default.
+    """
+    rows: list[dict[str, Any]] = []
+    for observation in observations:
+        native = _native_evidence(observation)
+        legacy = observation.get("evidence")
+        legacy = legacy if isinstance(legacy, dict) else {}
+        native = native or legacy
+        derivation = native.get("derivation")
+        derivation = derivation if isinstance(derivation, dict) else None
+        model_provenance = payload_of(observation).get("model_provenance")
+        license_context = None
+        if isinstance(model_provenance, dict):
+            license_context = model_provenance.get("license_context")
+        if license_context is None:
+            license_context = native.get("license_context")
+        references = native.get("references")
+        if not references:
+            references = legacy.get("references")
+        rows.append({
+            "observation_id": observation.get("id"),
+            "derivation_recorded": derivation is not None,
+            "producer": native.get("producer"),
+            "producer_version": native.get("producer_version"),
+            "method": native.get("method"),
+            "sampling_method": native.get("sampling_method"),
+            "preprocessing": (derivation or {}).get("preprocessing"),
+            "sampling_policy": (derivation or {}).get("sampling_policy"),
+            "source_revision": (derivation or {}).get("source_revision"),
+            "derivation_digest": (derivation or {}).get("derivation_digest"),
+            "license_context": license_context,
+            "references": list(references or []),
+        })
+    return rows
+
+
+def _graph_answer(model: dict[str, Any], plan: dict[str, Any],
+                  compiled: list[dict[str, Any]],
+                  project: str | None) -> dict[str, Any]:
+    """Answer a graph plan from the Project Model's own collections.
+
+    The rows come from :mod:`library.tools.evidence_graph`, the read
+    layer that already indexes the model. Every result names the
+    observations that back it, where each of them came from in the
+    source file, and what produced it.
+
+    The status vocabulary here is the five-way DATA-036 one, not the
+    four-way measured-absence one: a model row that is absent is not a
+    measured absence, it is a row the model does not hold.
+    """
+    from library.tools import evidence_graph
+
+    index = evidence_graph.EvidenceIndex(model)
+    results: list[dict[str, Any]] = []
+    every_observation: dict[str, dict[str, Any]] = {}
+    for predicate in compiled:
+        for row in _graph_rows(index, predicate):
+            observations = _backing_observations(index, predicate, row)
+            for observation in observations:
+                every_observation.setdefault(observation["id"], observation)
+            results.append({
+                "predicate": predicate["predicate"],
+                "id": row.get("id"),
+                "row": row,
+                "evidence_ids": sorted({obs["id"] for obs in observations}),
+                "provenance_ids": sorted({str(obs.get("provenance_id"))
+                                         for obs in observations
+                                         if obs.get("provenance_id")}),
+                "observation_ids": [obs["id"] for obs in observations],
+                "derivation": derivation_rows(observations),
+            })
+    placement = placements_by_id(model, list(every_observation.values()), project)
+    for result in results:
+        result["sources"] = [placement[observation_id]
+                             for observation_id in result["observation_ids"]
+                             if observation_id in placement]
+        del result["observation_ids"]
+    if results:
+        return {"status": "present", "results": results,
+                "completeness_basis": [], "required_missing_lanes": [],
+                "reasons": [],
+                "lane_corrections": [],
+                "absence": {"state": "present",
+                            "basis": "the model holds the rows this plan names"}}
+    return {"status": "not_observed", "results": [],
+            "completeness_basis": [], "required_missing_lanes": [],
+            "reasons": [
+                ("the model holds no row matching this predicate: nothing "
+                 "was measured absent, the model simply carries no such row")],
+            "lane_corrections": [],
+            "absence": {"state": "not_observed",
+                        "basis": "the model holds no row of this kind"}}
+
+
+def _graph_rows(index: Any, compiled: dict[str, Any]) -> list[dict[str, Any]]:
+    """The model rows one graph predicate names."""
+    kind = compiled["predicate"]
+    model = index.model
+    if kind == "entity":
+        rows = [row for row in model.get("entities") or []
+                if isinstance(row, dict)]
+        if "entity_id" in compiled:
+            rows = [row for row in rows if row.get("id") == compiled["entity_id"]]
+        if "label" in compiled:
+            wanted = compiled["label"].lower()
+            rows = [row for row in rows
+                    if str(row.get("label") or "").lower() == wanted]
+        if "kind" in compiled:
+            rows = [row for row in rows if row.get("kind") == compiled["kind"]]
+        if "identity_scope" in compiled:
+            rows = [row for row in rows
+                    if row.get("identity_scope") == compiled["identity_scope"]]
+        return rows
+    if kind == "identity_link":
+        rows = [row for row in model.get("identity_links") or []
+                if isinstance(row, dict)]
+        for key in ("entity_id", "observation_id", "method", "status"):
+            if key in compiled:
+                rows = [row for row in rows if row.get(key) == compiled[key]]
+        return rows
+    if kind == "relation":
+        rows = [row for row in model.get("relations") or []
+                if isinstance(row, dict)]
+        for key in ("subject_id", "object_id", "status"):
+            if key in compiled:
+                rows = [row for row in rows if row.get(key) == compiled[key]]
+        if "relation_class" in compiled:
+            rows = [row for row in rows
+                    if row.get("relation_class") == compiled["relation_class"]]
+        if "relation_type" in compiled:
+            wanted = compiled["relation_type"]
+            rows = [row for row in rows
+                    if (row.get("predicate") or row.get("relation_type"))
+                    == wanted]
+        return rows
+    if kind == "interpretation":
+        rows = [row for row in model.get("interpretations") or []
+                if isinstance(row, dict)]
+        if "kind" in compiled:
+            rows = [row for row in rows if row.get("kind") == compiled["kind"]]
+        if "certainty" in compiled:
+            rows = [row for row in rows
+                    if row.get("certainty") == compiled["certainty"]]
+        if "evidence_id" in compiled:
+            rows = [row for row in rows
+                    if compiled["evidence_id"] in (row.get("evidence_ids") or [])]
+        return rows
+    if kind == "event":
+        rows = [row for row in model.get("events") or []
+                if isinstance(row, dict)]
+        if "kind" in compiled:
+            rows = [row for row in rows if row.get("kind") == compiled["kind"]]
+        if "status" in compiled:
+            rows = [row for row in rows if row.get("status") == compiled["status"]]
+        if "participant_id" in compiled:
+            rows = [row for row in rows
+                    if compiled["participant_id"] in (row.get("participant_ids") or [])]
+        return rows
+    if kind == "track":
+        rows = [row for row in model.get("tracks") or []
+                if isinstance(row, dict)]
+        for key in ("entity_id", "clock_id"):
+            if key in compiled:
+                rows = [row for row in rows if row.get(key) == compiled[key]]
+        return rows
+    raise EvidenceQueryError(f"unknown graph predicate {kind!r}")
+
+
+def _backing_observations(index: Any, compiled: dict[str, Any],
+                          row: dict[str, Any]) -> list[dict[str, Any]]:
+    """The observations a model row rests on."""
+    kind = compiled["predicate"]
+    if kind == "entity":
+        return index.observations_for_entity(row.get("id"))
+    if kind == "identity_link":
+        named = [row.get("observation_id")]
+        named.extend(row.get("supporting_observation_ids") or [])
+        return index.observations_by_ids([name for name in named if name])
+    if kind == "relation":
+        return index.observations_by_ids(row.get("evidence_ids") or [])
+    if kind == "interpretation":
+        return index.observations_by_ids(row.get("evidence_ids") or [])
+    if kind == "event":
+        return index.observations_by_ids(row.get("evidence_ids") or [])
+    if kind == "track":
+        named: list[str] = []
+        for sample in row.get("samples") or []:
+            if isinstance(sample, dict):
+                named.extend(sample.get("evidence_ids") or [])
+        return index.observations_by_ids(named)
+    raise EvidenceQueryError(f"unknown graph predicate {kind!r}")
 
 
 def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
@@ -791,16 +1114,37 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
     "required_missing_lanes", "reasons"}``. Results carry their joined
     interval in ticks and seconds plus the contributing evidence ids,
     provenance ids, certainties, coverage and freshness - the reader
-    can place every row without reopening the model. ``lane_presence``
-    optionally maps ``(digest, lane)`` to ``{"present", "freshness"}``
-    sidecar truth so a lane that ran but never migrated reads
-    ``inconclusive`` instead of ``not_yet_analysed``.
+    can place every row without reopening the model - and the
+    ``derivation`` of every contributing observation, so the answer can
+    also say what produced it. ``lane_presence`` optionally maps
+    ``(digest, lane)`` to ``{"present", "freshness"}`` sidecar truth so
+    a lane that ran but never migrated reads ``inconclusive`` instead
+    of ``not_yet_analysed``.
+
+    A plan of GRAPH predicates is answered from the model's own
+    collections by :mod:`library.tools.evidence_graph`; the answer then
+    carries the DATA-036 five-way vocabulary, because a model row that
+    is absent is not a measured absence.
     """
     if not isinstance(model, dict):
         raise EvidenceQueryError("evidence_for reads a Project Model dict")
     if (not isinstance(plan, dict) or not isinstance(
             plan.get("predicates"), list) or not plan["predicates"]):
         raise EvidenceQueryError("evidence_for answers a compiled plan")
+    # The predicates are compiled HERE as well as in compile_plan: a
+    # plan may arrive as a JSON file an agent wrote by hand, and an
+    # unknown or malformed predicate is refused, never guessed at.
+    compiled_predicates = [_compile_predicate(predicate)
+                           for predicate in plan["predicates"]]
+    forms = {predicate.get("form", "interval") for predicate in compiled_predicates}
+    if len(forms) > 1:
+        raise EvidenceQueryError(
+            "a plan asks one kind of question: interval evidence "
+            "('measurement', 'event_span') or graph evidence "
+            f"{list(GRAPH_PREDICATES)}, never both")
+    if "graph" in forms:
+        return _graph_answer(model, plan, compiled_predicates, project)
+    plan = {**plan, "predicates": compiled_predicates}
     scope = plan.get("scope") or {}
     level = plan.get("level")
     entities = _observation_entities(model)
@@ -880,11 +1224,14 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
         joined = _intersect(per_predicate) if all(per_predicate) else []
     fresh_results: list[dict[str, Any]] = []
     stale_dropped = 0
+    result_observations: list[list[dict[str, Any]]] = []
     for lo, hi, contributors in joined:
         if any(match["freshness"] == "stale" for match in contributors):
             stale_dropped += 1
             continue
         clock_id = contributors[0]["clock_id"]
+        observations = [match["obs"] for match in contributors]
+        result_observations.append(observations)
         row = {
             "interval": {"clock_id": clock_id, "start": lo, "end": hi,
                          "start_s": _seconds(lo), "end_s": _seconds(hi)},
@@ -905,10 +1252,23 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                 for transform_id in match.get("transform_ids", [])}),
             "clock_error_ticks": max((match.get("transform_error_ticks", 0)
                                        for match in contributors), default=0),
-            "sources": _source_placements(model, contributors, project),
+            "derivation": derivation_rows(observations),
         }
         row.update(_occurrence_of_row(model, plan, ordinals, contributors))
         fresh_results.append(row)
+    # The placements are paid ONCE per answer: the placement algebra
+    # indexes the model, so a per-row call would index it per row.
+    every_observation: dict[str, dict[str, Any]] = {}
+    for observations in result_observations:
+        for observation in observations:
+            if observation.get("id"):
+                every_observation.setdefault(observation["id"], observation)
+    placement = placements_by_id(model, list(every_observation.values()),
+                                 project)
+    for result, observations in zip(fresh_results, result_observations):
+        result["sources"] = [placement[observation["id"]]
+                             for observation in observations
+                             if observation.get("id") in placement]
     reasons: list[str] = []
     if stale_dropped:
         reasons.append(f"{stale_dropped} joined interval(s) include stale "
@@ -923,13 +1283,16 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
         reasons.append(
             f"the model carries {known} occurrence(s) of {klass!r}: there "
             f"is no occurrence {compiled['nth']}")
+    corrections = _lane_corrections(model, compiled_predicates)
+    reasons.extend(_correction_reasons(corrections))
     if fresh_results:
         return {"status": PRESENT, "results": fresh_results,
                 "completeness_basis": _basis_for(
                     model, plan, per_predicate, level),
-                "required_missing_lanes": [], "reasons": reasons}
+                "required_missing_lanes": [], "reasons": reasons,
+                "lane_corrections": corrections}
     return _empty_answer(model, plan, per_predicate, scope, level,
-                         lane_presence, reasons)
+                         lane_presence, reasons, corrections)
 
 
 def _occurrence_of_row(model: dict[str, Any], plan: dict[str, Any],
@@ -1021,7 +1384,10 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
                   per_predicate: list[list[dict[str, Any]]],
                   scope: dict[str, Any], level: str | None,
                   lane_presence: dict[tuple[str, str], dict[str, Any]] | None,
-                  reasons: list[str]) -> dict[str, Any]:
+                  reasons: list[str],
+                  corrections: list[dict[str, Any]] | None = None
+                  ) -> dict[str, Any]:
+    corrections = corrections or []
     candidate_only = any(
         compiled["predicate"] == "event_span"
         and compiled["event"] not in MEASURED_EVENTS
@@ -1042,7 +1408,8 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
         return {"status": INCONCLUSIVE, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons}
+                "required_missing_lanes": missing, "reasons": reasons,
+                "lane_corrections": corrections}
     if missing and not partial and not ran_unmigrated:
         reasons = reasons + [
             (f"lane(s) {missing} never ran: nothing measured, so "
@@ -1050,7 +1417,8 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
         return {"status": NOT_YET_ANALYSED, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons}
+                "required_missing_lanes": missing, "reasons": reasons,
+                "lane_corrections": corrections}
     if ran_unmigrated or partial:
         if ran_unmigrated:
             reasons = reasons + [
@@ -1064,7 +1432,8 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
         return {"status": INCONCLUSIVE, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons}
+                "required_missing_lanes": missing, "reasons": reasons,
+                "lane_corrections": corrections}
     if missing:
         reasons = reasons + [
             (f"lane(s) {missing} never ran: nothing measured, so "
@@ -1072,12 +1441,14 @@ def _empty_answer(model: dict[str, Any], plan: dict[str, Any],
         return {"status": NOT_YET_ANALYSED, "results": [],
                 "completeness_basis": _empty_basis(
                     lane_states, scope, level),
-                "required_missing_lanes": missing, "reasons": reasons}
+                "required_missing_lanes": missing, "reasons": reasons,
+                "lane_corrections": corrections}
     reasons = reasons + [("every required lane measured the scope "
                           "completely and found nothing")]
     return {"status": CONFIDENTLY_ABSENT, "results": [],
             "completeness_basis": _empty_basis(lane_states, scope, level),
-            "required_missing_lanes": [], "reasons": reasons}
+            "required_missing_lanes": [], "reasons": reasons,
+            "lane_corrections": corrections}
 
 
 def _has_unverified_candidates(model: dict[str, Any],
@@ -1126,6 +1497,44 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
     samples, spanning the scope) makes absence confident.
     """
     states: dict[str, str] = {}
+    lane_records = _lane_records(model)
+    for compiled in plan["predicates"]:
+        required = _required_lane(compiled)
+        if required is None:
+            continue
+        for lane in _effective_lanes(lane_records, compiled, required):
+            if lane in states:
+                continue
+            records = _scoped_records(lane_records.get(lane, []), scope)
+            fresh = [obs for obs in records if freshness_of(obs) == "fresh"]
+            if any(_record_answers_predicate(obs, compiled)
+                   and _covers_scope(obs, scope) for obs in fresh):
+                states[lane] = "covers_absent"
+                continue
+            if fresh:
+                states[lane] = "partial"
+                continue
+            if any(freshness_of(obs) == "stale" for obs in records):
+                states[lane] = "stale"
+                continue
+            if records:
+                states[lane] = "legacy"
+                continue
+            if lane_presence is not None and _lane_ran(
+                    lane, scope, lane_presence):
+                states[lane] = "ran_unmigrated"
+            else:
+                states[lane] = "missing"
+    return states
+
+
+def _lane_records(model: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Every observation, filed under the lane that produced it.
+
+    The lane comes from the producer's OWN stamp - the lane suffix of
+    the provenance id - so a lane that produced evidence is the lane
+    the answer talks about.
+    """
     lane_records: dict[str, list[dict[str, Any]]] = {}
     for obs in model.get("observations") or []:
         if not isinstance(obs, dict):
@@ -1136,35 +1545,94 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
             lane = MEASUREMENT_TO_LANE.get(kind or "")
         if lane:
             lane_records.setdefault(lane, []).append(obs)
-    for compiled in plan["predicates"]:
+    return lane_records
+
+
+def _scoped_records(records: list[dict[str, Any]],
+                    scope: dict[str, Any]) -> list[dict[str, Any]]:
+    """The records of one lane that fall inside the query's scope."""
+    return [obs for obs in records
+            if (not scope.get("asset_id")
+                or obs.get("asset_id") == scope["asset_id"])
+            and (not scope.get("clock_id")
+                 or _observation_clock(obs) == scope["clock_id"])]
+
+
+def _producer_lanes(lane_records: dict[str, list[dict[str, Any]]],
+                    compiled: dict[str, Any], required: str
+                    ) -> list[str]:
+    """The lanes whose OWN records answer this predicate.
+
+    A declared lane that produced nothing of this kind is not evidence
+    that nothing was produced: the registry's lane map is a
+    declaration, and the producer's own stamp is the record. These
+    lanes are what the answer is judged on, and the correction is
+    reported.
+    """
+    producers = []
+    for lane, rows in lane_records.items():
+        if lane == required:
+            continue
+        if any(_record_answers_predicate(obs, compiled) for obs in rows):
+            producers.append(lane)
+    return sorted(producers)
+
+
+def _produced(lane_records: dict[str, list[dict[str, Any]]],
+              compiled: dict[str, Any], lane: str) -> bool:
+    """Whether one lane produced the evidence this predicate asks about."""
+    return any(_record_answers_predicate(obs, compiled)
+               for obs in lane_records.get(lane, []))
+
+
+def _effective_lanes(lane_records: dict[str, list[dict[str, Any]]],
+                     compiled: dict[str, Any], required: str) -> list[str]:
+    """The lanes an answer about this predicate is judged on."""
+    if _produced(lane_records, compiled, required):
+        return [required]
+    producers = _producer_lanes(lane_records, compiled, required)
+    return producers or [required]
+
+
+def _lane_corrections(model: dict[str, Any],
+                      compiled_predicates: list[dict[str, Any]]
+                      ) -> list[dict[str, Any]]:
+    """Where the registry's lane map names a lane the producer contradicts.
+
+    The declared lane is reported AND the lane that actually produced
+    the evidence, so a reader sees both rather than being told one
+    lane never ran when another one did.
+    """
+    lane_records = _lane_records(model)
+    corrections: list[dict[str, Any]] = []
+    for compiled in compiled_predicates:
         required = _required_lane(compiled)
-        if required is None or required in states:
+        if required is None:
             continue
-        records = [obs for obs in lane_records.get(required, [])
-                   if (not scope.get("asset_id")
-                       or obs.get("asset_id") == scope["asset_id"])
-                   and (not scope.get("clock_id")
-                        or _observation_clock(obs) == scope["clock_id"])]
-        fresh = [obs for obs in records if _freshness_of(obs) == "fresh"]
-        if any(_record_answers_predicate(obs, compiled)
-               and _covers_scope(obs, scope) for obs in fresh):
-            states[required] = "covers_absent"
+        if _produced(lane_records, compiled, required):
             continue
-        if fresh:
-            states[required] = "partial"
-            continue
-        if any(_freshness_of(obs) == "stale" for obs in records):
-            states[required] = "stale"
-            continue
-        if records:
-            states[required] = "legacy"
-            continue
-        if lane_presence is not None and _lane_ran(
-                required, scope, lane_presence):
-            states[required] = "ran_unmigrated"
-        else:
-            states[required] = "missing"
-    return states
+        for lane in _producer_lanes(lane_records, compiled, required):
+            corrections.append({
+                "predicate": compiled["predicate"],
+                "measurement_type": compiled.get("measurement_type"),
+                "event": compiled.get("event"),
+                "declared_lane": required,
+                "producer_lane": lane,
+            })
+    return corrections
+
+
+def _correction_reasons(corrections: list[dict[str, Any]]) -> list[str]:
+    """One reason per corrected lane, naming both lanes."""
+    reasons = []
+    for correction in corrections:
+        asked = correction.get("measurement_type") or correction.get("event")
+        reasons.append(
+            f"the registry names lane {correction['declared_lane']!r} for "
+            f"{asked!r}, but the producer's own lane stamp is "
+            f"{correction['producer_lane']!r}: the answer is judged on the "
+            f"lane that produced the evidence")
+    return reasons
 
 
 def _record_answers_predicate(obs: dict[str, Any],

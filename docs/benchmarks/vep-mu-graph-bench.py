@@ -9,7 +9,15 @@ cost, and peak memory. Prints a JSON report; the scorecard in
 vep-mu-graph-scorecard-2026-10-16.md records the numbers and the
 no-database decision they support.
 
+With ``--model`` it ALSO measures a real Project Model - the snapshot
+of a Ren-owned scratch project - and publishes the numbers beside the
+synthetic ones: the index build, the contradiction scan and the
+multi-hop traversal over the whole model, and what the B-16 trace of
+one named entity returns. The snapshot is READ, never written, and no
+project is touched.
+
 Usage: python3 docs/benchmarks/vep-mu-graph-bench.py [--obs N]
+       [--model PATH] [--entity REF] [--hops N] [--real-only]
 """
 from __future__ import annotations
 
@@ -172,9 +180,145 @@ def bench(n_obs: int) -> dict:
             "provenance_helpers_s": round(provenance_s, 4)}
 
 
+def _pick_entity(model: dict, wanted: str | None) -> str:
+    """The entity the real-model trace follows.
+
+    With no name given, the busiest entity wins: the one with the most
+    identity links, then the most relations, then the id - so the
+    benchmark picks the same entity on every run.
+    """
+    if wanted:
+        return wanted
+    links: dict[str, int] = {}
+    for link in model.get("identity_links") or []:
+        if isinstance(link, dict) and isinstance(link.get("entity_id"), str):
+            links[link["entity_id"]] = links.get(link["entity_id"], 0) + 1
+    relations: dict[str, int] = {}
+    for relation in model.get("relations") or []:
+        if not isinstance(relation, dict):
+            continue
+        for key in ("subject_id", "object_id"):
+            value = relation.get(key)
+            if isinstance(value, str):
+                relations[value] = relations.get(value, 0) + 1
+    entities = [row.get("id") for row in model.get("entities") or []
+                if isinstance(row, dict) and isinstance(row.get("id"), str)]
+    if not entities:
+        raise SystemExit("the model holds no entity to trace")
+    return sorted(entities, key=lambda entity: (
+        -links.get(entity, 0), -relations.get(entity, 0), entity))[0]
+
+
+def bench_real_model(snapshot_path: Path, entity_ref: str | None,
+                     hops: int) -> dict:
+    """Measure the graph layer over a REAL Project Model.
+
+    The snapshot is read and never written: no project is touched, and
+    the measurement is reproducible from the model alone.
+    """
+    from library.tools import evidence_trace
+
+    tick = time.perf_counter()
+    document = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    load_s = time.perf_counter() - tick
+    model = document.get("model", document)
+
+    tick = time.perf_counter()
+    index = EvidenceIndex(model)
+    index_build_s = time.perf_counter() - tick
+
+    entity = _pick_entity(model, entity_ref)
+    tick = time.perf_counter()
+    trace = evidence_trace.trace(model, entity, hops=hops)
+    trace_s = time.perf_counter() - tick
+
+    # The answer is reproducible from the model alone: the same model
+    # gives the same answer, byte for byte.
+    again = evidence_trace.trace(model, entity, hops=hops)
+    reproducible = (json.dumps(trace, sort_keys=True, default=str)
+                    == json.dumps(again, sort_keys=True, default=str))
+
+    tick = time.perf_counter()
+    contradictions = find_contradictions(index)
+    contra_s = time.perf_counter() - tick
+
+    tick = time.perf_counter()
+    traversal = index.traverse(entity, hops=hops)
+    traversal_s = time.perf_counter() - tick
+
+    edges = traversal.get("edges") or []
+    relation_edges = [edge for edge in edges if edge.get("kind") == "relation"]
+    link_edges = [edge for edge in edges
+                  if edge.get("kind") == "identity_link"]
+    leaves = trace.get("leaf_observation_ids") or []
+    sources = trace.get("sources") or []
+    placed = [row for row in sources if row.get("status") == "resolved"]
+    with_file = [row for row in placed if row.get("source_file")]
+    with_seconds = [row for row in placed
+                    if isinstance(row.get("start_seconds"), (int, float))
+                    and isinstance(row.get("end_seconds"), (int, float))]
+
+    # The gate: the traversal reaches an identity link and a relation
+    # edge per hop, every leaf observation names its file and its exact
+    # seconds, and the answer is reproducible.
+    assert link_edges, f"the {hops}-hop traversal of {entity} reached no identity link"
+    assert relation_edges, f"the {hops}-hop traversal of {entity} reached no relation edge"
+    assert len(leaves) == len(sources), (
+        "a leaf observation was dropped from the answer")
+    assert len(with_file) == len(leaves), (
+        "a leaf observation carries no source file")
+    assert len(with_seconds) == len(leaves), (
+        "a leaf observation carries no exact seconds")
+    assert reproducible, "the same model gave two different answers"
+
+    return {
+        "snapshot": str(snapshot_path),
+        "observations": len(model.get("observations") or []),
+        "entities": len(model.get("entities") or []),
+        "identity_links": len(model.get("identity_links") or []),
+        "relations": len(model.get("relations") or []),
+        "events": len(model.get("events") or []),
+        "interpretations": len(model.get("interpretations") or []),
+        "tracks": len(model.get("tracks") or []),
+        "snapshot_load_s": round(load_s, 3),
+        "index_build_s": round(index_build_s, 3),
+        "trace_s": round(trace_s, 3),
+        "traversal_s": round(traversal_s, 3),
+        "contradiction_scan_s": round(contra_s, 3),
+        "contradictions_found": len(contradictions),
+        "entity": entity,
+        "hops": hops,
+        "traversal": {
+            "nodes": len(traversal.get("nodes") or []),
+            "edges": len(edges),
+            "relation_edges": len(relation_edges),
+            "identity_link_edges": len(link_edges),
+        },
+        "trace": {
+            "observations": len(trace.get("observations") or []),
+            "identity_links": len(trace.get("identity_links") or []),
+            "relations": len(trace.get("relations") or []),
+            "events": len(trace.get("events") or []),
+            "interpretations": len(trace.get("interpretations") or []),
+            "leaf_observations": len(leaves),
+            "leaves_with_source_file": len(with_file),
+            "leaves_with_exact_seconds": len(with_seconds),
+            "reproducible": reproducible,
+        },
+    }
+
+
 def main() -> None:
-    n_obs = int(sys.argv[sys.argv.index("--obs") + 1]) if "--obs" in sys.argv else 20000
-    print(json.dumps(bench(n_obs), indent=2))
+    args = sys.argv[1:]
+    n_obs = int(args[args.index("--obs") + 1]) if "--obs" in args else 20000
+    report = {} if "--real-only" in args else bench(n_obs)
+    if "--model" in args:
+        snapshot = Path(args[args.index("--model") + 1]).expanduser()
+        entity = (args[args.index("--entity") + 1]
+                  if "--entity" in args else None)
+        hops = int(args[args.index("--hops") + 1]) if "--hops" in args else 2
+        report["real_model"] = bench_real_model(snapshot, entity, hops)
+    print(json.dumps(report, indent=2))
 
 
 if __name__ == "__main__":

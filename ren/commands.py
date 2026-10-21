@@ -29,12 +29,17 @@ class McpArg:
     """One of `MCP_ARG_TYPES` (`array` means an array of strings)."""
     description: str = ""
     required: bool = False
+    flag: str = ""
+    """When set, the argument reaches the verb as a FLAG (`--trace VALUE`)
+    instead of as a positional. A verb's CLI takes ONE leading positional;
+    every other typed argument is named, so the MCP schema can carry it
+    without guessing a position."""
 
     def as_record(self) -> dict:
         """This argument's row of the catalog `ren --help --json` prints."""
         return {"name": self.name, "type": self.arg_type,
                 "description": self.description,
-                "required": self.required}
+                "required": self.required, "flag": self.flag}
 
     def __post_init__(self) -> None:
         if self.arg_type not in MCP_ARG_TYPES:
@@ -70,8 +75,15 @@ MCP_ENGINE_SOURCE = McpArg(
 
 MCP_EVIDENCE_PLAN = McpArg(
     "plan", "string",
-    "Path to a JSON file containing a compiled Project Model evidence query plan",
-    required=True)
+    "Path to a JSON file containing a compiled Project Model evidence query plan")
+
+MCP_EVIDENCE_TRACE = McpArg(
+    "trace", "string",
+    "Entity, event, observation or track to trace through the Project Model",
+    flag="--trace")
+"""The B-16 question: why does Ren believe this, and what original evidence
+supports it? A trace asks it without a plan file, so the plan is optional
+whenever a trace is given."""
 
 MCP_STORAGE_OPERATION = McpArg(
     "operation", "string",
@@ -655,10 +667,21 @@ VERBS = (
          effects=("read", "heavy_lock", "network"), json=True,
          module_argv=(_FOOTAGE_QUERY, "search"),
          params=(MCP_PROJECT,)),
-    Verb("evidence", "Footage", "Query typed Project Model evidence; --acquire opts in to one bounded M4 window",
+    Verb("evidence", "Footage", "Query typed Project Model evidence; --trace follows one thing through it",
          effects=("read", "project_write", "heavy_lock"), json=True,
          module_argv=("library.tools.analysis.footage_evidence_query",),
-         params=(MCP_PROJECT, MCP_EVIDENCE_PLAN)),
+         params=(MCP_PROJECT, MCP_EVIDENCE_PLAN, MCP_EVIDENCE_TRACE),
+         detail="`ren evidence <project> <plan.json>` answers one compiled "
+                "evidence query plan against the project's canonical Project "
+                "Model: the plan names typed measurements, event spans, or the "
+                "model's own entity, identity-link, relation, interpretation, "
+                "event and track rows. `ren evidence <project> --trace <ref>` "
+                "follows ONE entity, event, observation or track through its "
+                "observations, its possible identity links, its relations, the "
+                "interpretations resting on it, and the source file and exact "
+                "seconds behind every leaf: why does Ren believe this, and "
+                "what original evidence supports it? `--acquire` opts in to one "
+                "bounded M4 window."),
     Verb("where", "Footage", "Where is this person in the footage (region tracks, or the region at --at)",
          effects=("read",), json=True,
          module_argv=(_FOOTAGE_QUERY, "where"),

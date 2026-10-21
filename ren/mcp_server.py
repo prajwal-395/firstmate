@@ -520,24 +520,34 @@ def _bad_args(verb_name: str, message: str) -> dict:
 
 def build_argv(verb, arguments: dict) -> tuple:
     """`(argv, error)`: map typed arguments onto CLI tokens. Exactly
-    one is None. The first declared positional (`project`, `slug`,
-    `target`, ...) goes first; `json`/`dry_run` flags follow from the
-    catalog booleans; `args` appends verbatim."""
+    one is None. The declared POSITIONAL arguments go first, in the
+    order the registry declares them; an argument that names a FLAG
+    reaches the verb as that flag and its value; `json`/`dry_run` flags
+    follow from the catalog booleans; `args` appends verbatim."""
     name = verb.name
     argv = [name]
     for param in verb.params:
-        if param.name in arguments:
-            value = arguments[param.name]
-            if not isinstance(value, str) or not value:
-                return None, _bad_args(
-                    name, f"argument {param.name!r} must be a non-empty "
-                          f"string")
-            argv.append(value)
-            break
+        if param.flag or param.name not in arguments:
+            continue
+        value = arguments[param.name]
+        if not isinstance(value, str) or not value:
+            return None, _bad_args(
+                name, f"argument {param.name!r} must be a non-empty "
+                      f"string")
+        argv.append(value)
     for param in verb.params:
         if param.required and param.name not in arguments:
             return None, _bad_args(
                 name, f"missing required argument {param.name!r}")
+    for param in verb.params:
+        if not param.flag or param.name not in arguments:
+            continue
+        value = arguments[param.name]
+        if not isinstance(value, str) or not value:
+            return None, _bad_args(
+                name, f"argument {param.name!r} must be a non-empty "
+                      f"string")
+        argv.extend([param.flag, value])
     if verb.json and "json" in arguments:
         if not isinstance(arguments["json"], bool):
             return None, _bad_args(name, "argument 'json' must be boolean")

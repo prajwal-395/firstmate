@@ -16,12 +16,24 @@ def main(argv: list[str] | None = None) -> int:
     hosts.ensure_harness_output_env()
     parser = argparse.ArgumentParser(
         prog="ren evidence",
-        description="Query typed Project Model evidence; acquisition is opt-in.",
+        description=("Query typed Project Model evidence, or trace one "
+                     "entity, event or observation through it; acquisition is "
+                     "opt-in."),
     )
     parser.add_argument("project")
     parser.add_argument(
-        "plan", help="JSON file containing a compiled evidence query plan"
+        "plan", nargs="?",
+        help="JSON file containing a compiled evidence query plan")
+    parser.add_argument(
+        "--trace", metavar="REF",
+        help=("trace one entity, event, observation or track through its "
+              "observations, identity links, interpretations and source "
+              "evidence: why does Ren believe this?"),
     )
+    parser.add_argument(
+        "--hops", type=int, default=2,
+        help="how many relation and identity-link hops the trace walks "
+             "(default: 2)")
     parser.add_argument(
         "--acquire",
         action="store_true",
@@ -42,11 +54,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if not args.trace and not args.plan:
+        raise RenRefusal(
+            "an evidence query needs a plan or a reference to trace",
+            "the verb was given neither a compiled plan file nor --trace",
+            "pass a compiled plan file, or `ren evidence <project> --trace "
+            "<entity|event|observation>`",
+        )
+    if args.trace and args.plan:
+        raise RenRefusal(
+            "a trace and a plan ask two different questions",
+            "both a plan file and --trace were given",
+            "run the trace on its own, or the plan on its own",
+        )
+
     from library.tools import evidence_query, project_model_store, source_memory
     from library.tools.project_model_cli import resolve_project_root
 
     project = resolve_project_root(args.project)
-    plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     source_revision, model = project_model_store.load_project_model(project)
     from library.tools import project_model_acquisition, model_registry
 
@@ -56,6 +81,17 @@ def main(argv: list[str] | None = None) -> int:
                  else "personal"),
         purpose=args.purpose, registry=model_registry.load_registry(),
     )
+    if args.trace:
+        from library.tools import evidence_trace
+
+        answer = evidence_trace.trace(model, args.trace, project=str(project),
+                                      hops=args.hops)
+        print(json.dumps({"answer": answer,
+                          "edit_ready": False,
+                          "source_revision": source_revision,
+                          "result_revision": source_revision}, indent=2))
+        return 0
+    plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan,
                                              project=str(project))

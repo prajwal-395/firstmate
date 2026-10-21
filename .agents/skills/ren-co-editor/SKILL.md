@@ -229,6 +229,17 @@ it whenever the goal is about what is IN the footage.
 - `ren where <project> <person>` lists that person's region tracks
   (`--at <seconds>`: the region at that moment), so "where is Craig?"
   is answered off the footage memory, never a guess.
+- `ren evidence <project> <plan.json>` answers one compiled typed query
+  plan against the project's canonical Project Model: measurements, event
+  spans, or the model's own entity, identity-link, relation,
+  interpretation, event and track rows.
+- `ren evidence <project> --trace <entity|event|observation|track>` is the
+  WHY question: it follows one thing through its observations, its
+  possible identity links, its relations, the interpretations resting on
+  it, and the source file and EXACT seconds behind every leaf. It names
+  what produced each leaf (the derivation, the method, the licence
+  context) and the contradictions that touch it. A reference the model
+  does not hold is refused, never answered with the nearest match.
 - `ren export-memory <project>` writes the path-portable footage memory;
   `ren eval-search <project>` scores search on the pre-registered set
   (docs/SOURCE_MEMORY.md, "The analysis-only run").
@@ -284,6 +295,7 @@ it whenever the goal is about what is IN the footage.
 | State plus the next action, in one read | `ren now <project>` (`--json` for the structure); `ren reels <project>` for every reel's approval, build, sign-off and delivery |
 | Find a moment in the footage | `ren search` / `ren where` (section 3) |
 | Find WHEN it happened ("the second time she opens the box") | `ren search <project> --temporal "<question>"` (section 3) |
+| Why Ren believes something, and what original evidence supports it | `ren evidence <project> --trace <entity\|event\|observation>` (section 3) |
 | Small change to a built reel | `ren dry-run <project> --reel <n>` to plan it, then `ren touch <project> <n>`; `ren undo` reverses the newest act, `ren redo` re-applies it |
 | An editor's note ("the captions are too small", "move the price answer first") | `ren revise <project> "<note>"`, or `--at 0:12 --reel <n>` for a moment in a delivered file (section 7) |
 | What Ren understood about the request, and what it has done with it | `ren assignment-state <project>` (read only): the request's own words, the canonical intent, the ops Ren read out of them, the proposed changes and the evidence behind them, what landed against what is only planned, the uncertainties and blocked capabilities, what was verified against what was not, and each open correction with the command that continues it |
