@@ -1404,7 +1404,7 @@ def pending_editor_changes(review_dir: str, timeline_name: str) -> list[dict]:
 def resolve_editor_change(review_dir: str, timeline_name: str,
                           record_id: str, *, status: str,
                           superseded_by: str | None = None) -> None:
-    if status not in {"carried", "superseded", "restored"}:
+    if status not in {"carried", "superseded", "restored", "attributed"}:
         raise ValueError(f"unknown editor-change status {status!r}")
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1682,6 +1682,27 @@ def adopt_reel_timeline_identities(review_dir: str,
     return {"adopted": adopted, "already_adopted": already_adopted}
 
 
+def _ren_declared_identities(doc: dict) -> set[str]:
+    """Every timeline identity a Ren operation declared it created.
+
+    An operation records the names and the ids it created. A name is
+    bound to its identity through that operation's own inventory read at
+    its end, because a name alone is not an identity: a timeline is
+    renamed, and only its unique id survives the rename.
+    """
+    identities: set[str] = set()
+    for item in doc.get(TIMELINE_INVENTORY_KEY) or []:
+        for value in item.get("ren_created_ids") or ():
+            identities.add(str(value))
+        names = {str(name) for name in item.get("ren_created_names") or ()}
+        if not names:
+            continue
+        for entry in item.get("after") or ():
+            if str(entry.get("name") or "") in names:
+                identities.add(_timeline_identity(entry))
+    return identities
+
+
 def record_unattributed_timeline_changes(review_dir: str,
                                         before: list[dict],
                                         after: list[dict], *,
@@ -1697,11 +1718,17 @@ def record_unattributed_timeline_changes(review_dir: str,
     that op's work, not the editor's. `operation_id` names the calling op
     so its own in-flight entry does not explain the change away. `now`
     is the moment being judged; it defaults to the current time.
+
+    A timeline ANOTHER Ren operation declared it created is Ren's, not
+    the editor's: two lanes working one scratch project create their own
+    staging copies there, and filing the other lane's copy as the
+    editor's refuses the very edit that lane is making.
     """
     previous = {_timeline_identity(entry): entry for entry in before}
     known_ren_ids = {f"id:{value}" for value in ren_owned_ids or () if value}
     doc = read_provenance(review_dir) or {}
     adopted = dict(doc.get(ADOPTED_TIMELINES_KEY) or {})
+    known_ren_ids |= _ren_declared_identities(doc)
     in_flight = _in_flight_inventory_befores(
         doc, exclude=operation_id,
         completed_after=_latest_completed_at(doc), now=now)
@@ -1761,6 +1788,13 @@ def begin_timeline_inventory(review_dir: str, operation: str,
     ren_created_identities = {
         f"id:{unique_id}" for unique_id in ren_created_ids or ()
         if unique_id}
+    # What this operation declares it CREATED. Recorded on the entry so
+    # another operation - a lane working the same project - can tell a
+    # timeline Ren made from a timeline the editor made. Without it, a
+    # lane's staging copy looks like an editor's timeline to the next
+    # lane, and that misattribution refuses the next edit.
+    entry["ren_created_names"] = sorted(ren_created)
+    entry["ren_created_ids"] = sorted(ren_created_identities)
 
     def update(doc):
         history = list(doc.get(TIMELINE_INVENTORY_KEY) or [])

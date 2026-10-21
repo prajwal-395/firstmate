@@ -8544,3 +8544,52 @@ checkout, a human in Resolve - is fenced by the instance flock, and the flock
 is held per section, so such a writer can still move the cursor in a gap. And
 the gap BETWEEN capabilities (the build ends, the gate begins) is still a gap:
 the gate's safe refusal, not the session, is what stands there.
+
+
+## the-pileup-that-refused-every-later-edit
+
+**The rule:** an aborted job resolves its own recovery, and a lane's own change is
+ATTRIBUTED to the lane that made it. A change nobody recorded is never
+auto-accepted.
+
+**What happened.** On the Ren-owned scratch copy two lanes shared
+(`docs/benchmarks/2026-10-20-live-user-visible-latency.md`, finding 4), one
+aborted edit left a recovery hold that refused the next attempt, and each retry
+added another outstanding transaction:
+
+```
+| run-20261020T223551Z-5b13ed | 67.1 s | 0.04 s | refused by the replace guard (unattributed editor changes) |
+| run-20261020T224431Z-af54ee | 11.4 s | 0.04 s | refused: unresolved recovery on the timeline (finding 4) |
+```
+
+Two defects, one pileup.
+
+1. The AXI-048 gate (`library/tools/axi_transaction.py`) read ANY transaction
+   whose last durable stage was not terminal as an outstanding recovery. A job
+   killed between journalling its intent and its first Resolve write leaves
+   exactly that: a `prepared` transaction that never touched Resolve and owes no
+   recovery. Nothing closed it, so the timeline was stuck until a human abandoned
+   each one by hand - and each retry added another.
+2. The replace guard's baseline is the project's timeline snapshot
+   (`plan_provenance`), while a lane's own in-place write is recorded in the
+   project's event journal. Two ledgers, one timeline: the difference between them
+   read as an "unattributed editor change", and the difference then refused the
+   next edit. On a scratch timeline two lanes share, one lane's work became the
+   next lane's refusal.
+
+**Where it is.** `library/tools/transaction_receipt.py` names the stages that mean
+a write was ATTEMPTED. `library/tools/axi_transaction.py::sweep_aborted_transactions`
+closes the transactions that never wrote and whose worker is gone - a transaction
+that may have written keeps its hold, because that recovery is real.
+`library/tools/edit_patch.py` closes its own transaction when the write is
+interrupted. `library/tools/reel_replace_guard.py::ren_write_attribution`
+attributes a difference to the transaction that wrote it when the live state is
+exactly the state that transaction recorded; anything else stays unattributed.
+`library/tools/plan_provenance.py` records what each operation declared it created,
+so another lane's staging copy is no longer filed as the editor's timeline.
+
+**What it does not fix.** A human change on a timeline Ren also wrote is still
+unattributed and still refuses - the attribution is a proof that the live state is
+the state a Ren write recorded, not a guess about who moved it. The gate still
+refuses a timeline whose outstanding transaction may have written, and the
+captain's `--accept-editor-changes` is still the only way to accept a loss.

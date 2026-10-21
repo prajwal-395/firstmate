@@ -1027,14 +1027,31 @@ def apply_patch(patch, *, resolve, project, timeline,
             expected_state={"operations": list(patch.operations),
                             "postconditions": list(patch.postconditions)},
             required=bool(journal_folder))
-        with perf_ledger.span(
-                "resolve_mutation_batch", batch=True,
-                operation_count=len(patch.operations),
-                timeline_snapshot_count=1):
-            ran, stopped, id_map, after = execute_physical_patch(
-                patch, live=live, timeline=timeline, project=project,
-                project_name=project_name, timeline_id=timeline_id,
-                timeline_name=timeline_name, project_folder=journal_folder)
+        # Whether a Resolve write was attempted. The journal records the
+        # attempt BEFORE the call, so this is the difference between a
+        # transaction that owes a recovery and one that never wrote.
+        attempted = {"write": False}
+        try:
+            with perf_ledger.span(
+                    "resolve_mutation_batch", batch=True,
+                    operation_count=len(patch.operations),
+                    timeline_snapshot_count=1):
+                ran, stopped, id_map, after = execute_physical_patch(
+                    patch, live=live, timeline=timeline, project=project,
+                    project_name=project_name, timeline_id=timeline_id,
+                    timeline_name=timeline_name, project_folder=journal_folder,
+                    attempted=attempted)
+        except BaseException as interrupted:
+            # The job was interrupted between its durable intent and its
+            # end.  Left alone, the transaction stays at its last stage
+            # and the AXI-048 gate refuses every later write on this
+            # timeline - one aborted job becomes a pileup.  A write that
+            # was never attempted owes no recovery and is closed; a
+            # write that may have landed keeps its honest hold.
+            _journal_interrupted_write(
+                journal_folder, patch, interrupted,
+                write_attempted=attempted["write"])
+            raise
         if stopped and stopped.get("failure_type") == \
                 "post_write_readback_failed":
             observed = store.record(
@@ -1146,11 +1163,16 @@ def apply_patch(patch, *, resolve, project, timeline,
 def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
                            project, project_name: str, timeline_id: str,
                            timeline_name: str,
-                           project_folder: str | None) -> tuple:
+                           project_folder: str | None,
+                           attempted: dict | None = None) -> tuple:
     """Apply the prepared operations once and return their read-back.
 
     The caller holds the Resolve cursor fence and has already checked the
-    generation and preconditions. The operation list is one physical batch.
+    generation and preconditions.  The operation list is one physical batch.
+
+    `attempted` is the caller's record of whether a write was ATTEMPTED:
+    the journal records the attempt before the call, so a transaction
+    interrupted here knows whether it owes a recovery.
     """
     handles = (_live_handles(timeline)
                if any(OPERATIONS[op["op"]].item
@@ -1188,6 +1210,10 @@ def execute_physical_patch(patch: EditPatch, *, live: dict, timeline,
                        "raised": "transaction journal did not record applying stage",
                        "failure_type": "journal_write_failed"}
             break
+        if attempted is not None:
+            # The journal says the attempt is about to be made, so a
+            # write is attempted from here on.
+            attempted["write"] = True
         try:
             if spec.item:
                 resolved = id_map.get(op["unique_id"], op["unique_id"])
@@ -1362,6 +1388,31 @@ def _emit_transaction_stage(project_folder, patch: EditPatch, stage: str,
             raise
         return False
     return True
+
+
+def _journal_interrupted_write(journal_folder, patch: EditPatch,
+                               failure: BaseException, *,
+                               write_attempted: bool) -> bool:
+    """Close or hold a transaction whose job was interrupted mid-write.
+
+    An interrupted job leaves its transaction at its last journalled
+    stage, and the AXI-048 gate reads that as an outstanding recovery.
+    A job that died BEFORE its first write owes no recovery, so it is
+    closed as abandoned; a job that died after a write was attempted
+    owes one, so it keeps its hold and names the failure.  Neither is
+    decided by anything but the journal's own record.
+    """
+    if not journal_folder:
+        return False
+    reason = (f"{type(failure).__name__}: {failure}")
+    if write_attempted:
+        return _emit_transaction_stage(
+            journal_folder, patch, "recovery_required", failure=reason,
+            required=False)
+    return _emit_transaction_stage(
+        journal_folder, patch, "abandoned",
+        reason=("the job was interrupted before it wrote to Resolve, so "
+                "it owes no recovery"), required=False)
 
 
 def _unrelated_clip_changes(patch: EditPatch, before: dict, after: dict,

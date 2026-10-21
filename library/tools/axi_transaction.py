@@ -715,6 +715,105 @@ def _journal_events(project_folder: str) -> list[dict[str, Any]]:
     return cursor.events
 
 
+def _worker_is_gone(event: Mapping[str, Any]) -> bool:
+    """Whether the worker that wrote this event is no longer running.
+
+    The event log records the writing process's pid and host, so a
+    transaction left behind by a killed worker can be told from one a
+    live worker is still holding.  A pid on THIS host is asked
+    directly; a pid on another host cannot be, so the event's age
+    against the Resolve lease timeout is the only evidence there.
+    """
+    import os
+    import socket
+
+    pid = event.get("pid")
+    host = str(event.get("host") or "")
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if not host or host == socket.gethostname():
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            return False
+        return False
+    from library.tools import resolve_lock
+
+    return _event_is_older_than(event, resolve_lock.default_timeout())
+
+
+def _event_is_older_than(event: Mapping[str, Any], seconds: float) -> bool:
+    """Whether a journalled event is older than `seconds`."""
+    from datetime import UTC, datetime
+
+    at = str(event.get("at") or "")
+    if not at:
+        return False
+    try:
+        moment = datetime.fromisoformat(at)
+    except ValueError:
+        return False
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - moment).total_seconds() > seconds
+
+
+def sweep_aborted_transactions(project_folder: str, *, project: str = "",
+                                timeline: str = "") -> list[dict[str, Any]]:
+    """Close the transactions whose job died before it wrote to Resolve.
+
+    A job that is killed between journalling its intent and its first
+    Resolve write leaves a transaction whose last durable stage is
+    ``prepared``: the journal proves no write was attempted, so it owes
+    no recovery - but the AXI-048 gate reads it as an outstanding one
+    and refuses every later write on that timeline.  Each retry adds
+    another, and the timeline stays stuck until a human abandons each
+    one by hand.
+
+    This closes those, and only those: a transaction is closed when its
+    journal proves NO write was attempted AND the worker that prepared
+    it is gone.  A transaction that may have written keeps its hold -
+    that recovery is real, and a real recovery is never auto-accepted.
+    """
+    from library.tools import transaction_receipt
+
+    if not project_folder:
+        return []
+    pending = transaction_receipt.interrupted(
+        _journal_events(project_folder))
+    closed: list[dict[str, Any]] = []
+    for row in pending:
+        if project and str(row.get("project") or "") not in ("", project):
+            continue
+        if timeline and str(row.get("timeline") or "") not in ("", timeline):
+            continue
+        if row.get("write_attempted"):
+            # A write was attempted: the outcome is not observable from
+            # the journal, so the recovery is owed and stays owed.
+            continue
+        last_event = row.get("last_event") or {}
+        if not _worker_is_gone(last_event):
+            continue
+        reason = ("the job that prepared this transaction is gone and it "
+                  "never wrote to Resolve, so it owes no recovery")
+        last_fields = (last_event.get("fields") or {})
+        carried = {key: last_fields[key] for key in
+                   ("direct_transaction", "timeline_id")
+                   if key in last_fields}
+        record_transaction(
+            project_folder, str(row.get("transaction_id")), "abandoned",
+            reason=reason, project=str(row.get("project") or ""),
+            timeline=str(row.get("timeline") or ""),
+            operations=row.get("operations") or [], **carried)
+        closed.append({"transaction_id": str(row.get("transaction_id")),
+                       "reason": reason,
+                       "project": str(row.get("project") or ""),
+                       "timeline": str(row.get("timeline") or "")})
+    return closed
+
+
 def recovery_state(project_folder: str, *, project: str = "",
                    timeline: str = "") -> RecoveryState:
     """Which transactions on this project have not reached a clean end.
@@ -723,6 +822,10 @@ def recovery_state(project_folder: str, *, project: str = "",
     commit nor a delivery. That covers a write that failed halfway, a
     compensation that could not restore, and a write whose verification
     never ran.
+
+    A transaction that never wrote is closed by
+    ``sweep_aborted_transactions`` before this is asked, so a killed
+    job's debris does not read as an outstanding recovery.
     """
     from library.tools import transaction_receipt
 
@@ -754,7 +857,14 @@ def require_recovery_clear(project_folder: str, *, project: str = "",
     This is the AXI-048 gate: an unresolved recovery is not a warning,
     it stops the next mutation. The refusal names the transaction that
     owes the recovery.
+
+    The transactions a KILLED job left behind are swept first: a job
+    that died before its first write owes no recovery, and holding the
+    timeline for it is what turns one aborted job into a pileup that
+    refuses every later edit.
     """
+    sweep_aborted_transactions(project_folder, project=project,
+                               timeline=timeline)
     state = recovery_state(project_folder, project=project,
                            timeline=timeline)
     if not state.unresolved:

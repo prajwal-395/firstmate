@@ -32,6 +32,14 @@ RECOVERY_ACTIONS = {
 RESOLVED_STAGES = frozenset({"committed", "delivered", "promoted",
                               "recovered", "abandoned"})
 
+#: The durable stages that mean a Resolve write was ATTEMPTED for the
+#: operation.  Every writer journals the attempt BEFORE it calls
+#: Resolve, so a transaction whose record never reached one of these
+#: never touched the timeline: it owes no recovery, and the only thing
+#: it can be is the debris of a job that died before its first write.
+WRITE_ATTEMPT_STAGES = frozenset({"applying", "operation_applying",
+                                  "applied", "operation_applied"})
+
 
 def _is_resolved(fields: Mapping[str, Any]) -> bool:
     """Whether a durable stage leaves the transaction settled."""
@@ -213,8 +221,10 @@ def interrupted(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "transaction_id": transaction_id, "last_stage": None,
             "last_event": None, "project": fields.get("project", ""),
             "timeline": fields.get("timeline", ""),
-            "operations": {}})
+            "write_attempted": False, "operations": {}})
         row["last_stage"] = fields.get("stage")
+        if fields.get("stage") in WRITE_ATTEMPT_STAGES:
+            row["write_attempted"] = True
         row["last_event"] = event
         if fields.get("project"):
             row["project"] = fields["project"]

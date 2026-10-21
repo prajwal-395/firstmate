@@ -1094,6 +1094,88 @@ def journaled_touch_snapshot(project_folder: str, final: str,
             "journal": act["journal"]}
 
 
+def _moments_at_or_after(moment: str, floor: str) -> bool:
+    """Whether an ISO moment is at or after another one."""
+    from datetime import datetime
+
+    if not moment or not floor:
+        return True
+    try:
+        left = datetime.fromisoformat(moment)
+        right = datetime.fromisoformat(floor)
+    except ValueError:
+        return str(moment) >= str(floor)
+    if left.tzinfo is None:
+        left = left.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    if right.tzinfo is None:
+        right = right.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return left >= right
+
+
+def ren_write_attribution(project_folder: str, final: str, live: dict, *,
+                           baseline_recorded_at: str = "") -> dict:
+    """Whether the live state is a state Ren itself wrote.
+
+    A lane that edits a timeline in place records its write in the
+    project's event journal, with the state it read back.  The replace
+    guard's baseline is a DIFFERENT ledger - the project's timeline
+    snapshot - so a lane's own write reads as a difference between the
+    baseline and the live timeline, and the guard files that difference
+    as an UNATTRIBUTED editor change.  On a scratch timeline two lanes
+    share, the difference then refuses every later edit, and each retry
+    files it again.
+
+    This is the attribution: when the live state is exactly the state
+    Ren's own write recorded, the difference is Ren's, and it is
+    attributed to that transaction.  A live state that is NOT a state
+    Ren wrote - a change nobody recorded - stays unattributed and still
+    refuses: a real human change is never auto-accepted.
+    """
+    from library.tools import event_log
+
+    newest = None
+    try:
+        events = event_log.read_events(project_folder)
+    except Exception:  # noqa: BLE001 - an unreadable journal attributes nothing
+        events = []
+    for event in events:
+        fields = event.get("fields") or {}
+        if str(fields.get("timeline") or "") != str(final):
+            continue
+        state = fields.get("actual_state") or fields.get("observed_state")
+        if not isinstance(state, dict):
+            continue
+        at = str(event.get("at") or "")
+        if not _moments_at_or_after(at, str(baseline_recorded_at or "")):
+            continue
+        if newest is None or at >= newest[0]:
+            newest = (at, fields, state)
+    if newest is None:
+        return {"attributed": False,
+                "reason": "no Ren write to this timeline is recorded after "
+                          "the baseline"}
+    at, fields, state = newest
+    try:
+        items = snapshot_items(state.get("tracks") or ())
+    except Exception as unreadable:  # noqa: BLE001 - unreadable is not proof
+        return {"attributed": False,
+                "reason": f"the state Ren recorded could not be read "
+                          f"({unreadable})"}
+    if not items:
+        return {"attributed": False,
+                "reason": "the state Ren recorded holds no items"}
+    live_items = list(live.get("items") or ())
+    if snapshot_diff({"items": items}, {"items": live_items}):
+        return {"attributed": False,
+                "reason": "the live timeline is not the state Ren recorded"}
+    return {"attributed": True,
+            "reason": "the live timeline is exactly the state Ren's own "
+                      "write recorded",
+            "transaction_id": str(fields.get("transaction_id") or ""),
+            "stage": str(fields.get("stage") or ""),
+            "at": at}
+
+
 def detect_editor_changes(project_folder: str, final: str, live: dict,
                           staged_initial: dict) -> dict:
     """Record the live timeline's unattributed deltas; return what is pending.
@@ -1103,6 +1185,15 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
     exists (`journaled_touch_snapshot`), and only otherwise the incoming
     staging - which makes every difference the rebuild itself brings
     read as an editor change, so it is the last resort.
+
+    A difference that is Ren's OWN write is attributed, not filed: a
+    lane that edits a timeline in place records the state it read back,
+    and the baseline ledger did not learn of it, so the difference read
+    as an editor change and refused the next edit. On a scratch
+    timeline two lanes share, that is what turns one lane's work into a
+    pileup. A difference that is NOT a state Ren wrote stays
+    unattributed and still refuses - a human change is never
+    auto-accepted.
 
     Idempotent: a record's id is the digest of its two sides, so a
     second call over the same reads adds nothing. Returns
@@ -1139,6 +1230,11 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
             review_dir, final, live, action="first_contact_baseline",
             action_journal=(journaled or {}).get("journal"))
 
+    attribution = {"attributed": False, "reason": ""}
+    if changes and not first_contact:
+        attribution = ren_write_attribution(
+            project_folder, final, live,
+            baseline_recorded_at=str(baseline_entry.get("recorded_at") or ""))
     detected = []
     if changes:
         before_digest = _snapshot_digest(before_snapshot)
@@ -1162,7 +1258,23 @@ def detect_editor_changes(project_folder: str, final: str, live: dict,
             "changes": changes,
             "status": "pending",
         }]
-        plan_provenance.record_editor_changes(review_dir, final, detected)
+        if attribution.get("attributed"):
+            # Ren's own write is this difference. It is attributed to
+            # the transaction that made it, the baseline learns the
+            # state, and the difference stops being an open question.
+            detected[0]["status"] = "attributed"
+            detected[0]["attribution"] = dict(attribution)
+            plan_provenance.record_timeline_snapshot(
+                review_dir, final, live, action="ren_attributed_write",
+                action_journal=str(attribution.get("transaction_id") or ""))
+            for record in plan_provenance.pending_editor_changes(
+                    review_dir, final):
+                if record.get("after_digest") == after_digest:
+                    plan_provenance.resolve_editor_change(
+                        review_dir, final, str(record.get("id") or ""),
+                        status="attributed")
+        else:
+            plan_provenance.record_editor_changes(review_dir, final, detected)
 
     pending = plan_provenance.pending_editor_changes(review_dir, final)
     # Pending records predate the empty-LUT and `mattes` normalizations
