@@ -2260,6 +2260,35 @@ def extract_iframes(source_file: str, out_dir: str,
     return list(zip((str(f) for f in files), times)), hwaccel_used
 
 
+def _source_timebase(stream: dict, source_file: str = ""):
+    """The source's frame grid, or None with the reason it is missing.
+
+    A frame index is only honest when the source's own rate is
+    measurable: the index is computed on the container's ticks, so a
+    source with no declared rate gets NO index rather than one
+    invented from a default (`library/tools/frame_exact`).
+
+    The M0 record normally carries the stream; when it does not (the
+    sample was built without the source record), the source is probed
+    for it, because the rate is a property of the FILE and not of the
+    record that happens to mention it.
+    """
+    from library.tools import frame_exact
+    if not (stream or {}).get("avg_frame_rate") \
+            and not (stream or {}).get("r_frame_rate"):
+        if not source_file:
+            return None, ("unavailable: no measured frame rate in the "
+                          "source record and no source to probe")
+        try:
+            stream = frame_exact.probe_stream(source_file)
+        except frame_exact.FrameExactError as exc:
+            return None, f"unavailable: {exc}"
+    try:
+        return frame_exact.timebase_from_stream(stream), "measured"
+    except frame_exact.FrameExactError as exc:
+        return None, f"unavailable: {exc}"
+
+
 def build_frames(source_file: str, content_digest: Optional[str] = None,
                  root: Optional[Path] = None, width: int = M2_WIDTH,
                  use_hwaccel: bool = True) -> dict:
@@ -2326,8 +2355,19 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
         if median > 0:
             gop_frames = round(median * fps)
 
-    frames = [{"file": os.path.relpath(path, target), "t": round(t, 3)}
-              for path, t in pairs]
+    # The SOURCE FRAME INDEX of every sampled frame, and the source's
+    # own timebase.  The coarse sample is the reader's map from a time
+    # to a frame of the original, and until it carried an index a
+    # reader could only say "somewhere near 33.2 seconds" - the
+    # ground-truth path needs "frame 997" (`library/tools/frame_exact`).
+    timebase, frame_index_status = _source_timebase(streams[0], source_file)
+    frames = []
+    for path, t in pairs:
+        row = {"file": os.path.relpath(path, target), "t": round(t, 3),
+               "pts": round(t, 6)}
+        if timebase is not None:
+            row["frame_index"] = timebase.frame_at(t)
+        frames.append(row)
     doc = {
         "content_digest": digest,
         "size_bytes": size,
@@ -2337,6 +2377,8 @@ def build_frames(source_file: str, content_digest: Optional[str] = None,
         "width": width,
         "frame_count": len(frames),
         "frames": frames,
+        "timebase": (timebase.to_dict() if timebase is not None else None),
+        "frame_index_status": frame_index_status,
         "instrument": {"decoder": "iframe-skip",
                        "hwaccel": "videotoolbox" if hwaccel_used else None},
         "gop_frames": gop_frames,

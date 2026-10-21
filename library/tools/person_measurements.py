@@ -138,10 +138,17 @@ def _quality_of(qualities: List[tuple], box: List[float]) -> Optional[float]:
     return None
 
 
-def frame_record(doc: dict, keep_faces: List[bool], t: float) -> dict:
+def frame_record(doc: dict, keep_faces: List[bool], t: float,
+                 frame_index: Optional[int] = None) -> dict:
     """One helper document as an M3 frame: kept faces with their pose,
     capture quality and lips in image coordinates, and every hand with
-    its joints."""
+    its joints.
+
+    ``frame_index`` is the SOURCE FRAME INDEX of the M2 frame this
+    measurement came from: the coarse lane's own map from a time to a
+    frame of the original, carried through so a reader of M3 can name
+    the frame it measured without converting the time again.
+    """
     vm = _vision()
     landmarks = []
     for lm in doc.get("landmarks") or []:
@@ -189,11 +196,14 @@ def frame_record(doc: dict, keep_faces: List[bool], t: float) -> dict:
                        for name, j in joints.items()
                        if isinstance(j, list) and len(j) == 3},
         })
-    return {"t": t, "faces": faces, "hands": hands}
+    return {"t": t, "frame_index": frame_index, "faces": faces,
+            "hands": hands}
 
 
 def measure_m2_frames(frame_paths: List[str], frame_times: List[float],
-                      helper: str) -> Tuple[List[dict], dict]:
+                      helper: str,
+                      frame_indices: Optional[List[Optional[int]]] = None
+                      ) -> Tuple[List[dict], dict]:
     """Vision over every M2 frame, in batches; persistence filter over
     the whole sequence (a face kept iff an IoU >= 0.3 box exists at an
     adjacent sample - the measured step 1.04 filter, unchanged)."""
@@ -206,8 +216,10 @@ def measure_m2_frames(frame_paths: List[str], frame_times: List[float],
     elapsed = time.perf_counter() - started
     kept, removed = vm.apply_persistence(
         [[face["box"] for face in _boxed_faces(doc)] for doc in docs])
-    frames = [frame_record(doc, keep, t)
-              for doc, keep, t in zip(docs, kept, frame_times)]
+    indices = list(frame_indices or [])
+    frames = [frame_record(doc, keep, t,
+                           indices[i] if i < len(indices) else None)
+              for i, (doc, keep, t) in enumerate(zip(docs, kept, frame_times))]
     pixels = next((doc.get("pixels") for doc in docs if doc.get("pixels")),
                   None)
     return frames, {
@@ -235,7 +247,8 @@ def build_source_persons(source_file: str, content_digest: str,
     paths = [source_memory.frame_abspath(content_digest, f, root)
              for f in m2["frames"]]
     times = [f["t"] for f in m2["frames"]]
-    frames, instrument = measure_m2_frames(paths, times, helper)
+    indices = [f.get("frame_index") for f in m2["frames"]]
+    frames, instrument = measure_m2_frames(paths, times, helper, indices)
     record = {
         "content_digest": content_digest,
         "size_bytes": m2.get("size_bytes"),

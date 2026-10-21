@@ -140,7 +140,13 @@ the first wired consumer.
   "rate_hz_nominal": 2.0,
   "width": 384,
   "frame_count": 0,
-  "frames": [{"file": "frames/frame_000001.jpg", "t": 0.521}],
+  "frames": [{"file": "frames/frame_000001.jpg", "t": 0.521,
+              "pts": 0.520833, "frame_index": 15}],
+  "timebase": {"fps_num": 30, "fps_den": 1,
+               "time_base_num": 1, "time_base_den": 15360,
+               "start_time": 0.0, "total_frames": 1440,
+               "rate_basis": "avg_frame_rate"},
+  "frame_index_status": "measured",
   "instrument": {"decoder": "iframe-skip", "hwaccel": "videotoolbox|null"},
   "gop_frames": 12
 }
@@ -152,6 +158,29 @@ it with `source_memory.frame_abspath`, the same reference-not-copy
 contract M1 follows. `frames[].t` is read off `showinfo`'s own
 `pts_time` for that output frame, not computed from a fixed step: the
 real cadence is whatever the source's keyframes give.
+
+**Every sampled frame carries the SOURCE FRAME INDEX of the original,
+and the sample carries the source's own timebase.** `frames[].pts` is
+the measured timestamp in full (six decimals - `t` stays at three for
+the readers that compare it), `frames[].frame_index` is the frame of
+the SOURCE that the sample holds, and `timebase` is the container's
+exact rational rate, its time base, where frame 0 sits and how many
+frames there are. The index is computed on the container's TICKS
+(`library/tools/frame_exact`), never through a rounded second: at 30
+fps, `t = 1.267` is frame 38 and a float would say 38.01.
+
+`frame_index_status` says where the index came from. A source whose
+rate the container never declared gets NO index - `timebase` is null,
+`frame_index_status` names the reason, and no frame carries an index
+that was invented from a default.
+
+```sh
+bin/vep -m library.tools.frame_exact refine <source> \
+  --frame-index <coarse frame index> --half-window 0.5 --out <dir>
+```
+
+That is the zoom-in: the coarse sample says WHERE to look, and the
+refinement says WHICH FRAME. See `docs/FRAME_EXACT_MEASURED.md`.
 
 ## M6 `clock.json` (written)
 
@@ -226,7 +255,7 @@ geo-podcast: 21,771 frames in 9 min for the whole 3.03 h project
   "content_digest": "sha256 hex", "size_bytes": 0,
   "source_file": "<absolute path>", "status": "measured",
   "coordinates": "image-normalised, top-left origin",
-  "frames": [{"t": 0.521,
+  "frames": [{"t": 0.521, "frame_index": 15,
               "faces": [{"box": [x1, y1, x2, y2], "confidence": 0.8,
                          "pose": {"yaw": 0.25, "pitch": 0.21, "roll": 0.01},
                          "capture_quality": 0.082,
@@ -245,6 +274,12 @@ joints relative to the image; comparing the two raw is what put the
 Vision lane's hand-over-mouth false positives at 99/265 (23/265 mapped).
 A pixel distance multiplies x by `frame_pixels[0]` and y by
 `frame_pixels[1]` first.
+
+**Each M3 frame carries the source frame index of the M2 frame it
+measured** (`frame_index`), so a reader of M3 can name the frame of the
+original without converting the time again. It is null when the M2
+sample that fed it carried no index - a source whose rate was never
+measured - and never a number invented to fill the gap.
 
 ```sh
 bin/vep -m library.tools.heavy_work_lock run \
