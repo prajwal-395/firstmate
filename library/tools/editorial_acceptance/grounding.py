@@ -67,10 +67,16 @@ class RecordedTimeline:
     """
 
     def __init__(self, clip_ids: Sequence[str] = (), *, available: bool = True,
-                 note: str = "") -> None:
+                 note: str = "", items: Sequence[Mapping[str, Any]] = (),
+                 ) -> None:
         self.clip_ids = frozenset(str(item) for item in clip_ids)
         self.available = bool(available)
         self.note = str(note or "")
+        # The clip records themselves, so a reader can GROUND a claim
+        # against the timeline (PLAN-003) instead of only asking whether
+        # it carries an id.
+        self.items = tuple(dict(item) for item in items
+                           if isinstance(item, Mapping))
 
     def carries(self, clip_id: str) -> bool:
         return str(clip_id) in self.clip_ids
@@ -134,10 +140,12 @@ def recorded_timeline(record: Mapping[str, Any]) -> RecordedTimeline:
                 note=f"no recorded timeline named {timeline!r} has been "
                      f"read in project {resolve_project!r}")
     ids = []
+    items = []
     for _generation, snapshot in matches:
         for clip in timeline_read.clip_records(snapshot):
             if clip.get("unique_id"):
                 ids.append(str(clip["unique_id"]))
+                items.append(dict(clip))
     names = ", ".join(sorted(generation.timeline_id
                              for generation, _snapshot in matches))
     if len(matches) == 1:
@@ -147,7 +155,7 @@ def recorded_timeline(record: Mapping[str, Any]) -> RecordedTimeline:
         note = (f"{len(matches)} recorded timelines carry the name "
                 f"{timeline!r} in project {resolve_project} ({names}); the "
                 f"claim was checked against all of them")
-    return RecordedTimeline(ids, note=note)
+    return RecordedTimeline(ids, note=note, items=items)
 
 
 def _claimed_clip_id(entry: Mapping[str, Any]) -> str:
