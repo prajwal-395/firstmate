@@ -100,8 +100,31 @@ even when its honest value is `null` or `[]`.
   is null when no length was requested.
 - `platform`, `audience`: explicit values or null when unspecified.
 - `pacing`: list of pacing preferences; `subjects`: `{include, exclude}`.
-- `narrative_goals`, `desired_content`, `prohibited_content`: lists of
-  goals or content named by the request. Do not invent prohibitions.
+- `narrative_goals`: the goals, each a string or `{statement, source,
+  explicit}` - what the commission wants to be true. A goal the request
+  names is `explicit: true`; a goal you read out of the footage rather
+  than were told is `explicit: false` and carries the `provenance` that
+  supports it. The two are never mixed. `desired_content`,
+  `prohibited_content`: lists of content named by the request. Do not
+  invent prohibitions.
+- `requests`: the changes the request asks for, each `{id, statement,
+  source, kind, target_roles, explicit_constraints, preservation,
+  outputs, accepted_autonomy}`. The `statement` is the requester's own
+  words, unedited, and `source` says where they were said.
+  `target_roles` says what the change acts on, `explicit_constraints`
+  what the requester bound it by, `preservation` what must not change
+  while it happens, `outputs` what the change must produce, and
+  `accepted_autonomy` the requester's own words granting latitude.
+  Every list is empty rather than absent when the request said nothing
+  about it.
+  `kind` is optional, and when it is given it is one of these and
+  nothing else: `improve_pacing`, `strengthen_opening`,
+  `remove_repetition`, `improve_continuity`, `choose_better_angle`,
+  `tighten_dialogue`, `replace_broll`, `correct_captions`,
+  `revise_graphics`, `mixed_edit`. Name it only when the request's own
+  words make the change plain; leave it out when they do not. A request
+  that names no kind stays in the record and Ren asks which change it
+  means - guessing one is the failure this shape exists to prevent.
 - `references`: user-provided examples or stylistic references, with
   their source and what aspect they illustrate. Empty when none were given.
 - `unresolved_decisions`: questions the request leaves open that would

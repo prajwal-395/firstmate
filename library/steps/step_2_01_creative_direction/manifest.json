@@ -80,9 +80,9 @@
       {
         "name": "intent_model",
         "type": "object",
-        "description": "State output: intent_model - the commissioning request as editorial_spec (requirements vs preferences, duration, platform, audience, pacing, subjects, narrative goals, desired/prohibited content, references, open decisions and revision ledger), beside the footage-grounded beats, claims, key moments and pacing curve. Emitted beside creative_direction, never instead of it. See library/tools/intent_model.py.",
+        "description": "State output: intent_model - the commissioning request as editorial_spec (requirements vs preferences, duration, platform, audience, pacing, subjects, narrative goals, desired/prohibited content, the requested changes with what they act on and what must not change, references, open decisions and revision ledger), beside the footage-grounded beats, claims, key moments and pacing curve. Emitted beside creative_direction, never instead of it. See library/tools/intent_model.py.",
         "expected_schema": {
-          "editorial_spec": "object: requirements, preferences, target_duration, platform, audience, pacing, subjects, narrative_goals, desired_content, prohibited_content, references, unresolved_decisions, revision",
+          "editorial_spec": "object: requirements, preferences, target_duration, platform, audience, pacing, subjects, narrative_goals, desired_content, prohibited_content, references, unresolved_decisions, revision, requests",
           "beats": "list",
           "claims": "list",
           "key_moments": "list",

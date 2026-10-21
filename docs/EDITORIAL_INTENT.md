@@ -256,7 +256,77 @@ one record.
 
 ---
 
-## What was deliberately NOT done, and why
+## PLAN-001 - the canonical contract, standardized
+
+**Lane:** `p-plan001-intent-contract` (the Ren punch list, PLAN-001:
+"Standardize the canonical editorial intent contract").
+
+**The defect.** The canonical record held the commission's requirements,
+preferences and inferences, and a request was a sentence with a kind
+bolted on. Everything else a captain says - what the change acts on,
+what they bound it by, what must not change while it happens, what it
+must produce, the latitude they granted, and the goal itself (as
+opposed to the mandate) - had nowhere to live. A requested change that
+fitted none of the declared kinds was DROPPED from the record, and a
+change nobody had identified could not be asked about because it was
+not there.
+
+**The six captures, and where each one lives.** One record, one home
+each:
+
+| capture | field |
+|---|---|
+| user objectives | `goals` (explicit) and `inferred_goals` (Ren's reading) |
+| requested changes | `requests`, one per change |
+| target roles | a request's `target_roles` |
+| explicit constraints | a request's `explicit_constraints`, and the commission's `requirements` |
+| accepted autonomy | a request's `accepted_autonomy`, in the requester's words |
+| required outputs | a request's `outputs` |
+
+**Preservation requirements are first-class constraints.** A request's
+`preservation` holds what must not change while the change happens - a
+constraint whose subject is untouched, and a field of its own rather
+than prose inside the statement.
+
+**Explicit direction and inferred goals are apart.** A goal the
+requester stated is `explicit: true`; a goal Ren read out of the
+footage is `explicit: false` and carries the provenance that supports
+it. The two live in different lists, so a reader cannot mistake one
+for the other.
+
+**An unsupported or ambiguous request stays representable.** A request
+whose words fit no declared kind keeps `kind: ""` and its `candidates`;
+one whose words fit two keeps BOTH candidates. Neither is forced into a
+kind it does not name, and an undetermined request cannot act alone -
+it carries the question it has to be asked. `request_kind` still
+REFUSES a statement that names two kinds, for the callers that want a
+kind rather than a record.
+
+**The producer.** Step 2.01's `editorial_spec` now carries the
+requested changes (`requests`) and the goals (`narrative_goals`, with
+their explicitness), so the record a RUN builds carries them. The
+handoff names the request kinds in prose, and a test pins that list to
+`REQUEST_KINDS` so the two cannot drift.
+
+**The measurement.** `scripts/measure_intent_recoverability.py` reads
+nine captain instructions quoted verbatim (`tests/fixtures/intent_contract/`),
+builds the record the way a run builds it, and counts how many of the
+stated instructions are recoverable in the slot their facet names.
+
+| | stated | recoverable in its slot | recoverable as text | entries invalid |
+|---|---|---|---|---|
+| before | 41 | **0** | 16 | 4 |
+| after | 41 | **41** | 41 | 0 |
+
+The "before" column is the same corpus and the same reading against the
+contract at `c9265dc2b`. The four invalid entries were commissions the
+old record REFUSED for naming no goal, even though they named the
+changes they wanted. The measurement measures the CONTRACT's capacity
+given a faithful reading; it does not measure how faithfully a model
+produces that reading, which needs a live run on a scratch copy.
+
+---
+
 
 - **The live `ren revise` path was not swapped over to the decision
   compiler.** The revise path's program is already a validated, atomic,
@@ -307,6 +377,9 @@ prepared = resolve_axi_core.prepare_edit_request(request)
 ## Tests
 
 - `tests/unit/context/test_editorial_intent.py` - the intent contract.
+- `tests/unit/context/test_editorial_intent_captures.py` - PLAN-001: every
+  stated instruction has a place, an unsupported request stays representable,
+  and the handoff's request kinds cannot drift from the enumeration.
 - `tests/unit/context/test_editorial_decisions.py` - the decision contract
   and the compiler.
 - `tests/contracts/test_editorial_intent_contract.py` - the Project Model

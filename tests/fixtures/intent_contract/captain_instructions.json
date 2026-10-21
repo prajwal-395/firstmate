@@ -1,0 +1,496 @@
+{
+  "corpus": "captain instructions, quoted verbatim, with the structured reading a careful reader makes of them",
+  "note": "Every `stated` text is a verbatim fragment of the entry's `request_text`; the reading is that fragment's place in the commission. The measurement asks whether the canonical intent record can CARRY each stated instruction in the slot its facet names - not whether this reading is the only one a reader could make.",
+  "facets": {
+    "goal": "what the commission wants to be true",
+    "inferred_goal": "a goal Ren read out of the commission rather than being told",
+    "requested_change": "a change the request asks for",
+    "target_role": "what the change acts on",
+    "explicit_constraint": "what the requester bound the change by",
+    "preservation": "what must not change while the change happens",
+    "required_output": "what the change must produce",
+    "accepted_autonomy": "the latitude the requester granted, in their words"
+  },
+  "entries": [
+    {
+      "id": "reel-22-brand-colour",
+      "source": "firstmate data/vep-build-reel-22/brief.md - the captain, 2026-10-01",
+      "request_text": "1. change the light pink from Akshita to one of the other Lucie brand colors (since craig has a yellow variant, having one of Lucie's light blue variants might be the way to go)",
+      "stated": [
+        {
+          "facet": "goal",
+          "text": "change the light pink from Akshita to one of the other Lucie brand colors"
+        },
+        {
+          "facet": "requested_change",
+          "text": "change the light pink from Akshita to one of the other Lucie brand colors"
+        },
+        {
+          "facet": "target_role",
+          "text": "the light pink from Akshita"
+        },
+        {
+          "facet": "explicit_constraint",
+          "text": "one of the other Lucie brand colors"
+        },
+        {
+          "facet": "explicit_constraint",
+          "text": "one of Lucie's light blue variants"
+        },
+        {
+          "facet": "required_output",
+          "text": "one of Lucie's light blue variants"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [
+          {
+            "id": "goal:1",
+            "statement": "change the light pink from Akshita to one of the other Lucie brand colors",
+            "source": "reel 22 brief, the captain, 2026-10-01"
+          }
+        ],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "change the light pink from Akshita to one of the other Lucie brand colors",
+            "source": "reel 22 brief, the captain, 2026-10-01",
+            "target_roles": [
+              "the light pink from Akshita"
+            ],
+            "explicit_constraints": [
+              "one of the other Lucie brand colors",
+              "one of Lucie's light blue variants"
+            ],
+            "preservation": [],
+            "outputs": [
+              "one of Lucie's light blue variants"
+            ],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-22-disable-graphics",
+      "source": "firstmate data/vep-build-reel-22/brief.md - the captain, 2026-10-01",
+      "request_text": "2. disable the graphics that we had previously had disabled",
+      "stated": [
+        {
+          "facet": "goal",
+          "text": "disable the graphics that we had previously had disabled"
+        },
+        {
+          "facet": "requested_change",
+          "text": "disable the graphics that we had previously had disabled"
+        },
+        {
+          "facet": "target_role",
+          "text": "the graphics"
+        },
+        {
+          "facet": "preservation",
+          "text": "the graphics that we had previously had disabled"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [
+          {
+            "id": "goal:1",
+            "statement": "disable the graphics that we had previously had disabled",
+            "source": "reel 22 brief, the captain, 2026-10-01"
+          }
+        ],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "disable the graphics that we had previously had disabled",
+            "source": "reel 22 brief, the captain, 2026-10-01",
+            "kind": "revise_graphics",
+            "target_roles": [
+              "the graphics"
+            ],
+            "explicit_constraints": [],
+            "preservation": [
+              "the graphics that we had previously had disabled"
+            ],
+            "outputs": [],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-22-match-the-rest",
+      "source": "firstmate data/vep-build-reel-22/brief.md - the captain, 2026-10-01",
+      "request_text": "for reel 22, you have the video positioning wrong and there is no twitter text like there are with the other reels, can you go back and make sure you get reel 22 to match the rest of the reels",
+      "stated": [
+        {
+          "facet": "goal",
+          "text": "get reel 22 to match the rest of the reels"
+        },
+        {
+          "facet": "requested_change",
+          "text": "make sure you get reel 22 to match the rest of the reels"
+        },
+        {
+          "facet": "target_role",
+          "text": "the video positioning"
+        },
+        {
+          "facet": "target_role",
+          "text": "twitter text"
+        },
+        {
+          "facet": "explicit_constraint",
+          "text": "there is no twitter text like there are with the other reels"
+        },
+        {
+          "facet": "required_output",
+          "text": "reel 22 to match the rest of the reels"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [
+          {
+            "id": "goal:1",
+            "statement": "get reel 22 to match the rest of the reels",
+            "source": "reel 22 brief, the captain, 2026-10-01"
+          }
+        ],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "make sure you get reel 22 to match the rest of the reels",
+            "source": "reel 22 brief, the captain, 2026-10-01",
+            "target_roles": [
+              "the video positioning",
+              "twitter text"
+            ],
+            "explicit_constraints": [
+              "there is no twitter text like there are with the other reels"
+            ],
+            "preservation": [],
+            "outputs": [
+              "reel 22 to match the rest of the reels"
+            ],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-26-three-defects",
+      "source": "firstmate data/vep-rebuild-reel-26-with-all-three-fixes/brief.md - the captain, 2026-09-16",
+      "request_text": "i think the word timings are fine and are satisfactrily accurate which is good, the only things i noticed as off on the timeline didn't have anything to do with the speech or the things worked on here but the subtitle and motion graphics position placement and the granularity of the subtitle clips (its just one clip sharing the same size as the speech audio length instead of split up like we had it before) and that the glow on the end animation looks pretty fucked up now",
+      "stated": [
+        {
+          "facet": "preservation",
+          "text": "the word timings are fine and are satisfactrily accurate which is good"
+        },
+        {
+          "facet": "requested_change",
+          "text": "the subtitle and motion graphics position placement"
+        },
+        {
+          "facet": "requested_change",
+          "text": "the granularity of the subtitle clips"
+        },
+        {
+          "facet": "requested_change",
+          "text": "the glow on the end animation"
+        },
+        {
+          "facet": "target_role",
+          "text": "the subtitle and motion graphics position placement"
+        },
+        {
+          "facet": "target_role",
+          "text": "the subtitle clips"
+        },
+        {
+          "facet": "target_role",
+          "text": "the end animation"
+        },
+        {
+          "facet": "explicit_constraint",
+          "text": "its just one clip sharing the same size as the speech audio length instead of split up like we had it before"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "the subtitle and motion graphics position placement",
+            "source": "reel 26 verdict, the captain, 2026-09-16",
+            "target_roles": [
+              "the subtitle and motion graphics position placement"
+            ],
+            "explicit_constraints": [],
+            "preservation": [],
+            "outputs": [],
+            "accepted_autonomy": ""
+          },
+          {
+            "id": "request:2",
+            "statement": "the granularity of the subtitle clips",
+            "source": "reel 26 verdict, the captain, 2026-09-16",
+            "kind": "correct_captions",
+            "target_roles": [
+              "the subtitle clips"
+            ],
+            "explicit_constraints": [
+              "its just one clip sharing the same size as the speech audio length instead of split up like we had it before"
+            ],
+            "preservation": [
+              "the word timings are fine and are satisfactrily accurate which is good"
+            ],
+            "outputs": [],
+            "accepted_autonomy": ""
+          },
+          {
+            "id": "request:3",
+            "statement": "the glow on the end animation",
+            "source": "reel 26 verdict, the captain, 2026-09-16",
+            "target_roles": [
+              "the end animation"
+            ],
+            "explicit_constraints": [],
+            "preservation": [],
+            "outputs": [],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-26-second-option",
+      "source": "firstmate data/vep-rebuild-reel-26-with-all-three-fixes/brief.md - the captain, 2026-09-17",
+      "request_text": "lets go with the second option like you recommend and then also fix the other stuff we need to",
+      "stated": [
+        {
+          "facet": "accepted_autonomy",
+          "text": "lets go with the second option like you recommend"
+        },
+        {
+          "facet": "requested_change",
+          "text": "fix the other stuff we need to"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "fix the other stuff we need to",
+            "source": "reel 26 decision, the captain, 2026-09-17",
+            "target_roles": [],
+            "explicit_constraints": [],
+            "preservation": [],
+            "outputs": [],
+            "accepted_autonomy": "lets go with the second option like you recommend"
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-13-still-overlays",
+      "source": "firstmate data/vep-reels-01-15-feedback-intake/report.md - the captain's blue note on reel 13",
+      "request_text": "Reel 13 overlays made as fixed-length videos instead of stills",
+      "stated": [
+        {
+          "facet": "requested_change",
+          "text": "overlays made as fixed-length videos instead of stills"
+        },
+        {
+          "facet": "target_role",
+          "text": "overlays"
+        },
+        {
+          "facet": "inferred_goal",
+          "text": "the overlays are stills, not fixed-length videos"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [
+          {
+            "id": "goal:1",
+            "statement": "the overlays are stills, not fixed-length videos",
+            "source": "",
+            "explicit": false,
+            "provenance": "the captain's note says the overlays were made as videos where the other reels use stills"
+          }
+        ],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "overlays made as fixed-length videos instead of stills",
+            "source": "reel 13 note, the captain",
+            "kind": "revise_graphics",
+            "target_roles": [
+              "overlays"
+            ],
+            "explicit_constraints": [],
+            "preservation": [],
+            "outputs": [],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "reel-13-patch-in-place",
+      "source": "firstmate data/vep-feedback-patch-first/brief.md - the captain, 2026-10-06",
+      "request_text": "yes patch reel 13 in place and adopt that approach",
+      "stated": [
+        {
+          "facet": "requested_change",
+          "text": "patch reel 13 in place"
+        },
+        {
+          "facet": "accepted_autonomy",
+          "text": "adopt that approach"
+        },
+        {
+          "facet": "preservation",
+          "text": "patch reel 13 in place"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "patch reel 13 in place",
+            "source": "reel 13 patch decision, the captain, 2026-10-06",
+            "target_roles": [
+              "reel 13"
+            ],
+            "explicit_constraints": [],
+            "preservation": [
+              "patch reel 13 in place"
+            ],
+            "outputs": [],
+            "accepted_autonomy": "adopt that approach"
+          }
+        ]
+      }
+    },
+    {
+      "id": "m0-second-pickup",
+      "source": "firstmate data/scout-g-m0-baseline/brief.md - the captain's pasted plan, Milestone 0",
+      "request_text": "Locate the second time a person picks up a specific object, identify the correct source-frame boundary, and produce a cut exactly three frames afterward without altering the audio.",
+      "stated": [
+        {
+          "facet": "goal",
+          "text": "produce a cut exactly three frames afterward"
+        },
+        {
+          "facet": "requested_change",
+          "text": "produce a cut exactly three frames afterward"
+        },
+        {
+          "facet": "target_role",
+          "text": "the second time a person picks up a specific object"
+        },
+        {
+          "facet": "target_role",
+          "text": "the correct source-frame boundary"
+        },
+        {
+          "facet": "explicit_constraint",
+          "text": "exactly three frames afterward"
+        },
+        {
+          "facet": "preservation",
+          "text": "without altering the audio"
+        },
+        {
+          "facet": "required_output",
+          "text": "a cut exactly three frames afterward"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [
+          {
+            "id": "goal:1",
+            "statement": "produce a cut exactly three frames afterward",
+            "source": "the captain's pasted plan, Milestone 0"
+          }
+        ],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "produce a cut exactly three frames afterward",
+            "source": "the captain's pasted plan, Milestone 0",
+            "target_roles": [
+              "the second time a person picks up a specific object",
+              "the correct source-frame boundary"
+            ],
+            "explicit_constraints": [
+              "exactly three frames afterward"
+            ],
+            "preservation": [
+              "without altering the audio"
+            ],
+            "outputs": [
+              "a cut exactly three frames afterward"
+            ],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    },
+    {
+      "id": "m0-never-picks-up",
+      "source": "firstmate data/scout-g-m0-baseline/report.md - acceptance case M0-8",
+      "request_text": "the person never picks anything up",
+      "stated": [
+        {
+          "facet": "requested_change",
+          "text": "the person never picks anything up"
+        },
+        {
+          "facet": "target_role",
+          "text": "the person"
+        }
+      ],
+      "editorial_spec": {
+        "narrative_goals": [],
+        "requirements": [],
+        "preferences": [],
+        "requests": [
+          {
+            "id": "request:1",
+            "statement": "the person never picks anything up",
+            "source": "acceptance case M0-8",
+            "target_roles": [
+              "the person"
+            ],
+            "explicit_constraints": [],
+            "preservation": [],
+            "outputs": [],
+            "accepted_autonomy": ""
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -111,6 +111,7 @@ def test_editorial_spec_distinguishes_evaluation_brief_constraints_from_preferen
             "references": [], "unresolved_decisions": [],
             "revision": {"revision_of": None, "preserved": [],
                          "changed": [], "removed": []},
+            "requests": [],
         }
         assert intent_model.validate_editorial_spec(spec) == []
         assert len(spec["requirements"]) == len(brief["continuity_constraints"])

@@ -410,14 +410,25 @@ def test_a_one_off_request_invents_no_requirement():
     assert intent.inferred_preferences == ()
 
 
-def test_a_one_off_request_naming_no_kind_still_declares_its_outcome():
-    """The defect: a request in the requester's own words is forced into
-    one of the declared kinds, and the engine's own vocabulary replaces
-    what was actually asked."""
+def test_a_one_off_request_naming_no_kind_stays_in_the_record():
+    """The defect: a request in the requester's own words that fits none
+    of the declared kinds is DROPPED from the canonical record, and the
+    commissioner's sentence survives only as a summary line - the words
+    are in the record and the request is not, so nobody can act on it or
+    ask about it.
+
+    The request now stays, with its kind undetermined, its candidates
+    empty, and the question it has to be asked.
+    """
     intent = ei.intent_from_request(
         "Put the shot of the bench over the tooling bit.",
         intent_id="intent:1")
-    assert intent.requests == ()
+    assert len(intent.requests) == 1
+    request = intent.requests[0]
+    assert request.kind == ei.UNDETERMINED_KIND
+    assert request.statement == "Put the shot of the bench over the tooling bit."
+    assert request.autonomy == ei.NEEDS_CLARIFICATION
+    assert request.question
     assert intent.desired_outcome
     assert ei.validate_intent(intent) == []
 

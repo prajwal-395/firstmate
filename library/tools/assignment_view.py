@@ -203,6 +203,8 @@ def _intent(project: str, record: dict) -> dict:
         "intent_id": data["intent_id"],
         "named_by": basis,
         "desired_outcome": data["desired_outcome"],
+        "goals": [_declaration(row) for row in data["goals"]],
+        "inferred_goals": [_declaration(row) for row in data["inferred_goals"]],
         "requirements": [_declaration(row) for row in data["requirements"]],
         "preferences": [_declaration(row) for row in data["preferences"]],
         "inferred_preferences": [_declaration(row)
@@ -242,6 +244,7 @@ def _chain(project: str, record: dict) -> dict:
 def _no_intent(reason: str, on_record=None) -> dict:
     """No intent to show, said plainly rather than left blank."""
     return {"intent_id": "", "named_by": "", "desired_outcome": "",
+            "goals": [], "inferred_goals": [],
             "requirements": [], "preferences": [], "inferred_preferences": [],
             "requests": [], "constraints": [], "unresolved": [],
             "evidence_links": [], "on_record": list(on_record or []),
@@ -261,7 +264,9 @@ def _intent_request(row: dict) -> dict:
     return {key: row.get(key) for key in
             ("request_id", "kind", "statement", "explicit", "objective",
              "autonomy", "autonomy_basis", "evidence_bar", "evidence_lanes",
-             "missing_evidence", "uncertainty", "question")
+             "missing_evidence", "uncertainty", "question", "candidates",
+             "target_roles", "explicit_constraints", "preservation",
+             "outputs", "accepted_autonomy")
             if key in row}
 
 

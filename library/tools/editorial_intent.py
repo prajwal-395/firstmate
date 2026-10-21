@@ -9,6 +9,8 @@ apart, and `scoped_intent` resolves declarations by precedence.  What
 does NOT exist anywhere is ONE record of the request itself that says:
 
     - what the user REQUIRED, what they PREFERRED, and what Ren INFERRED
+    - what the commission WANTS (its goals), and which of those goals
+      Ren read out of the footage rather than being told
     - which of those are objective (checkable) and which are subjective
     - WHICH EDITORIAL REQUEST each one is (improve pacing, strengthen an
       opening, remove repetition, improve continuity, choose a better
@@ -17,6 +19,8 @@ does NOT exist anywhere is ONE record of the request itself that says:
     - what evidence must exist before Ren may act on that request
     - whether Ren may act alone, must ask, or must wait for approval
     - what evidence is MISSING and how uncertain the answer is
+    - what each request ACTS ON, what it must produce, and what must
+      not change while it happens
 
 Without that record every one of those answers is re-derived per step,
 per prompt and per run, and a preference can drift into a requirement
@@ -31,6 +35,8 @@ The model
         intent_id          stable identity
         brief_ref          where the request's words live
         desired_outcome    what should be different when it is done
+        goals              what the commission wants to be true
+        inferred_goals     a goal Ren read out of the commission
         requirements       explicit, mandatory, objective
         preferences        explicit, creative, may yield to a requirement
         inferred_preferences   Ren's own reading, never a user instruction
@@ -40,7 +46,30 @@ The model
         unresolved         what the request leaves open
         evidence_links     the observations the intent rests on
 
-Every one of those is a RECORD, not a computation: the module states
+What one request carries
+------------------------
+A requested change is not a sentence.  The record carries, for each
+one:
+
+    kind               which editorial request it is, or NOTHING when
+                       the commission's own words name none - an
+                       unsupported request stays representable
+    candidates         the kinds the wording fits, when it fits more
+                       than one - an ambiguity is a record, not a guess
+    statement          the requester's words, unedited
+    target_roles       what the change acts on
+    explicit_constraints   what the requester bound it by
+    preservation       what must not change while it happens - a
+                       constraint whose subject is untouched, and a
+                       first-class field rather than prose
+    outputs            what the change must produce
+    accepted_autonomy  the requester's own words granting latitude
+
+Every one of those is the REQUESTER'S wording.  Ren classifies nothing
+here: a target role is not sorted into a taxonomy of Ren's own, because
+sorting it would be a judgement the commission never made.
+
+Every field above is a RECORD, not a computation: the module states
 what may be said about an intent and refuses what may not.
 
 Rules for this module
@@ -48,12 +77,18 @@ Rules for this module
 - **An inferred preference is never an explicit instruction.**  The two
   live in different lists, and each carries its own `explicit` flag, so
   a reader cannot mistake one for the other.
+- **A goal is a goal, not a requirement.**  What the commission wants
+  to be true is not mandatory until a requirement says so, and an
+  inferred goal is never the requester's instruction.
+- **A request names its kind, or says that it does not.**  The kinds are
+  one enumeration (`REQUEST_KINDS`); a statement matching two of them
+  is recorded as an ambiguity with its candidates, never resolved by
+  keyword order, and a statement matching none of them is recorded as
+  an unsupported request - neither is forced into a kind it does not
+  name.
 - **A requirement is objective.**  A statement that cannot be checked
   against a measurement is a goal wearing a requirement's name, and it
   is refused by name.
-- **A request names its kind.**  The kinds are one enumeration
-  (`REQUEST_KINDS`); a statement matching two of them is refused, never
-  resolved by keyword order.
 - **The evidence bar is per request and it is executable.**  A request
   whose bar is unmet must DECLARE what is missing; silence is not a
   pass, and the compiler refuses to act on it.
@@ -118,6 +153,14 @@ REQUEST_KINDS = (
     REVISE_GRAPHICS,
     MIXED_EDIT,
 )
+
+UNDETERMINED_KIND = ""
+"""The kind of a request whose own words name none of the declared kinds.
+
+It is a value, not a hole: a request the commission states in words
+that fit no kind stays in the record, carrying its candidates, and
+cannot act alone.
+"""
 
 
 # ── Autonomy (EDIT-007) ──────────────────────────────────────────────
@@ -302,7 +345,19 @@ PREFERENCE = "preference"
 INFERRED_PREFERENCE = "inferred_preference"
 """Ren's own reading of the footage. Evidence, never an instruction."""
 
-DECLARATION_KINDS = (REQUIREMENT, PREFERENCE, INFERRED_PREFERENCE)
+GOAL = "goal"
+"""What the commission wants to be true. A goal, not a mandate."""
+
+INFERRED_GOAL = "inferred_goal"
+"""A goal Ren read out of the commission. Evidence, never an instruction."""
+
+DECLARATION_KINDS = (REQUIREMENT, PREFERENCE, INFERRED_PREFERENCE,
+                     GOAL, INFERRED_GOAL)
+
+#: The kinds that are inferences: an inferred goal is a goal Ren read
+#: out of the commission, so it lives beside the other inferred kind and
+#: never in the explicit one.
+INFERRED_KINDS = (INFERRED_PREFERENCE, INFERRED_GOAL)
 
 
 # ── The records ───────────────────────────────────────────────────────
@@ -365,6 +420,14 @@ class IntentRequest:
     from.  `missing_evidence` says what is absent and why - a request
     whose bar is unmet and which declares nothing missing is a request
     pretending it has grounds it does not have.
+
+    `kind` is the editorial request this is, and it may be
+    `UNDETERMINED_KIND`: a request the commission words in a way that
+    names no kind stays in the record with its `candidates`, rather
+    than being forced into a kind it does not name or refused out of
+    it.  The fields after it are the REQUESTER'S words - what the
+    change acts on, what bounds it, what must not change, what it must
+    produce, and the latitude the requester granted.
     """
 
     request_id: str
@@ -380,6 +443,12 @@ class IntentRequest:
     missing_evidence: tuple[dict, ...] = ()
     uncertainty: float | None = None
     question: str = ""
+    candidates: tuple[str, ...] = ()
+    target_roles: tuple[str, ...] = ()
+    explicit_constraints: tuple[str, ...] = ()
+    preservation: tuple[str, ...] = ()
+    outputs: tuple[str, ...] = ()
+    accepted_autonomy: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -396,6 +465,12 @@ class IntentRequest:
             "missing_evidence": [dict(row) for row in self.missing_evidence],
             "uncertainty": self.uncertainty,
             "question": self.question,
+            "candidates": list(self.candidates),
+            "target_roles": list(self.target_roles),
+            "explicit_constraints": list(self.explicit_constraints),
+            "preservation": list(self.preservation),
+            "outputs": list(self.outputs),
+            "accepted_autonomy": self.accepted_autonomy,
         }
 
     @classmethod
@@ -420,6 +495,15 @@ class IntentRequest:
                                    (data.get("missing_evidence") or ())),
             uncertainty=(None if uncertainty is None else float(uncertainty)),
             question=str(data.get("question") or ""),
+            candidates=tuple(str(kind) for kind in (data.get("candidates") or ())),
+            target_roles=tuple(str(role) for role in
+                               (data.get("target_roles") or ())),
+            explicit_constraints=tuple(str(text) for text in
+                                       (data.get("explicit_constraints") or ())),
+            preservation=tuple(str(text) for text in
+                               (data.get("preservation") or ())),
+            outputs=tuple(str(text) for text in (data.get("outputs") or ())),
+            accepted_autonomy=str(data.get("accepted_autonomy") or ""),
         )
 
 
@@ -430,6 +514,8 @@ class EditorialIntent:
     intent_id: str
     desired_outcome: str
     brief_ref: str = ""
+    goals: tuple[Declaration, ...] = ()
+    inferred_goals: tuple[Declaration, ...] = ()
     requirements: tuple[Declaration, ...] = ()
     preferences: tuple[Declaration, ...] = ()
     inferred_preferences: tuple[Declaration, ...] = ()
@@ -450,9 +536,9 @@ class EditorialIntent:
         return None
 
     def declaration(self, declaration_id: str) -> Declaration | None:
-        """The declaration with this id, from any of the three lists."""
-        for entry in (self.requirements + self.preferences
-                      + self.inferred_preferences):
+        """The declaration with this id, from any of the five lists."""
+        for entry in (self.goals + self.inferred_goals + self.requirements
+                      + self.preferences + self.inferred_preferences):
             if entry.declaration_id == declaration_id:
                 return entry
         return None
@@ -463,6 +549,8 @@ class EditorialIntent:
             "intent_id": self.intent_id,
             "desired_outcome": self.desired_outcome,
             "brief_ref": self.brief_ref,
+            "goals": [row.to_dict() for row in self.goals],
+            "inferred_goals": [row.to_dict() for row in self.inferred_goals],
             "requirements": [row.to_dict() for row in self.requirements],
             "preferences": [row.to_dict() for row in self.preferences],
             "inferred_preferences": [row.to_dict()
@@ -482,6 +570,10 @@ class EditorialIntent:
             intent_id=str(data.get("intent_id") or ""),
             desired_outcome=str(data.get("desired_outcome") or ""),
             brief_ref=str(data.get("brief_ref") or ""),
+            goals=tuple(Declaration.from_dict(row)
+                        for row in (data.get("goals") or ())),
+            inferred_goals=tuple(Declaration.from_dict(row)
+                                 for row in (data.get("inferred_goals") or ())),
             requirements=tuple(Declaration.from_dict(row)
                                for row in (data.get("requirements") or ())),
             preferences=tuple(Declaration.from_dict(row)
@@ -566,15 +658,56 @@ def _declaration(entry: Mapping[str, Any], index: int, kind: str,
     )
 
 
-def _inferred(entry: Mapping[str, Any], index: int) -> Declaration:
+def _goal(entry: Any, index: int) -> Declaration:
+    """One goal the commission states, or one Ren read out of it.
+
+    A goal is what the commission wants to be true.  It is not a
+    mandate: nothing is mandatory until a requirement says so, and the
+    goal keeps the requester's wording so a reader can find it again.
+
+    A goal marked `explicit: false` is Ren's own reading - what the
+    footage needs - and it is recorded as the inference it is, with the
+    provenance that supports it.  It never becomes the requester's
+    instruction by being listed beside one.
+    """
+    if isinstance(entry, str):
+        statement = entry.strip()
+        identifier = ""
+        source = ""
+        provenance = ""
+        objective = False
+        explicit = True
+    else:
+        statement = str(entry.get("statement") or "").strip()
+        identifier = str(entry.get("id") or "")
+        source = str(entry.get("source") or "")
+        provenance = str(entry.get("provenance") or "")
+        objective = bool(entry.get("objective", False))
+        explicit = bool(entry.get("explicit", True))
+    if not statement:
+        raise IntentError(f"the commission's goal[{index}] states nothing")
+    kind = GOAL if explicit else INFERRED_GOAL
+    return Declaration(
+        declaration_id=identifier or f"{kind}:{index}",
+        statement=statement,
+        kind=kind,
+        explicit=explicit,
+        objective=objective,
+        source=source if explicit else (source or "inference"),
+        provenance=provenance,
+    )
+
+
+def _inferred(entry: Mapping[str, Any], index: int,
+              kind: str = INFERRED_PREFERENCE) -> Declaration:
     statement = str(entry.get("statement") or "").strip()
     if not statement:
-        raise IntentError(f"the inferred preference[{index}] states nothing")
+        raise IntentError(f"the inferred {kind}[{index}] states nothing")
     confidence = entry.get("confidence")
     return Declaration(
-        declaration_id=str(entry.get("id") or f"{INFERRED_PREFERENCE}:{index}"),
+        declaration_id=str(entry.get("id") or f"{kind}:{index}"),
         statement=statement,
-        kind=INFERRED_PREFERENCE,
+        kind=kind,
         explicit=False,
         objective=bool(entry.get("objective", False)),
         source=str(entry.get("source") or "inference"),
@@ -583,23 +716,62 @@ def _inferred(entry: Mapping[str, Any], index: int) -> Declaration:
     )
 
 
+def _clarification_question(candidates: Sequence[str]) -> str:
+    """The question an undetermined request asks.
+
+    A request whose own words name no kind cannot act alone, and the
+    record says so by asking - not by guessing which kind it meant.
+    """
+    if candidates:
+        return ("which change does this request mean: "
+                + ", ".join(candidates) + "?")
+    return "what change does this request ask for?"
+
+
 def _request(entry: Mapping[str, Any], index: int) -> IntentRequest:
     statement = str(entry.get("statement") or "").strip()
     if not statement:
         raise IntentError(f"the request[{index}] states nothing")
     kind = str(entry.get("kind") or "").strip()
-    if not kind:
-        kind = request_kind(statement)
-    if kind not in REQUEST_PROFILES:
+    candidates = tuple(str(name) for name in (entry.get("candidates") or ()))
+    unknown = [name for name in candidates if name not in REQUEST_PROFILES]
+    if unknown:
+        raise IntentError(
+            f"the request[{index}] names candidate kinds {unknown}; one of "
+            f"{list(REQUEST_KINDS)}")
+    if kind and kind not in REQUEST_PROFILES:
         raise IntentError(
             f"the request[{index}] names kind {kind!r}; one of "
             f"{list(REQUEST_KINDS)}")
-    profile = REQUEST_PROFILES[kind]
-    bar = tuple(str(lane) for lane in
-                (entry.get("evidence_bar") or profile.evidence_bar))
-    autonomy = str(entry.get("autonomy") or profile.autonomy)
-    basis = str(entry.get("autonomy_basis")
-                or f"the declared default for {kind}")
+    if not kind:
+        matched = match_request_kinds(statement)
+        if len(matched) == 1:
+            kind = matched[0]
+        else:
+            # More than one kind fits is an AMBIGUITY and none fits is
+            # an UNSUPPORTED request.  Both are recorded: the wording
+            # and the candidates it could have meant.  Neither is
+            # resolved here - the choice is the commissioner's.
+            candidates = candidates or matched
+            kind = UNDETERMINED_KIND
+    profile = REQUEST_PROFILES.get(kind)
+    if profile is not None:
+        bar = tuple(str(lane) for lane in
+                    (entry.get("evidence_bar") or profile.evidence_bar))
+        autonomy = str(entry.get("autonomy") or profile.autonomy)
+        basis = str(entry.get("autonomy_basis")
+                    or f"the declared default for {kind}")
+        default_objective = profile.objective
+    else:
+        # No kind means no declared bar to inherit, and no default
+        # autonomy to inherit: the request cannot act alone until
+        # somebody says which change it is.
+        bar = tuple(str(lane) for lane in (entry.get("evidence_bar") or ()))
+        autonomy = str(entry.get("autonomy") or NEEDS_CLARIFICATION)
+        basis = str(entry.get("autonomy_basis")
+                    or ("the request names none of the declared request "
+                        "kinds, so it cannot act alone"))
+        default_objective = False
     uncertainty = entry.get("uncertainty")
     lanes = tuple(str(lane) for lane in (entry.get("evidence_lanes") or ()))
     declared = [dict(row) for row in (entry.get("missing_evidence") or ())]
@@ -611,12 +783,18 @@ def _request(entry: Mapping[str, Any], index: int) -> IntentRequest:
         if lane in lanes or lane in named:
             continue
         declared.append({"lane": lane, "status": NOT_YET_ANALYSED})
+    question = str(entry.get("question") or "")
+    if not question and profile is None and autonomy == NEEDS_CLARIFICATION:
+        # Only the record's OWN undetermined kind asks here: a caller
+        # that declares `needs_clarification` and asks nothing has
+        # hidden a question, and the validator says so.
+        question = _clarification_question(candidates)
     return IntentRequest(
         request_id=str(entry.get("id") or f"request:{index}"),
         kind=kind,
         statement=statement,
         explicit=bool(entry.get("explicit", True)),
-        objective=bool(entry.get("objective", profile.objective)),
+        objective=bool(entry.get("objective", default_objective)),
         source=str(entry.get("source") or ""),
         autonomy=autonomy,
         autonomy_basis=basis,
@@ -624,27 +802,62 @@ def _request(entry: Mapping[str, Any], index: int) -> IntentRequest:
         evidence_lanes=lanes,
         missing_evidence=tuple(declared),
         uncertainty=(None if uncertainty is None else float(uncertainty)),
-        question=str(entry.get("question") or ""),
+        question=question,
+        candidates=candidates,
+        target_roles=tuple(str(role) for role in
+                           (entry.get("target_roles") or ())),
+        explicit_constraints=tuple(str(text) for text in
+                                   (entry.get("explicit_constraints") or ())),
+        preservation=tuple(str(text) for text in
+                           (entry.get("preservation") or ())),
+        outputs=tuple(str(text) for text in (entry.get("outputs") or ())),
+        accepted_autonomy=str(entry.get("accepted_autonomy") or ""),
     )
 
 
-def _desired_outcome(spec: Mapping[str, Any], override: str) -> str:
+def _goal_statements(spec: Mapping[str, Any]) -> list[str]:
+    """The commission's goals, read from either shape they may take.
+
+    A goal is a plain string in the spec's own reading, or an object
+    carrying the requester's source wording beside it.  A goal Ren
+    inferred is not the commission's outcome and does not join it.
+    """
+    statements = []
+    for item in (spec.get("narrative_goals") or ()):
+        if isinstance(item, str):
+            text = item.strip()
+        else:
+            if not bool(item.get("explicit", True)):
+                continue
+            text = str(item.get("statement") or "").strip()
+        if text:
+            statements.append(text)
+    return statements
+
+
+def _desired_outcome(spec: Mapping[str, Any], override: str,
+                     requests: Sequence[IntentRequest] = ()) -> str:
     """What the commission wants the viewer to have got.
 
     The narrative goals are the outcome; the desired CONTENT is what
     must appear to achieve it, which is a different thing and stays a
     separate list.  With no goal stated, the content is the best
-    available reading of the outcome.
+    available reading of the outcome, and with no content either, the
+    changes the commission asked for are what it wants to be different:
+    a commission that names the changes it wants has said what it
+    wants, and a record that refuses it says the opposite.
     """
     if override:
         return str(override).strip()
-    goals = [str(item).strip() for item in (spec.get("narrative_goals") or ())
-             if str(item).strip()]
+    goals = _goal_statements(spec)
     if goals:
         return "; ".join(goals)
     desired = [str(item).strip() for item in (spec.get("desired_content") or ())
                if str(item).strip()]
-    return "; ".join(desired)
+    if desired:
+        return "; ".join(desired)
+    asked = [request.statement for request in requests if request.statement]
+    return "; ".join(asked)
 
 
 def build_intent(*, intent_id: str,
@@ -662,8 +875,19 @@ def build_intent(*, intent_id: str,
     words, so they arrive EXPLICIT.  `inferred` carries what Ren read
     out of the footage, and it arrives inferred - never mixed in with
     the user's words.
+
+    The spec's `narrative_goals` are the commission's GOALS, and they
+    arrive as goals rather than as the summary line they used to be
+    flattened into.  The spec's `requests` are the requested changes;
+    a caller that passes `requests` itself is answering for them, and
+    what it passes wins.
     """
     spec = dict(editorial_spec or {})
+    spec_goals = tuple(
+        _goal(entry, index)
+        for index, entry in enumerate(spec.get("narrative_goals") or ()))
+    explicit_goals = tuple(row for row in spec_goals if row.explicit)
+    inferred_goals = [row for row in spec_goals if not row.explicit]
     requirements = tuple(
         _declaration(entry, index, REQUIREMENT,
                      explicit=True, objective=True)
@@ -672,11 +896,20 @@ def build_intent(*, intent_id: str,
         _declaration(entry, index, PREFERENCE,
                      explicit=True, objective=False)
         for index, entry in enumerate(spec.get("preferences") or ()))
-    inferred_preferences = tuple(
-        _inferred(entry, index)
-        for index, entry in enumerate(inferred or ()))
+    inferred_preferences = []
+    for index, entry in enumerate(inferred or ()):
+        kind = str(entry.get("kind") or INFERRED_PREFERENCE).strip()
+        if kind == GOAL:
+            inferred_goals.append(_inferred(entry, index, INFERRED_GOAL))
+        elif kind == INFERRED_PREFERENCE:
+            inferred_preferences.append(_inferred(entry, index))
+        else:
+            raise IntentError(
+                f"the inferred[{index}] names kind {kind!r}; one of "
+                f"{[INFERRED_PREFERENCE, GOAL]}")
+    request_entries = requests if requests else (spec.get("requests") or ())
     built_requests = tuple(
-        _request(entry, index) for index, entry in enumerate(requests or ()))
+        _request(entry, index) for index, entry in enumerate(request_entries))
     constraints = []
     duration = spec.get("target_duration")
     if duration:
@@ -697,11 +930,13 @@ def build_intent(*, intent_id: str,
                             "value": [str(p) for p in prohibited]})
     return EditorialIntent(
         intent_id=str(intent_id),
-        desired_outcome=_desired_outcome(spec, desired_outcome),
+        desired_outcome=_desired_outcome(spec, desired_outcome, built_requests),
         brief_ref=str(brief_ref or ""),
+        goals=explicit_goals,
+        inferred_goals=tuple(inferred_goals),
         requirements=requirements,
         preferences=preferences,
-        inferred_preferences=inferred_preferences,
+        inferred_preferences=tuple(inferred_preferences),
         requests=built_requests,
         references=tuple(dict(row) for row in (spec.get("references") or ())),
         constraints=tuple(constraints),
@@ -724,25 +959,27 @@ def intent_from_request(statement: str, *, intent_id: str,
     measure what the run READ instead of reading a prose restatement it
     wrote about itself.
 
-    It is deliberately narrow. It declares the REQUEST KINDS the sentence
-    names, each with that kind's own evidence bar and autonomy, and it
-    invents NO requirement and NO preference: a direction the sentence
-    does not state has nowhere to live here, and inventing one is the
-    failure this exists to prevent. A sentence that names none of the
-    declared kinds yields an intent that says so - a request in the
-    requester's own words is not forced into one.
+    It is deliberately narrow. It declares the REQUEST KIND the sentence
+    names - and only when the sentence names exactly one. A sentence
+    that names none, or that names two, is still a request: it is
+    recorded as ONE request carrying the candidates it could have
+    meant, with the question it has to be asked, and it cannot act
+    alone. It invents NO requirement and NO preference: a direction
+    the sentence does not state has nowhere to live here, and inventing
+    one is the failure this exists to prevent.
     """
     text = str(statement or "").strip()
     if not text:
         raise IntentError("a request states nothing")
     lanes = tuple(str(lane) for lane in evidence_lanes)
-    requests = []
-    for index, kind in enumerate(match_request_kinds(text)):
+    matched = match_request_kinds(text)
+    if len(matched) == 1:
+        kind = matched[0]
         profile = REQUEST_PROFILES[kind]
         missing = [{"lane": lane, "status": NOT_YET_ANALYSED}
                    for lane in profile.evidence_bar if lane not in lanes]
-        requests.append(IntentRequest(
-            request_id=f"request:{index}",
+        request = IntentRequest(
+            request_id="request:0",
             kind=kind,
             statement=text,
             explicit=True,
@@ -752,12 +989,28 @@ def intent_from_request(statement: str, *, intent_id: str,
             evidence_bar=profile.evidence_bar,
             evidence_lanes=lanes,
             missing_evidence=tuple(missing),
-        ))
+        )
+    else:
+        request = IntentRequest(
+            request_id="request:0",
+            kind=UNDETERMINED_KIND,
+            statement=text,
+            explicit=True,
+            objective=False,
+            autonomy=NEEDS_CLARIFICATION,
+            autonomy_basis=("the request names none of the declared request "
+                            "kinds, so it cannot act alone"),
+            evidence_bar=(),
+            evidence_lanes=lanes,
+            missing_evidence=(),
+            candidates=matched,
+            question=_clarification_question(matched),
+        )
     return EditorialIntent(
         intent_id=str(intent_id),
         desired_outcome=text,
         brief_ref=str(brief_ref or ""),
-        requests=tuple(requests),
+        requests=(request,),
     )
 
 
@@ -873,23 +1126,40 @@ def validate_intent(intent: EditorialIntent) -> list[str]:
             problems.append(f"request {label}: no request_id")
         if not request.statement:
             problems.append(f"request {label}: no statement")
-        if request.kind not in REQUEST_PROFILES:
+        if request.kind not in REQUEST_PROFILES and \
+                request.kind != UNDETERMINED_KIND:
             problems.append(f"request {label}: names kind {request.kind!r}; "
                             f"one of {list(REQUEST_KINDS)}")
             continue
-        profile = REQUEST_PROFILES[request.kind]
-        for lane in request.evidence_bar:
-            if lane not in EVIDENCE_LANES:
+        for candidate in request.candidates:
+            if candidate not in REQUEST_PROFILES:
                 problems.append(
-                    f"request {label}: evidence bar names lane {lane!r}, "
-                    f"which is not a lane")
-        widened = [lane for lane in request.evidence_bar
-                   if lane not in profile.evidence_bar]
-        if widened:
-            problems.append(
-                f"request {label}: evidence bar names {widened}, which "
-                f"{request.kind} does not require - a bar may be narrowed, "
-                "not widened")
+                    f"request {label}: names candidate kind {candidate!r}; "
+                    f"one of {list(REQUEST_KINDS)}")
+        profile = REQUEST_PROFILES.get(request.kind)
+        if profile is None:
+            if request.autonomy == AUTONOMOUS:
+                problems.append(
+                    f"request {label}: names no request kind and is "
+                    "autonomous - a change nobody has identified cannot "
+                    "act alone")
+            if not request.candidates and not request.question:
+                problems.append(
+                    f"request {label}: names no request kind and asks "
+                    "nothing - the change it means is undetermined")
+        else:
+            for lane in request.evidence_bar:
+                if lane not in EVIDENCE_LANES:
+                    problems.append(
+                        f"request {label}: evidence bar names lane "
+                        f"{lane!r}, which is not a lane")
+            widened = [lane for lane in request.evidence_bar
+                       if lane not in profile.evidence_bar]
+            if widened:
+                problems.append(
+                    f"request {label}: evidence bar names {widened}, which "
+                    f"{request.kind} does not require - a bar may be "
+                    "narrowed, not widened")
         for lane in request.evidence_lanes:
             if lane not in EVIDENCE_LANES:
                 problems.append(
@@ -931,6 +1201,16 @@ def validate_intent(intent: EditorialIntent) -> list[str]:
                 problems.append(
                     f"request {label}: lane {row.get('lane')!r} is declared "
                     "both present and missing")
+        for field, values in (("target_roles", request.target_roles),
+                              ("explicit_constraints",
+                               request.explicit_constraints),
+                              ("preservation", request.preservation),
+                              ("outputs", request.outputs)):
+            for text in values:
+                if not str(text).strip():
+                    problems.append(
+                        f"request {label}: {field} carries an empty entry - "
+                        "the requester's own words are not blank")
 
     for index, reference in enumerate(intent.references):
         if not reference.get("description") or not reference.get("source"):
@@ -969,6 +1249,8 @@ CONSTRAINT_ENTRY = "entry"
 ENTRY_REQUIREMENT = REQUIREMENT
 ENTRY_PREFERENCE = PREFERENCE
 ENTRY_INFERRED_PREFERENCE = INFERRED_PREFERENCE
+ENTRY_GOAL = GOAL
+ENTRY_INFERRED_GOAL = INFERRED_GOAL
 ENTRY_REQUEST = "request"
 ENTRY_REFERENCE = "reference"
 ENTRY_CONSTRAINT = "constraint"
@@ -977,6 +1259,8 @@ ENTRY_DESIRED_OUTCOME = "desired_outcome"
 
 PROJECT_MODEL_ENTRY_KINDS = (
     ENTRY_DESIRED_OUTCOME,
+    ENTRY_GOAL,
+    ENTRY_INFERRED_GOAL,
     ENTRY_REQUIREMENT,
     ENTRY_PREFERENCE,
     ENTRY_INFERRED_PREFERENCE,
@@ -997,6 +1281,11 @@ def to_project_model_row(intent: EditorialIntent) -> dict:
     entries: list[dict] = []
     entries.append({CONSTRAINT_ENTRY: ENTRY_DESIRED_OUTCOME,
                     "outcome": intent.desired_outcome})
+    for declaration in intent.goals:
+        entries.append({CONSTRAINT_ENTRY: ENTRY_GOAL, **declaration.to_dict()})
+    for declaration in intent.inferred_goals:
+        entries.append({CONSTRAINT_ENTRY: ENTRY_INFERRED_GOAL,
+                        **declaration.to_dict()})
     for declaration in intent.requirements:
         entries.append({CONSTRAINT_ENTRY: ENTRY_REQUIREMENT,
                         **declaration.to_dict()})
@@ -1056,6 +1345,7 @@ def from_project_model_row(row: Mapping[str, Any]) -> EditorialIntent:
             f"intent {row.get('id')!r} carries {len(unknown)} entries this "
             "reader does not own")
     requirements, preferences, inferred = [], [], []
+    goals, inferred_goals = [], []
     requests, references, constraints, unresolved = [], [], [], []
     outcome = ""
     for entry in mine:
@@ -1070,6 +1360,10 @@ def from_project_model_row(row: Mapping[str, Any]) -> EditorialIntent:
             constraints.append(_without_entry(entry))
         elif kind == ENTRY_UNRESOLVED:
             unresolved.append(_without_entry(entry))
+        elif kind == ENTRY_GOAL:
+            goals.append(Declaration.from_dict(entry))
+        elif kind == ENTRY_INFERRED_GOAL:
+            inferred_goals.append(Declaration.from_dict(entry))
         elif kind == ENTRY_REQUIREMENT:
             requirements.append(Declaration.from_dict(entry))
         elif kind == ENTRY_PREFERENCE:
@@ -1080,6 +1374,8 @@ def from_project_model_row(row: Mapping[str, Any]) -> EditorialIntent:
         intent_id=str(row.get("id") or ""),
         desired_outcome=outcome,
         brief_ref=str(row.get("brief_ref") or ""),
+        goals=tuple(goals),
+        inferred_goals=tuple(inferred_goals),
         requirements=tuple(requirements),
         preferences=tuple(preferences),
         inferred_preferences=tuple(inferred),
@@ -1173,15 +1469,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1 if problems else 0
     print(f"intent {intent.intent_id}")
     print(f"  desired outcome: {intent.desired_outcome or '(none stated)'}")
+    for goal in intent.goals:
+        print(f"  goal: {goal.statement}")
+    for goal in intent.inferred_goals:
+        print(f"  inferred goal: {goal.statement}")
     print(f"  requirements: {len(intent.requirements)}")
     print(f"  preferences: {len(intent.preferences)}")
     print(f"  inferred preferences: {len(intent.inferred_preferences)}")
     print(f"  requests: {len(intent.requests)}")
     for request in intent.requests:
         absent = missing_lanes(request)
-        print(f"    - {request.request_id} [{request.kind}] "
+        print(f"    - {request.request_id} [{request.kind or 'undetermined'}] "
               f"autonomy={request.autonomy}"
               + (f" missing={list(absent)}" if absent else ""))
+        for role in request.target_roles:
+            print(f"        acts on: {role}")
+        for constraint in request.explicit_constraints:
+            print(f"        bound by: {constraint}")
+        for kept in request.preservation:
+            print(f"        must not change: {kept}")
+        for output in request.outputs:
+            print(f"        must produce: {output}")
+        if request.accepted_autonomy:
+            print(f"        accepted autonomy: {request.accepted_autonomy}")
     for problem in problems:
         print(f"  PROBLEM: {problem}")
     return 1 if problems else 0

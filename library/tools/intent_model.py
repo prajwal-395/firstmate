@@ -93,7 +93,7 @@ EDITORIAL_SPEC_FIELDS = (
     "requirements", "preferences", "target_duration", "platform",
     "audience", "pacing", "subjects", "narrative_goals",
     "desired_content", "prohibited_content", "references",
-    "unresolved_decisions", "revision",
+    "unresolved_decisions", "revision", "requests",
 )
 
 
@@ -304,7 +304,7 @@ def validate_editorial_spec(spec: dict) -> list:
                 if key not in spec]
     for field in ("requirements", "preferences", "pacing", "narrative_goals",
                   "desired_content", "prohibited_content", "references",
-                  "unresolved_decisions"):
+                  "unresolved_decisions", "requests"):
         if field in spec and not isinstance(spec[field], list):
             problems.append(f"editorial_spec.{field}: must be a list")
     for field in ("subjects", "revision"):
@@ -336,6 +336,22 @@ def validate_editorial_spec(spec: dict) -> list:
                     or not entry.get("statement") or not entry.get("source")):
                 problems.append(
                     f"editorial_spec.{group}[{index}]: needs id, statement and source")
+    for index, entry in enumerate(spec.get("narrative_goals", [])):
+        if isinstance(entry, str):
+            if not entry.strip():
+                problems.append(
+                    f"editorial_spec.narrative_goals[{index}]: states nothing")
+        elif not isinstance(entry, dict) or not str(
+                entry.get("statement") or "").strip():
+            problems.append(
+                f"editorial_spec.narrative_goals[{index}]: needs a statement")
+        elif not bool(entry.get("explicit", True)):
+            # A goal Ren read out of the footage is evidence, and evidence
+            # says where it came from.
+            if not str(entry.get("provenance") or "").strip():
+                problems.append(
+                    f"editorial_spec.narrative_goals[{index}]: an inferred "
+                    "goal needs the provenance that supports it")
     subjects = spec.get("subjects")
     if isinstance(subjects, dict):
         for key in ("include", "exclude"):
@@ -359,10 +375,55 @@ def validate_editorial_spec(spec: dict) -> list:
                 f"editorial_spec.unresolved_decisions[{index}]: needs question and why_it_matters")
     for field in ("requirements", "preferences", "pacing", "narrative_goals",
                   "desired_content", "prohibited_content", "references",
-                  "unresolved_decisions"):
+                  "unresolved_decisions", "requests"):
         # The field itself carries its classification; prevent silent prose blobs.
         if field in spec and any(not isinstance(item, (str, dict)) for item in spec[field]):
             problems.append(f"editorial_spec.{field}: entries must be strings or objects")
+    problems.extend(_validate_spec_requests(spec.get("requests")))
+    return problems
+
+
+def _validate_spec_requests(entries) -> list:
+    """Every defect in the requested changes the commission states.
+
+    A request is the requester's own words plus what it acts on, what
+    bounds it, what must not change, what it must produce and the
+    latitude it was given.  The kind is optional and is the ENGINE's
+    vocabulary, so a kind nobody declares is refused here rather than
+    at the far end of the run.
+    """
+    from library.tools.editorial_intent import REQUEST_KINDS
+
+    problems = []
+    for index, entry in enumerate(entries or ()):
+        label = f"editorial_spec.requests[{index}]"
+        if not isinstance(entry, dict):
+            problems.append(f"{label}: must be an object")
+            continue
+        if not str(entry.get("statement") or "").strip():
+            problems.append(f"{label}: needs a statement")
+        kind = entry.get("kind")
+        if kind is not None and str(kind).strip():
+            if str(kind).strip() not in REQUEST_KINDS:
+                problems.append(
+                    f"{label}: names kind {str(kind)!r}; one of "
+                    f"{list(REQUEST_KINDS)}")
+        for candidate in (entry.get("candidates") or ()):
+            if str(candidate).strip() not in REQUEST_KINDS:
+                problems.append(
+                    f"{label}: names candidate kind {str(candidate)!r}; one "
+                    f"of {list(REQUEST_KINDS)}")
+        for field in ("target_roles", "explicit_constraints", "preservation",
+                      "outputs"):
+            value = entry.get(field)
+            if value is None:
+                continue
+            if not isinstance(value, list) or any(
+                    not isinstance(item, str) for item in value):
+                problems.append(f"{label}.{field}: must be a list of strings")
+        accepted = entry.get("accepted_autonomy")
+        if accepted is not None and not isinstance(accepted, str):
+            problems.append(f"{label}.accepted_autonomy: must be a string")
     return problems
 
 

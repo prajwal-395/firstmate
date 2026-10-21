@@ -95,7 +95,8 @@ def _intent_statements(record: Mapping[str, Any]) -> list[str]:
     if not isinstance(intent, Mapping):
         return []
     statements = []
-    for field in ("requirements", "preferences", "inferred_preferences"):
+    for field in ("goals", "inferred_goals", "requirements", "preferences",
+                  "inferred_preferences"):
         for entry in (intent.get(field) or ()):
             if isinstance(entry, Mapping) and str(entry.get("statement")
                                                  or "").strip():
@@ -104,6 +105,16 @@ def _intent_statements(record: Mapping[str, Any]) -> list[str]:
         if isinstance(entry, Mapping) and str(entry.get("statement")
                                              or "").strip():
             statements.append(str(entry["statement"]))
+        if not isinstance(entry, Mapping):
+            continue
+        # What the request acts on, what bounds it, what must not change
+        # and what it must produce are the requester's words too, and a
+        # reading that drops them drops instructions.
+        for field in ("target_roles", "explicit_constraints", "preservation",
+                      "outputs"):
+            for text in (entry.get(field) or ()):
+                if str(text).strip():
+                    statements.append(str(text))
     return statements
 
 
