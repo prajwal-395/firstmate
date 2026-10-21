@@ -139,6 +139,11 @@ class Corpus:
                 self.name_of_path[os.path.abspath(src["path"])] = name
                 self.name_of_path[os.path.realpath(src["path"])] = name
         self.missing = sorted(set(self.digest_of) - set(self.name_of_clip.values()))
+        # The other way round: the ASSET a wanted moment names -> the clip
+        # the project holds it in.  The stage attribution walks from a
+        # wanted moment to the frames of that clip, so it needs this.
+        self.clip_of_asset: Dict[str, str] = {
+            name: clip_id for clip_id, name in self.name_of_clip.items()}
 
     def by_path(self, path: str) -> Optional[str]:
         return (self.name_of_path.get(os.path.abspath(path))
@@ -420,11 +425,13 @@ def _requirement_agreement(query: dict) -> dict:
 
     declared = set(query.get("requirements") or ())
     if not declared:
-        return {"declared": [], "decomposed": [], "missing": [],
+        return {"declared": [], "decomposed": [], "decomposed_kinds": [],
+                "missing": [],
                 "extra": [], "unambiguous_extra": [], "ambiguous_requirements": 0,
                 "requirement_recall": None, "agrees": None}
     plan = decompose(query["query"])
     decomposed = set(plan.modalities)
+    kinds = sorted({f"{r.modality}:{r.kind}" for r in plan.requirements})
     missing = sorted(declared - decomposed)
     extra = sorted(decomposed - declared)
     ambiguous = [r for r in plan.requirements if r.ambiguous]
@@ -439,6 +446,7 @@ def _requirement_agreement(query: dict) -> dict:
     return {
         "declared": sorted(declared),
         "decomposed": sorted(decomposed),
+        "decomposed_kinds": kinds,
         "missing": missing,
         "extra": extra,
         "unambiguous_extra": unambiguous_extra,
@@ -450,7 +458,8 @@ def _requirement_agreement(query: dict) -> dict:
 
 
 def score_editorial(query: dict, report: dict, corpus: Corpus,
-                    rules: dict) -> dict:
+                    rules: dict,
+                    evidence: Optional["AttributionEvidence"] = None) -> dict:
     """Score one editorial query.
 
     The rows are whatever windows the lane returned, ranked.  A row HITS
@@ -478,6 +487,8 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
             "kind": "unlabelled", "scored": False, "abstained": None,
             "returned": 0, "rows": [],
             "requirements": _requirement_agreement(query),
+            "attribution": _attribute_editorial(query, report, corpus, rules,
+                                                 [], set(), evidence),
             "reason": ("no ground truth exists for this category yet; the "
                        "entry is reported and NOT scored, because an "
                        "unscored query must never be counted as a miss"),
@@ -494,6 +505,8 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
             "abstained": bool(refused),
             "returned": 0, "rows": [],
             "requirements": _requirement_agreement(query),
+            "attribution": _attribute_editorial(query, report, corpus, rules,
+                                                 [], set(), evidence),
             "reason": (refused or {}).get("reason"),
         }
     tol = rules["overlap_tolerance_seconds"]
@@ -553,6 +566,11 @@ def score_editorial(query: dict, report: dict, corpus: Corpus,
         tolerance_seconds=tol)
     out["calibration_samples"] = _calibration_samples(
         query["id"], "editorial", query.get("lane") or "text", rows)
+    # Which stage lost the wanted moment.  Reported beside the recall,
+    # never inside it: the number says how much was missed and this says
+    # WHERE.
+    out["attribution"] = _attribute_editorial(query, report, corpus, rules,
+                                               rows, credited, evidence)
     return out
 
 
@@ -656,6 +674,168 @@ def _count(outcomes: dict) -> dict:
     return counts
 
 
+# ── The stage attribution ───────────────────────────────────────────
+
+
+class AttributionEvidence:
+    """What the stage attribution reads, gathered once for a run.
+
+    Three bodies of evidence, and each one separates a pair of stages
+    that no other evidence can:
+
+    * the EXTRACTED frame sample (M2) - the only thing that separates
+      "never decoded" from "never indexed";
+    * the INDEX - what the query actually searched;
+    * the transcript segments - what the text lane actually searched.
+
+    Everything here is read-only and cached: the attribution runs once
+    per query and must not re-decode anything.
+    """
+
+    def __init__(self, project: str, eval_set: dict):
+        self.project = project
+        mapping = eval_set.get("ground_truth_mapping") or {}
+        self.offsets: Dict[str, float] = dict(
+            mapping.get("multicam_offsets_to_reference") or {})
+        self.groups: Dict[str, str] = dict(mapping.get("groups") or {})
+        self.frame_index = None
+        self.text_index = None
+        self._index_times: Dict[str, List[float]] | None = None
+        self._sampled_times: Dict[str, List[float]] | None = None
+        self._sampled_status: Dict[str, str] | None = None
+        self._segment_spans: Dict[str, List[tuple]] | None = None
+
+    def index_times(self) -> Dict[str, List[float]]:
+        """The times the frame INDEX holds, per clip."""
+        if self._index_times is None:
+            times: Dict[str, List[float]] = {}
+            frames = getattr(self.frame_index, "frames", None) or ()
+            for frame in frames:
+                times.setdefault(frame["clip_id"], []).append(float(frame["t"]))
+            for values in times.values():
+                values.sort()
+            self._index_times = times
+        return self._index_times
+
+    def sampled_times(self) -> Dict[str, List[float]]:
+        """The times the EXTRACTION produced, per clip.
+
+        This is the M2 sample the index was built from - the frames that
+        were decoded off the media.  A wanted span with no extracted
+        frame was never decoded, and no stage downstream of the decoder
+        could ever have found it.
+        """
+        self._sampling()
+        return self._sampled_times or {}
+
+    def sampling_status(self) -> Dict[str, str]:
+        """Whether each source's extracted sample is READABLE.
+
+        A sample that is missing, absent or stale cannot answer whether
+        a frame was decoded, and the attribution says so rather than
+        reading the absence as a gap in the extraction.
+        """
+        self._sampling()
+        return self._sampled_status or {}
+
+    def _sampling(self) -> None:
+        if self._sampled_times is not None:
+            return
+        from library.tools import source_memory
+        from library.tools.analysis import footage_segments
+
+        times: Dict[str, List[float]] = {}
+        status: Dict[str, str] = {}
+        for clip in footage_segments.load_catalog(self.project):
+            doc, basis = source_memory.read_m2_for_clip(self.project, clip)
+            times[clip.get("clip_id")] = sorted(
+                float(frame["t"]) for frame in (doc or {}).get("frames") or ())
+            status[clip.get("clip_id")] = basis
+        self._sampled_times = times
+        self._sampled_status = status
+
+    def segment_spans(self) -> Dict[str, List[tuple]]:
+        """The transcript segments the text lane searches, per clip."""
+        if self._segment_spans is None:
+            spans: Dict[str, List[tuple]] = {}
+            segments = getattr(self.text_index, "segments", None) or ()
+            for segment in segments:
+                if segment.get("kind") != "speech":
+                    continue
+                spans.setdefault(segment.get("clip_id"), []).append(
+                    (float(segment.get("start") or 0.0),
+                     float(segment.get("end") or 0.0)))
+            self._segment_spans = spans
+        return self._segment_spans
+
+
+def _as_asset_row(row: Optional[dict], corpus: Corpus) -> Optional[dict]:
+    """A lane row named by ASSET, which is how a wanted moment names it."""
+    if not row:
+        return None
+    return {"asset": corpus.name_of_clip.get(row.get("clip_id")),
+            "start": row.get("start"), "end": row.get("end"),
+            "score": row.get("dense_score") if "dense_score" in row
+            else row.get("score")}
+
+
+def _attribute_editorial(query: dict, report: dict, corpus: Corpus,
+                         rules: dict, rows: list, credited: set,
+                         evidence: Optional[AttributionEvidence]) -> dict:
+    """Which stage lost this query's wanted moment - or why it has none.
+
+    Every scored query gets an answer.  A query with no wanted moment
+    (an ABSENT one), a REFUSED one and an UNLABELLED one have no stage
+    to lose, and each says which it is rather than borrowing a stage
+    from another kind of query.
+    """
+    from library.tools.retrieval import miss_attribution
+
+    lane = query.get("lane") or "text"
+    expect = query.get("expect")
+    if expect == "unlabelled":
+        return miss_attribution.attribute_unscored(
+            query, lane, "unlabelled_not_scored")
+    if expect == "refused":
+        return miss_attribution.attribute_unscored(
+            query, lane, "refused_by_design")
+    if not (query.get("moments") or ()):
+        outcome = "absent_returned" if rows else "absent_abstained"
+        return miss_attribution.attribute_unscored(query, lane, outcome)
+    if evidence is None:
+        return miss_attribution.attribute_unscored(
+            query, lane, "no_attribution_evidence")
+    tolerance = rules.get("overlap_tolerance_seconds", 1.0)
+    clip_of_asset = getattr(corpus, "clip_of_asset", None) or {}
+    if lane == "visual":
+        return miss_attribution.attribute_visual(
+            query,
+            pool=report.get("candidate_frames") or (),
+            ranges=report.get("ranges") or (),
+            rows=rows,
+            policy=report.get("search_policy") or {},
+            abstained=bool(report.get("abstained")),
+            index_times=evidence.index_times(),
+            sampled_times=evidence.sampled_times(),
+            sampled_status=evidence.sampling_status(),
+            clip_of_asset=clip_of_asset,
+            offsets=evidence.offsets,
+            groups=evidence.groups,
+            credited=credited,
+            tolerance=tolerance)
+    return miss_attribution.attribute_text(
+        query,
+        rows=rows,
+        weak=[_as_asset_row(row, corpus) for row in (report.get("weak") or ())],
+        best_rejected=_as_asset_row(report.get("best_rejected"), corpus),
+        abstained=bool(report.get("abstained")),
+        floor=report.get("floor"),
+        segment_spans=evidence.segment_spans(),
+        clip_of_asset=clip_of_asset,
+        credited=credited,
+        tolerance=tolerance)
+
+
 # ── The run ─────────────────────────────────────────────────────────
 
 
@@ -671,6 +851,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
     corpus = Corpus(project, eval_set)
     results, latency = [], {}
     text_index = frame_index = None
+    evidence = AttributionEvidence(project, eval_set)
     person_ids: Dict[str, Tuple[Optional[str], dict]] = {}
 
     for query in eval_set["queries"]:
@@ -706,6 +887,7 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                 if frame_index is None:
                     from library.tools.analysis.footage_frames import FrameIndex
                     frame_index = FrameIndex(project)
+                    evidence.frame_index = frame_index
                 visual_report = frame_index.search_ranges(
                     query["query"],
                     top_ranges=editorial_rules["top_k"],
@@ -713,6 +895,14 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                                     "visual_window_floor"))
                 report = {
                     "results": _editorial_rows(visual_report),
+                    # The lane's own words about what it did: the pool it
+                    # ranked, the windows it presented, the policy it ran
+                    # under.  The stage attribution reads these and
+                    # changes none of them.
+                    "ranges": visual_report.get("ranges") or [],
+                    "candidate_frames": visual_report.get("results") or [],
+                    "search_policy": visual_report.get("search_policy") or {},
+                    "abstained": visual_report.get("abstained"),
                     "refused": visual_report.get("refused"),
                     "error": visual_report.get("error"),
                     "degraded": None,
@@ -721,9 +911,11 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
                 if text_index is None:
                     from library.tools.analysis.footage_query import FootageIndex
                     text_index = FootageIndex(project)
+                    evidence.text_index = text_index
                 report = text_index.search_report(
                     query["query"], top_k=editorial_rules["top_k"])
-            scored = score_editorial(query, report, corpus, editorial_rules)
+            scored = score_editorial(query, report, corpus, editorial_rules,
+                                     evidence=evidence)
         else:
             from library.tools import event_spans
             key = query["person"]["identified_by_asset"]
@@ -756,12 +948,15 @@ def run(project: str, eval_set: dict, families: Sequence[str] = FAMILIES,
             records.append(json.load(handle))
     result = {
         "eval_set": eval_set["name"],
+        "eval_categories": sorted((eval_set.get("categories") or {}).keys()),
         "ran_at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
         "code_revision": footage_analysis._git_head(),
         "project": os.path.basename(os.path.abspath(project)),
         "assets_missing_from_project": corpus.missing,
         "sealed_labels_applied": sealed_applied,
-        "summary": summarise(results, latency),
+        "summary": summarise(
+            results, latency,
+            sorted((eval_set.get("categories") or {}).keys())),
         "coverage": coverage(project),
         "processing_time": processing_time([r for r in records if r]),
         "results": results,
@@ -809,7 +1004,87 @@ def _editorial_by_lane(editorial: List[dict]) -> dict:
     return out
 
 
-def summarise(results: List[dict], latency: Dict[str, list]) -> dict:
+def _summarise_attribution(rows: List[dict],
+                           declared_categories: Sequence[str] = ()) -> dict:
+    """The category table: which stage lost what, by lane and by category.
+
+    The table is the ANSWER to the punchlist's question, and it is
+    built from the per-query attributions, never from a second pass over
+    the numbers: a query's stage is the stage its wanted moments were
+    attributed to, and the table counts them.
+
+    EVERY category the set declares appears in the table, with zeroes
+    where nothing was attributed.  A breakdown that shows only the axes
+    that have misses cannot be read as "the other axes are fine" - the
+    punchlist asks for objects, actions, identities, locations,
+    relationships and object states, and an axis with no labelled query
+    is an axis with no denominator, which the reader must be able to
+    see.
+    """
+    from library.tools.retrieval import miss_attribution
+
+    by_lane: Dict[str, Dict[str, int]] = {}
+    by_category: Dict[str, Dict[str, int]] = {
+        category: {} for category in declared_categories}
+    by_requirement_kind: Dict[str, Dict[str, int]] = {}
+    queries: Dict[str, dict] = {}
+    missed: List[str] = []
+    unattributed: List[str] = []
+    for row in rows:
+        attribution = row.get("attribution") or {}
+        lane = attribution.get("lane") or "?"
+        category = attribution.get("category") or "uncategorised"
+        entry = queries.setdefault(row["id"], {
+            "lane": lane,
+            "category": category,
+            "outcome": attribution.get("outcome"),
+            "recall": row.get("recall"),
+            "region_recall": row.get("region_recall"),
+            "wanted_items": attribution.get("wanted_items"),
+            "credited_items": attribution.get("credited_items"),
+            "instances_localized_on_sibling": attribution.get(
+                "instances_localized_on_sibling"),
+            "failure_stage": attribution.get("failure_stage"),
+            "failure_pipeline_stage": attribution.get("failure_pipeline_stage"),
+            "failure_kind": attribution.get("failure_kind"),
+            "uncredited_stages": attribution.get("uncredited_stages") or {},
+        })
+        kinds = (row.get("requirements") or {}).get("decomposed_kinds") or []
+        entry["requirement_kinds"] = kinds
+        for stage, count in (attribution.get("uncredited_stages")
+                             or {}).items():
+            by_lane.setdefault(lane, {}).setdefault(stage, 0)
+            by_lane[lane][stage] += count
+            by_category.setdefault(category, {}).setdefault(stage, 0)
+            by_category[category][stage] += count
+            for kind in kinds:
+                by_requirement_kind.setdefault(kind, {}).setdefault(stage, 0)
+                by_requirement_kind[kind][stage] += count
+        if row.get("kind") == "present" and (row.get("recall") or 0) < 1.0:
+            missed.append(row["id"])
+            if not attribution.get("failure_stage"):
+                unattributed.append(row["id"])
+    return {
+        "question": ("which stage of retrieval lost the wanted moment"),
+        "stages": list(miss_attribution.STAGES),
+        "declared_categories": list(declared_categories),
+        "pipeline_stages": sorted(set(
+            miss_attribution.PIPELINE_STAGE.values())),
+        "retrieval_failure_stages": sorted(
+            miss_attribution.RETRIEVAL_FAILURE_STAGES),
+        "credit_accounting_stages": sorted(
+            miss_attribution.CREDIT_ACCOUNTING_STAGES),
+        "by_lane": by_lane,
+        "by_category": by_category,
+        "by_requirement_kind": by_requirement_kind,
+        "queries": queries,
+        "missed_queries": sorted(missed),
+        "missed_queries_without_a_stage": sorted(unattributed),
+    }
+
+
+def summarise(results: List[dict], latency: Dict[str, list],
+              declared_categories: Sequence[str] = ()) -> dict:
     def mean(xs):
         xs = [x for x in xs if x is not None]
         return round(sum(xs) / len(xs), 4) if xs else None
@@ -901,6 +1176,14 @@ def summarise(results: List[dict], latency: Dict[str, list]) -> dict:
             "false_positive_consequence": summarise_consequence(
                 r["consequence"] for r in editorial if r.get("consequence")),
         }
+        # VI-001: which stage lost each missed query, and the table of
+        # those stages by lane and by category.  Reported beside the
+        # recall, never inside it.
+        attribution = _summarise_attribution(
+            [r for r in editorial if r.get("attribution")],
+            declared_categories)
+        if attribution["queries"]:
+            out["stage_attribution"] = attribution
     # VI-004: the score reads as a probability, or it says it does not.
     # Per lane, because the text lane's dense cosine and the frame
     # lane's CLIP cosine are different spaces.
