@@ -111,6 +111,28 @@ out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS
   || fail "task database was not pinned to its selected workspace"
 pass "request-time auth uses OpenCode refresh, copies the fresh login to the task database, and pins its workspace"
 
+# The home's pinned workspace databases carry the same console login, so a
+# re-login reaches them too: a pin that keeps the old token reports a
+# rejected provider to everything that reads it.
+PIN_DB="$CONFIG/opencode-second.db"
+printf '%s\n' org_test_second > "$CONFIG/opencode-second-org"
+sqlite3 "$PIN_DB" <<'SQL'
+CREATE TABLE account(id TEXT PRIMARY KEY,email TEXT NOT NULL,url TEXT NOT NULL,access_token TEXT NOT NULL,refresh_token TEXT NOT NULL,token_expiry INTEGER,time_created INTEGER NOT NULL,time_updated INTEGER NOT NULL);
+CREATE TABLE account_state(id INTEGER PRIMARY KEY,active_account_id TEXT,active_org_id TEXT);
+INSERT INTO account VALUES('acct','test@example.invalid','https://opencode.ai','stale-pinned-token','refresh-token',1,1,1);
+INSERT INTO account_state VALUES(1,'acct','org_test_second');
+SQL
+sqlite3 "$LIVE_DB" "UPDATE account SET access_token='old-token', token_expiry=1;"
+sqlite3 "$TASK_DB" "UPDATE account SET access_token='stale-task-token', token_expiry=1;"
+out=$(PATH="$FAKEBIN:$PATH" FM_TEST_OPENCODE_DATA="$DATA" FM_TEST_OPENCODE_CALLS="$CALLS" FM_OPENCODE_TASK_DB="$TASK_DB" \
+  FM_OPENCODE_ORG_ID=org_test_second FM_OPENCODE_CONFIG_DIR="$CONFIG" \
+  "$HELPER" token) || fail "the request-time refresh of the pinned databases failed"
+[ "$(sqlite3 "$PIN_DB" 'SELECT access_token FROM account LIMIT 1;')" = refreshed-test-token ] \
+  || fail "the pinned workspace database did not carry the live login after the refresh"
+[ "$(sqlite3 "$PIN_DB" 'SELECT active_org_id FROM account_state WHERE id=1;')" = org_test_second ] \
+  || fail "the pinned workspace database lost its workspace pin"
+pass "the request-time refresh also refreshes the home's pinned workspace databases from the live login"
+
 # The shared provider command must resolve the token helper from each worker's
 # own Pi agent directory, without depending on a Firstmate code-root variable.
 API_KEY_COMMAND=$(jq -r '.providers["opencode-go"].apiKey | ltrimstr("!")' "$AGENT/models.json")
