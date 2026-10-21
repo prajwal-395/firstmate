@@ -91,6 +91,14 @@ MODEL_CHECKPOINT_NAME = "Cnn14_DecisionLevelMax_mAP=0.385.pth"
 MODEL_MD5 = "70539c43c18b6a289b3199c503a82c5a"
 MODEL_LICENCE = "CC-BY-4.0"
 METHOD = "panns-cnn14-decisionlevelmax"
+IMPLEMENTATION_ID = "panns.cnn14_decision_max"
+"""The registry implementation this lane measures with.
+
+The method string names the checkpoint; the registry names the
+implementation, its licence and what its output may be reused for. A row
+this lane measured carries the method, and a reader that has to decide
+whether the row may cross a project boundary needs the registry's
+answer, so the lane declares which implementation it is."""
 
 # Voiced-speech classes whose timing the transcript owns to the word.
 # Withheld from the event layer so a cut never lands on "speech"

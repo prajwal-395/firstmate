@@ -206,13 +206,42 @@ def read_generation_records(project: str | Path) -> list[dict[str, Any]]:
     return records
 
 
-def _find_record(evidence_id: str,
-                 records: list[dict[str, Any]]) -> dict[str, Any] | None:
-    matches = [record for record in records
-               if evidence_id in record.get("evidence_ids", [])]
-    if len(matches) > 1:
-        raise ValueError(f"evidence {evidence_id!r} has multiple model provenance records")
-    return matches[0] if matches else None
+def unique_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse generation records that are the same record.
+
+    A record is copied onto every row it names, so a reader that collects
+    the record of each row holds the same record several times. Two
+    records that differ in any field are two records, and the index
+    refuses them; two that are identical are one.
+    """
+    unique: dict[str, dict[str, Any]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        key = json.dumps(record, sort_keys=True, ensure_ascii=False)
+        unique.setdefault(key, record)
+    return list(unique.values())
+
+
+def _index_records(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Index generation records by the evidence id they name.
+
+    A share of a project's whole model asks the gate about a hundred
+    thousand rows at once, and a scan of every record for every row
+    turned that into a quadratic walk. The index is built once, and a
+    record set that governs one row twice is refused exactly as the scan
+    refused it.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for record in unique_records(records):
+        for evidence_id in record.get("evidence_ids", []) or []:
+            if not isinstance(evidence_id, str) or not evidence_id:
+                continue
+            if evidence_id in index:
+                raise ValueError(
+                    f"evidence {evidence_id!r} has multiple model provenance records")
+            index[evidence_id] = record
+    return index
 
 
 def _decision(row: dict[str, Any], record: dict[str, Any] | None,
@@ -338,6 +367,44 @@ def _append_audit(path: str | Path,
     _append_jsonl(target, *events)
 
 
+def audit_event(source_project_id: str, target_project_id: str,
+                evidence_id: str, action: str, reason: str, *,
+                source_implementation_id: str | None = None,
+                output_reuse_class: str | None = None,
+                license_evidence_ref: str | None = None,
+                target_implementation_id: str | None = None,
+                target_edition: str | None = None,
+                target_purpose: str | None = None) -> dict[str, Any]:
+    """One line of the append-only reuse audit.
+
+    The gate and the share that asked it write the same shape, so the
+    log reads as one account of what happened to a row: the licence
+    verdict the gate reached, and the share's own reason when it refused
+    a row the licence would have allowed.
+    """
+    return {
+        "format": "model_evidence_reuse_audit/1",
+        "at": _utc_now(),
+        "source_project_id": source_project_id,
+        "target_project_id": target_project_id,
+        "evidence_id": evidence_id,
+        "source_implementation_id": source_implementation_id,
+        "output_reuse_class": output_reuse_class,
+        "license_evidence_ref": license_evidence_ref,
+        "target_implementation_id": target_implementation_id,
+        "target_edition": target_edition,
+        "target_purpose": target_purpose,
+        "action": action,
+        "reason": reason,
+    }
+
+
+def append_audit(path: str | Path,
+                 events: list[dict[str, Any]]) -> None:
+    """Append decisions to the append-only reuse audit."""
+    _append_audit(path, events)
+
+
 def _append_jsonl(path: str | Path, *records: dict[str, Any]) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -397,10 +464,11 @@ def reuse_evidence(
         source_project_id, target_project_id))
     audit: list[dict[str, Any]] = []
     reused, recomputed, refused = [], [], []
+    record_index = _index_records(provenance_records)
 
     for row in rows:
         evidence_id = row["id"]
-        record = _find_record(evidence_id, provenance_records)
+        record = record_index.get(evidence_id)
         allowed, reason = _decision(row, record, edition, purpose, reg)
         if cross_project and not cross_project_authorized:
             allowed, reason = False, "mutual cross-project opt-in is absent"
@@ -441,22 +509,15 @@ def reuse_evidence(
                 action = "recomputed"
                 reason = f"recomputed using eligible implementation {candidate_id}"
 
-        audit.append({
-            "format": "model_evidence_reuse_audit/1",
-            "at": _utc_now(),
-            "source_project_id": source_project_id,
-            "target_project_id": target_project_id,
-            "evidence_id": evidence_id,
-            "source_implementation_id": (record or {}).get("implementation_id"),
-            "output_reuse_class": ((record or {}).get("output_reuse") or {}).get("class"),
-            "license_evidence_ref": ((record or {}).get("output_reuse") or {}).get(
+        audit.append(audit_event(
+            source_project_id, target_project_id, evidence_id, action, reason,
+            source_implementation_id=(record or {}).get("implementation_id"),
+            output_reuse_class=((record or {}).get("output_reuse") or {}).get("class"),
+            license_evidence_ref=((record or {}).get("output_reuse") or {}).get(
                 "license_evidence_ref"),
-            "target_implementation_id": (final_record or {}).get("implementation_id"),
-            "target_edition": edition,
-            "target_purpose": purpose,
-            "action": action,
-            "reason": reason,
-        })
+            target_implementation_id=(final_record or {}).get("implementation_id"),
+            target_edition=edition,
+            target_purpose=purpose))
 
     _append_audit(audit_path, audit)
     return {"reused": reused, "recomputed": recomputed,

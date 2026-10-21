@@ -192,9 +192,11 @@ def share_evidence(source_project: str | Path, target_project: str | Path, *,
             if imported:
                 report["measurements_shared"][source_digest] = imported
 
-    from library.tools import project_model_store
-    from library.tools import model_evidence_provenance
-    from library.tools import model_registry
+    from library.tools import (
+        model_evidence_provenance,
+        model_registry,
+        project_model_store,
+    )
 
     try:
         _source_revision, source_model = project_model_store.load_project_model(
@@ -218,52 +220,84 @@ def share_evidence(source_project: str | Path, target_project: str | Path, *,
                   model_evidence_provenance.AUDIT_FILE)
     shared: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = list(report["refused"])
+    share_audit: list[dict[str, Any]] = []
+
+    def refuse(evidence_id: Any, reason: str) -> None:
+        """Record one refusal, in the report and in the audit."""
+        refused.append({"evidence_id": evidence_id, "reason": reason})
+        share_audit.append(model_evidence_provenance.audit_event(
+            source_id, target_id, str(evidence_id), "refused", reason,
+            target_edition=edition, target_purpose=purpose))
+
+    # The gate decides for every candidate row, in ONE call. A share of a
+    # project's whole model is a hundred thousand rows, and a gate call
+    # per row appended the audit with a flush per row: the share took
+    # half an hour to decide what one append could have recorded. The
+    # audit is append-only either way, and it now holds every decision
+    # the gate made.
+    candidates: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     for row in rows:
         record, producer = _model_provenance(row)
         if record is None or producer is None:
-            refused.append({"evidence_id": row.get("id"),
-                            "reason": "the row carries no model provenance, so "
-                                      "no licence record governs it"})
+            refuse(row.get("id"),
+                   "the row carries no model provenance, so "
+                   "no licence record governs it")
             continue
         if producer.get("project_id") != source_id:
-            refused.append({"evidence_id": row.get("id"),
-                            "reason": "the row was produced by another project, "
-                                      "so it is not this project's to share"})
+            refuse(row.get("id"),
+                   "the row was produced by another project, "
+                   "so it is not this project's to share")
             continue
+        candidates.append(row)
+        records.append(record)
+    reused_ids: set[str] = set()
+    if candidates:
         try:
             decision = model_evidence_provenance.reuse_evidence(
-                [{"id": row["id"]}], [record],
+                [{"id": row["id"]} for row in candidates], records,
                 source_project_id=source_id, target_project_id=target_id,
                 edition=edition, purpose=purpose,
                 source_project_root=source_root,
                 target_project_root=target_root,
                 audit_path=audit_path, registry=registry)
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            refused.append({"evidence_id": row.get("id"),
-                            "reason": f"the reuse gate could not decide: {exc}"})
-            continue
-        if not decision.get("reused"):
+            for row in candidates:
+                refuse(row.get("id"),
+                       f"the reuse gate could not decide: {exc}")
+            candidates = []
+        else:
+            reused_ids = {row["id"] for row in decision.get("reused", [])}
             for entry in decision.get("refused", []):
                 refused.append({"evidence_id": entry.get("evidence_id"),
                                 "reason": entry.get("reason")})
+    for row in candidates:
+        if row["id"] not in reused_ids:
             continue
         clock_id = (row.get("interval") or {}).get("clock_id")
         if clock_id and target_clocks and clock_id not in target_clocks:
-            refused.append({"evidence_id": row.get("id"),
-                            "reason": "the target project does not hold the "
-                                      "clock this row sits on, so importing it "
-                                      "would make the target's model invalid"})
+            refuse(row.get("id"),
+                   "the target project does not hold the "
+                   "clock this row sits on, so importing it "
+                   "would make the target's model invalid")
             continue
         asset_id = row.get("asset_id")
         if asset_id and target_assets and asset_id not in target_assets:
-            refused.append({"evidence_id": row.get("id"),
-                            "reason": "the target project does not hold the "
-                                      "asset this row belongs to"})
+            refuse(row.get("id"),
+                   "the target project does not hold the "
+                   "asset this row belongs to")
             continue
         shared.append(row)
 
+    # The share's own refusals join the gate's decisions in the one
+    # append-only log, so the log accounts for every row the share
+    # looked at.
+    model_evidence_provenance.append_audit(audit_path, share_audit)
+
     report["shared"] = [row["id"] for row in shared]
     report["refused"] = refused
+    report["shared_count"] = len(shared)
+    report["refused_count"] = len(refused)
     report["audit"] = str(audit_path)
     if not shared:
         report["reason"] = report["reason"] or "nothing was shareable"

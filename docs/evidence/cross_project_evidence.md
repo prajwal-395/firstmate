@@ -66,6 +66,28 @@ invalid.
 `--dry-run` decides and reports without importing. Every decision is
 audited in the TARGET's `project_model/model_evidence_reuse.jsonl`.
 
+## The licence record a row carries
+
+The gate decides on the record the row carries, so a row the engine
+measured with a model has to carry one. A lane's measurement names the
+model it measured with, and the registry says what that model's licence
+permits; `library/tools/model_provenance_binding.py` joins the two,
+writes the record into the project's own generation-record store
+(`project_model/model_evidence_provenance.jsonl`) and stamps the rows
+the record names.
+
+A lane whose measurement does not name its model is not bound, and a
+row that merely rests on a measured row is not bound either: the model
+that produced a row is the fact the licence travels on, and a guess
+would be worse than a refusal. A model the registry has not cleared for
+the target's purpose is refused by the gate with the registry's reason.
+
+The migration stamps the same records onto the rows they name, so a
+model rebuilt from the same measurements lands on the same rows.
+
+Measured on an approved pair:
+`docs/benchmarks/2026-10-21-cross-project-share-pair-a.md`.
+
 ## What is still missing
 
 - The deterministic measurements - the transcript, the scene

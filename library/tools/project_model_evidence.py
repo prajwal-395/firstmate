@@ -4578,6 +4578,46 @@ def _stamp_missing_processing_statuses(model: dict[str, Any]) -> int:
     return stamped
 
 
+def _stamp_generation_records(model: dict[str, Any],
+                             project_folder: str | Path) -> int:
+    """Carry the project's own generation records onto the rows they name.
+
+    A generation record says which model produced which evidence, under
+    which workload purpose, and carries the registry's verdict on it. A
+    reader that has to decide whether a row may leave the project needs
+    that record on the row, and a model rebuilt from the same
+    measurements must land on the same rows - so the record the project
+    already holds is stamped here, at migration time.
+
+    A record that names no row in this model is left alone: it governs
+    evidence this model does not hold.
+    """
+    from library.tools import (
+        model_evidence_provenance,
+        model_provenance_binding,
+    )
+
+    try:
+        records = model_evidence_provenance.read_generation_records(
+            project_folder)
+    except (OSError, ValueError):
+        return 0
+    if not records:
+        return 0
+    project_id, project_root = model_provenance_binding.project_identity(
+        project_folder, model)
+    try:
+        stamped = model_provenance_binding.stamp_rows(
+            model.get("observations") or [], records,
+            producer_project_id=project_id,
+            producer_project_root=project_root)
+    except model_provenance_binding.ProvenanceBindingError:
+        return 0
+    model["observations"] = stamped
+    return len([row for row in stamped
+                if (row.get("payload") or {}).get("model_provenance")])
+
+
 def _model_grids(model: dict[str, Any],
                  observation: dict[str, Any]) -> dict[str, int | None]:
     """The grids one event's evidence sits on, in clock ticks.
@@ -4810,6 +4850,7 @@ def migrate_project_evidence(project_folder: str, *,
     cross_modal_grounding.apply_project_model(builder.model)
     _assign_occurrences(builder)
     _stamp_missing_processing_statuses(builder.model)
+    _stamp_generation_records(builder.model, project_folder)
     validate_project_model(builder.model)
     report = {
         "project": str(project_folder),
