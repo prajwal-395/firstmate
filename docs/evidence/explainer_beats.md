@@ -107,3 +107,45 @@ re-opened Remotion's `delayRender()` font handle on a busy machine and
 the render died with a message about a FONT it was never waiting on.
 `render_batch` now takes a `render_timeout_ms` and states it; the default
 (Remotion's 30 s) stands when nobody states one.
+
+## The lesson from the motion-graphics skill the captain pointed at
+
+The captain pointed at a Higgsfield page about generating motion from a
+prompt, and at the skill it grew into
+(`NightZpy/explanatory-animations-skill`: sixteen named didactic PATTERNS -
+system flow, lifecycle, comparison, layered transform, timeline, counter,
+shape morph, SVG line drawing, orbital, particle flow - a declared
+palette/typography/icon set, ONE Anime.js timeline per widget, and a
+Remotion export path).  Read as reference data, it says one thing about how
+a dense Vox-style explainer is made:
+
+> **the density comes from a PATTERN of elements that OVERLAP and keep
+> MOVING on one timeline, not from a queue of one-shot entrances.**
+
+**Would the approach get Ren there?**  The METHOD would, and three parts
+of it are now in the beat route:
+
+| the skill's lesson | in Ren |
+|---|---|
+| a scene is a PATTERN of elements, not one icon | `elements:` - several per beat, each at its own absolute box, with `connectors:` between them |
+| one timeline, so the motion OVERLAPS and CONTINUES | `carry:` - an element is drawn ONCE and MOVES into the next beat; `drift:` - an element keeps moving for as long as it is on the frame; the camera track moves for the whole piece |
+| the palette, the type and the icons are DECLARED | every colour, size, box and magnitude is the project's (AGENTS.md 10.5, 14) |
+
+**What would NOT get Ren there, and why:**
+
+- **A generative video model cannot time a picture to a word.**  The whole
+  point of this route is that each beat is anchored by SEARCH over the
+  reel's own word timings and the offset is MEASURED off the rendered
+  file.  A generated frame arrives when the model says so, which is the
+  defect the captain named the first time ("it wasn't even times").
+- **The pattern catalogue is not a renderer.**  Sixteen patterns would be
+  sixteen new drawing arms, and each pattern's look is a taste (AGENTS.md
+  10.5) that belongs to the project.  The beat route takes the SHAPE of
+  the idea - the project declares the composition, the engine draws and
+  times it - and leaves the catalogue for a lane that can own the
+  drawings.
+
+The 2 fps sheet of the result is
+`docs/evidence/explainer_beats/render-2fps-sheet_reel26.png`: every frame
+of the render at its second, with the progress mark travelling across the
+top as the piece's own clock.

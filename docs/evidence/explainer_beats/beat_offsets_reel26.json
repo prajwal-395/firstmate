@@ -20,9 +20,9 @@
       "index": 2,
       "quote": "answers specific questions",
       "word_seconds": 7.16,
-      "arrival_seconds": 6.84,
+      "arrival_seconds": 6.882,
       "landing_seconds": 7.132,
-      "arrival_offset_ms": -319.8,
+      "arrival_offset_ms": -278.1,
       "landing_offset_ms": -27.9,
       "peak_deviation": 231.0
     },
@@ -31,9 +31,9 @@
       "quote": "your customer comes up to you",
       "word_seconds": 11.4,
       "arrival_seconds": 11.094,
-      "landing_seconds": 11.386,
+      "landing_seconds": 11.345,
       "arrival_offset_ms": -305.6,
-      "landing_offset_ms": -13.6,
+      "landing_offset_ms": -55.3,
       "peak_deviation": 231.0
     },
     {
@@ -51,9 +51,9 @@
       "quote": "good for Google but not for AI",
       "word_seconds": 23.94,
       "arrival_seconds": 23.649,
-      "landing_seconds": 23.941,
+      "landing_seconds": 23.899,
       "arrival_offset_ms": -291.4,
-      "landing_offset_ms": 0.6,
+      "landing_offset_ms": -41.1,
       "peak_deviation": 231.0
     },
     {
@@ -71,9 +71,9 @@
       "quote": "AI really likes that",
       "word_seconds": 32.08,
       "arrival_seconds": 31.782,
-      "landing_seconds": 32.074,
+      "landing_seconds": 32.032,
       "arrival_offset_ms": -298.2,
-      "landing_offset_ms": -6.3,
+      "landing_offset_ms": -48.0,
       "peak_deviation": 231.0
     }
   ]

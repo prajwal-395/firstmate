@@ -169,14 +169,13 @@ def test_the_picture_completes_on_the_word_it_illustrates():
     assert any(k["value"] == 1.0 for k in landing), keys
 
 
-def test_one_picture_leaves_as_the_next_arrives():
+def test_one_picture_is_gone_before_the_next_arrives():
     """Two pictures are never on the frame together.
 
-    A CUT, by default, because that is what the reference does - "no
-    dissolve, no wipe, no whip, no zoom-transition, no flash. Two hard
-    cuts and one focus pull" (`docs/ANIMATION_FIRST_REFERENCE.md` §2).
-    The exit lands on the NEXT beat's arrival, so the frame carries one
-    idea at a time.
+    The picture is GONE one ramp before the next one arrives, so the
+    box is briefly empty between them - and an empty beat is what makes
+    the arrival MEASURABLE (a box that never empties cannot say which
+    change belongs to which picture).
     """
     anchored = ex.plan_beats(
         _declaration()["beats"], _lines(), 10.0, resolve_asset=_resolve)
@@ -187,7 +186,7 @@ def test_one_picture_leaves_as_the_next_arrives():
     keys = image["placement"]["opacity"]
     # The next beat arrives at 4.10s; the first picture is gone by then.
     exits = [k for k in keys if k["value"] == 0.0]
-    assert round(exits[-1]["at"], 2) == 4.10, keys
+    assert exits and exits[-1]["at"] < 4.10, keys
 
 
 def test_a_named_entrance_character_starts_the_picture_early():
@@ -221,9 +220,12 @@ def test_a_beat_is_placed_in_an_absolute_canvas_box():
     image = [l for l in props["layers"] if l["kind"] == "image"][0]
     placement = image["placement"]
     left, top, right, bottom = (90, 600, 990, 1200)
-    assert round((placement["x"] * 1080) + 1080 / 2, 1) == (left + right) / 2
-    assert round((placement["y"] * 1080) + 1920 / 2, 1) == (top + bottom) / 2
-    assert round(placement["width"] * 1080, 1) == right - left
+    x = placement["x"][-1]["value"]
+    y = placement["y"][-1]["value"]
+    width = placement["width"][-1]["value"]
+    assert round((x * 1080) + 1080 / 2, 1) == (left + right) / 2
+    assert round((y * 1080) + 1920 / 2, 1) == (top + bottom) / 2
+    assert round(width * 1080, 1) == right - left
 
 
 def test_the_label_is_a_label_and_not_the_sentence():
@@ -374,11 +376,11 @@ def test_a_beat_may_be_a_composed_scene_not_one_icon():
         "quote": "customer",
         "label": "your customer asks",
         "label_box": [60, 1330, 1020, 1450],
-        "layers": [
-            {"asset": "brand_assets/customer.svg",
+        "elements": [
+            {"id": "customer", "asset": "brand_assets/customer.svg",
              "box": [40, 210, 1040, 1210],
              "entrance": "scale", "motion": {"scale_from": 0.86}},
-            {"asset": "brand_assets/chip.svg",
+            {"id": "chip", "asset": "brand_assets/chip.svg",
              "box": [30, 140, 350, 460],
              "entrance": "slide", "motion": {"from": [-0.16, 0.0]}},
         ],
@@ -387,7 +389,7 @@ def test_a_beat_may_be_a_composed_scene_not_one_icon():
     anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
                               resolve_asset=_resolve, fps=23.976)
     assert len(anchored.beats) == 1
-    assert len(anchored.beats[0].layers) == 2
+    assert len(anchored.beats[0].elements) == 2
     props = ex.beat_scene_props(
         anchored.beats, declared, width=1080, height=1920, fps=23.976,
         duration_frames=240, start_seconds=0.0)
@@ -405,15 +407,15 @@ def test_a_picture_that_grows_carries_its_own_scale():
     declaration = _declaration()
     declaration["beats"] = [{
         "quote": "customer",
-        "layers": [{"asset": "brand_assets/customer.svg",
-                    "box": [40, 210, 1040, 1210],
-                    "entrance": "scale"}],
+        "elements": [{"id": "c", "asset": "brand_assets/customer.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "entrance": "scale"}],
     }]
     with pytest.raises(ex.ExplainerError) as no_magnitude:
         ex.normalise_beats_declaration(declaration)
     assert "scale_from" in str(no_magnitude.value)
 
-    declaration["beats"][0]["layers"][0]["motion"] = {"scale_from": 0.86}
+    declaration["beats"][0]["elements"][0]["motion"] = {"scale_from": 0.86}
     declared = ex.normalise_beats_declaration(declaration)
     anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
                               resolve_asset=_resolve, fps=23.976)
@@ -431,9 +433,9 @@ def test_a_slide_without_a_direction_is_refused():
     declaration = _declaration()
     declaration["beats"] = [{
         "quote": "customer",
-        "layers": [{"asset": "brand_assets/customer.svg",
-                    "box": [40, 210, 1040, 1210],
-                    "entrance": "slide"}],
+        "elements": [{"id": "c", "asset": "brand_assets/customer.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "entrance": "slide"}],
     }]
     with pytest.raises(ex.ExplainerError) as no_direction:
         ex.normalise_beats_declaration(declaration)
@@ -444,7 +446,7 @@ def test_a_layer_whose_picture_is_not_on_disk_is_refused():
     """A layer that is not there is a hole in the frame."""
     anchored = ex.plan_beats(
         [{"quote": "customer",
-          "layers": [{"asset": "brand_assets/missing.svg",
+          "elements": [{"id": "m", "asset": "brand_assets/missing.svg",
                       "box": [0, 0, 10, 10]}]}],
         _lines(), 10.0, resolve_asset=lambda name: "", fps=23.976)
     assert anchored.beats == []
@@ -462,16 +464,16 @@ def test_a_picture_leaves_the_way_it_came():
     declaration = _declaration()
     declaration["beats"] = [{
         "quote": "answers specific questions",
-        "layers": [{"asset": "brand_assets/grid.svg",
-                    "box": [40, 210, 1040, 1210],
-                    "entrance": "scale",
-                    "motion": {"scale_from": 0.86}}],
+        "elements": [{"id": "grid", "asset": "brand_assets/grid.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "entrance": "scale",
+                      "motion": {"scale_from": 0.86}}],
         "exit": "scale",
     }, {
         "quote": "customer",
-        "layers": [{"asset": "brand_assets/customer.svg",
-                    "box": [40, 210, 1040, 1210],
-                    "entrance": "fade"}],
+        "elements": [{"id": "customer", "asset": "brand_assets/customer.svg",
+                      "box": [40, 210, 1040, 1210],
+                      "entrance": "fade"}],
     }]
     declared = ex.normalise_beats_declaration(declaration)
     anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
@@ -485,3 +487,115 @@ def test_a_picture_leaves_the_way_it_came():
     # It grows into place and shrinks back out of it.
     assert width[1]["value"] > width[0]["value"], width
     assert width[-1]["value"] < width[1]["value"], width
+
+
+# ── The COMPOSED frame ───────────────────────────────────────────────
+
+def test_a_connector_draws_itself_as_the_word_lands():
+    """The line between two things ARRIVES with the word.
+
+    "several elements per beat that build, connect and transform into
+    the next beat" (the captain, 2026-10-21).  A connector is the line
+    between two points the declaration gives, and it DRAWS: its length
+    grows from nothing to the whole distance over the beat's ramp.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "elements": [{"id": "a", "asset": "brand_assets/a.svg",
+                      "box": [0, 0, 100, 100]}],
+        "connectors": [{"from": [100, 100], "to": [400, 300],
+                        "colour": "#F2C94C", "thickness": 6}],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    rules = [l for l in props["layers"] if l["kind"] == "rule"]
+    assert len(rules) == 1, props["layers"]
+    length = rules[0]["length"]
+    assert isinstance(length, list), length
+    assert length[0]["value"] == 0.0, length
+    assert length[-1]["value"] > 0.0, length
+
+
+def test_a_connector_with_no_colour_is_refused():
+    """A line's colour is the declaration's (AGENTS.md 10.5)."""
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "elements": [{"id": "a", "asset": "brand_assets/a.svg",
+                      "box": [0, 0, 100, 100]}],
+        "connectors": [{"from": [100, 100], "to": [400, 300]}],
+    }]
+    with pytest.raises(ex.ExplainerError) as no_colour:
+        ex.normalise_beats_declaration(declaration)
+    assert "colour" in str(no_colour.value)
+
+
+def test_an_element_that_carries_moves_into_the_next_beat():
+    """One element, drawn once, MOVING - not drawn twice.
+
+    "elements that build, connect and transform into the next beat, not
+    a picture appearing" (the captain, 2026-10-21).  An element that
+    names `carry:` continues from the element with that id, so it is
+    ONE layer whose box track carries a keyframe per beat.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [
+        {"quote": "answers specific questions",
+         "elements": [{"id": "card", "asset": "brand_assets/card.svg",
+                       "box": [60, 400, 500, 800]}]},
+        {"quote": "customer",
+         "elements": [{"id": "card", "asset": "brand_assets/card.svg",
+                       "box": [540, 400, 980, 800], "carry": "card"}]},
+    ]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    cards = [l for l in props["layers"]
+             if l["kind"] == "image" and l.get("id") == "card"]
+    assert len(cards) == 1, props["layers"]
+    track = cards[0]["placement"]["x"]
+    assert len(track) == 2, track
+    assert track[0]["value"] != track[1]["value"], track
+
+
+def test_the_persistent_furniture_is_on_the_frame_for_the_whole_piece():
+    """The header, the rule, the progress mark: they never leave.
+
+    A frame that is bare between beats is a frame with nothing in it,
+    and the captain's complaint was as much about the empty canvas as
+    about the icon.
+    """
+    declaration = _declaration()
+    declaration["persistent"] = [
+        {"text": [{"text": "THE INFORMATION PROBLEM",
+                   "colour": "#8FA6BC", "size": 24}],
+         "box": [60, 60, 700, 110]},
+    ]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    furniture = [l for l in props["layers"] if l["id"].startswith("persistent")]
+    assert len(furniture) == 1, props["layers"]
+    opacity = furniture[0]["placement"]["opacity"]
+    assert opacity == [{"at": 0.0, "value": 1.0}], opacity
+
+
+def test_a_persistent_layer_with_neither_picture_nor_type_is_refused():
+    with pytest.raises(ex.ExplainerError) as nothing:
+        ex.normalise_beats_declaration(
+            {"beats": [{"quote": "customer", "box": [0, 0, 10, 10]}],
+             "ground": "#0B1B2B", "font_family": "Montserrat",
+             "hold_seconds": 1.0,
+             "persistent": [{"box": [0, 0, 10, 10]}]})
+    assert "neither an asset nor text" in str(nothing.value)

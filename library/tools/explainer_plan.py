@@ -587,7 +587,7 @@ def normalise_beats_declaration(raw: Any) -> dict:
     for position, beat in enumerate(out[BEATS_KEY], start=1):
         # A beat with `layers:` places each layer in its OWN box; the
         # beat-level `box` is the shorthand for a beat of one layer.
-        if not beat.get("layers"):
+        if not beat.get("layers") and not beat.get("elements"):
             _absolute_box(beat.get("box"), f"beats[{position}].box")
         if beat.get("label"):
             _absolute_box(beat.get("label_box"), f"beats[{position}].label_box")
@@ -616,6 +616,57 @@ def normalise_beats_declaration(raw: Any) -> dict:
                         f"text that arrives in pieces is a caption rail.")
                 _absolute_box(layer.get("box"), f"{label}.box")
                 _check_motion(layer, label)
+        for number, element in enumerate(beat.get("elements") or [],
+                                         start=1):
+            label = f"beats[{position}].elements[{number}]"
+            if not isinstance(element, dict):
+                raise ExplainerError(
+                    f"{label} must be a mapping, got "
+                    f"{type(element).__name__}.")
+            if not str(element.get("asset") or "").strip() \
+                    and not element.get("text"):
+                raise ExplainerError(
+                    f"{label} names neither an asset nor text. An element "
+                    f"IS a picture or a line of type; an element with "
+                    f"neither draws nothing.")
+            if element.get("text"):
+                _absolute_box(element.get("box"), f"{label}.box")
+            else:
+                _absolute_box(element.get("box"), f"{label}.box")
+            _check_motion(element, label)
+            if element.get("drift") is not None:
+                drift = element.get("drift")
+                if (not isinstance(drift, (list, tuple)) or len(drift) != 2):
+                    raise ExplainerError(
+                        f"{label}.drift is {drift!r}; it must be two "
+                        f"numbers, [x, y] in world units - how far the "
+                        f"element keeps MOVING while it is on the frame.")
+                try:
+                    (float(drift[0]), float(drift[1]))
+                except (TypeError, ValueError):
+                    raise ExplainerError(
+                        f"{label}.drift is {drift!r}, which does not hold "
+                        f"two numbers.") from None
+        for number, connector in enumerate(beat.get("connectors") or [],
+                                           start=1):
+            label = f"beats[{position}].connectors[{number}]"
+            for end in ("from", "to"):
+                point = connector.get(end)
+                if (not isinstance(point, (list, tuple)) or len(point) != 2):
+                    raise ExplainerError(
+                        f"{label}.{end} is {point!r}; it must be two "
+                        f"numbers, [x, y] in delivery-frame pixels.")
+                try:
+                    (float(point[0]), float(point[1]))
+                except (TypeError, ValueError):
+                    raise ExplainerError(
+                        f"{label}.{end} is {point!r}, which does not hold "
+                        f"two numbers.") from None
+            if not str(connector.get("colour") or "").strip():
+                raise ExplainerError(
+                    f"{label} states no colour. A line's colour is the "
+                    f"declaration's; the engine ships no palette "
+                    f"(AGENTS.md 10.5).")
         if beat.get("stay_seconds") is not None:
             try:
                 stay = float(beat["stay_seconds"])
@@ -667,6 +718,27 @@ def normalise_beats_declaration(raw: Any) -> dict:
     for key in ("camera", "label_weight", "label_colour", "asset_prefix"):
         if raw.get(key) is not None:
             out[key] = raw[key]
+    # The PERSISTENT furniture: the header, the rule, the progress mark
+    # - the things that are on the frame for the whole piece, so the
+    # frame is never bare between beats.
+    persistent = raw.get("persistent") or []
+    if not isinstance(persistent, list):
+        raise ExplainerError(
+            f"effect.{DECLARATION_KEY}.persistent must be a list of "
+            f"layers; got {persistent!r}.")
+    for number, entry in enumerate(persistent, start=1):
+        label = f"persistent[{number}]"
+        if not isinstance(entry, dict):
+            raise ExplainerError(
+                f"{label} must be a mapping, got {type(entry).__name__}.")
+        if not str(entry.get("asset") or "").strip() \
+                and not entry.get("text"):
+            raise ExplainerError(
+                f"{label} names neither an asset nor text. A persistent "
+                f"layer is a picture or a line of type.")
+        _absolute_box(entry.get("box"), f"{label}.box")
+    out["persistent"] = [dict(entry) for entry in persistent
+                          if isinstance(entry, dict)]
     return out
 
 
@@ -984,6 +1056,16 @@ class Beat:
     motion: dict = field(default_factory=dict)
     """The MAGNITUDE of the arrival - the project's, never the engine's
     (AGENTS.md 10.5)."""
+    elements: Tuple[dict, ...] = ()
+    """The beat's ELEMENTS - each a picture or a run of type at its own
+    absolute canvas box.
+
+    A beat of one icon with the canvas empty around it is not a
+    composition; a beat of several elements that build, connect and
+    move into the next beat is."""
+    connectors: Tuple[dict, ...] = ()
+    """The LINES between the beat's elements, which draw as they
+    arrive."""
 
     @property
     def start_seconds(self) -> float:
@@ -998,6 +1080,8 @@ class Beat:
                 "box": list(self.box), "label_box": list(self.label_box),
                 "entrance": self.entrance, "exit": self.exit,
                 "layers": [dict(layer) for layer in self.layers],
+                "elements": [dict(element) for element in self.elements],
+                "connectors": [dict(c) for c in self.connectors],
                 "stay_seconds": round(self.stay_seconds, 3),
                 "motion": dict(self.motion),
                 "precision": self.precision}
@@ -1158,7 +1242,7 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
             continue
         asset = str(raw.get("asset") or "").strip()
         declared_layers = raw.get("layers")
-        if not asset and not declared_layers:
+        if not asset and not declared_layers and not raw.get("elements"):
             out.refuse(text, NO_PICTURE,
                        "the beat names no asset, so it draws no picture. "
                        "A beat IS a picture; text that arrives in pieces "
@@ -1225,6 +1309,63 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
         else:
             layers = [{"asset": asset, "box": box, "entrance": "",
                        "motion": {}}]
+        # The beat's ELEMENTS: the composed scene.  Each is a picture or
+        # a run of type at its own absolute box, and one may CARRY an
+        # element from an earlier beat - it MOVES into this beat
+        # instead of disappearing and reappearing.
+        elements: List[dict] = []
+        for number, element in enumerate(raw.get("elements") or [], start=1):
+            if not isinstance(element, dict):
+                raise ExplainerError(
+                    f"beats[{index}].elements[{number}] must be a "
+                    f"mapping, got {type(element).__name__}.")
+            name = str(element.get("asset") or "").strip()
+            if name and resolve_asset is not None and not resolve_asset(name):
+                out.refuse(text, ASSET_NOT_FOUND,
+                           f"{name!r} does not resolve to a file on disk. "
+                           f"A picture that is not there is a hole in the "
+                           f"frame.")
+                elements = []
+                break
+            elements.append({
+                "id": str(element.get("id") or f"beat-{index}-{number}"),
+                "asset": name,
+                "text": element.get("text"),
+                "box": tuple(int(v) for v in (element.get("box") or ())),
+                "entrance": str(element.get("entrance") or ""),
+                "motion": dict(element.get("motion") or {}),
+                "carry": str(element.get("carry") or ""),
+                "size": element.get("size"),
+                "colour": element.get("colour"),
+                "weight": element.get("weight"),
+                "stay_seconds": float(element.get("stay_seconds")
+                                      or raw.get("stay_seconds") or 0.0),
+                "drift": tuple(float(v) for v in (element.get("drift")
+                                                  or (0.0, 0.0))),
+            })
+        if raw.get("elements") and not elements:
+            continue
+        connectors: List[dict] = []
+        for number, connector in enumerate(raw.get("connectors") or [],
+                                           start=1):
+            if not isinstance(connector, dict):
+                raise ExplainerError(
+                    f"beats[{index}].connectors[{number}] must be a "
+                    f"mapping, got {type(connector).__name__}.")
+            connectors.append({
+                "from": tuple(connector.get("from") or ()),
+                "to": tuple(connector.get("to") or ()),
+                "colour": str(connector.get("colour") or ""),
+                "thickness": connector.get("thickness"),
+                "angle": connector.get("angle"),
+                "draw": connector.get("draw", True),
+                "entrance": str(connector.get("entrance") or ""),
+            })
+            if not layers:
+                continue
+        else:
+            layers = [{"asset": asset, "box": box, "entrance": "",
+                       "motion": {}}]
         entrance = str(raw.get("entrance") or "")
         # The LEAD is the longest ramp among the beat's arrivals: the
         # beat's own entrance and every layer's.  The picture BUILDS
@@ -1258,6 +1399,8 @@ def plan_beats(declarations: Sequence[Any], lines: Sequence[dict],
             entrance=entrance,
             exit=str(raw.get("exit") or ""), precision=precision,
             layers=tuple(layers),
+            elements=tuple(elements),
+            connectors=tuple(connectors),
             stay_seconds=float(raw.get("stay_seconds") or 0.0),
             motion=dict(raw.get("motion") or {})))
     return out
@@ -1287,18 +1430,29 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
                      font_family: str = "") -> dict:
     """The scene props for a beat route, ready to render.
 
-    The scene is a WORLD: a declared ground, an optional declared
-    camera, and one layer per beat.  Each beat contributes
+    The scene is a WORLD, and a world is a COMPOSED FRAME - not one
+    picture with a caption under it.  What the scene holds:
 
-    - an IMAGE layer - the project-owned still, at its ABSOLUTE CANVAS
-      BOX, whose opacity reaches 1 ON the word it illustrates (the
-      picture COMPLETES on the word; it does not begin there);
-    - a TEXT layer - the supporting LABEL, whose run completes on the
-      same word, and which is a label and never a sentence.
+    - the PERSISTENT furniture (`persistent:`) - the header, the rule,
+      the progress mark: the things that are on the frame for the whole
+      piece, so the frame is never bare between beats;
+    - the ELEMENTS (`elements:`) - per beat, each a picture or a run of
+      type at its own absolute canvas box, each with the character it
+      arrives in.  An element that names `carry:` CONTINUES from an
+      earlier element: it does not disappear and reappear, it MOVES,
+      which is how one beat becomes the next;
+    - the CONNECTORS (`connectors:`) - the lines between the elements,
+      which DRAW (their length grows) over the beat's ramp;
+    - the LABEL - the supporting line of type, at most.
 
-    The declaration owns every colour, every size and the camera.  The
-    engine owns the timing arithmetic and the layer shapes, and states
-    no look of its own (AGENTS.md 10.5).
+    Every element's track is ONE track with the beat's landing as its
+    keyframe: an element that is carried from one beat to the next is
+    drawn once and MOVES, and one that is not is drawn, held and
+    leaves.
+
+    The declaration owns every colour, every size, every box and the
+    camera.  The engine owns the timing arithmetic and the layer
+    shapes, and states no look of its own (AGENTS.md 10.5).
 
     The props are the scene renderer's own (`StagedScene`), so a beat
     route is drawn by the SAME renderer the animation IR is lowered
@@ -1309,93 +1463,194 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
     label_weight = int(declaration.get("label_weight") or 700)
     label_colour = str(declaration.get("label_colour") or "#FFFFFF")
     ordered = list(beats)
-    for position, beat in enumerate(ordered):
-        landing = beat.at_seconds - float(start_seconds)
-        arrival = beat.start_seconds - float(start_seconds)
-        # The EXIT: the picture leaves when the NEXT one arrives - a
-        # CUT, because that is what the reference does ("there is no
-        # dissolve, no wipe, no whip, no zoom-transition, no flash. Two
-        # hard cuts and one focus pull",
-        # `docs/ANIMATION_FIRST_REFERENCE.md` §2) - UNLESS the beat
-        # declares a `stay`, in which case it holds on and the next
-        # beat's picture builds BESIDE it.  That is the difference
-        # between one icon every five seconds and a composition that
-        # fills the frame (the captain, 2026-10-21).
-        exit_keys: List[dict] = []
+    prefix = str(declaration.get("asset_prefix") or "brand/")
+
+    # ── the persistent furniture ─────────────────────────────────────
+    for number, entry in enumerate(declaration.get("persistent") or [],
+                                   start=1):
+        layer = _scene_layer(entry, prefix, width, height, fps,
+                             label_size or 26.0, label_weight, label_colour)
+        if layer is None:
+            continue
+        placement = layer["placement"]
+        placement["opacity"] = [{"at": 0.0, "value": 1.0}]
+        # The persistent furniture may MOVE for the whole piece - a
+        # progress mark that travels is the piece's own clock, and the
+        # magnitude and the direction are the declaration's.
+        drift = tuple(float(v) for v in (entry.get("drift") or (0.0, 0.0)))
+        if drift != (0.0, 0.0):
+            end = max(0.0, duration_frames / float(fps or 1.0))
+            for axis, index in (("x", 0), ("y", 1)):
+                if isinstance(placement.get(axis), (int, float)):
+                    placement[axis] = [
+                        {"at": 0.0, "value": float(placement[axis])},
+                        {"at": end,
+                         "value": float(placement[axis]) + drift[index]},
+                    ]
+        layer["id"] = f"persistent-{number}"
+        layers.append(layer)
+
+    # ── the elements, merged across the beats they carry through ────
+    appearances: Dict[str, List[Tuple[Any, dict]]] = {}
+    order: List[str] = []
+    for beat in ordered:
+        for entry in _beat_elements(beat):
+            key = str(entry.get("id") or f"beat-{beat.index}")
+            if key not in appearances:
+                appearances[key] = []
+                order.append(key)
+            appearances[key].append((beat, entry))
+
+    for key in order:
+        apps = appearances[key]
+        if not apps:
+            continue
+        first_beat, first_entry = apps[0]
+        last_beat, last_entry = apps[-1]
+        landing = _beat_landing(first_beat, start_seconds)
+        arrival = _beat_arrival(first_beat, start_seconds)
         next_arrival = None
-        if position + 1 < len(ordered):
-            following = ordered[position + 1]
-            next_arrival = following.start_seconds - float(start_seconds)
-        beat_stay = float(getattr(beat, "stay_seconds", 0.0) or 0.0)
-        for number, layer in enumerate(_beat_layers(beat), start=1):
-            placement = _world_box(layer["box"], width, height)
-            layer_entrance = str(layer.get("entrance") or "fade").strip().lower()
-            exit_at = next_arrival
-            stay = float(layer.get("stay_seconds", beat_stay) or 0.0)
-            if stay:
-                exit_at = max(exit_at or 0.0, landing + stay)
-            ramp = beat_ramp_seconds(beat.exit or "cut", fps)
-            if exit_at is not None and next_arrival is not None:
-                # The picture is GONE one ramp before the next one
-                # arrives: the box is briefly empty, and an empty beat
-                # between two pictures is what makes the arrival
-                # MEASURABLE (a box that never empties cannot say which
-                # change belongs to which picture).
-                exit_at = max(landing, exit_at - ramp)
-            layer_exit_keys: List[dict] = []
-            if exit_at is not None:
-                fade_start = exit_at if ramp <= 0 else exit_at - ramp
-                layer_exit_keys = [
-                    {"at": max(0.0, fade_start), "value": 1.0},
-                    {"at": max(0.0, exit_at), "value": 0.0},
-                ]
-            opacity = ([{"at": max(0.0, arrival), "value": 0.0},
-                        {"at": max(0.0, landing), "value": 1.0}]
-                       + layer_exit_keys)
-            if layer_entrance == "cut":
-                # A cut layer is THERE on the word - it does not fade in
-                # beside the others.
-                placement["opacity"] = [{"at": max(0.0, landing),
-                                         "value": 1.0}] + layer_exit_keys
-            else:
-                placement["opacity"] = list(opacity)
-            _apply_motion(placement, layer, arrival, landing, fps)
-            _apply_exit_motion(placement, layer, exit_at, ramp, fps)
-            layers.append({
-                "kind": "image",
-                "id": f"beat-{beat.index}-layer-{number}",
-                "src": str(declaration.get("asset_prefix") or "brand/")
-                + os.path.basename(layer["asset"]),
-                "placement": placement,
-            })
+        if ordered.index(last_beat) + 1 < len(ordered):
+            following = ordered[ordered.index(last_beat) + 1]
+            next_arrival = _beat_arrival(following, start_seconds)
+        stay = float(first_entry.get("stay_seconds",
+                                     getattr(last_beat, "stay_seconds", 0.0))
+                     or 0.0)
         exit_at = next_arrival
-        if beat_stay:
-            exit_at = max(exit_at or 0.0, landing + beat_stay)
+        if stay:
+            exit_at = max(exit_at or 0.0, landing + stay)
+        ramp = beat_ramp_seconds(first_entry.get("entrance") or "fade", fps)
         if exit_at is not None:
-            ramp = beat_ramp_seconds(beat.exit or "cut", fps)
+            exit_at = max(landing, exit_at - ramp)
+        layer = _scene_layer(first_entry, prefix, width, height, fps,
+                             label_size or 26.0, label_weight, label_colour)
+        if layer is None:
+            continue
+        layer["id"] = key
+        placement = layer["placement"]
+        # The box track: one keyframe per beat the element appears in,
+        # each at that beat's LANDING - so a carried element is in its
+        # new place when the word says so.
+        for beat, entry in apps:
+            box = _world_box(entry["box"], width, height)
+            at = _beat_landing(beat, start_seconds)
+            for axis in ("x", "y", "width"):
+                placement[axis] = _put_key(placement.get(axis), at,
+                                           box[axis])
+        # The entrance: the character the FIRST appearance declares.
+        entrance = str(first_entry.get("entrance") or "fade").lower()
+        if entrance == "scale":
+            width_track = placement["width"]
+            if isinstance(width_track, list):
+                full = float(width_track[0]["value"])
+                scale_from = float((first_entry.get("motion") or {})
+                                   .get("scale_from") or 1.0)
+                placement["width"] = [
+                    {"at": max(0.0, arrival), "value": full * scale_from},
+                ] + list(width_track)
+        elif entrance == "slide":
+            pair = (first_entry.get("motion") or {}).get("from") or [0.0, 0.0]
+            for axis, index in (("x", 0), ("y", 1)):
+                track = placement.get(axis)
+                if isinstance(track, list) and track:
+                    rest = float(track[0]["value"])
+                    placement[axis] = [
+                        {"at": max(0.0, arrival),
+                         "value": rest + float(pair[index])},
+                    ] + list(track)
+        # The DRIFT: the element keeps MOVING for as long as it is on
+        # the frame.  An element that arrives and then stands still is a
+        # card, and a card is not an animation - the tutorial's lesson
+        # (`docs/evidence/explainer_beats.md` §the lesson) is that the
+        # motion is CONTINUOUS, not a sequence of arrivals.  The
+        # magnitude and the direction are the declaration's.
+        drift = tuple(float(v) for v in (first_entry.get("drift")
+                                          or (0.0, 0.0)))
+        if (drift != (0.0, 0.0)) and exit_at is not None:
+            for axis, index in (("x", 0), ("y", 1)):
+                track = placement.get(axis)
+                if isinstance(track, list) and track:
+                    rest = float(track[-1]["value"])
+                    placement[axis] = list(track) + [
+                        {"at": max(0.0, exit_at),
+                         "value": rest + drift[index]},
+                    ]
+        # The EXIT: the element leaves THE WAY IT CAME - it shrinks back
+        # out of a scale, slides back out of a slide - over the exit's
+        # own ramp and by the SAME declared magnitude, because the
+        # engine holds no number of its own (AGENTS.md 10.5).  A frame
+        # that cuts from one idea to the next is not a transformation.
+        if exit_at is not None and ramp > 0:
+            fade_start = max(0.0, exit_at - ramp)
+            if entrance == "scale":
+                track = placement.get("width")
+                if isinstance(track, list) and track:
+                    full = float(track[-1]["value"])
+                    scale_from = float((first_entry.get("motion") or {})
+                                       .get("scale_from") or 1.0)
+                    placement["width"] = list(track) + [
+                        {"at": fade_start, "value": full},
+                        {"at": max(0.0, exit_at),
+                         "value": full * scale_from},
+                    ]
+            elif entrance == "slide":
+                pair = (first_entry.get("motion") or {}).get("from") \
+                    or [0.0, 0.0]
+                for axis, index in (("x", 0), ("y", 1)):
+                    track = placement.get(axis)
+                    if isinstance(track, list) and track:
+                        rest = float(track[-1]["value"])
+                        placement[axis] = list(track) + [
+                            {"at": fade_start, "value": rest},
+                            {"at": max(0.0, exit_at),
+                             "value": rest + float(pair[index])},
+                        ]
+        # The opacity: in on the first word, out with the last.
+        opacity = [{"at": max(0.0, arrival), "value": 0.0},
+                   {"at": max(0.0, landing), "value": 1.0}]
+        if exit_at is not None:
             fade_start = exit_at if ramp <= 0 else exit_at - ramp
-            exit_keys = [
-                {"at": max(0.0, fade_start), "value": 1.0},
-                {"at": max(0.0, exit_at), "value": 0.0},
-            ]
-        if beat.label and beat.label_box:
-            label_placement = _world_box(beat.label_box, width, height)
-            label_placement["opacity"] = list(opacity)
-            layers.append({
-                "kind": "text",
-                "id": f"label-{beat.index}",
-                "runs": [{
-                    "text": beat.label,
-                    # World units: the renderer scales type with the
-                    # camera, and the declaration states the size in
-                    # delivery-frame pixels.
-                    "size": label_size / float(width or 1),
-                    "weight": label_weight,
-                    "colour": label_colour,
-                    "revealAt": max(0.0, landing),
-                }],
-                "placement": label_placement,
-            })
+            opacity += [{"at": max(0.0, fade_start), "value": 1.0},
+                        {"at": max(0.0, exit_at), "value": 0.0}]
+        placement["opacity"] = opacity
+        layers.append(layer)
+
+    # ── the connectors: the lines that draw between the elements ────
+    for beat in ordered:
+        landing = _beat_landing(beat, start_seconds)
+        arrival = _beat_arrival(beat, start_seconds)
+        for number, connector in enumerate(beat.connectors or [], start=1):
+            rule = _connector_rule(connector, beat, arrival, landing,
+                                   width, height, fps)
+            if rule is not None:
+                rule["id"] = f"connector-{beat.index}-{number}"
+                layers.append(rule)
+
+    # ── the supporting label ─────────────────────────────────────────
+    for beat in ordered:
+        if not (beat.label and beat.label_box):
+            continue
+        landing = _beat_landing(beat, start_seconds)
+        arrival = _beat_arrival(beat, start_seconds)
+        opacity = [{"at": max(0.0, arrival), "value": 0.0},
+                   {"at": max(0.0, landing), "value": 1.0}]
+        label_placement = _world_box(beat.label_box, width, height)
+        label_placement["opacity"] = opacity
+        layers.append({
+            "kind": "text",
+            "id": f"label-{beat.index}",
+            "runs": [{
+                "text": beat.label,
+                # World units: the renderer scales type with the
+                # camera, and the declaration states the size in
+                # delivery-frame pixels.
+                "size": label_size / float(width or 1),
+                "weight": label_weight,
+                "colour": label_colour,
+                "revealAt": max(0.0, landing),
+            }],
+            "placement": label_placement,
+        })
     props: dict = {
         "ground": {"colour": str(declaration.get("ground") or "#000000")},
         "layers": layers,
@@ -1410,127 +1665,130 @@ def beat_scene_props(beats: Sequence[Beat], declaration: dict, *,
     return props
 
 
-def _apply_exit_motion(placement: dict, layer: dict, exit_at,
-                       ramp: float, fps: float) -> None:
-    """The layer's EXIT: it leaves the way it came.
+def _beat_elements(beat: "Beat") -> List[dict]:
+    """The beat's ELEMENTS: its `elements:` list, or its own asset.
 
-    A picture that scaled INTO place shrinks back out of it, and a
-    picture that slid in slides away - over the exit character's own
-    ramp, and by the SAME magnitude the declaration already stated for
-    its arrival, because the engine holds no number of its own
-    (AGENTS.md 10.5).  Without this the frame CUTS from one idea to the
-    next, and a cut is not a transformation.
+    The shorthand - a beat with an `asset` and a `box` - is a beat of
+    one element, and it is the same shape the list has.
     """
-    if exit_at is None or ramp <= 0:
-        return
-    entrance = str(layer.get("entrance") or "fade").strip().lower()
-    motion = layer.get("motion") or {}
-    start = max(0.0, exit_at - ramp)
-    if entrance == "scale":
-        width = placement["width"]
-        if isinstance(width, list):
-            # The entrance already keyframed it: the exit is the next
-            # two keys on the SAME track, so the picture grows into
-            # place and shrinks back out of it.
-            full = float(width[-1]["value"])
-            placement["width"] = list(width) + [
-                {"at": start, "value": full},
-                {"at": max(0.0, exit_at), "value": full * float(
-                    motion.get("scale_from") or 1.0)},
-            ]
-        else:
-            placement["width"] = [
-                {"at": start, "value": width},
-                {"at": max(0.0, exit_at), "value": width * float(
-                    motion.get("scale_from") or 1.0)},
-            ]
-    elif entrance == "slide":
-        pair = motion.get("from") or [0.0, 0.0]
-        for axis, index in (("x", 0), ("y", 1)):
-            value = placement[axis]
-            if isinstance(value, list):
-                rest = float(value[-1]["value"])
-                placement[axis] = list(value) + [
-                    {"at": start, "value": rest},
-                    {"at": max(0.0, exit_at),
-                     "value": rest + float(pair[index])},
-                ]
-            else:
-                placement[axis] = [
-                    {"at": start, "value": value},
-                    {"at": max(0.0, exit_at),
-                     "value": value + float(pair[index])},
-                ]
+    elements = getattr(beat, "elements", None)
+    if elements:
+        return [dict(entry) for entry in elements]
+    if getattr(beat, "asset", ""):
+        return [{"id": f"beat-{beat.index}", "asset": beat.asset,
+                 "box": beat.box, "entrance": beat.entrance,
+                 "motion": dict(getattr(beat, "motion", {}) or {})}]
+    return []
 
 
-def _beat_layers(beat: "Beat") -> List[dict]:
-    """The beat's LAYERS: its `layers:` list, or its own asset as one.
+def _beat_landing(beat: "Beat", start_seconds: float) -> float:
+    return beat.at_seconds - float(start_seconds)
 
-    The shorthand - a beat with an `asset` and a `box` - IS a beat of one
-    layer, and it is the same shape the list has.  One list, one
-    meaning, whatever the declaration writes.
+
+def _beat_arrival(beat: "Beat", start_seconds: float) -> float:
+    return beat.start_seconds - float(start_seconds)
+
+
+def _put_key(track: Any, at: float, value: float) -> List[dict]:
+    """One more keyframe on a track, in time order.
+
+    A track is a list of `{at, value}` pairs; the renderer eases
+    between them and holds flat outside them, so a track that names
+    two places is a MOVE and a track that names one is a PLACE.
     """
-    layers = getattr(beat, "layers", None)
-    if layers:
-        out = []
-        for layer in layers:
-            entry = dict(layer)
-            entry.setdefault("stay_seconds",
-                              getattr(beat, "stay_seconds", 0.0))
-            out.append(entry)
-        return out
-    return [{"asset": beat.asset, "box": beat.box,
-             "entrance": beat.entrance, "motion": getattr(beat, "motion", {}),
-             "stay_seconds": getattr(beat, "stay_seconds", 0.0)}]
+    keys = list(track) if isinstance(track, list) else []
+    keys = [k for k in keys if float(k["at"]) < at - 1e-9]
+    keys.append({"at": at, "value": value})
+    return keys
 
 
-def _apply_motion(placement: dict, layer: dict, arrival: float,
-                   landing: float, fps: float) -> None:
-    """Put the layer's ARRIVAL on its placement.
+def _scene_layer(entry: dict, prefix: str, width: int, height: int,
+                 fps: float, label_size: float, label_weight: int,
+                 label_colour: str) -> Optional[dict]:
+    """One element, as a scene layer: an IMAGE or a run of TYPE.
 
-    The CHARACTER says what moves and the declaration states the
-    magnitude (AGENTS.md 10.5):
-
-    - `cut`   - it is there on the word;
-    - `fade`  - it fades in over the character's ramp;
-    - `scale` - it GROWS into place from `motion.scale_from`, which is
-      how a picture BUILDS rather than appears;
-    - `slide` - it SLIDES in from `motion.from`, which is how a picture
-      MOVES rather than appears.
-
-    The keyframes are the same shape the scene renderer already reads
-    (`Animatable`), so a layer that grows is one more keyframed track
-    on the placement it already has.
+    A picture is a project-owned still at an absolute canvas box; type
+    is a list of runs, each with its own colour and size, so a title
+    can be half in the accent colour - the composition's own way of
+    saying which half matters.
     """
-    entrance = str(layer.get("entrance") or "fade").strip().lower()
-    motion = layer.get("motion") or {}
-    # The layer's OWN build: it starts a character-ramp before the word
-    # and ENDS on it, so a layer that slides in is moving the whole time
-    # the word is being said.
-    ramp = beat_ramp_seconds(entrance, fps)
-    start = max(0.0, landing - ramp)
-    if entrance == "cut":
-        placement["opacity"] = [{"at": max(0.0, landing), "value": 1.0}]
-        return
-    if entrance == "scale":
-        scale_from = float(motion.get("scale_from") or 1.0)
-        width = placement["width"]
-        placement["width"] = [
-            {"at": start, "value": width * scale_from},
-            {"at": max(0.0, landing), "value": width},
-        ]
-        return
-    if entrance == "slide":
-        pair = motion.get("from") or [0.0, 0.0]
-        placement["x"] = [
-            {"at": start, "value": placement["x"] + float(pair[0])},
-            {"at": max(0.0, landing), "value": placement["x"]},
-        ]
-        placement["y"] = [
-            {"at": start, "value": placement["y"] + float(pair[1])},
-            {"at": max(0.0, landing), "value": placement["y"]},
-        ]
-        return
+    box = entry.get("box")
+    if not box or len(box) != 4:
+        return None
+    placement = _world_box(box, width, height)
+    text = entry.get("text")
+    if text:
+        runs = []
+        if isinstance(text, str):
+            text = [{"text": text}]
+        for run in text:
+            runs.append({
+                "text": str(run.get("text") or ""),
+                # World units: the renderer scales type with the camera.
+                "size": float(run.get("size") or label_size) / float(width or 1),
+                "weight": int(run.get("weight") or label_weight),
+                "colour": str(run.get("colour") or label_colour),
+                "newLine": bool(run.get("new_line") or run.get("newLine")),
+            })
+        if not runs:
+            return None
+        return {"kind": "text", "runs": runs, "placement": placement}
+    asset = str(entry.get("asset") or "").strip()
+    if not asset:
+        return None
+    return {
+        "kind": "image",
+        "src": prefix + os.path.basename(asset),
+        "placement": placement,
+    }
+
+
+def _connector_rule(connector: dict, beat: "Beat", arrival: float,
+                    landing: float, width: int, height: int,
+                    fps: float) -> Optional[dict]:
+    """A CONNECTOR: the line between two points, drawn as it draws.
+
+    The engine draws the line from the two points the declaration
+    gives - it draws no diagram of its own - and the line DRAWS: its
+    length grows from nothing to the whole distance over the beat's
+    ramp, so the connection between two things arrives WITH the word.
+    """
+    start = connector.get("from")
+    end = connector.get("to")
+    if not start or not end or len(start) != 2 or len(end) != 2:
+        return None
+    x0, y0 = float(start[0]), float(start[1])
+    x1, y1 = float(end[0]), float(end[1])
+    unit = float(width or 1)
+    dx, dy = (x1 - x0) / unit, (y1 - y0) / unit
+    length = (dx * dx + dy * dy) ** 0.5
+    if length <= 0:
+        return None
+    thickness = float(connector.get("thickness") or 6) / unit
+    angle = 0.0
+    if connector.get("angle") is not None:
+        angle = float(connector["angle"])
+    else:
+        import math
+        angle = math.degrees(math.atan2(dy, dx))
+    ramp = beat_ramp_seconds(connector.get("entrance") or "fade", fps)
+    draw = connector.get("draw", True)
+    length_track = [{"at": max(0.0, arrival), "value": 0.0},
+                    {"at": max(0.0, landing), "value": length}]
+    if not draw:
+        length_track = [{"at": max(0.0, landing), "value": length}]
+    return {
+        "kind": "rule",
+        "x": ((x0 + x1) / 2.0 - unit / 2.0) / unit,
+        "y": ((y0 + y1) / 2.0 - float(height or 1) / 2.0) / unit
+        - thickness / 2.0,
+        "length": length_track,
+        "angle": angle,
+        "thickness": thickness,
+        "colour": str(connector.get("colour") or "#F2C94C"),
+        "opacity": [{"at": max(0.0, arrival), "value": 0.0},
+                    {"at": max(0.0, landing), "value": 1.0}],
+    }
 
 
 def beat_window(beats: Sequence[Beat], reel_seconds: float,
@@ -1775,6 +2033,21 @@ def _measure_box(beat: "Beat") -> Tuple[int, int, int, int]:
         return tuple(int(v) for v in beat.box)
     for layer in (getattr(beat, "layers", None) or ()):
         box = tuple(int(v) for v in (layer.get("box") or ()))
+        if len(box) == 4:
+            return box
+    elements = list(getattr(beat, "elements", None) or ())
+    # The box the beat is measured in is the box of an element that
+    # ARRIVES with it - one that does not CARRY from an earlier beat.
+    # A carried element is on the frame from its first beat, so its box
+    # is never empty and cannot say when THIS beat's picture arrived.
+    for element in elements:
+        if element.get("carry"):
+            continue
+        box = tuple(int(v) for v in (element.get("box") or ()))
+        if len(box) == 4:
+            return box
+    for element in elements:
+        box = tuple(int(v) for v in (element.get("box") or ()))
         if len(box) == 4:
             return box
     return ()
