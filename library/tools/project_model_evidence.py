@@ -4204,6 +4204,41 @@ def _migrate_depth(builder: _Builder, digest: str, asset_id: str,
                 None, DEPTH_PRODUCER, evidence=native)
 
 
+def _assign_occurrences(builder: _Builder) -> None:
+    """Number the model's events, and carry the number into the evidence.
+
+    The occurrence axis is the canonical answer to "the second time".
+    It is assigned AFTER every lane has spoken, because the series is
+    the whole set: an event numbered before its earlier sibling arrived
+    would carry the wrong number.
+
+    The evidence ledger follows: the observation that supports an
+    occurrence says WHICH occurrence it supports, so a reader holding
+    the evidence alone can still name the moment it belongs to.
+    """
+    from library.tools import occurrence_identity
+
+    events = occurrence_identity.assign_occurrences(builder.model)
+    observations = {str(obs.get("id")): obs
+                    for obs in builder.model["observations"]
+                    if isinstance(obs, dict)}
+    for event in events:
+        block = occurrence_identity.occurrence_of(event)
+        if block is None:
+            continue
+        for evidence_id in event.get("evidence_ids") or []:
+            observation = observations.get(str(evidence_id))
+            if observation is None:
+                continue
+            payload = observation.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            rows = payload.setdefault("occurrences", [])
+            entry = {**block, "event_id": str(event.get("id") or "")}
+            if entry not in rows:
+                rows.append(entry)
+
+
 @source_memory._project_scoped
 def migrate_project_evidence(project_folder: str, *,
                              memory_root: str | Path | None = None,
@@ -4335,6 +4370,7 @@ def migrate_project_evidence(project_folder: str, *,
         derive_physical_relations(builder.model))
     from library.tools import cross_modal_grounding
     cross_modal_grounding.apply_project_model(builder.model)
+    _assign_occurrences(builder)
     validate_project_model(builder.model)
     report = {
         "project": str(project_folder),

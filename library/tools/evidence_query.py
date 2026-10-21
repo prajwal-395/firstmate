@@ -51,8 +51,10 @@ from typing import Any
 
 try:
     from library.tools import evidence_contract
+    from library.tools import occurrence_identity
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import evidence_contract
+    from tools import occurrence_identity
 
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks, the convention
@@ -263,12 +265,14 @@ def compile_plan(predicates: list[dict[str, Any]], *,
     ...}`` with optional ``min``/``max``/``equals`` value bounds and
     ``clock_id``/``asset_id``/``target_entity_id`` scopes, or
     ``{"predicate": "event_span", "event", ...}`` with optional
-    ``participant_id`` and ``verified_only``. ``scope`` is an optional
-    ``{"clock_id", "asset_id", "start_s", "end_s"}`` window every
-    predicate is read inside. Unknown measurement types, evaluation or
-    creative-judgment types, unknown predicate kinds and inverted
-    bounds raise: a plan that cannot name its evidence is refused,
-    never widened into a guess.
+    ``participant_id`` and ``verified_only``, or
+    ``{"predicate": "nth_event", "event_class", "nth", ...}`` which
+    names the n-th occurrence of a repeated event. ``scope`` is an
+    optional ``{"clock_id", "asset_id", "start_s", "end_s"}`` window
+    every predicate is read inside. Unknown measurement types,
+    evaluation or creative-judgment types, unknown predicate kinds and
+    inverted bounds raise: a plan that cannot name its evidence is
+    refused, never widened into a guess.
     """
     if not isinstance(predicates, list) or not predicates:
         raise EvidenceQueryError("a plan asks at least one predicate")
@@ -315,9 +319,11 @@ def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
         return _compile_measurement(predicate)
     if kind == "event_span":
         return _compile_event(predicate)
+    if kind == "nth_event":
+        return _compile_nth_event(predicate)
     raise EvidenceQueryError(
         f"unknown predicate {kind!r}: this query answers "
-        f"'measurement' and 'event_span' only")
+        f"'measurement', 'event_span' and 'nth_event' only")
 
 
 def _compile_measurement(predicate: dict[str, Any]) -> dict[str, Any]:
@@ -375,9 +381,40 @@ def _compile_event(predicate: dict[str, Any]) -> dict[str, Any]:
     return compiled
 
 
+def _compile_nth_event(predicate: dict[str, Any]) -> dict[str, Any]:
+    """Compile an ordinal predicate: the n-th occurrence of a class.
+
+    The class is the model's own event kind, the subject is the entity
+    the occurrence counts for, and ``nth`` is 1-based. A query that
+    does not say which source it means is answered per source or
+    REFUSED, never from whichever source happens to be first.
+    """
+    event_class = predicate.get("event_class")
+    if not isinstance(event_class, str) or not event_class.strip():
+        raise EvidenceQueryError("an nth_event names its event_class")
+    nth = predicate.get("nth", predicate.get("occurrence_index"))
+    if isinstance(nth, bool) or not isinstance(nth, int) or nth < 1:
+        raise EvidenceQueryError("an nth_event names a 1-based nth")
+    compiled: dict[str, Any] = {"predicate": "nth_event",
+                                "event_class": event_class.strip(),
+                                "nth": nth}
+    for key in ("subject_id", "asset_id"):
+        value = predicate.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            raise EvidenceQueryError(f"{key} must be a string")
+        compiled[key] = value.strip()
+    return compiled
+
+
 def _required_lane(compiled: dict[str, Any]) -> str | None:
     if compiled["predicate"] == "measurement":
         return MEASUREMENT_TO_LANE.get(compiled["measurement_type"])
+    if compiled["predicate"] == "nth_event":
+        # The events lane: the model numbers the occurrences the lane
+        # produced, so a missing lane means no occurrence was measured.
+        return "m7"
     if compiled["event"] in MEASURED_EVENTS:
         return "m7"
     return "m7"
@@ -516,9 +553,23 @@ def _matches_participant(obs: dict[str, Any], wanted: set[str],
 
 def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
                         scope: dict[str, Any],
-                        entities: dict[str, set[str]]) -> list[dict[str, Any]]:
-    """Every observation interval one predicate is evidence for."""
+                        entities: dict[str, set[str]],
+                        ordinal: dict[str, Any] | None = None
+                        ) -> list[dict[str, Any]]:
+    """Every observation interval one predicate is evidence for.
+
+    An ordinal predicate is answered by the event it resolved to: only
+    the observations that event cites are its evidence, and an ordinal
+    that resolved to nothing matches nothing.
+    """
     matches: list[dict[str, Any]] = []
+    ordinal_evidence: set[str] = set()
+    if compiled["predicate"] == "nth_event":
+        if ordinal is None:
+            return matches
+        ordinal_evidence = {str(eid) for eid in (ordinal.get("evidence_ids") or [])}
+        if not ordinal_evidence:
+            return matches
     for obs in model.get("observations") or []:
         if not isinstance(obs, dict):
             continue
@@ -535,6 +586,9 @@ def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
             continue
         if "end_s" in scope and start >= _ticks(scope["end_s"]):
             continue
+        if compiled["predicate"] == "nth_event":
+            if str(obs.get("id")) not in ordinal_evidence:
+                continue
         native = _native_evidence(obs)
         if compiled["predicate"] == "measurement":
             if _record_kind(obs) != compiled["measurement_type"]:
@@ -545,7 +599,7 @@ def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
                 continue
             if not _matches_value(compiled, native, obs):
                 continue
-        else:
+        elif compiled["predicate"] == "event_span":
             event = compiled["event"]
             payload = obs.get("payload") or {}
             if payload.get("spans") == []:
@@ -750,8 +804,30 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
     scope = plan.get("scope") or {}
     level = plan.get("level")
     entities = _observation_entities(model)
-    per_predicate = [_match_observations(model, compiled, scope, entities)
-                     for compiled in plan["predicates"]]
+    ordinals: list[dict[str, Any] | None] = []
+    for compiled in plan["predicates"]:
+        if compiled["predicate"] != "nth_event":
+            ordinals.append(None)
+            continue
+        try:
+            ordinals.append(occurrence_identity.nth_event(
+                model, compiled["event_class"],
+                subject_id=compiled.get("subject_id"),
+                asset_id=compiled.get("asset_id") or scope.get("asset_id"),
+                n=compiled["nth"]))
+        except occurrence_identity.OccurrenceIdentityError as exc:
+            # The class was measured in more than one source and the
+            # query did not say which: the n-th occurrence is a
+            # different moment in each, so the answer is refused.
+            return {"status": INCONCLUSIVE, "results": [],
+                    "completeness_basis": [],
+                    "required_missing_lanes": sorted(set(
+                        plan.get("required_lanes") or [])),
+                    "reasons": [str(exc)]}
+    per_predicate = [_match_observations(model, compiled, scope, entities,
+                                         ordinal)
+                     for compiled, ordinal in zip(plan["predicates"],
+                                                  ordinals)]
     clocks = sorted({match["clock_id"] for matches in per_predicate
                      for match in matches})
     join_mode = plan.get("join_mode", "synchronized")
@@ -809,7 +885,7 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
             stale_dropped += 1
             continue
         clock_id = contributors[0]["clock_id"]
-        fresh_results.append({
+        row = {
             "interval": {"clock_id": clock_id, "start": lo, "end": hi,
                          "start_s": _seconds(lo), "end_s": _seconds(hi)},
             "asset_id": contributors[0]["obs"].get("asset_id"),
@@ -830,11 +906,23 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
             "clock_error_ticks": max((match.get("transform_error_ticks", 0)
                                        for match in contributors), default=0),
             "sources": _source_placements(model, contributors, project),
-        })
+        }
+        row.update(_occurrence_of_row(model, plan, ordinals, contributors))
+        fresh_results.append(row)
     reasons: list[str] = []
     if stale_dropped:
         reasons.append(f"{stale_dropped} joined interval(s) include stale "
                        f"required evidence and carry no answer")
+    for compiled, ordinal in zip(plan["predicates"], ordinals):
+        if compiled["predicate"] != "nth_event" or ordinal is not None:
+            continue
+        klass = compiled["event_class"]
+        known = len(occurrence_identity.events_of_class(
+            model, klass, subject_id=compiled.get("subject_id"),
+            asset_id=compiled.get("asset_id") or scope.get("asset_id")))
+        reasons.append(
+            f"the model carries {known} occurrence(s) of {klass!r}: there "
+            f"is no occurrence {compiled['nth']}")
     if fresh_results:
         return {"status": PRESENT, "results": fresh_results,
                 "completeness_basis": _basis_for(
@@ -842,6 +930,39 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                 "required_missing_lanes": [], "reasons": reasons}
     return _empty_answer(model, plan, per_predicate, scope, level,
                          lane_presence, reasons)
+
+
+def _occurrence_of_row(model: dict[str, Any], plan: dict[str, Any],
+                       ordinals: list[dict[str, Any] | None],
+                       contributors: list[dict[str, Any]]
+                       ) -> dict[str, Any]:
+    """The occurrence a result row names, when the plan asked for one.
+
+    An ordinal predicate answers with the event it resolved to, and the
+    row says WHICH occurrence that was: the event id, the class, the
+    subject and the position - plus the receipt that lets a later
+    reader check the answer without re-running the lane that produced
+    it.
+    """
+    wanted = {str(match["obs"].get("id")) for match in contributors}
+    for compiled, ordinal in zip(plan["predicates"], ordinals):
+        if compiled["predicate"] != "nth_event" or ordinal is None:
+            continue
+        evidence = {str(eid) for eid in (ordinal.get("evidence_ids") or [])}
+        if not (evidence & wanted):
+            continue
+        described = occurrence_identity.descriptor(model, ordinal)
+        return {
+            "event_id": described["event_id"],
+            "occurrence": {
+                "class": described["event_class"],
+                "subject_id": described["subject_id"],
+                "index": described["occurrence_index"],
+            },
+            "occurrence_key": described["occurrence_key"],
+            "occurrence_receipt": occurrence_identity.receipt(model, ordinal),
+        }
+    return {}
 
 
 def evidence_for_with_acquisition(model: dict[str, Any], plan: dict[str, Any], *,
@@ -1052,6 +1173,10 @@ def _record_answers_predicate(obs: dict[str, Any],
     if compiled["predicate"] == "measurement":
         return _record_kind(obs) == compiled["measurement_type"]
     payload = obs.get("payload") or {}
+    if compiled["predicate"] == "nth_event":
+        # The events lane answers an ordinal question with the records
+        # of the class it names.
+        return payload.get("predicate") == compiled["event_class"]
     if compiled["event"] in MEASURED_EVENTS:
         return (obs.get("modality") == "event_span"
                 and payload.get("predicate") == compiled["event"])

@@ -272,6 +272,34 @@ pub struct Event {
     pub end_boundary: Option<TemporalBoundary>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub state_changes: Vec<EventStateChange>,
+    /// Which time a REPEATED event happened.
+    ///
+    /// An event class (the `kind`) plus a subject names a series: the
+    /// second time this person brings the device to their mouth. The
+    /// index is 1-based within that series, and it is the index - not
+    /// the event's own id - that survives a re-measure of the same
+    /// source, so a receipt that names the second occurrence still
+    /// names it after the lane ran again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occurrence: Option<EventOccurrence>,
+}
+
+/// One occurrence of a repeated event, inside its class and subject.
+///
+/// The class is the event's own `kind`; the subject is the entity the
+/// occurrence counts for. An event that names no participant counts
+/// within the class alone, and says so with an absent `subject_id`
+/// rather than with a subject nobody measured.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EventOccurrence {
+    /// The repeated class this occurrence belongs to.
+    pub class: String,
+    /// The subject the occurrence counts for, when the event names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject_id: Option<String>,
+    /// 1-based position within (class, subject).
+    pub index: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -289,6 +289,7 @@ def validate_project_model(model: dict[str, Any]) -> None:
                 raise ValueError("event state change references unknown observation")
     event_ids = {event["id"] for event in model.get("events", [])}
     events_by_id = {event["id"]: event for event in model.get("events", [])}
+    _validate_occurrences(model, entity_ids)
     for event in model.get("events", []):
         for key in ("start_boundary", "end_boundary"):
             boundary = event.get(key)
@@ -455,6 +456,49 @@ def validate_project_model(model: dict[str, Any]) -> None:
         matrix = transform.get("matrix", [])
         if len(matrix) not in (9, 16) or not all(isinstance(v, (int, float)) and math.isfinite(v) for v in matrix):
             raise ValueError("space transform matrix must be a finite 3x3 or 4x4")
+
+
+def _validate_occurrences(model: dict[str, Any], entity_ids: set[str]) -> None:
+    """Check the occurrence axis: one series, numbered once.
+
+    An occurrence names the class it counts within, the subject it
+    counts for and its 1-based position. Two events may not claim the
+    same position in the same series of the same source - that is what
+    makes "the second time" name ONE event.
+    """
+    asset_of_clock: dict[str, str] = {}
+    for clock in model.get("clocks", []):
+        domain = clock.get("domain") or {}
+        asset_id = domain.get("asset_id") if isinstance(domain, dict) else None
+        if isinstance(asset_id, str) and asset_id:
+            asset_of_clock[clock["id"]] = asset_id
+    claimed: set[tuple[str, str, str | None, int]] = set()
+    for event in model.get("events", []):
+        occurrence = event.get("occurrence")
+        if occurrence is None:
+            continue
+        klass = occurrence.get("class")
+        index = occurrence.get("index")
+        subject = occurrence.get("subject_id")
+        if not isinstance(klass, str) or not klass.strip():
+            raise ValueError("an event occurrence names its class")
+        if type(index) is not int or index < 1:
+            raise ValueError("an event occurrence index is 1-based")
+        if subject is not None:
+            if subject not in entity_ids:
+                raise ValueError("event occurrence references unknown subject")
+            if subject not in (event.get("participant_ids") or []):
+                raise ValueError(
+                    "event occurrence names a subject the event does not "
+                    "carry as a participant")
+        clock_id = (event.get("interval") or {}).get("clock_id")
+        asset_id = asset_of_clock.get(clock_id, "")
+        key = (asset_id, klass.strip(), subject, index)
+        if key in claimed:
+            raise ValueError(
+                f"two events claim occurrence {index} of "
+                f"{klass!r} for the same subject and source")
+        claimed.add(key)
 
 
 def read_project_model(path: Path) -> dict[str, Any]:

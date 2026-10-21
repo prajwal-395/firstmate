@@ -747,6 +747,17 @@
         "kind": {
           "type": "string"
         },
+        "occurrence": {
+          "description": "Which time a REPEATED event happened.\n\nAn event class (the `kind`) plus a subject names a series: the\nsecond time this person brings the device to their mouth. The\nindex is 1-based within that series, and it is the index - not\nthe event's own id - that survives a re-measure of the same\nsource, so a receipt that names the second occurrence still\nnames it after the lane ran again.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EventOccurrence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "parent_event_ids": {
           "description": "Canonical parent events for multiresolution retrieval. Several\nparents are allowed because a fine event can belong to both a scene\nand a longer sequence.",
           "type": "array",
@@ -790,6 +801,34 @@
         "status",
         "certainty",
         "evidence_ids"
+      ]
+    },
+    "EventOccurrence": {
+      "description": "One occurrence of a repeated event, inside its class and subject.\n\nThe class is the event's own `kind`; the subject is the entity the\noccurrence counts for. An event that names no participant counts\nwithin the class alone, and says so with an absent `subject_id`\nrather than with a subject nobody measured.",
+      "type": "object",
+      "properties": {
+        "class": {
+          "description": "The repeated class this occurrence belongs to.",
+          "type": "string"
+        },
+        "index": {
+          "description": "1-based position within (class, subject).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "subject_id": {
+          "description": "The subject the occurrence counts for, when the event names one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "class",
+        "index"
       ]
     },
     "EventStateChange": {

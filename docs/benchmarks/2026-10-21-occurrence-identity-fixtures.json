@@ -1,0 +1,93 @@
+{
+  "corpus_id": "occurrence-identity-fixtures/1",
+  "created": "2026-10-21",
+  "lane": "g-m0-l1-occurrence-identity",
+  "what_this_is": "A frozen corpus of REPEATED events, used to measure the occurrence axis: repeat-event recall, occurrence-index exactness, and index stability across a re-measure.",
+  "provenance": {
+    "source_of_the_moments": "IMG_1822 (Apple 001 corpus), the first 48.0 s of the take, copied to a Ren-owned scratch file at 30 fps. The three moments are the occurrences the M0 baseline report adjudicated by eye on 30 fps frame strips: the device reaching the mouth at ~17-19 s, ~33.3-33.7 s and ~47 s.",
+    "adjudication": "AGENT-ADJUDICATED, NOT HUMAN. The M0 baseline report records the occurrence-2 band as 33.30-33.70 s (+/- 6 frames) and says a human adjudicator must re-freeze it before the case is used as a scored benchmark. This corpus inherits that status: it measures the AXIS (which occurrence is named), not the frame accuracy of an onset.",
+    "why_five_fixtures_from_one_measurement": "The axis is a function of (class, subject, source, time order). The five fixtures are the SAME three measured moments replayed under the five combinations the axis has to keep apart: one subject; a second subject; a second take; two classes; and one class spread over two takes. Nothing here is invented footage: every moment is a measured one.",
+    "not_a_benchmark_of_detection": "These fixtures do NOT measure whether the engine FINDS the moments. That is the event lane's measurement (M7), which was licence-blocked on this machine when this corpus was frozen. The corpus starts from moments already measured."
+  },
+  "fixtures": [
+    {
+      "id": "F1-one-subject",
+      "note": "The M0 case as measured: one subject, one class, one source.",
+      "asset_id": "asset-m0-take-1",
+      "clock_id": "clock-m0-take-1",
+      "subject_id": "person-1",
+      "class": "hand_near_mouth",
+      "occurrences": [
+        {"start_s": 17.0, "end_s": 19.0, "index": 1},
+        {"start_s": 33.3, "end_s": 33.7, "index": 2},
+        {"start_s": 47.0, "end_s": 47.4, "index": 3}
+      ]
+    },
+    {
+      "id": "F2-second-subject",
+      "note": "The same moments, counted for a DIFFERENT subject: the series is a class AND a subject.",
+      "asset_id": "asset-m0-take-1",
+      "clock_id": "clock-m0-take-1",
+      "subject_id": "person-2",
+      "class": "hand_near_mouth",
+      "occurrences": [
+        {"start_s": 17.0, "end_s": 19.0, "index": 1},
+        {"start_s": 33.3, "end_s": 33.7, "index": 2},
+        {"start_s": 47.0, "end_s": 47.4, "index": 3}
+      ]
+    },
+    {
+      "id": "F3-second-take",
+      "note": "The same moments in a SECOND source: the series is scoped to one source, so the numbering restarts there.",
+      "asset_id": "asset-m0-take-2",
+      "clock_id": "clock-m0-take-2",
+      "subject_id": "person-1",
+      "class": "hand_near_mouth",
+      "occurrences": [
+        {"start_s": 17.0, "end_s": 19.0, "index": 1},
+        {"start_s": 33.3, "end_s": 33.7, "index": 2},
+        {"start_s": 47.0, "end_s": 47.4, "index": 3}
+      ]
+    },
+    {
+      "id": "F4-two-classes",
+      "note": "The same moments split across two classes: the class is part of the series, so the second class's first occurrence is the FIRST of that class.",
+      "asset_id": "asset-m0-take-1",
+      "clock_id": "clock-m0-take-1",
+      "subject_id": "person-1",
+      "class": "hand_near_mouth",
+      "occurrences": [
+        {"start_s": 17.0, "end_s": 19.0, "index": 1},
+        {"start_s": 33.3, "end_s": 33.7, "index": 2}
+      ],
+      "other_series": [
+        {
+          "class": "object_pickup",
+          "occurrences": [
+            {"start_s": 47.0, "end_s": 47.4, "index": 1}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "F5-one-class-two-takes",
+      "note": "One class, one subject, two sources: the second take's occurrences must not continue the first take's numbering, and an unscoped query must be refused rather than answered from whichever take came first.",
+      "asset_id": "asset-m0-take-1",
+      "clock_id": "clock-m0-take-1",
+      "subject_id": "person-1",
+      "class": "hand_near_mouth",
+      "occurrences": [
+        {"start_s": 17.0, "end_s": 19.0, "index": 1},
+        {"start_s": 33.3, "end_s": 33.7, "index": 2}
+      ],
+      "other_source": {
+        "asset_id": "asset-m0-take-2",
+        "clock_id": "clock-m0-take-2",
+        "occurrences": [
+          {"start_s": 5.0, "end_s": 6.0, "index": 1},
+          {"start_s": 9.0, "end_s": 10.0, "index": 2}
+        ]
+      }
+    }
+  ]
+}
