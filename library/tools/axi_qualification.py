@@ -414,11 +414,36 @@ def _evidence_record(report: dict[str, Any], required: tuple[str, ...]
     }
 
 
+def _no_duplicate_keys(pairs: list) -> dict:
+    """Read a JSON object, refusing one that names a key twice.
+
+    A registry that names one operation/backend pair twice is a file two
+    lanes wrote: `json.loads` keeps the LAST copy and drops the first
+    silently, so the row the registry serves is whichever copy landed
+    last - and the other copy is invisible to every reader.  A merge
+    that produced this file is exactly how it happened: the same pair
+    promoted on two branches, each committed in its own place.
+
+    A reader cannot be shown a row the file contradicts itself about, so
+    the registry is refused instead of half-read.  The fix is a file
+    with one row per pair.
+    """
+    seen: dict = {}
+    for key, value in pairs:
+        if key in seen:
+            raise QualificationReportError(
+                f"the qualification registry names {key!r} twice: a reader "
+                "cannot be shown two rows for one operation/backend pair")
+        seen[key] = value
+    return seen
+
+
 def _read_registry(path: Path) -> dict:
     if not path.exists():
         return {"schema": REGISTRY_SCHEMA, "records": {},
                 "compound_records": {}}
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"),
+                         object_pairs_hook=_no_duplicate_keys)
     if payload.get("schema") != REGISTRY_SCHEMA or not isinstance(
             payload.get("records"), dict):
         raise QualificationReportError(f"invalid qualification registry: {path}")

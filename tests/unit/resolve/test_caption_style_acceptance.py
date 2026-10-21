@@ -137,6 +137,13 @@ def test_the_broker_script_builds_its_caption_operations_through_the_builder():
         try:
             tree = ast.parse(source)
         except SyntaxError:
+            # A script that NAMES the builder and cannot be parsed is a
+            # script no reader can read: the count below would skip it
+            # and the gate would pass on nothing.  The broker template is
+            # parseable Python, so this is a defect, not a shape.
+            assert "caption_style_operation" not in source, (
+                "the live broker script names the shared builder and does "
+                "not parse as Python")
             continue
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

@@ -242,6 +242,12 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/transcript_fit.py",
         "library/tools/learned_context.py",
         'library/tools/analysis/footage_frames.py',
+        # The retrieval abstention the frame reader and the footage
+        # query reach, and the timeline structure the mutation
+        # verification and the reel builder read: a fix to either
+        # changes what the cached preflight rows resolve through.
+        'library/tools/retrieval/abstention.py',
+        'library/tools/timeline_structure.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -376,6 +382,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_semantic_visual.py',
         'library/tools/reel_state.py',
         'library/tools/reel_touchup.py',
+        # The touch route the built-reel touch-up takes (PR 3077), and
+        # the audio operations the algebra and the operation map reach
+        # through it: a fix to either changes what the cached preflight
+        # rows resolve through.
+        'library/tools/touchup_direct.py',
+        'library/tools/audio_operations.py',
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi_core_commands.py',
@@ -879,6 +891,12 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/transcript_fit.py",
         "library/tools/learned_context.py",
         'library/tools/analysis/footage_frames.py',
+        # The retrieval abstention the frame reader and the footage
+        # query reach, and the timeline structure the mutation
+        # verification and the reel builder read: a fix to either
+        # changes what the cached preflight rows resolve through.
+        'library/tools/retrieval/abstention.py',
+        'library/tools/timeline_structure.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -1016,6 +1034,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_semantic_visual.py',
         'library/tools/reel_state.py',
         'library/tools/reel_touchup.py',
+        # The touch route the built-reel touch-up takes (PR 3077), and
+        # the audio operations the algebra and the operation map reach
+        # through it: a fix to either changes what the cached preflight
+        # rows resolve through.
+        'library/tools/touchup_direct.py',
+        'library/tools/audio_operations.py',
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi_core_commands.py',
@@ -1598,6 +1622,12 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/transcript_fit.py",
         "library/tools/learned_context.py",
         'library/tools/analysis/footage_frames.py',
+        # The retrieval abstention the frame reader and the footage
+        # query reach, and the timeline structure the mutation
+        # verification and the reel builder read: a fix to either
+        # changes what the cached preflight rows resolve through.
+        'library/tools/retrieval/abstention.py',
+        'library/tools/timeline_structure.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/conversation_clock.py',
@@ -1735,6 +1765,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_semantic_visual.py',
         'library/tools/reel_state.py',
         'library/tools/reel_touchup.py',
+        # The touch route the built-reel touch-up takes (PR 3077), and
+        # the audio operations the algebra and the operation map reach
+        # through it: a fix to either changes what the cached preflight
+        # rows resolve through.
+        'library/tools/touchup_direct.py',
+        'library/tools/audio_operations.py',
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi_core_commands.py',
@@ -2242,6 +2278,12 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/run_restart.py",
         "library/tools/stable_json.py",
         'library/tools/analysis/footage_frames.py',
+        # The retrieval abstention the frame reader and the footage
+        # query reach, and the timeline structure the mutation
+        # verification and the reel builder read: a fix to either
+        # changes what the cached preflight rows resolve through.
+        'library/tools/retrieval/abstention.py',
+        'library/tools/timeline_structure.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/concurrency_routing.py',
@@ -2373,6 +2415,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_semantic_visual.py',
         'library/tools/reel_state.py',
         'library/tools/reel_touchup.py',
+        # The touch route the built-reel touch-up takes (PR 3077), and
+        # the audio operations the algebra and the operation map reach
+        # through it: a fix to either changes what the cached preflight
+        # rows resolve through.
+        'library/tools/touchup_direct.py',
+        'library/tools/audio_operations.py',
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi_core_commands.py',
@@ -2959,6 +3007,12 @@ STEP_IMPLEMENTATION_DEPS = {
         # capabilities read is exempt plumbing.)
         "library/tools/resource_scheduler.py",
         'library/tools/analysis/footage_frames.py',
+        # The retrieval abstention the frame reader and the footage
+        # query reach, and the timeline structure the mutation
+        # verification and the reel builder read: a fix to either
+        # changes what the cached preflight rows resolve through.
+        'library/tools/retrieval/abstention.py',
+        'library/tools/timeline_structure.py',
         'library/tools/analysis/footage_query.py',
         'library/tools/analysis/ocr_combined_query.py',
         'library/tools/conversation_clock.py',
@@ -3089,6 +3143,12 @@ STEP_IMPLEMENTATION_DEPS = {
         'library/tools/reel_semantic_visual.py',
         'library/tools/reel_state.py',
         'library/tools/reel_touchup.py',
+        # The touch route the built-reel touch-up takes (PR 3077), and
+        # the audio operations the algebra and the operation map reach
+        # through it: a fix to either changes what the cached preflight
+        # rows resolve through.
+        'library/tools/touchup_direct.py',
+        'library/tools/audio_operations.py',
         'library/tools/render_cache.py',
         'library/tools/render_qa.py',
         'library/tools/resolve_axi_core_commands.py',

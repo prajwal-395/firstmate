@@ -51,7 +51,8 @@ def _wired(monkeypatch, applied):
     monkeypatch.setattr(
         afc, "apply_fusion_comps_with_resolve",
         lambda resolve, manifest, project_folder, expected_project=None,
-        expected_timeline=None, step_id="render": applied.append(
+        expected_timeline=None, step_id="render",
+        expected_timeline_id="": applied.append(
             expected_timeline) or True)
 
 

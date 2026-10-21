@@ -328,7 +328,11 @@ CAPTION_TWO = "@AXC_CAPTION_TWO@"
 #: The media the fixture places, by the pool name it is placed under:
 #: the qualification recipe's clips and the deterministic still
 #: fixtures. Ren-owned scratch copies, rendered by the runner.
-FIXTURE_MEDIA = @AXC_MEDIA_PATHS@
+#: The placeholder is a JSON document in a string, so the TEMPLATE this
+#: script is written from is parseable Python: a reader - and the gate
+#: that checks how the script builds its operations - can read the
+#: script the runner writes, instead of a template no parser can read.
+FIXTURE_MEDIA = json.loads("""@AXC_MEDIA_PATHS@""")
 
 if not Path(PROJECT_DIR).is_dir():
     raise RuntimeError("batch project dir was not stamped by the runner")

@@ -244,6 +244,39 @@ def test_every_promoted_row_is_derived_from_a_committed_evidence_report():
     assert backing, "no promoted row is backed by a committed report"
 
 
+def test_a_registry_that_names_one_row_twice_is_refused(tmp_path):
+    """Two lanes promoted the same pair, and the file kept both copies.
+
+    `json.loads` keeps the LAST copy and drops the first without a
+    word, so the reader is shown one row of two and cannot tell which
+    one the other lane earned.  A registry that contradicts itself about
+    a pair is refused rather than half-read.
+    """
+    path = tmp_path / "registry.json"
+    path.write_text(
+        '{"schema": "ren-axi-qualification-registry/v1", "records": '
+        '{"clip.delete::resolve_axi": {"result": "passed"}, '
+        '"clip.delete::resolve_axi": {"result": "passed"}}, '
+        '"compound_records": {}}', encoding="utf-8")
+
+    with pytest.raises(axi_qualification.QualificationReportError,
+                       match="twice"):
+        axi_qualification.load_qualification_records(path)
+
+
+def test_the_shipped_registry_names_one_row_per_pair():
+    """The shipped file reads without the duplicate-row refusal.
+
+    The registry is written by several lanes, and two of them promoted
+    the same pair on different branches: the merge kept both copies, and
+    the reader silently served whichever landed last.  This is the gate
+    that says the shipped file holds one row per pair.
+    """
+    records = axi_qualification.load_qualification_records()
+
+    assert records, "the shipped registry holds no evidence-complete row"
+
+
 def test_registered_dispatch_refuses_a_backend_other_than_the_router_choice():
     from types import SimpleNamespace
 

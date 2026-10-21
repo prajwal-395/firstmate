@@ -42,6 +42,13 @@ algebra derives qualification and production enablement from a passing record
 with all required evidence. Historical test references remain visible as
 incomplete evidence until a result meets this schema.
 
+The registry names ONE row per operation/backend pair, and the reader refuses
+a file that names a pair twice (`library/tools/axi_qualification.py`). A
+merge that promoted the same pair on two branches kept both copies, and
+`json.loads` serves the last one while hiding the other - so the row the
+registry served was whichever copy landed last, and the evidence a reader
+could check back was the copy nobody could see.
+
 ## The disposable configurations
 
 A qualification earned on one timeline shape says nothing about another, so
