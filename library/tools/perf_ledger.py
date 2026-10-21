@@ -1283,6 +1283,7 @@ def report_sections(rows: list[dict[str, Any]],
     return {
         "stages": perf_report.stage_breakdown(rows, run_id),
         "tasks": perf_report.task_latency(rows, run_id),
+        "operations": perf_report.operation_split(rows, run_id),
         "cost_per_decision": perf_report.cost_per_verified_decision(
             rows, run_id),
         "model_cost": perf_report.model_cost(rows, run_id),
@@ -1554,6 +1555,7 @@ def render(report: dict[str, Any]) -> str:
     from library.tools import perf_report
     out.extend(perf_report.render_stages(report))
     out.extend(perf_report.render_tasks(report))
+    out.extend(perf_report.render_operations(report))
     out.extend(perf_report.render_cost(report))
     out.extend(perf_report.render_resources(report))
     return "\n".join(out)

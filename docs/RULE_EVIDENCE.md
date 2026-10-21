@@ -10816,3 +10816,44 @@ the invariant fails closed on it. The CANVAS is part of the accepted
 state: a comp re-authored on another canvas, and a reel whose delivery
 canvas changed, are both named (the second is Reel 26's signature, and
 the first is what a version comparison could not see).
+=======
+## the-refusal-that-arrived-as-a-crash
+
+Measured 2026-10-21, the PERF-001 rebenchmark of the execution layer
+(`docs/PERF001_EXECUTION_LAYER_REBENCH.md`).
+
+A touch on a Ren-owned scratch copy waited **4,607 s** in the broker's
+queue for the one Resolve, was finally granted the lease, and then
+refused to open its project - because the borrowed project could not be
+saved:
+
+```
+library.tools.resolve_project_open.ProjectOpenRefused: could not save
+'Ren Qualification'; not opening 'Ren Scratch - vep-bench-demo2'
+```
+
+What the operator got was a **Python traceback**, `REN_UNEXPECTED` and
+exit 1. `ProjectOpenRefused` was a plain `RuntimeError`, while every
+refusal beside it (`TouchupRefused`, `ResolveBusy`) is a `RenRefusal` -
+so the front door caught a refusal the engine had already DECIDED as an
+unexpected error, and rendered no what, no why and no fix.
+
+A refusal is a refusal, not a crash: the write did not happen either
+way, but the operator could not tell a refusal from a bug - and a
+person who waited an hour and a half for the answer had to read a
+traceback to find out that nothing had changed and what to do next.
+
+`ProjectOpenRefused` is now a `RenRefusal` (classified
+`resource_contention`), with a what, a why and a fix at each of its
+four raise sites; `tests/unit/resolve/test_resolve_project_open.py`
+names the defect.
+
+**The measurement around it.** The same rebenchmark found the largest
+remaining cost in the execution layer is the broker queue, not the
+engine: on current main, two operations cost 8,275.6 s of which
+**8,207.4 s (99.2%) was the wait for the one Resolve** and 64.8 s was
+Ren's own work - against October 20, when the same touch cost 58.5 s of
+work. The engine's speed did not regress; the queue grew. The
+per-operation split (queue wait / Resolve time / Ren time, with
+denominators) is now printed by `ren profile`, so that comparison is
+one command away instead of a subtraction over rows nobody can see.

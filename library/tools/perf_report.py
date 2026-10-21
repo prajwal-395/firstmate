@@ -230,6 +230,11 @@ def task_latency(rows: list[dict[str, Any]],
             "capability_s": round(capability_s, 3),
             "unattributed_s": round(max(0.0, latency - capability_s), 3),
             "capabilities": inside,
+            # The window the task occupied, so a reader can say which
+            # rows belong to it. `operation_split` attributes the lease
+            # spans to the task that was waiting when they ran.
+            "requested_at": start,
+            "completed_at": end,
         })
     reported.sort(key=lambda r: -(r["latency_s"] or 0.0))
     open_ids = sorted(set(requested) - set(completed))
@@ -239,6 +244,200 @@ def task_latency(rows: list[dict[str, Any]],
         "open_task_ids": open_ids,
         "total_latency_s": round(sum(r["latency_s"] for r in reported), 3),
     }
+
+
+# ── PERF-001: what an operation's wall was spent on ───────────────
+
+def operation_split(rows: list[dict[str, Any]],
+                    run_id: str | None = None) -> dict[str, Any]:
+    """Every operation's wall, split into queue wait, Resolve time and Ren time.
+
+    A person asking for an edit waits for three DIFFERENT things, and a
+    profile that folds them into one number cannot say which one to fix:
+
+    - QUEUE WAIT - the Resolve lease queue: the seconds the run spent
+      waiting to be allowed near the one Resolve (`resolve_wait` spans,
+      granted or refused);
+    - RESOLVE TIME - the seconds the run HELD Resolve (`resolve_hold`);
+    - REN TIME - everything else: the run's own work, the broker's
+      transport, the model's answers.
+
+    The three add up to the operation's wall. A split that lost a second
+    would be a second nobody could account for, so an overlap the
+    attribution found is REPORTED (`overlap_s`) rather than absorbed.
+
+    An operation that never asked for a lease has NO measured queue wait
+    and NO measured Resolve time: both are `None`, named as unmeasured,
+    because a zero would read as "the queue was free" - a fact nobody
+    measured.
+
+    Every class carries its DENOMINATOR: the number of operations it is
+    a mean of, and how many of them the split could not measure. Two
+    runs are compared class by class, never by adding their totals.
+    """
+    tasks = task_latency(rows, run_id).get("tasks") or []
+    if not tasks:
+        return {"operations": 0, "classes": [], "tasks": [],
+                "queue_wait_s": 0.0, "resolve_s": 0.0, "ren_s": 0.0,
+                "latency_s": 0.0, "unattributed_spans": 0,
+                "overlap_s": 0.0}
+
+    def _window(task: dict[str, Any]) -> tuple[float, float] | None:
+        start = task.get("requested_at")
+        end = task.get("completed_at")
+        if start is None or end is None:
+            return None
+        return (float(start), float(end))
+
+    windows = [(task, _window(task)) for task in tasks]
+    windows = [(task, window) for task, window in windows if window]
+    measured = {id(task): {"wait": 0.0, "hold": 0.0, "waits": 0, "holds": 0}
+                for task, _ in windows}
+
+    unattributed = 0
+    for span in rows:
+        if span.get("kind") != perf_ledger.SPAN:
+            continue
+        layer = str(span.get("layer") or "")
+        if layer not in (perf_ledger.RESOLVE_WAIT, perf_ledger.RESOLVE_HOLD):
+            continue
+        if run_id is not None and span.get("run_id") not in (None, run_id):
+            continue
+        start = float(span.get("started_at") or 0.0)
+        raw = (span.get("held_s") if layer == perf_ledger.RESOLVE_HOLD
+               else span.get("wall_s"))
+        length = float(raw or 0.0)
+        candidates = [(task, window) for task, window in windows
+                      if window[0] <= start <= window[1]
+                      and span.get("run_id") in (None, task.get("run_id"))]
+        if not candidates:
+            unattributed += 1
+            continue
+        # The innermost window wins: a task nested inside another task's
+        # window is the one that was waiting.
+        task, _ = min(candidates, key=lambda pair: pair[1][1] - pair[1][0])
+        bucket = measured[id(task)]
+        if layer == perf_ledger.RESOLVE_WAIT:
+            bucket["wait"] += length
+            bucket["waits"] += 1
+        else:
+            bucket["hold"] += length
+            bucket["holds"] += 1
+
+    per_task: list[dict[str, Any]] = []
+    for task, window in windows:
+        bucket = measured[id(task)]
+        latency = float(task.get("latency_s") or 0.0)
+        lease_attempts = bucket["waits"]
+        queue_wait = round(bucket["wait"], 3) if lease_attempts else None
+        resolve_s = round(bucket["hold"], 3) if lease_attempts else None
+        accounted = (queue_wait or 0.0) + (resolve_s or 0.0)
+        overlap = max(0.0, accounted - latency)
+        ren_s = round(max(0.0, latency - accounted), 3)
+        per_task.append({
+            "task_id": task.get("task_id"),
+            "task_class": task.get("task_class"),
+            "outcome": task.get("outcome"),
+            "run_id": task.get("run_id"),
+            "latency_s": round(latency, 3),
+            "queue_wait_s": queue_wait,
+            "resolve_s": resolve_s,
+            "ren_s": ren_s,
+            "lease_attempts": lease_attempts,
+            "holds": bucket["holds"],
+            "overlap_s": round(overlap, 3),
+            "measured": lease_attempts > 0,
+        })
+
+    classes: dict[str, dict[str, Any]] = {}
+    for row in per_task:
+        name = str(row.get("task_class") or "task")
+        bucket = classes.setdefault(name, {
+            "task_class": name, "operations": 0, "measured": 0,
+            "unmeasured": 0, "latency_s": 0.0, "queue_wait_s": 0.0,
+            "resolve_s": 0.0, "ren_s": 0.0, "overlap_s": 0.0,
+            "latencies": [], "waits": [], "resolves": [], "rens": [],
+            "outcomes": {},
+        })
+        bucket["operations"] += 1
+        bucket["latency_s"] += float(row["latency_s"])
+        bucket["latencies"].append(float(row["latency_s"]))
+        bucket["outcomes"][str(row.get("outcome") or "ok")] = (
+            bucket["outcomes"].get(str(row.get("outcome") or "ok"), 0) + 1)
+        bucket["overlap_s"] += float(row["overlap_s"])
+        if row["measured"]:
+            bucket["measured"] += 1
+            bucket["queue_wait_s"] += float(row["queue_wait_s"] or 0.0)
+            bucket["resolve_s"] += float(row["resolve_s"] or 0.0)
+            bucket["ren_s"] += float(row["ren_s"])
+            bucket["waits"].append(float(row["queue_wait_s"] or 0.0))
+            bucket["resolves"].append(float(row["resolve_s"] or 0.0))
+            bucket["rens"].append(float(row["ren_s"]))
+        else:
+            bucket["unmeasured"] += 1
+            bucket["ren_s"] += float(row["ren_s"])
+
+    rendered: list[dict[str, Any]] = []
+    for bucket in classes.values():
+        rendered.append({
+            "task_class": bucket["task_class"],
+            "operations": bucket["operations"],
+            "measured": bucket["measured"],
+            "unmeasured": bucket["unmeasured"],
+            "outcomes": bucket["outcomes"],
+            "latency_s": round(bucket["latency_s"], 3),
+            "latency_p50_s": perf_ledger.quantile(bucket["latencies"], 0.5),
+            "latency_max_s": (round(max(bucket["latencies"]), 3)
+                              if bucket["latencies"] else None),
+            "queue_wait_s": round(bucket["queue_wait_s"], 3),
+            "queue_wait_p50_s": perf_ledger.quantile(bucket["waits"], 0.5),
+            "resolve_s": round(bucket["resolve_s"], 3),
+            "resolve_p50_s": perf_ledger.quantile(bucket["resolves"], 0.5),
+            "ren_s": round(bucket["ren_s"], 3),
+            "ren_p50_s": perf_ledger.quantile(bucket["rens"], 0.5),
+            "overlap_s": round(bucket["overlap_s"], 3),
+        })
+    rendered.sort(key=lambda row: -row["latency_s"])
+
+    measured_rows = [row for row in per_task if row["measured"]]
+    return {
+        "operations": len(per_task),
+        "measured": len(measured_rows),
+        "unmeasured": len(per_task) - len(measured_rows),
+        "classes": rendered,
+        "tasks": per_task,
+        "latency_s": round(sum(row["latency_s"] for row in per_task), 3),
+        "queue_wait_s": round(sum(row["queue_wait_s"] or 0.0
+                                  for row in per_task), 3),
+        "resolve_s": round(sum(row["resolve_s"] or 0.0
+                               for row in per_task), 3),
+        "ren_s": round(sum(row["ren_s"] for row in per_task), 3),
+        "overlap_s": round(sum(row["overlap_s"] for row in per_task), 3),
+        "unattributed_spans": unattributed,
+    }
+
+
+def render_operations(report: dict[str, Any]) -> list[str]:
+    """The per-operation split: queue wait, Resolve time and Ren time."""
+    operations = report.get("operations") or {}
+    classes = operations.get("classes") or []
+    if not classes:
+        return []
+    out = ["", "Operations (what the person waited through):",
+           (f"  {'operation':<24} {'n':>4} {'latency s':>10} "
+            f"{'queue wait s':>13} {'resolve s':>10} {'ren s':>9}")]
+    for row in classes:
+        out.append(f"  {str(row.get('task_class'))[:24]:<24} "
+                   f"{row.get('operations', 0):>4} "
+                   f"{float(row.get('latency_s') or 0):>10.1f} "
+                   f"{float(row.get('queue_wait_s') or 0):>13.1f} "
+                   f"{float(row.get('resolve_s') or 0):>10.1f} "
+                   f"{float(row.get('ren_s') or 0):>9.1f}")
+    unmeasured = int(operations.get("unmeasured") or 0)
+    if unmeasured:
+        out.append(f"  {unmeasured} operation(s) asked for no lease: their "
+                   f"queue wait and Resolve time are unmeasured, not zero.")
+    return out
 
 
 # ── PERF-003: the waits, the opens and the cold start ─────────────

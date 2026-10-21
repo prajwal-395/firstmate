@@ -156,6 +156,137 @@ def test_a_task_that_never_completed_is_reported_as_open():
     assert report["open_task_ids"] == ["t1"]
 
 
+# ── PERF-001: the split an operation's wall is made of ────────────
+
+def _task_rows(task_id, task_class, start, end, outcome="ok"):
+    return [
+        {"kind": perf_ledger.TASK, "state": "requested", "task_id": task_id,
+         "task_class": task_class, "run_id": "r1", "requested_at": start},
+        {"kind": perf_ledger.TASK, "state": "completed", "task_id": task_id,
+         "task_class": task_class, "run_id": "r1", "requested_at": start,
+         "completed_at": end, "latency_s": end - start, "outcome": outcome},
+    ]
+
+
+def _lease(layer, started_at, seconds, **fields):
+    row = {"kind": perf_ledger.SPAN, "layer": layer, "run_id": "r1",
+           "capability": "axi.property_change", "started_at": started_at,
+           "wall_s": seconds, **fields}
+    if layer == perf_ledger.RESOLVE_HOLD:
+        row["held_s"] = seconds
+    return row
+
+
+def test_an_operation_is_split_into_queue_wait_resolve_time_and_ren_time():
+    """The three numbers an operation's wall is made of add up to its wall.
+
+    Defect caught: a profile that reported the lease queue and the
+    Resolve hold as separate numbers WITHOUT saying what was left over
+    - so a reader could not tell a fast operation from a slow one that
+    was mostly Ren's own work. Every second of the wall is named.
+    """
+    rows = _task_rows("t1", "axi.property_change", 0.0, 100.0) + [
+        _lease(perf_ledger.RESOLVE_WAIT, 1.0, 60.0, outcome="granted"),
+        _lease(perf_ledger.RESOLVE_HOLD, 61.0, 25.0, exclusive=True),
+    ]
+
+    split = perf_report.operation_split(rows, "r1")
+
+    task = split["tasks"][0]
+    assert task["queue_wait_s"] == 60.0
+    assert task["resolve_s"] == 25.0
+    assert task["ren_s"] == 15.0
+    assert (task["queue_wait_s"] + task["resolve_s"] + task["ren_s"]
+            == task["latency_s"])
+
+
+def test_an_operation_that_never_asked_for_a_lease_is_unmeasured_not_zero():
+    """No lease means no measured queue wait - never a zero queue wait.
+
+    Defect caught: a task that refused before it ever asked for Resolve
+    reporting a queue wait of 0.0s, which reads as "the queue was
+    free" - a fact nobody measured - and hides the refusal behind a
+    fast number.
+    """
+    rows = _task_rows("t1", "axi.property_change", 0.0, 4.0,
+                      outcome="exit 4")
+
+    split = perf_report.operation_split(rows, "r1")
+
+    task = split["tasks"][0]
+    assert task["queue_wait_s"] is None
+    assert task["resolve_s"] is None
+    assert task["measured"] is False
+    assert task["ren_s"] == 4.0
+    assert split["classes"][0]["unmeasured"] == 1
+
+
+def test_the_split_reports_the_denominator_it_is_a_mean_of():
+    """Each class says how many operations it is a mean of.
+
+    Defect caught: a class total read as "the cost of one operation" -
+    a property change that took 900s in the queue and one that took 3s
+    averaged into one number that describes neither.
+    """
+    rows = []
+    for index, (wait, hold) in enumerate(((10.0, 5.0), (30.0, 5.0))):
+        rows += _task_rows(f"t{index}", "axi.property_change",
+                           index * 100.0, index * 100.0 + 50.0)
+        rows.append(_lease(perf_ledger.RESOLVE_WAIT,
+                           index * 100.0 + 1.0, wait, outcome="granted"))
+        rows.append(_lease(perf_ledger.RESOLVE_HOLD,
+                           index * 100.0 + wait + 1.0, hold, exclusive=True))
+
+    split = perf_report.operation_split(rows, "r1")
+
+    row = split["classes"][0]
+    assert row["operations"] == 2
+    assert row["measured"] == 2
+    assert row["latency_s"] == 100.0
+    assert row["queue_wait_s"] == 40.0
+    assert row["resolve_s"] == 10.0
+    assert row["ren_s"] == 50.0
+    assert row["latency_p50_s"] == 50.0
+
+
+def test_a_lease_that_belongs_to_no_operation_is_not_charged_to_one():
+    """A lease span outside every operation's window is left alone.
+
+    Defect caught: every lease span in the ledger charged to the
+    operation nearest it in time - so a lane's own lease inflated
+    another lane's measured queue wait, and the comparison between two
+    runs became a comparison of who was on the machine.
+    """
+    rows = _task_rows("t1", "axi.property_change", 100.0, 120.0) + [
+        _lease(perf_ledger.RESOLVE_WAIT, 1.0, 60.0, outcome="granted"),
+    ]
+
+    split = perf_report.operation_split(rows, "r1")
+
+    assert split["tasks"][0]["queue_wait_s"] is None
+    assert split["unattributed_spans"] == 1
+
+
+def test_the_split_is_rendered_so_a_reader_sees_the_three_numbers():
+    """`ren profile` shows the split, so the measurement has a reader.
+
+    Defect caught: a split computed and never rendered - the punchlist
+    asks for the wall time of an operation split into queue wait,
+    Resolve time and Ren time, and a number nothing prints is a number
+    nobody reads.
+    """
+    rows = _task_rows("t1", "axi.property_change", 0.0, 100.0) + [
+        _lease(perf_ledger.RESOLVE_WAIT, 1.0, 60.0, outcome="granted"),
+        _lease(perf_ledger.RESOLVE_HOLD, 61.0, 25.0, exclusive=True),
+    ]
+
+    report = {"operations": perf_report.operation_split(rows, "r1")}
+    text = "\n".join(perf_report.render_operations(report))
+
+    assert "axi.property_change" in text
+    assert "60.0" in text and "25.0" in text and "15.0" in text
+
+
 # ── PERF-003: the waits, the opens and the cold start ──────────────
 
 def test_cold_and_warm_inference_are_separated_and_an_unsaid_one_is_unmeasured():

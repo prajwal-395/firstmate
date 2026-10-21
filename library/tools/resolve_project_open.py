@@ -40,9 +40,34 @@ from __future__ import annotations
 import contextlib
 import sys
 
+from library.tools.ren_refusal import RenRefusal
 
-class ProjectOpenRefused(RuntimeError):
-    """The named project could not be opened. Says why."""
+
+class ProjectOpenRefused(RenRefusal):
+    """The named project could not be opened. Says why, and what to do.
+
+    A REFUSAL, not a crash. The open project is global session state,
+    so refusing to open one is the engine protecting a write - and the
+    person waiting for that write is owed the refusal's own words
+    (what, why, fix), not a Python traceback.
+
+    Measured 2026-10-21 on this machine: a touch that waited 77 minutes
+    for the one Resolve was finally granted the lease, and then refused
+    to open its project - and reported `REN_UNEXPECTED` with a
+    traceback, because this family was a plain `RuntimeError` while
+    every refusal beside it (`TouchupRefused`, `ResolveBusy`) is a
+    `RenRefusal`. The write was refused either way; the operator could
+    not tell a refusal from a crash.
+    """
+
+    USER_MESSAGE = ("I could not open the project this change needs, so "
+                    "nothing changed. Resolve is busy with another "
+                    "session, or the project did not open. Try again once "
+                    "the other work finishes.")
+
+    BLOCKER = "resource_contention"
+    """Resolve's session is not free to be moved: another lane holds it,
+    or the project did not open where it was asked to."""
 
 
 def _report(message: str) -> None:
@@ -74,15 +99,23 @@ def opened(resolve, name: str):
         return
     if not exclusive_held():
         raise ProjectOpenRefused(
-            f"opening {name!r} needs the EXCLUSIVE instance lease: the "
-            f"open project is global session state, and a shared lease "
-            f"lets another writer move it while this block runs")
+            what=f"opening {name!r} needs the EXCLUSIVE instance lease: "
+                 f"the open project is global session state, and a shared "
+                 f"lease lets another writer move it while this block runs",
+            why="the instance lease was not held exclusively, so the open "
+                "project is not this write's to move",
+            fix="run the change under the exclusive instance lease - a "
+                "write that touches Resolve takes it - then re-run the "
+                "same command")
     manager = resolve.GetProjectManager()
     if manager is None:
         raise ProjectOpenRefused(
-            f"refusing to open {name!r}: GetProjectManager() returned None "
-            f"- Resolve is mid-switch or not fully loaded; retry after it "
-            f"settles instead of switching projects under it")
+            what=f"refusing to open {name!r}: GetProjectManager() returned "
+                 f"None - Resolve is mid-switch or not fully loaded",
+            why="Resolve's Project Manager was not available to open the "
+                "project with",
+            fix="retry after Resolve settles - the machine is switching "
+                "projects - then re-run the same command")
     current = manager.GetCurrentProject()
     current_name = (current.GetName() or "") if current else ""
     if current_name == name:
@@ -94,14 +127,21 @@ def opened(resolve, name: str):
     # is never reloaded, so there is nothing to save either.
     if found.get("reopenable", True) and not manager.SaveProject():
         raise ProjectOpenRefused(
-            f"could not save {found['project']!r}; not opening {name!r}")
+            what=f"could not save {found['project']!r}; not opening {name!r}",
+            why="the borrowed project could not be saved, and reopening it "
+                "would lose whatever it holds that Resolve has not written",
+            fix="wait for the session holding that project to finish, then "
+                "re-run the same command")
     qualification_project.switch_project(manager, name)
     live = manager.GetCurrentProject()
     if live is None or (live.GetName() or "") != name:
         raise ProjectOpenRefused(
-            f"{name!r} did not read back after the switch (Resolve has "
-            f"{(live.GetName() or '') if live else 'no project'!r}); "
-            f"reopen it by hand")
+            what=f"{name!r} did not read back after the switch (Resolve "
+                 f"has {(live.GetName() or '') if live else 'no project'!r})",
+            why="the project did not open, so a write would land in "
+                "whatever project is open instead",
+            fix=f"reopen {name!r} in Resolve by hand, then re-run the same "
+                "command")
     try:
         yield live
     finally:

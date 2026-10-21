@@ -205,6 +205,39 @@ def test_a_shared_lease_refuses_to_open_a_project(opened_project, monkeypatch):
     assert opened_project["manager"].loaded == []
 
 
+def test_a_refused_open_is_a_refusal_and_not_a_crash(opened_project, monkeypatch):
+    """A project that cannot be opened is REFUSED, in the refusal's words.
+
+    Defect caught: `ProjectOpenRefused` was a plain `RuntimeError`, so
+    the front door caught it as an UNEXPECTED error - the operator got
+    a Python traceback, `REN_UNEXPECTED` and exit 1, where every
+    refusal beside it (`TouchupRefused`, `ResolveBusy`) gives what, why
+    and fix and exit 4. Measured 2026-10-21 on this machine: a touch
+    that waited 77 minutes for the one Resolve was finally granted the
+    lease, refused to open its project, and reported exactly that
+    traceback - so a refusal the engine had already decided arrived
+    looking like a crash.
+    """
+    from library.tools import resolve_project_open
+    from library.tools.ren_refusal import UNEXPECTED_CODE, RenRefusal
+
+    _lease(monkeypatch)
+    manager = opened_project["manager"]
+    monkeypatch.setattr(manager, "SaveProject", lambda: False)
+    resolve = _FakeResolve(manager)
+
+    with pytest.raises(resolve_project_open.ProjectOpenRefused) as refused:
+        with resolve_project_open.opened(resolve, "Project B"):
+            pass
+
+    assert isinstance(refused.value, RenRefusal)
+    rendered = refused.value.render()
+    assert "refused" in rendered
+    assert "could not save" in rendered
+    assert refused.value.code != UNEXPECTED_CODE
+    assert refused.value.what and refused.value.why and refused.value.fix
+
+
 def test_a_broker_job_opens_the_project_it_names(opened_project, monkeypatch):
     """The job's own lease opens the project the job names.
 
