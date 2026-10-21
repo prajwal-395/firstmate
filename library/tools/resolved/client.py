@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from library.tools.ren_refusal import RenRefusal
+from library.tools.resolved import broker_paths
 
 #: Marks the broker's own executor thread: the work it runs must not
 #: queue behind itself, and `resolve-axi` there runs rather than
@@ -48,8 +49,8 @@ CONNECT_TIMEOUT_SECONDS = 2.0
 #: is interpreter startup and imports only - a few seconds at most.
 START_TIMEOUT_SECONDS = 15.0
 
-LOG_NAME = "ren-resolved.log"
-STARTER_LOCK_NAME = "ren-resolved.starter.lock"
+LOG_NAME = broker_paths.LOG_NAME
+STARTER_LOCK_NAME = broker_paths.STARTER_LOCK_NAME
 
 #: Opt-in for starting a DETACHED broker from inside the test suite.
 #: `ensure` raises rather than spawning where pytest runs and this is
@@ -90,8 +91,8 @@ class BrokerError(RuntimeError):
 def _path(path=None) -> Path:
     if path is not None:
         return Path(path)
-    from library.tools.resolved.server import socket_path
-    return socket_path()
+    from library.tools.resolved import broker_paths
+    return broker_paths.socket_path()
 
 
 def _open(path=None) -> Optional[socket.socket]:
@@ -230,26 +231,22 @@ def _in_pytest() -> bool:
 
 
 def _default_socket_path() -> Path:
-    """The production socket: where the broker serves with no redirect.
+    """The production socket: the machine's broker, whatever this
+    process isolated.
 
-    `resolve_lock.lock_dir` falls back to the system temp directory when
-    `PIPELINE_RESOLVE_LOCK_DIR` is unset, so this is the socket a call
-    reaches when nothing isolated it - the one a test must never start
-    or connect to.
+    Outside the test suite the broker's socket lives in the machine-wide
+    directory (`broker_paths.production_dir()`), so this is the socket a
+    call reaches when nothing isolated it - and the one a test must
+    never start or connect to.
     """
-    import tempfile
-
-    from library.tools.resolved.server import SOCKET_NAME
-    return Path(tempfile.gettempdir()) / SOCKET_NAME
+    from library.tools.resolved import broker_paths
+    return broker_paths.production_socket_path()
 
 
 def _is_default_socket(target: Path) -> bool:
     """True where `target` is the production socket, symlinks resolved."""
-    try:
-        return (os.path.realpath(target)
-                == os.path.realpath(_default_socket_path()))
-    except OSError:  # pragma: no cover - a path that cannot be read
-        return False
+    from library.tools.resolved import broker_paths
+    return broker_paths.is_production_socket(target)
 
 
 def _engine_root() -> Optional[Path]:
@@ -374,6 +371,8 @@ def _start_detached(path: Path) -> subprocess.Popen:
     if root is not None:
         env["PYTHONPATH"] = os.pathsep.join(
             p for p in (str(root), env.get("PYTHONPATH", "")) if p)
+    from library.tools.resolved import broker_paths
+    env[broker_paths.BROKER_DIR_TOLD_ENV] = str(path.parent)
     if _in_pytest():
         # A broker a test starts is a detached process the session
         # teardown stops; its shadow watcher must never read the live
@@ -392,11 +391,15 @@ def _start_detached(path: Path) -> subprocess.Popen:
                 "REN_RESOLVED_DAEMON=rust but ren-resolved is missing under "
                 f"{target} - run scripts/build_ren_resolved.sh")
         if binary is None:
-            argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]
+            argv = [_broker_python(), "-m", "library.tools.resolved", "serve",
+                    "--socket", str(path)]
         else:
-            argv = [str(binary), "serve"]
+            # The socket path is passed, not derived: the daemon and the
+            # client must never disagree about where the broker serves.
+            argv = [str(binary), "serve", str(path)]
     else:
-        argv = [_broker_python(), "-m", "library.tools.resolved", "serve"]
+        argv = [_broker_python(), "-m", "library.tools.resolved", "serve",
+                "--socket", str(path)]
     log = open(path.parent / LOG_NAME, "ab", buffering=0)
     try:
         return subprocess.Popen(
@@ -466,13 +469,17 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                 "ui_transaction and resolve_lock suites do), or stop "
                 "calling ensure on this path")
     # Guard: a client from a linked worktree must not auto-start the
-    # production broker either. The ping above means a broker already
-    # serving is used; with none serving, starting one here would serve
+    # MACHINE's broker. The ping above means a broker already serving
+    # is used; with none serving, starting one here would serve
     # production Resolve calls on unmerged code from a directory a
     # worktree tool may reclaim. `bin/ren` sets `REN_ENGINE_ROOT` to the
     # current checkout, so that variable cannot override this signal.
-    if (_is_default_socket(target)
-            and _is_linked_worktree(_engine_root())):
+    # The test suite is exempt: its broker is on a private socket, and
+    # the suite's own tests start brokers there.
+    if (not _in_pytest()
+            and _is_linked_worktree(_engine_root())
+            and (_is_default_socket(target)
+                 or broker_paths.is_machine_socket(target))):
         root = _engine_root()
         raise RenRefusal(
             what="not starting the production Resolve broker",

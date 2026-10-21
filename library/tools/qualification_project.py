@@ -1319,14 +1319,22 @@ def reset() -> dict:
 
 @contextmanager
 def _broker(directory: Path):
-    """A ren-resolved on its own socket, inheriting this process's lease."""
+    """A ren-resolved on its own socket, inheriting this process's lease.
+
+    A DELIBERATELY private broker: the socket path is named, so this
+    one keeps its own queue, state and markers instead of taking the
+    machine's broker's (the machine has one broker for its one
+    Resolve - `resolved/broker_paths`).
+    """
     from library.tools.resolved import client
     env = dict(os.environ, PIPELINE_RESOLVE_LOCK_DIR=str(directory),
                REN_SHADOW_DB=str(directory / "shadow.sqlite3"))
+    socket = directory / "ren-resolved.sock"
     process = subprocess.Popen(
-        [sys.executable, "-m", "library.tools.resolved", "serve"], env=env,
+        [sys.executable, "-m", "library.tools.resolved", "serve",
+         "--socket", str(socket)], env=env,
         cwd=str(Path(__file__).resolve().parents[2]))
-    path = directory / "ren-resolved.sock"
+    path = socket
     try:
         deadline = time.time() + 30
         while client.ping(path) is None:

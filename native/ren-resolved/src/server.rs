@@ -8,11 +8,13 @@
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::broker::Broker;
 use crate::protocol::{
@@ -27,10 +29,19 @@ pub const SOCKET_NAME: &str = "ren-resolved.sock";
 /// The database name, as the Python daemon's `DB_NAME`.
 pub const DB_NAME: &str = "ren-resolved.sqlite3";
 pub const LEASE_NAME: &str = "resolve_instance.lease.json";
+/// Serializes the bind itself, so two brokers cannot both pass the
+/// "nobody is serving" probe and one orphan the other.
+pub const BIND_LOCK_NAME: &str = "ren-resolved.bind.lock";
+/// An explicit override of the machine broker's directory.
+pub const BROKER_DIR_ENV: &str = "PIPELINE_RESOLVE_BROKER_DIR";
+/// The broker tells the processes it starts where its own directory is.
+pub const BROKER_DIR_TOLD_ENV: &str = "REN_RESOLVED_BROKER_DIR";
+/// The instance directory's override, as `resolve_lock` spells it.
+pub const INSTANCE_DIR_ENV: &str = "PIPELINE_RESOLVE_INSTANCE_DIR";
 
 /// The lock directory: `PIPELINE_RESOLVE_LOCK_DIR`, else the system temp -
 /// the same rule as `resolve_lock.lock_dir`. The broker's socket,
-/// database and cancel markers live here, per broker.
+/// database and cancel markers live in `broker_dir`, not here.
 pub fn lock_dir() -> std::path::PathBuf {
     if let Some(value) = std::env::var_os("PIPELINE_RESOLVE_LOCK_DIR") {
         let text = value.to_string_lossy().to_string();
@@ -48,25 +59,200 @@ pub fn lock_dir() -> std::path::PathBuf {
 /// explicit redirect the broker lock dir keeps isolating it; otherwise
 /// the system temp, whatever `PIPELINE_RESOLVE_LOCK_DIR` says.
 pub fn instance_lock_dir() -> std::path::PathBuf {
-    if let Some(value) = std::env::var_os("PIPELINE_RESOLVE_INSTANCE_DIR") {
+    if let Some(value) = std::env::var_os(INSTANCE_DIR_ENV) {
         let text = value.to_string_lossy().to_string();
         if !text.is_empty() {
             return std::path::PathBuf::from(text);
         }
     }
-    let in_tests = std::env::var_os("PYTEST_CURRENT_TEST").is_some_and(|v| !v.is_empty());
-    if in_tests {
+    if in_tests() {
         return lock_dir();
     }
     std::env::temp_dir()
 }
 
+/// Whether this process runs inside the test suite: the same signal
+/// `resolve_lock` uses, so the suite's brokers keep their own
+/// directory.
+fn in_tests() -> bool {
+    std::env::var_os("PYTEST_CURRENT_TEST").is_some_and(|v| !v.is_empty())
+}
+
+fn env_path(name: &str) -> Option<std::path::PathBuf> {
+    std::env::var_os(name).and_then(|value| {
+        let text = value.to_string_lossy().to_string();
+        if text.is_empty() {
+            None
+        } else {
+            Some(std::path::PathBuf::from(text))
+        }
+    })
+}
+
+/// The machine broker's directory OUTSIDE the test suite: where the
+/// production broker serves, whatever this process isolated.
+/// `PIPELINE_RESOLVE_INSTANCE_DIR` is deliberately NOT read here: it
+/// redirects the instance directory for a test that must not compete
+/// with the live captain, and a test's redirect is not the production
+/// socket.
+pub fn production_dir() -> std::path::PathBuf {
+    if let Some(path) = env_path(BROKER_DIR_ENV) {
+        return path;
+    }
+    std::env::temp_dir()
+}
+
+/// The directory this machine's ONE broker keeps its files in, when no
+/// socket has been named yet. Mirrors
+/// `resolved/broker_paths.broker_dir`: the machine-wide instance
+/// directory outside the test suite, the suite's private lock directory
+/// inside it.
+pub fn derived_dir() -> std::path::PathBuf {
+    if let Some(path) = env_path(BROKER_DIR_ENV) {
+        return path;
+    }
+    instance_lock_dir()
+}
+
+/// The socket this daemon serves on, once it is known.
+static SOCKET_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// Record the socket this daemon serves on. The broker's directory is
+/// the directory its socket lives in, so a deliberately private broker
+/// keeps its own queue, state and markers.
+pub fn set_socket_path(path: &Path) {
+    let _ = SOCKET_PATH.set(path.to_path_buf());
+}
+
+/// The broker's directory: the socket's own directory.
+///
+/// The broker tells the processes it starts where that is
+/// (`REN_RESOLVED_BROKER_DIR`), so a worker writes its cancellation
+/// markers beside the broker that queued the job.
+pub fn broker_dir() -> std::path::PathBuf {
+    if let Some(path) = env_path(BROKER_DIR_TOLD_ENV) {
+        return path;
+    }
+    if let Some(path) = SOCKET_PATH.get() {
+        return path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(derived_dir);
+    }
+    derived_dir()
+}
+
+/// The production broker's socket: the machine's, whatever this
+/// process isolated.
+pub fn production_socket_path() -> std::path::PathBuf {
+    production_dir().join(SOCKET_NAME)
+}
+
+/// Whether `path` is the production broker's socket.
+pub fn is_production_socket(path: &Path) -> bool {
+    let left = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let right = std::fs::canonicalize(production_socket_path())
+        .unwrap_or_else(|_| production_socket_path());
+    left == right
+}
+
+/// Whether `path` is the socket this machine's broker serves on.
+pub fn is_machine_socket(path: &Path) -> bool {
+    let machine = derived_dir().join(SOCKET_NAME);
+    let left = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let right = std::fs::canonicalize(&machine).unwrap_or(machine);
+    left == right
+}
+
+/// Whether this broker would be the machine's broker, started where it
+/// must not be: the machine's socket, served from a linked worktree.
+pub fn pointed_at_a_worker_worktree(path: &Path) -> bool {
+    let production = is_production_socket(path);
+    if !(production || is_machine_socket(path)) {
+        return false;
+    }
+    // The test suite's own private machine is exempt; the production
+    // socket never is.
+    if !production && in_tests() {
+        return false;
+    }
+    linked_worktree()
+}
+
+/// Whether the current directory is a LINKED git worktree - a checkout
+/// a worktree tool may reclaim. A broker started there would serve
+/// production Resolve calls on unmerged code.
+pub fn linked_worktree() -> bool {
+    let (Some(git_dir), Some(common_dir)) = (git_path("--git-dir"), git_path("--git-common-dir"))
+    else {
+        return false;
+    };
+    let left = std::fs::canonicalize(&git_dir).unwrap_or(git_dir);
+    let right = std::fs::canonicalize(&common_dir).unwrap_or(common_dir);
+    left != right
+}
+
+/// One absolute git path, or None where git cannot answer.
+fn git_path(flag: &str) -> Option<std::path::PathBuf> {
+    let directory = std::env::current_dir().ok()?;
+    let output = Command::new("git")
+        .args(["rev-parse", "--path-format=absolute", flag])
+        .current_dir(directory)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(text))
+    }
+}
+
+/// What a probe of a socket path found.
+pub enum Probe {
+    /// A broker answered.
+    Answer(String),
+    /// Something holds the socket but did not answer: a wedged broker.
+    /// Fail closed - its socket is not ours to take.
+    Silent,
+    /// Nobody holds the socket: the file is a dead broker's.
+    Absent,
+}
+
+/// Ask whoever holds `path` whether a broker is serving there.
+pub fn probe(path: &Path) -> Probe {
+    let stream = match std::os::unix::net::UnixStream::connect(path) {
+        Ok(stream) => stream,
+        Err(_) => return Probe::Absent,
+    };
+    let mut stream = stream;
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    if stream.write_all(b"{\"op\": \"ping\"}\n").is_err() {
+        return Probe::Silent;
+    }
+    let _ = stream.flush();
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    match reader.read_line(&mut line) {
+        Ok(0) => Probe::Silent,
+        Ok(_) => Probe::Answer(line),
+        Err(_) => Probe::Silent,
+    }
+}
+
 pub fn socket_path() -> std::path::PathBuf {
-    lock_dir().join(SOCKET_NAME)
+    if let Some(path) = SOCKET_PATH.get() {
+        return path.clone();
+    }
+    derived_dir().join(SOCKET_NAME)
 }
 
 pub fn db_path() -> std::path::PathBuf {
-    lock_dir().join(DB_NAME)
+    broker_dir().join(DB_NAME)
 }
 
 pub fn handoff_fence_path() -> std::path::PathBuf {
@@ -483,18 +669,65 @@ fn flock_is_held(directory: &Path) -> bool {
     }
 }
 
-/// Serve on the socket until `shutdown` or a signal.
+/// Bind the broker's socket, refusing one a live broker holds.
 ///
-/// `accept` blocks until a client arrives. The shutdown handler connects once
-/// after replying, waking the accept loop without imposing a polling delay on
-/// ordinary requests.
-pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
+/// The probe happens under a bind lock, so two brokers starting at once
+/// cannot both pass it and one orphan the other - and a socket a live
+/// broker holds is never taken from it: the daemon refuses, loudly,
+/// instead of unlinking somebody else's socket and binding a new one
+/// (measured 2026-10-20: a broker started from a worker worktree
+/// unlinked the running broker's socket, so two brokers drove the one
+/// Resolve and neither could be reached).
+pub fn bind_socket(path: &Path) -> std::io::Result<UnixListener> {
+    let directory = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(directory)?;
+    let bind_lock_path = directory.join(BIND_LOCK_NAME);
+    let bind_lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&bind_lock_path)?;
+    unsafe {
+        libc::flock(bind_lock.as_raw_fd(), libc::LOCK_EX);
+    }
+    let refusal = match probe(path) {
+        Probe::Answer(_) => Some(format!(
+            "ren-resolved: is already serving on {}",
+            path.display()
+        )),
+        Probe::Silent => Some(format!(
+            "ren-resolved: {} is held by a broker that did not answer - \
+             refusing to take its socket",
+            path.display()
+        )),
+        Probe::Absent => None,
+    };
+    if let Some(message) = refusal {
+        unsafe {
+            libc::flock(bind_lock.as_raw_fd(), libc::LOCK_UN);
+        }
+        return Err(std::io::Error::new(std::io::ErrorKind::AddrInUse, message));
+    }
     if path.exists() {
         // A dead broker's socket: nobody answers it.
         std::fs::remove_file(path).ok();
     }
     let listener = UnixListener::bind(path)?;
     std::fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+    unsafe {
+        libc::flock(bind_lock.as_raw_fd(), libc::LOCK_UN);
+    }
+    Ok(listener)
+}
+
+/// Serve on the socket until `shutdown` or a signal.
+///
+/// `accept` blocks until a client arrives. The shutdown handler connects once
+/// after replying, waking the accept loop without imposing a polling delay on
+/// ordinary requests.
+pub fn serve(path: &Path, daemon: Arc<Daemon>) -> std::io::Result<()> {
+    let listener = bind_socket(path)?;
     daemon.start_shadow_watcher();
     while let Ok((stream, _)) = listener.accept() {
         if daemon.shutdown.load(std::sync::atomic::Ordering::Acquire) {
@@ -600,6 +833,59 @@ fn handle_connection(stream: UnixStream, daemon: &Daemon, wake_path: &Path) {
         daemon
             .broker
             .release(&job_id, "done", "the client disconnected while holding");
+    }
+}
+
+#[cfg(test)]
+mod bind_tests {
+    use super::*;
+
+    /// The defect, measured 2026-10-20: a broker started from a worker
+    /// worktree UNLINKED the running broker's socket and bound its own,
+    /// so two brokers drove the one Resolve and the first could not be
+    /// reached at all. A second broker refuses a socket that answers,
+    /// and never takes it.
+    #[test]
+    fn a_second_broker_never_takes_a_serving_socket() {
+        let directory =
+            std::env::temp_dir().join(format!("ren-resolved-bind-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(SOCKET_NAME);
+        let listener = UnixListener::bind(&path).unwrap();
+        // The serving broker answers a ping, like the real one does.
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            let _ = reader.read_line(&mut line);
+            let _ = stream.write_all(b"{\"ok\":true,\"pid\":1}\n");
+            let _ = stream.flush();
+        });
+
+        let error = bind_socket(&path).unwrap_err();
+        assert!(
+            error.to_string().contains("already serving"),
+            "the second broker said: {error}"
+        );
+        assert!(
+            path.exists(),
+            "the serving broker's socket was taken from it"
+        );
+        server.join().unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    /// A socket nobody answers is a dead broker's: it is taken and
+    /// rebound, rather than refused.
+    #[test]
+    fn a_dead_brokers_socket_is_taken() {
+        let directory =
+            std::env::temp_dir().join(format!("ren-resolved-dead-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(SOCKET_NAME);
+        std::fs::write(&path, b"").unwrap();
+        assert!(bind_socket(&path).is_ok());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }
 

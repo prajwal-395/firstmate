@@ -48,25 +48,53 @@ fn main() {
         .get(1)
         .map(PathBuf::from)
         .unwrap_or_else(server::socket_path);
+    // The broker's directory is the directory its socket lives in, and
+    // the processes it starts are told where that is: a worker writes
+    // its cancellation markers beside the broker that queued the job.
+    server::set_socket_path(&socket_path);
+    std::env::set_var(
+        server::BROKER_DIR_TOLD_ENV,
+        server::broker_dir().to_string_lossy().to_string(),
+    );
     let db_path = socket_path
         .parent()
         .map(|dir| dir.join(server::DB_NAME))
         .unwrap_or_else(server::db_path);
 
+    // Refuse to be the machine's broker from a worker worktree: it
+    // would serve production Resolve calls on unmerged code, from a
+    // directory a worktree tool may reclaim.
+    if server::pointed_at_a_worker_worktree(&socket_path) {
+        eprintln!(
+            "ren-resolved: refusing to serve the machine broker on {} from a \
+             linked worktree - it would serve production Resolve calls on \
+             unmerged code; run it from the installed engine checkout",
+            socket_path.display()
+        );
+        std::process::exit(1);
+    }
+
     // Refuse a socket that already answers - one broker serves a socket.
-    if let Ok(mut probe) = std::os::unix::net::UnixStream::connect(&socket_path) {
-        use std::io::Write;
-        let _ = probe.write_all(b"{\"op\": \"ping\"}\n");
-        let _ = probe.flush();
-        use std::io::Read;
-        let mut answer = String::new();
-        if probe.read_to_string(&mut answer).is_ok() && !answer.is_empty() {
+    // The authoritative check happens under the bind lock, inside
+    // `server::serve`; this one fails fast, before the store is opened.
+    match server::probe(&socket_path) {
+        server::Probe::Answer(answer) => {
             eprintln!(
-                "ren-resolved: is already serving on {}",
+                "ren-resolved: is already serving on {} (it answered: {})",
+                socket_path.display(),
+                answer.trim()
+            );
+            std::process::exit(1);
+        }
+        server::Probe::Silent => {
+            eprintln!(
+                "ren-resolved: {} is held by a broker that did not answer - \
+                 refusing to take its socket",
                 socket_path.display()
             );
             std::process::exit(1);
         }
+        server::Probe::Absent => {}
     }
 
     let store = match store::JobStore::open(&db_path) {
@@ -96,12 +124,22 @@ fn main() {
     // replies to the client.
     let daemon_for_serve = Arc::clone(&daemon);
     let path = socket_path.clone();
-    let serve_thread = std::thread::spawn(move || {
-        let _ = server::serve(&path, daemon_for_serve);
-    });
+    let serve_thread = std::thread::spawn(move || server::serve(&path, daemon_for_serve));
 
-    // Wait for the serve thread to finish (on shutdown or an error).
-    let _ = serve_thread.join();
+    // Wait for the serve thread to finish (on shutdown, on a refusal, or
+    // on an error). A refusal - somebody else already serves this
+    // socket - is a failure to serve, and says so.
+    match serve_thread.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("ren-resolved: the serve thread panicked");
+            std::process::exit(1);
+        }
+    }
     eprintln!(
         "{} ren-resolved: stopping (pid {})",
         broker_now(),

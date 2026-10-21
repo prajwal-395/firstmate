@@ -420,7 +420,7 @@ impl Broker {
                 "{} has no safe running cancellation path; Resolve remains shielded until it finishes",
                 job.kind));
         }
-        let marker = crate::server::lock_dir()
+        let marker = crate::server::broker_dir()
             .join("ren-resolved-cancel")
             .join(job_id);
         std::fs::create_dir_all(marker.parent().unwrap())
@@ -917,6 +917,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&scratch).unwrap();
         std::env::set_var("PIPELINE_RESOLVE_LOCK_DIR", &scratch);
+        // The broker's own directory: where its cancellation markers
+        // live, beside the socket it serves on.
+        std::env::set_var(crate::server::BROKER_DIR_TOLD_ENV, &scratch);
         let db = scratch.join("jobs.sqlite3");
         let store = Arc::new(JobStore::open(&db).unwrap());
         let broker = Broker::new(Arc::clone(&store));
@@ -990,6 +993,7 @@ mod tests {
         drop(broker);
         drop(store);
         std::env::remove_var("PIPELINE_RESOLVE_LOCK_DIR");
+        std::env::remove_var(crate::server::BROKER_DIR_TOLD_ENV);
         std::fs::remove_dir_all(scratch).unwrap();
     }
 }

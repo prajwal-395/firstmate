@@ -37,7 +37,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from library.tools.resolved import cancellation, scheduler
+from library.tools.resolved import broker_paths, cancellation, scheduler
 from library.tools.resolved import jobs as job_kinds
 from library.tools.resolved.cancellation import CancelRequested, clear
 from library.tools.resolved.store import (
@@ -51,9 +51,12 @@ try:
 except ImportError:  # pragma: no cover - not POSIX
     fcntl = None
 
-SOCKET_NAME = "ren-resolved.sock"
-DB_NAME = "ren-resolved.sqlite3"
-BIND_LOCK_NAME = "ren-resolved.bind.lock"
+#: The names live in `broker_paths`, the one owner of where this
+#: machine's broker keeps its files; they are re-exported here because
+#: the daemon, the client and the tests all speak them.
+SOCKET_NAME = broker_paths.SOCKET_NAME
+DB_NAME = broker_paths.DB_NAME
+BIND_LOCK_NAME = broker_paths.BIND_LOCK_NAME
 
 #: How long a job worker waits out a transient in-process shared hold
 #: before taking its exclusive lease, instead of failing the job on
@@ -86,13 +89,18 @@ def _log_broker(message: str) -> None:
 
 
 def socket_path() -> Path:
-    from library.tools.resolve_lock import lock_dir
-    return lock_dir() / SOCKET_NAME
+    """The machine's broker socket.
+
+    Machine-wide, not per checkout: the broker's identity is the
+    machine's, so every checkout and worktree on it names the same
+    broker (`broker_paths`).
+    """
+    return broker_paths.socket_path()
 
 
 def db_path() -> Path:
-    from library.tools.resolve_lock import lock_dir
-    return lock_dir() / DB_NAME
+    """The broker's queue and job state, beside its socket."""
+    return broker_paths.db_path()
 
 
 class Broker:
@@ -671,6 +679,36 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
+def _refuse_a_broker_pointed_at_a_worker_worktree(path: Path, client) -> None:
+    """Refuse to start the machine's broker from a worker worktree.
+
+    A broker started in a worktree serves production Resolve calls on
+    UNMERGED code, from a directory a worktree tool may reclaim
+    (measured 2026-10-05: a branch broker held the production socket
+    and one branch then refused every reel build). The machine's
+    broker is started by the installed engine; a deliberately private
+    broker - one that names its own socket path - is not the machine's
+    broker and is left alone.
+
+    The test suite is exempt for its own private machine: the suite's
+    brokers sit on a private socket, and the suite's own tests start
+    them. The PRODUCTION socket is never exempt.
+    """
+    production = broker_paths.is_production_socket(path)
+    if not (production or broker_paths.is_machine_socket(path)):
+        return
+    if not production and broker_paths._in_test_suite():
+        return
+    root = client._engine_root()
+    if not client._is_linked_worktree(root):
+        return
+    raise SystemExit(
+        f"ren-resolved: refusing to serve the machine broker on {path} "
+        f"from a linked worktree ({root}) - it would serve production "
+        "Resolve calls on unmerged code from a directory a worktree tool "
+        "may reclaim; run it from the installed engine checkout")
+
+
 def serve(path: Path | None = None, connect=None) -> None:
     """Run the broker in the foreground until `shutdown` or a signal.
 
@@ -684,6 +722,7 @@ def serve(path: Path | None = None, connect=None) -> None:
     from library.tools.resolved import client
     path = Path(path or socket_path())
     path.parent.mkdir(parents=True, exist_ok=True)
+    _refuse_a_broker_pointed_at_a_worker_worktree(path, client)
     # The stale-worker guard at startup: a broker whose code predates
     # the shadow DB schema refuses to serve, with the restart remedy,
     # instead of failing every first-record shadow write while re-reads
@@ -708,6 +747,12 @@ def serve(path: Path | None = None, connect=None) -> None:
                 raise SystemExit(f"ren-resolved is already serving on {path}")
             if path.exists():
                 path.unlink()           # a dead broker's socket: nobody answers it
+            # The broker tells the processes it starts where its own
+            # directory is: a worker writes its cancellation markers
+            # beside the broker that queued the job, not beside the
+            # machine's default. Set once the broker owns the socket,
+            # so a refused serve leaves no trace behind.
+            os.environ[broker_paths.BROKER_DIR_TOLD_ENV] = str(path.parent)
             store = JobStore(path.parent / DB_NAME)
             broker = Broker(store, connect=connect)
             from library.tools import resolve_watchdog

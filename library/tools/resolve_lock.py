@@ -171,15 +171,19 @@ class CaptainPresent(ResolveBusy):
 # one app, and a per-project lock would let them both in.
 #
 # The lease is keyed to the Resolve INSTANCE, not to the broker's lock
-# dir: a scratch broker (`PIPELINE_RESOLVE_LOCK_DIR` pointed at a
-# private dir for its own socket, shadow DB and job state) still drives
-# the same one Resolve, so its exclusive section must queue on the same
-# flock. The broker's socket, database, starter lock and log stay per
-# lock dir (`lock_dir()`); the instance flock, lease record, captain's
-# signal and activity-overlay singleton live per instance
-# (`instance_lock_dir()`). 2026-10-15 (F1 of the A4 reference
+# dir: a deliberately private broker (`PIPELINE_RESOLVE_LOCK_DIR`
+# pointed at a private dir, or a broker that names its own socket)
+# still drives the same one Resolve, so its exclusive section must
+# queue on the same flock. The machine broker's socket, database,
+# starter lock and log live beside this lease, in the machine's broker
+# directory (`resolved/broker_paths`); the instance flock, lease
+# record, captain's signal and activity-overlay singleton live per
+# instance (`instance_lock_dir()`). 2026-10-15 (F1 of the A4 reference
 # workflow): two scratch brokers on two sockets both held the exclusive
-# lease at once, because each flocked its own file.
+# lease at once, because each flocked its own file. 2026-10-20: the
+# broker's socket moved to the machine's directory with the lease, so a
+# lane that redirected the lock dir no longer started a SECOND broker
+# against the one Resolve - it found the machine's.
 #
 # `PIPELINE_RESOLVE_INSTANCE_DIR` redirects the instance dir, which is
 # how a test exercises contention without competing with a live
@@ -236,10 +240,11 @@ def _in_test_suite() -> bool:
 def instance_lock_dir() -> Path:
     """Where the Resolve INSTANCE lease lives: one per machine.
 
-    The broker's socket/database stay in `lock_dir()` (redirectable per
-    broker, so a scratch broker keeps its private queue and job state);
-    the flock, lease record, captain's signal and overlay singleton
-    live here, shared by every broker driving the one Resolve.
+    The machine broker's socket and queue live here too
+    (`resolved/broker_paths`), so the one broker and the one lease it
+    serves are one machine's state. Inside the test suite the instance
+    dir follows `PIPELINE_RESOLVE_LOCK_DIR`, so the suite's private
+    directory keeps isolating both.
     """
     override = os.environ.get(INSTANCE_LOCK_DIR_ENV)
     if override:

@@ -121,6 +121,13 @@ impl Worker {
             // instance lock while it works, so one that outlives its
             // broker holds the one Resolve against everyone else.
             .env(BROKER_PID_ENV, std::process::id().to_string())
+            // The broker's directory, so the worker writes its
+            // cancellation markers beside the broker that queued the
+            // job rather than beside the machine's default.
+            .env(
+                crate::server::BROKER_DIR_TOLD_ENV,
+                crate::server::broker_dir().to_string_lossy().to_string(),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

@@ -64,12 +64,21 @@ starter lock serializes concurrent starters, so one broker serves a
 socket; `ren resolved stop` is the clean stop. A broker that dies is
 restarted by the next client that calls.
 
-Socket and database live in `resolve_lock.lock_dir()` (per broker, so
-`PIPELINE_RESOLVE_LOCK_DIR` isolates a test's broker and a scratch
-broker keeps its private queue and job state); the instance flock,
-lease record and captain's signal live in
-`resolve_lock.instance_lock_dir()` (machine-wide, so every broker
-driving the one Resolve queues on the same lease).
+The broker's identity is the MACHINE's, not a checkout's: its socket,
+database, log, starter lock, bind lock and cancellation markers live
+in ONE directory per machine, beside the machine-wide instance lease
+(`resolved/broker_paths`). Every checkout, worktree and lane on this
+machine therefore names the SAME broker - `ensure` finds the broker
+that is serving and uses it, `serve` refuses to start a second one,
+and `status` reports the one that serves. Measured 2026-10-20: the
+broker's socket followed a lane's private lock dir, so three brokers
+served at once against the one Resolve (four writers, and the
+project-switch and timeline-count races that came with them) while
+`ren resolved status` from the primary checkout reported "no broker is
+serving". A deliberately private broker still exists - one that NAMES
+its own socket path (the qualification harness) - and keeps its own
+queue, state and markers.
 `tests/unit/resolve/test_resolve_lock.py`,
-`tests/unit/resolve/test_ensure.py`.
+`tests/unit/resolve/test_ensure.py`,
+`tests/unit/resolve/test_single_broker.py`.
 """

@@ -22,7 +22,12 @@ def main(argv=None) -> int:
         prog="ren resolved",
         description="The broker in front of the one Resolve instance.")
     verbs = parser.add_subparsers(dest="verb", required=True)
-    verbs.add_parser("serve", help="run the broker in the foreground")
+    serve = verbs.add_parser("serve", help="run the broker in the foreground")
+    serve.add_argument(
+        "--socket",
+        help="serve on this socket instead of the machine's; a "
+             "deliberately private broker (the qualification harness), "
+             "never a second broker for the one Resolve")
     verbs.add_parser("ensure",
                      help="start the broker detached if none is serving")
     verbs.add_parser("status", help="is a broker serving, and what lease it holds")
@@ -63,7 +68,7 @@ def main(argv=None) -> int:
 
     if args.verb == "serve":
         from library.tools.resolved.server import serve
-        serve()
+        serve(path=args.socket)
         return 0
     if args.verb == "kpi":
         from library.tools.resolved import kpi as kpi_report

@@ -280,7 +280,9 @@ def test_the_rust_broker_spawns_with_the_built_binary(tmp_path, monkeypatch):
         assert seen and seen[0][0] == str(fake_binary), (
             f"the Rust broker ({label}) would spawn with "
             f"{seen[0][0] if seen else 'nothing'} instead of {fake_binary}")
-        assert seen[0][1:] == ["serve"]
+        # The socket is NAMED, not derived: the daemon and the client
+        # must never disagree about where the broker serves.
+        assert seen[0][1:] == ["serve", str(sock_dir / SOCKET_NAME)]
 
 
 # ── 2. The incident's shape, replayed in a subprocess ────────────────

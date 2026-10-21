@@ -42,8 +42,14 @@ class CancelRequested(Exception):
 
 
 def marker_path(job_id: str) -> Path:
-    from library.tools.resolve_lock import lock_dir
-    return lock_dir() / "ren-resolved-cancel" / job_id
+    """Where the marker for this job lives.
+
+    Beside the broker that queued the job: the broker's directory is
+    the directory its socket lives in, so a worker the broker started
+    writes and reads the same markers its broker does.
+    """
+    from library.tools.resolved import broker_paths
+    return broker_paths.cancel_dir() / job_id
 
 
 def begin(job_id: str) -> None:
