@@ -1996,6 +1996,47 @@ def _timelines_by_name(project) -> dict:
     return found
 
 
+def _archive_replaced_generation(project_folder: str, project, timeline,
+                                 final: str) -> dict:
+    """Archive the generation a variant choice is about to replace.
+
+    The same rule the touch-up follows (VC-002): the generation that is
+    being replaced is archived BEFORE it is replaced, and the outcome
+    is recorded either way - a choice that cannot export the archive
+    still retires the incumbent under a new name, so the state is not
+    lost, only its archive is.
+    """
+    from library.tools.versions import replaced_generation, reel_versions
+
+    if timeline is None:
+        return {"status": "untracked",
+                "reason": "there is no incumbent generation to archive"}
+    history = reel_versions.versions_of(project_folder, final)
+    entry = history[-1] if history else None
+    if entry is None:
+        return {"status": "untracked",
+                "reason": "the generation being replaced is not a "
+                          "recorded version"}
+    receipt = reel_versions.live_receipt(entry)
+    if receipt is not None and reel_versions.archive_verifies(receipt):
+        return {"status": "verified", "receipt": dict(receipt), "reason": ""}
+    from library.tools.reel_build import _connect_resolve
+    try:
+        resolve = _connect_resolve()
+    except Exception as exc:  # noqa: BLE001 - the reason is the record
+        return {"status": "unavailable",
+                "reason": f"no Resolve handle to export the archive: {exc!r}"}
+    outcome = replaced_generation.ensure_archived(
+        resolve=resolve, project=project, timeline=timeline,
+        project_folder=project_folder, entry=entry,
+        label=f"generation replaced by a variant choice on {final}")
+    if outcome["status"] == "exported":
+        reel_versions.attach_recovery_archive(
+            project_folder, final, int(entry["version"]),
+            outcome["receipt"])
+    return outcome
+
+
 @under_lease("choose reel variant")
 def choose(project, pool, project_folder, reel_number: int,
            base_final: str, chosen_suffix: str, why: str,
@@ -2169,6 +2210,15 @@ def choose(project, pool, project_folder, reel_number: int,
             from changed
 
     if plan["retire"]:
+        # VC-002: the generation this choice REPLACES is archived before
+        # it is replaced - with its identity, its structure and its
+        # media - so the approved cut is recoverable afterwards and not
+        # only inside the version ledger's rows. The outcome is
+        # RECORDED: the incumbent is retired under a new name, so it
+        # stays in the project, and a choice that cannot archive it
+        # still leaves the reel's name to the chosen variant.
+        report["replaced_generation_archive"] = _archive_replaced_generation(
+            project_folder, project, live.get(base_final), base_final)
         outcome = retire.retire_timelines(
             project, pool, {base_final: live[base_final]},
             {base_final: retire.parse_archived(plan["retire"][1])[1]})

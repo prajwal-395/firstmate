@@ -12641,15 +12641,19 @@ def _archive_inventory_against_snapshot(archive: dict,
 
 def _archive_retiring_generation(resolve, project, timeline,
                                  project_folder: str) -> dict:
-    """Export and inventory-check the exact retiring Resolve object."""
-    import hashlib
-    import json
-    from pathlib import Path
+    """Archive the EXACT generation this promotion is about to replace.
 
+    VC-002: the recovery archive must represent the generation being
+    replaced - its identity, its structure and its media - and it must
+    exist BEFORE the replacement, so the replaced generation can be
+    put back. The work is `library/tools/versions/replaced_generation.py`
+    (one routine, every path that replaces a generation); this is the
+    promotion's use of it, and the promotion FAILS CLOSED: a
+    generation that cannot be archived is not replaced.
+    """
     from library.tools import reel_replace_guard
-    from library.tools.resolve_archive import read_archive
-    from library.tools.versions import rounds
-    from library.tools.versions import reel_versions, store
+    from library.tools.versions import replaced_generation
+    from library.tools.versions import reel_versions, rounds
 
     if resolve is None:
         resolve = _connect_resolve()
@@ -12660,102 +12664,34 @@ def _archive_retiring_generation(resolve, project, timeline,
             f"REFUSING to replace {timeline.GetName()!r}: retiring timeline "
             "has no Resolve unique id.",
             failure_class=PromotionFailure.CONFLICT)
-    before = reel_replace_guard.full_timeline_snapshot(
-        timeline, project, project_folder)
+    name = str(timeline.GetName() or "")
     rows = reel_replace_guard.snapshot_timeline(
-        timeline, timeline.GetName(), side="retiring")
-    inventory_bytes = json.dumps(
-        before, sort_keys=True, separators=(",", ":"),
-        ensure_ascii=False, default=str).encode("utf-8")
-    exported = store.export_timeline_recovery_archive(
-        resolve, timeline, timeline.GetName(), project_folder,
-        label=f"retiring timeline {timeline_id}",
-        archive_suffix=f"retired-{timeline_id}")
-    if not exported.get("archived"):
+        timeline, name, side="retiring")
+    rows_digest = rounds.digest_rows(rows)
+    history = reel_versions.versions_of(project_folder, name)
+    entry = history[-1] if history else None
+    if entry is not None and entry.get("rows_digest") != rows_digest:
         raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: verified recovery "
-            f"archive failed ({exported.get('reason', 'unknown error')}).",
-            failure_class=PromotionFailure.DELIVERY)
-    archive_path = Path(exported["path"])
-    archive = read_archive(archive_path)
-    archive_items = [item for seq in archive["timelines"]
-                     for track in seq["tracks"] for item in track["items"]]
-    expected_items = before["items"]
-    if len(archive["timelines"]) != 1 or len(archive_items) != len(expected_items):
+            f"REFUSING to replace {name!r}: the retiring "
+            "timeline does not match the latest recorded version; its "
+            "archive cannot be attached to that version.",
+            failure_class=PromotionFailure.CONFLICT)
+    outcome = replaced_generation.ensure_archived(
+        resolve=resolve, project=project, timeline=timeline,
+        project_folder=project_folder, entry=entry,
+        label=f"retiring timeline {timeline_id}")
+    if outcome["status"] == "unavailable":
         raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: exported archive "
-            "inventory does not match the retiring timeline item count.",
+            f"REFUSING to replace {name!r}: verified recovery "
+            f"archive failed ({outcome['reason']}).",
             failure_class=PromotionFailure.DELIVERY)
-    # The archive must be the generation that is retiring, not merely
-    # an archive of SOME generation of this reel: the Reel 26 audit
-    # found a `.drt` whose semantic rows were the NEW generation while
-    # the OLD one was being replaced, so an item count and an asset
-    # list were not enough to prove what was kept. The project it was
-    # exported from and the items it holds are compared, by name and by
-    # media, with the retiring timeline itself.
-    archive_project = str(archive.get("project") or "")
-    expected_project = str(project.GetName() or "")
-    if archive_project and expected_project and archive_project != expected_project:
-        raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: the exported "
-            f"archive belongs to Resolve project {archive_project!r}, not "
-            f"{expected_project!r}.",
-            failure_class=PromotionFailure.DELIVERY)
-    inventory = _archive_inventory_against_snapshot(archive, before)
-    if not inventory["matches"]:
-        raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: the exported "
-            f"archive is not the retiring timeline ({inventory['reason']}).",
-            failure_class=PromotionFailure.DELIVERY)
-    expected_paths = {str(item["source_file"])
-                      for item in expected_items if item.get("source_file")}
-    missing_assets = sorted(path for path in expected_paths
-                            if not os.path.isfile(path))
-    if missing_assets:
-        raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: retiring assets "
-            f"are missing and cannot be hashed: {missing_assets}",
-            failure_class=PromotionFailure.DELIVERY)
-    expected_assets = {os.path.normcase(os.path.realpath(path))
-                       for path in expected_paths}
-    archive_assets = {
-        os.path.normcase(os.path.realpath(str(item["media_path"])))
-        for item in archive_items if item.get("media_path")}
-    if expected_assets != archive_assets:
-        raise PromotionFailure(
-            f"REFUSING to replace {timeline.GetName()!r}: exported archive "
-            "asset inventory differs from the retiring timeline.",
-            failure_class=PromotionFailure.DELIVERY)
-    assets = []
-    for path in sorted(expected_assets):
-        digest = store._sha256(Path(path))
-        assets.append({"path": path, "sha256": digest,
-                       "bytes": Path(path).stat().st_size})
-    receipt = {
-        "timeline_name": timeline.GetName(),
-        "timeline_id": timeline_id,
-        "resolve_project": str(project.GetName() or ""),
-        "archived_at": datetime.now(timezone.utc).isoformat(),
-        "archive_path": str(archive_path),
-        "archive_sha256": store._sha256(archive_path),
-        "content_id": store.recovery_archive_content_id(archive_path),
-        "archive_bytes": archive_path.stat().st_size,
-        "inventory_sha256": hashlib.sha256(inventory_bytes).hexdigest(),
-        "rows_digest": rounds.digest_rows(rows),
-        "inventory_items": len(archive_items),
-        "assets": assets,
-    }
-    history = reel_versions.versions_of(project_folder, timeline.GetName())
-    if history:
-        if history[-1].get("rows_digest") != receipt["rows_digest"]:
-            raise PromotionFailure(
-                f"REFUSING to replace {timeline.GetName()!r}: the retiring "
-                "timeline does not match the latest recorded version; its "
-                "archive cannot be attached to that version.",
-                failure_class=PromotionFailure.CONFLICT)
+    receipt = outcome["receipt"]
+    if outcome["status"] == "exported" and entry is not None:
+        # The archive of the generation being replaced belongs to the
+        # version that generation is. A version may hold more than one
+        # archive; none of them is ever replaced.
         reel_versions.attach_recovery_archive(
-            project_folder, timeline.GetName(), int(history[-1]["version"]),
-            receipt)
+            project_folder, name, int(entry["version"]), receipt)
     return receipt
 
 

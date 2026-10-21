@@ -4424,8 +4424,13 @@ def cmd_undo(args):
         except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
             print(f"FAILED: {failed}", file=sys.stderr)
             sys.exit(1)
+        _media_note = ("" if receipt.get("archive_carries_media_manifest")
+                       else
+                       " (its receipt carries no media manifest, so the "
+                       "media's presence was checked, not its content)")
         print(f"Restored {receipt['final']!r} to version "
-              f"{receipt['restored']} from its verified recovery archive; "
+              f"{receipt['restored']} from its verified recovery archive"
+              f"{_media_note}; "
               f"version {receipt['replaced']} stays in the ledger with its "
               f"own archive, and the restore is recorded as version "
               f"{receipt['version']}.")
@@ -4454,7 +4459,9 @@ def cmd_undo(args):
                   f"generation {receipt['generation']}.")
         elif "entry" in receipt:
             print(f"Undid touch {receipt['entry']} in place - verified "
-                  f"against the journal (version {receipt['version']}).")
+                  f"against the journal (version {receipt['version']}). "
+                  "This is a replay of the recorded edit, not a "
+                  "restoration out of a recovery archive.")
             uncarried = receipt.get("markers", {}).get("uncarried") or []
             for note in uncarried:
                 print(f"  note not carried: {note!r}")

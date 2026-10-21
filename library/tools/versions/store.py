@@ -408,7 +408,8 @@ def _recovery_archive_stem(timeline_name: str) -> str:
     return f"{safe}--{digest}"
 
 
-def recovery_archive_import_name(timeline_name: str) -> str:
+def recovery_archive_import_name(timeline_name: str,
+                                 archive_suffix: str = "") -> str:
     """The timeline name Resolve assigns when this reel's `.drt` is re-imported.
 
     Measured 2026-10-07 on Resolve Studio 21.1: `ImportTimelineFromFile`
@@ -419,8 +420,23 @@ def recovery_archive_import_name(timeline_name: str) -> str:
     `--8654518b4a`). Callers importing a recovery archive must locate the
     donor by this predicted name (or by handle) and delete it in a
     `finally`, never by asserting the requested name alone.
+
+    The stem is the timeline's own stem PLUS the archive's suffix, so
+    the prediction needs the suffix the archive was written with
+    (`gen-<resolve id>` for a generation's own archive). A caller that
+    has the file in hand should use the file's stem - that is what
+    Resolve names the import after.
     """
-    return _recovery_archive_stem(timeline_name)
+    stem = _recovery_archive_stem(timeline_name)
+    if not archive_suffix:
+        return stem
+    safe = "".join(
+        char if char.isalnum() or char in "-_"
+        else "_"
+        for char in str(archive_suffix))
+    if not safe:
+        return stem
+    return f"{stem}--{safe}"
 
 
 def _rebind_registered_archive(project_folder: str, path: Path) -> list[str]:
@@ -571,6 +587,7 @@ def _export_reel_recovery_archives(
     report: dict = {"reels": {}, "files": [], "errors": []}
     comp_reels = fusion_comp_export.get("reels") or {}
     export_flag = getattr(resolve, "EXPORT_DRT", None)
+    from library.tools.versions import replaced_generation
     for name in names:
         result = {"archived": False}
         report["reels"][name] = result
@@ -616,7 +633,13 @@ def _export_reel_recovery_archives(
             report["errors"].append(f"{name}: {reason}")
             continue
         archive = export_timeline_recovery_archive(
-            resolve, timeline, name, project_folder)
+            resolve, timeline, name, project_folder,
+            # VC-002: one generation, one archive file. The shared
+            # per-reel filename was OVERWRITTEN by the next
+            # generation's export, and the receipt that named it
+            # stopped verifying - so a generation that was replaced
+            # could no longer be put back.
+            archive_suffix=replaced_generation.generation_suffix(timeline_id))
         try:
             resolve_version = str(resolve.GetVersion() or "")
         except Exception:  # noqa: BLE001 - API differs by Resolve

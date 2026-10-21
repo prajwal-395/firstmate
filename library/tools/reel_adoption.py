@@ -38,7 +38,25 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
+from library.tools.versions import replaced_generation
 from library.tools.versions import reel_versions, rounds, store
+
+
+def _archive_item_count(archive_path: str) -> int:
+    """How many items the exported archive holds.
+
+    Read out of the archive itself, so the count is the archive's and
+    not the live timeline's: the restore compares the two.
+    """
+    from library.tools.resolve_archive import read_archive
+
+    try:
+        facts = read_archive(archive_path)
+    except (OSError, ValueError):
+        return 0
+    return sum(len(track.get("items") or ())
+               for timeline in (facts.get("timelines") or ())
+               for track in (timeline.get("tracks") or ()))
 
 
 def adopt_live_timeline(project_folder: str, timeline_name: str, *,
@@ -139,7 +157,12 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
     rows = reel_read.rows_of({"tracks": tracks})
 
     archive = store.export_timeline_recovery_archive(
-        resolve, target, target.GetName(), project_folder)
+        resolve, target, target.GetName(), project_folder,
+        # VC-002: the captain's hand edit is a generation like any other,
+        # and its archive is a file of its own - the shared per-reel path
+        # is overwritten by the next build, and a version that cannot be
+        # restored is a note, not a version.
+        archive_suffix=replaced_generation.generation_suffix(unique_id))
     if not archive.get("archived"):
         raise reel_versions.ReelVersionsUnreadable(
             f"the live generation of {timeline_name!r} could not be "
@@ -171,6 +194,10 @@ def _adopt(project_folder: str, project, resolve, timeline_name: str, *,
         "archive_sha256": store._sha256(archive_path),
         "content_id": store.recovery_archive_content_id(archive_path),
         "rows_digest": rounds.digest_rows(rows),
+        # The item count the archive holds: the restore checks the
+        # archive's inventory against it, and a receipt without it
+        # cannot be restored at all.
+        "inventory_items": _archive_item_count(archive_path),
         "assets": assets,
     }
     entry = reel_versions.record(

@@ -4228,6 +4228,8 @@ def _cmd_run_recorded(args) -> int:
         caller = default_owner()
     script_hash = resolve_script_store.normalized_script_hash(script)
     drt_path = ""
+    backup_receipt = None
+    backup_verified = False
     target_timeline_id = ""
     project_before = None
     timeline_before = None
@@ -4300,6 +4302,22 @@ def _cmd_run_recorded(args) -> int:
                                 "refusing before the script runs.",
                                 f"{TOOL} run --help")
                 drt_path = backup["path"]
+                # VC-002: a backup that is not a readable Resolve
+                # export of ONE timeline is not a backup. It is read
+                # back, and the media it plays is named and hashed, so
+                # the run record says what could be recovered.
+                from library.tools.versions import replaced_generation
+                try:
+                    backup_receipt = replaced_generation.read_archive_receipt(
+                        drt_path, timeline_name=timeline_name,
+                        timeline_id=target_timeline_id,
+                        project_name=project_name)
+                except replaced_generation.ReplacedGenerationArchiveRefused as refused:
+                    return fail(
+                        f"the .drt backup could not be read back "
+                        f"({refused}) - refusing before the script runs.",
+                        f"{TOOL} run --help")
+                backup_verified = True
             except Exception as exc:
                 return fail(f"could not back up and inventory the target "
                             f"timeline ({exc}).", f"{TOOL} run --help")
@@ -4411,6 +4429,8 @@ def _cmd_run_recorded(args) -> int:
         "writing": write_mode,
         "workflow": workflow_name or None,
         "drt_backup": drt_path or None,
+        "drt_backup_verified": backup_verified,
+        "recovery_archive": backup_receipt,
         "project_switched": switched,
         "project_restored": switched and not restore_error,
         "inventory": ({

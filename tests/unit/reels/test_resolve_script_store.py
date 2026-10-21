@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import zipfile
 
 import pytest
 
@@ -217,6 +218,20 @@ def test_recorded_writer_keeps_backup_and_inventory_in_run_record(
                         lambda *args, **kwargs: nullcontext())
     archive = (project_root / "pipeline_output" / "review" / "recovery_archives"
                / "custom.drt")
+    # VC-002: the backup is READ BACK, so the file has to be a real
+    # Resolve export - a path that names nothing is not a backup.
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, "w") as exported:
+        exported.writestr(
+            "project.xml",
+            '<!--DbAppVer="21.1" DbPrjVer="17"-->'
+            '<Project><Name>Podcast</Name></Project>')
+        exported.writestr(
+            "SeqContainer/Reel 22.xml",
+            "<Sequence><Track><TrackType>Video</TrackType>"
+            "<VideoClip><Name>clip</Name><Start>0</Start>"
+            "<Duration>10</Duration><In>0</In><MediaRef>1</MediaRef>"
+            "</VideoClip></Track></Sequence>")
     monkeypatch.setattr(version_store, "export_timeline_recovery_archive",
                         lambda *args, **kwargs: {
                             "archived": True, "path": str(archive)})
@@ -245,6 +260,10 @@ def test_recorded_writer_keeps_backup_and_inventory_in_run_record(
     assert record["caller"] == "agent-42"
     assert record["writing"] is True
     assert record["drt_backup"] == str(archive)
+    # The backup is read back, and what it holds is on the record.
+    assert record["drt_backup_verified"] is True
+    assert record["recovery_archive"]["archive_path"] == str(archive)
+    assert record["recovery_archive"]["archive_sha256"]
     assert record["inventory"]["timeline"]["changes"] == [
         {"change": "added"}]
     assert record["inventory"]["project"]["guard_passed"] is True

@@ -5594,6 +5594,63 @@ def _judge_trim_claims(spec: Mapping, qualification,
 
 
 @touchup_phases.measured("promote")
+def _archive_replaced_generation(project_folder: str, project: Any,
+                                 timeline: Any, final: str) -> dict:
+    """Archive the generation a touch-up is about to replace (VC-002).
+
+    A touch replaces a generation like any other path does, so the
+    generation it replaces is archived BEFORE the swap - with its
+    identity, its structure and its media, and attached to the version
+    record that generation is.
+
+    A generation is exported ONCE: a version that already carries an
+    archive which still verifies keeps it, and no `.drt` is written
+    again.
+
+    Unlike the promotion, this does NOT refuse the touch when the
+    archive cannot be made, and the difference is deliberate: a
+    touch's own reversal is its undo journal, and refusing the
+    captain's edit because a `.drt` could not be exported would trade a
+    recoverable edit for an unrecoverable one. What the promotion
+    refuses on, the touch RECORDS - so a reader knows whether the
+    generation the touch replaced can be put back, and says so by
+    name instead of by silence.
+    """
+    from library.tools.versions import replaced_generation, reel_versions
+
+    history = reel_versions.versions_of(project_folder, final)
+    entry = history[-1] if history else None
+    if entry is None:
+        # The generation is not a recorded version, so there is no
+        # record to attach an archive to and nothing that could be
+        # restored by name. Said so, not guessed at.
+        return {"status": "untracked",
+                "reason": "the generation being replaced is not a "
+                          "recorded version"}
+    receipt = reel_versions.live_receipt(entry)
+    if receipt is not None and reel_versions.archive_verifies(receipt):
+        # The generation is exported ONCE: a version that already
+        # carries an archive which still verifies keeps it, and no
+        # `.drt` is written again - and no Resolve handle is needed.
+        return {"status": "verified", "receipt": dict(receipt),
+                "reason": ""}
+    from library.tools.reel_build import _connect_resolve
+    try:
+        resolve = _connect_resolve()
+    except Exception as exc:  # noqa: BLE001 - the reason is the record
+        return {"status": "unavailable",
+                "reason": f"no Resolve handle to export the archive: {exc!r}"}
+    outcome = replaced_generation.ensure_archived(
+        resolve=resolve, project=project, timeline=timeline,
+        project_folder=project_folder, entry=entry,
+        label=f"generation replaced by a touch on {final}")
+    if outcome["status"] == "exported":
+        reel_versions.attach_recovery_archive(
+            project_folder, final, int(entry["version"]),
+            outcome["receipt"])
+    return outcome
+
+
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
              declared_supersede, accept_editor_changes, receipt: dict,
@@ -5860,6 +5917,15 @@ def _promote(project_folder: str, project: Any, pool: Any,
             f"({capture_failed}) - nothing was renamed.") \
             from capture_failed
     fleet_before = _gate.fleet_snapshot(project)
+
+    # VC-002: the generation this touch is about to REPLACE is archived
+    # before it is replaced, so the state the captain saw is still
+    # there afterwards. The archive holds that generation exactly -
+    # its identity, its structure and its media - and it is attached
+    # to the version record that generation is, so
+    # `ren undo --restore-version` can put it back.
+    receipt["replaced_generation_archive"] = _archive_replaced_generation(
+        project_folder, project, originals[final], final)
 
     backup = backup_name(final)
     retry_backup_ids = _failed_touchup_backup_ids(

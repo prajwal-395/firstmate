@@ -369,7 +369,17 @@ def test_content_addressed_recovery_archive_is_portable_and_immutable(tmp_path):
         store.store_recovery_archive_content(source, str(folder))
 
 
-def test_version_archive_receipt_cannot_be_replaced(tmp_path):
+def test_a_version_archive_receipt_is_never_replaced(tmp_path):
+    """A receipt is immutable - and a version may hold SEVERAL of them.
+
+    The rule was "one receipt per version, and it may not change",
+    which made the second promotion of a reel refuse: the promotion
+    that replaced a generation archived that generation, and the
+    version it belonged to already carried the archive the promotion
+    that made it had left behind. The receipt was not being replaced -
+    it was being JOINED. So the record keeps every archive the version
+    was given, and the first one is never rewritten (VC-002).
+    """
     from library.tools.versions import reel_versions, store
 
     folder = _bare_folder(tmp_path)
@@ -381,10 +391,19 @@ def test_version_archive_receipt_cannot_be_replaced(tmp_path):
     reel_versions.attach_recovery_archive(
         folder, "Reel 01", entry["version"], receipt)
 
-    with pytest.raises(reel_versions.ReelVersionsUnreadable,
-                       match="immutable recovery archive receipt"):
-        reel_versions.attach_recovery_archive(
-            folder, "Reel 01", entry["version"], {"path": "replacement"})
+    other = folder / "second.drt"
+    other.write_bytes(b"the same generation, exported again")
+    reel_versions.attach_recovery_archive(
+        folder, "Reel 01", entry["version"],
+        {"path": str(other),
+         "content_id": store.recovery_archive_content_id(other)})
+
+    history = reel_versions.versions_of(folder, "Reel 01")
+    receipts = reel_versions.recovery_archives_of(history[-1])
+    assert len(receipts) == 2
+    # The first receipt is still the one the version was born with.
+    assert history[-1]["recovery_archive"] == receipt
+    assert receipts[0] == receipt
 
 
 def test_custom_script_recovery_archives_keep_each_run(tmp_path):

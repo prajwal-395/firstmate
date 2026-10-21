@@ -227,16 +227,28 @@ def record(project_folder, final: str, *, kind: str, rows: Mapping,
 
 def attach_recovery_archive(project_folder, final: str, version: int,
                             receipt: Mapping) -> None:
-    """Attach a verified immutable archive receipt to its exact version."""
+    """Attach a verified immutable archive receipt to its exact version.
+
+    A version can be archived MORE THAN ONCE, and each archive is
+    immutable: the build that produced the version exported it, and the
+    promotion that later replaced that generation archived the
+    generation it retired. One receipt per version was a rule that
+    refused the second promotion of a reel whose first promotion had
+    left a verified archive behind (VC-002) - the promotion was
+    refused over a receipt that was not being replaced, only joined.
+
+    So the record keeps every archive the version was given:
+    `recovery_archives` is the whole set, oldest first, and
+    `recovery_archive` names the FIRST one - the one that was attached
+    when the version was made. Neither is ever rewritten. Which of
+    them a restore reads is `live_receipt`'s question, not this
+    function's: an archive whose file was overwritten names a
+    generation that is no longer on the machine.
+    """
     document = read(project_folder)
     history = list(document["reels"].get(final) or ())
     for entry in history:
         if int(entry.get("version", 0)) == int(version):
-            prior = entry.get("recovery_archive")
-            if prior is not None and dict(prior) != dict(receipt):
-                raise ReelVersionsUnreadable(
-                    f"{final!r} version {version} already has an immutable "
-                    "recovery archive receipt.")
             content_id = receipt.get("content_id")
             archive_path = receipt.get("path") or receipt.get("archive_path")
             if (content_id is not None
@@ -245,12 +257,81 @@ def attach_recovery_archive(project_folder, final: str, version: int,
                 raise ReelVersionsUnreadable(
                     f"{final!r} version {version} recovery archive "
                     "does not match its content identity.")
-            entry["recovery_archive"] = dict(receipt)
+            receipts = [dict(existing)
+                        for existing in (entry.get("recovery_archives") or ())]
+            if any(dict(existing) == dict(receipt) for existing in receipts):
+                return
+            receipts.append(dict(receipt))
+            entry["recovery_archives"] = receipts
+            if entry.get("recovery_archive") is None:
+                entry["recovery_archive"] = dict(receipt)
             document["reels"][final] = history
             _write(project_folder, document)
             return
     raise ReelVersionsUnreadable(
         f"{final!r} has no version {version} to attach its recovery archive.")
+
+
+def recovery_archives_of(entry: Mapping | None) -> list[dict]:
+    """Every archive receipt one version carries, oldest first.
+
+    The primary receipt (`recovery_archive`) comes first even when it
+    is not in the list - a version written before the list existed
+    still carries exactly one archive, and it is that one.
+    """
+    receipts: list[dict] = []
+    primary = (entry or {}).get("recovery_archive")
+    if isinstance(primary, Mapping):
+        receipts.append(dict(primary))
+    for receipt in ((entry or {}).get("recovery_archives") or ()):
+        if isinstance(receipt, Mapping) and dict(receipt) not in receipts:
+            receipts.append(dict(receipt))
+    return receipts
+
+
+def archive_verifies(receipt: Mapping) -> bool:
+    """Whether this receipt's archive is on disk and still hashes true."""
+    normalized = read_recovery_receipt(receipt)
+    path = str(normalized["archive_path"] or "")
+    digest = str(normalized["archive_sha256"] or "")
+    if not path or not digest:
+        return False
+    content_id = str(receipt.get("content_id") or f"sha256:{digest}")
+    return store.verify_recovery_archive(path, content_id)
+
+
+def live_receipt(entry: Mapping | None) -> dict | None:
+    """The receipt a restore should read: the one that still verifies.
+
+    A version can hold several archives, and only one of them can be
+    the generation: the others name files that a later export
+    overwrote. So the receipt whose archive still hashes true is the
+    one that names a generation on this machine - and when NONE of
+    them verifies, the primary is returned, because the restore's own
+    hash check refuses it by name, which says more than silence.
+    """
+    receipts = recovery_archives_of(entry)
+    if not receipts:
+        return None
+    for receipt in reversed(receipts):
+        if archive_verifies(receipt):
+            return receipt
+    return receipts[0]
+
+
+def identity_receipt(entry: Mapping | None) -> dict | None:
+    """The receipt that names this version's Resolve identity.
+
+    Identity is not evidence of content: a receipt's Resolve id says
+    WHICH generation the version was, and it says so even when the
+    archive that held it is gone. Used to match the live timeline
+    against the version being replaced.
+    """
+    receipts = recovery_archives_of(entry)
+    for receipt in reversed(receipts):
+        if read_recovery_receipt(receipt).get("timeline_id"):
+            return receipt
+    return receipts[-1] if receipts else None
 
 
 def read_recovery_receipt(receipt: Mapping | None) -> dict:
@@ -492,7 +573,11 @@ __all__ = [
     "ReelVersionsUnreadable",
     "build_before",
     "attach_component_manifest",
+    "archive_verifies",
     "attach_recovery_archive",
+    "identity_receipt",
+    "live_receipt",
+    "recovery_archives_of",
     "latest_act",
     "live_acts",
     "mark_redone",

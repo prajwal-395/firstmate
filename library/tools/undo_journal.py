@@ -3264,6 +3264,13 @@ def _undo_touch_connected(project_folder, entry, connect,
                                   int(entry["version"]),
                                   int(version["version"]))
     receipt["version"] = version["version"]
+    # VC-002: a journal replay is a RECONSTRUCTION, and it says so.
+    # The touch was reversed by re-applying the inverse of the
+    # recorded edit, not by restoring the generation that was there
+    # before it - so the receipt names the route, and a reader can
+    # tell it apart from a restoration out of a recovery archive.
+    receipt["restored_from"] = "journal_replay"
+    receipt["restored_from_archive"] = False
     receipt["signature_closed"] = reel_touchup.close_signature(
         project_folder, project, final)
     # The undo half of the per-reel edit history
@@ -3409,7 +3416,7 @@ def rollback_rebuild(project_folder: str, final: str, act: Mapping, *,
     # earlier state could not be reconstructed from the plan, and the
     # refusal was right, but there was an immutable archive to restore
     # from and nothing used it.
-    if isinstance(target.get("recovery_archive"), Mapping):
+    if isinstance(reel_versions.live_receipt(target), Mapping):
         return _rollback_from_verified_archive(
             project_folder, final, act, target,
             read_live_rows=read_live_rows, restore_archive=restore_archive,
@@ -3485,7 +3492,7 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
     """Restore the exact retained version when semantic replay diverges."""
     from library.tools.versions import reel_versions, rounds
 
-    receipt = target.get("recovery_archive")
+    receipt = reel_versions.live_receipt(target)
     if not isinstance(receipt, Mapping):
         raise UndoRefused(
             f"version {target.get('version')} of {final!r} has no verified "
@@ -3503,7 +3510,7 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
         project_folder, final, declared, command="ren undo")
     normalized = reel_versions.read_recovery_receipt(receipt)
     act_receipt = reel_versions.read_recovery_receipt(
-        act.get("recovery_archive"))
+        reel_versions.identity_receipt(act) or {})
     (restore_archive(project_folder, final, target, receipt)
      if restore_archive else _restore_archive_by_resolve_id(
          project_folder, final, target, receipt,
@@ -3778,7 +3785,7 @@ def restore_version(project_folder: str, final: str, version: int, *,
             "the ledger holds no such version, so there is nothing to "
             "restore",
             "list the reel's versions with `ren undo <project> --list`")
-    receipt = target.get("recovery_archive")
+    receipt = reel_versions.live_receipt(target)
     if not isinstance(receipt, Mapping):
         raise UndoRefused(
             f"version {version} of {final!r} carries no verified recovery "
@@ -3792,6 +3799,11 @@ def restore_version(project_folder: str, final: str, version: int, *,
             "no archive", "a version with no archive cannot be restored "
             "exactly", "record a verified recovery archive for this version "
             "before retrying")
+    # VC-002: a receipt written before the media manifest existed
+    # proves the ARCHIVE by its own hash and cannot prove each media
+    # file's content. The restore says which it did, so "restored" is
+    # never read as more than it is.
+    archive_carries_media_manifest = bool(normalized["has_asset_manifest"])
     newer = [entry for entry in history
              if int(entry.get("version", 0)) > int(version)]
     current = newer[-1] if newer else None
@@ -3801,9 +3813,9 @@ def restore_version(project_folder: str, final: str, version: int, *,
             "no later version superseded it, so there is nothing for this "
             "restore to replace",
             "restore an earlier version, or leave the reel as it is")
-    current_receipt = reel_versions.read_recovery_receipt(
-        current.get("recovery_archive"))
-    if not current_receipt.get("timeline_id"):
+    current_receipt = reel_versions.identity_receipt(current)
+    if not current_receipt or not reel_versions.read_recovery_receipt(
+            current_receipt).get("timeline_id"):
         raise UndoRefused(
             f"version {current['version']} of {final!r} has no Resolve "
             "identity in its recovery receipt",
@@ -3829,7 +3841,8 @@ def restore_version(project_folder: str, final: str, version: int, *,
     (restore_archive(project_folder, final, target, receipt)
      if restore_archive else _restore_archive_by_resolve_id(
          project_folder, final, target, receipt,
-         expected_current_id=current_receipt["timeline_id"]))
+         expected_current_id=reel_versions.read_recovery_receipt(
+             current_receipt)["timeline_id"]))
     after = dict(reader(final) or {})
     if not rounds.rows_agree(after, target.get("rows") or {}):
         raise UndoNotVerified(
@@ -3848,6 +3861,7 @@ def restore_version(project_folder: str, final: str, version: int, *,
     return {"final": final, "restored": int(version),
             "replaced": int(current["version"]),
             "restored_from_archive": True,
+            "archive_carries_media_manifest": archive_carries_media_manifest,
             "timeline_id": normalized["timeline_id"],
             "version": int(entry["version"])}
 

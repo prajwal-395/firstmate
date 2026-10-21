@@ -9739,3 +9739,55 @@ Rust type. And the "cannot supply" guard reads the arguments a fix NAMES - a
 flag, a backticked name, a quoted key - so a fix that recommends an argument in
 prose ("state the ordering explicitly") is only caught when the argument is
 written the way the engine writes field names.
+
+## the-archive-one-generation-shared-with-the-next
+
+PR 3079 put Reel 26 back from version 25's hash-verified `.drt`, and the
+archive that made it possible was one file with one name. The punchlist's
+VC-002 asks for the archives to be RECOVERABLE, and reading what exists
+around that `.drt` found four ways a generation's archive was not the
+generation's own.
+
+- **One generation's archive was overwritten by the next one's.** Every
+  generation of a reel was exported to ONE shared per-reel path
+  (`<stem>.drt`), so the second build of a reel wrote over the archive of
+  the first. The receipt that named it kept its hash, and the file stopped
+  matching it - so the generation that had been replaced could no longer be
+  put back, and the restore refused with "the recovery archive is missing
+  or changed". The archive of a generation now lives at a path of its own,
+  named by the generation's Resolve id (`gen-<id>`), which nothing else can
+  land on.
+- **A second promotion of a reel was refused over an archive it already
+  had.** The archive of a generation is attached to the version that
+  generation IS, and the attachment REFUSED a second, different receipt -
+  so the promotion that replaced a generation whose first promotion had
+  left a verified archive behind was refused, over a receipt that was not
+  being replaced, only joined. A receipt is now immutable and a version
+  KEEPS every archive it was given; which one a restore reads is the
+  question `reel_versions.live_receipt` answers - the one whose file still
+  verifies.
+- **A touch-up replaced a generation and archived NOTHING.** The promotion
+  had archived the generation it retired since PR 3077; the touch did not,
+  and the state the captain saw was recoverable only by replaying the edit
+  backwards. The touch now archives the generation it replaces, before it
+  replaces it, and RECORDS what it archived - it does not refuse the
+  captain's edit over an export that failed, because the touch's own
+  reversal is its undo journal and refusing would trade a recoverable edit
+  for an unrecoverable one.
+- **An archive was accepted without being read back.** The direct
+  mutation's `.drt` backup was written and its path recorded, and nothing
+  compared the file with the timeline it was taken from - so a `.drt` of
+  ANOTHER generation would have passed for this one, which is the Reel 26
+  audit's own finding. The archive is now read back and compared with the
+  live generation: the project it came from, the items it holds, the media
+  it plays - and the media is hashed into the receipt, because a `.drt`
+  alone cannot prove the media is there.
+
+**The rule.** A generation is archived ONCE, at a path of its own, and
+every path that replaces a generation archives it FIRST - with its
+identity, its structure and its media - and attaches that archive to the
+version the generation is. A restoration is a restoration and a
+reconstruction is a reconstruction: the touch reversed in place is a
+`journal_replay`, and the plan rebuild is a `plan_rebuild`, and neither
+is ever reported as an archive restoration. `library/tools/versions/
+replaced_generation.py` is the one routine every replacing path uses.
