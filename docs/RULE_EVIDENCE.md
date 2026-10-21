@@ -10859,6 +10859,57 @@ denominators) is now printed by `ren profile`, so that comparison is
 one command away instead of a subtraction over rows nobody can see.
 =======
 =======
+## the-caption-change-that-rebuilt-the-whole-reel
+
+**The rule.** PERF-003: "Make edit complexity proportional to the changed scope."
+A caption card is content-named (PR 3048), so a card whose words changed is a
+DIFFERENT FILE at the same span. The scoped rebuild route compared the caption
+row for GLOBAL equality, so one changed word made the whole row differ and the
+route refused - and the refusal's category, `conflict`, is not the one category
+a rebuild may follow, so the edit stopped the reel build rather than rebuilding
+the reel.
+
+**What happened.** Measured on the fake Resolve, 2026-10-21, one reel and one
+caption card:
+
+```
+before (bulk rebuild)   writes 13   scans 38   wall 0.207 s
+after  (scoped patch)   writes  3   scans 44   wall 0.023 s
+```
+
+The scoped path's three writes are `DeleteClips`, `ImportMedia` and
+`AppendToTimeline`: one card replaced and nothing else. Its SCANS went UP,
+which is the honest cost - it must prove the rest of the reel is unchanged
+before it touches anything, and it reads back again afterwards. The saving is
+in writes and wall time, not in reads.
+
+**What it does now.** `library/tools/reel_incremental.py` diffs the caption row
+by `(row, span)` and by content, so a card whose bytes changed at the same span
+is REPLACED and every other card is reused. A caption that MOVED still refuses:
+a placement change is not a content change, and a caption row that overlaps is
+unreadable. The caption placement arithmetic moved to ONE owner,
+`library/tools/reel_caption_placement.place_caption_cards`, shared by the full
+build and the scoped path, so the two cannot drift.
+
+**The retime, and why it is not scoped.** A ledger retime is a CLOCK change.
+Measured on the fake Resolve, 2026-10-21, a passage retimed to 110% occupied
+record frames 0-87 instead of 0-96, and the placement after it moved from frame
+96 to frame 87. It is therefore NOT a span-local change: patching one clip's
+speed would leave the reel playing a different length than the plan. The
+scoped path refuses it, and the refusal now NAMES the passage and how far the
+clock change reaches (`reel_incremental.retime_scope`) instead of dumping rows.
+A full rebuild places it.
+
+**What it does not do.** The live measurement on the scratch copy
+(`ren-scratch-breaktest`) is not in the PR. Two live runs through the serving
+broker were attempted: the first waited on the Resolve instance lease for about
+twenty minutes, which another lane held, and the second was refused with
+`ResolveBusy` when the broker did not grant the session - and then with
+`ResourceLeaseBusy` after a 900 s wait on the project lease, held by another
+lane's pipeline run. Live runs were not forced past that contention, so the
+numbers above are the deterministic ones.
+>>>>>>> 8b2177f46 (Record the scoped-change evidence in docs/RULE_EVIDENCE.md)
+
 ## the-request-two-doors-read-two-ways
 
 **The punch list, AXI-004, 2026-10-20.** "Audit the remaining

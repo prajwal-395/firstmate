@@ -10740,173 +10740,24 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # pipeline's renderer. This used to carry its own `npx remotion
         # render` loop - a third implementation of the same call - and it is
         # gone; `reel_subtitle_segments` above drives the step instead.
-        from library.tools.overlay_draw_intent import (
-            draw_intent_for_segment as _draw_intent_for_segment,
-            segment_canvas as _segment_canvas,
+        #
+        # The placement itself is `reel_caption_placement`'s: ONE owner of
+        # the caption arithmetic, so the scoped (incremental) patch places a
+        # changed card exactly where this build places it.
+        from library.tools.reel_caption_placement import (
+            place_caption_cards as _place_caption_cards,
         )
-        from library.tools.overlay_placement import (
-            place_overlay_segment,
-            sequence_frame_paths,
-        )
-        for segment in (subtitle_segments or []):
-            held_back, why = _dnd.should_suppress(
-                suppressions, name, segment or {})
-            if held_back:
-                print(f"  {name}: {why}", file=sys.stderr)
-                suppressed_ids.append(segment.get("segment_id"))
-                continue
-            if why:
-                print(f"  {name}: {why}", file=sys.stderr)
-            frames_info = segment.get("frames") or {}
-            frame_dir = frames_info.get("dir", "") if segment.get(
-                "container") == "frames" else ""
-            # Captions render durable already (Area.SUBTITLE_SEGMENTS); the
-            # assert pins it, so a future caller that reaches into scratch
-            # fails here rather than on the captain's timeline.
-            assert_placeable(segment.get("overlay_path") or "", project_folder)
-            if frame_dir:
-                assert_placeable(frame_dir, project_folder)
-            if frame_dir:
-                paths = sequence_frame_paths(frame_dir)
-                found = import_pool_sequence(
-                    pool, paths, frame_dir, project_folder,
-                    dest=overlay_import_bin(project_folder, name,
-                                            paths[0] if paths else ""),
-                    pool_index=pool_index)
-                items = [found] if found is not None else []
-            else:
-                found = import_pool_item(
-                    pool, segment["overlay_path"],
-                    overlay_import_bin(project_folder, name,
-                                       segment["overlay_path"]),
-                    pool_index=pool_index)
-                items = [found] if found is not None else []
-            if not items:
-                failed_path = segment.get("overlay_path") or frame_dir
-                raise ReelBuildError(
-                    f"{name}: Resolve would not import rendered caption "
-                    f"{failed_path!r}; refusing to omit a planned caption "
-                    f"segment")
-
-            _assert_placing(project, timeline)
-            # The record span is rounded PER EDGE - [round(start), round(end))
-            # - never round(start) + round(duration).  Abutting blocks share
-            # one edge in seconds and must share it in frames, or the spans
-            # overlap by a frame and Resolve trims one off the later item
-            # (reel 07 block 23, 2026-09-08: planned 34, placed 33, the lone
-            # F2 of the rebuild).  The source range is the same duration
-            # counted from the content start, inside the render handles 4.05
-            # leaves either side.  `span_frames` is the one arithmetic; F2
-            # grades exactly this span, so placer and check agree by
-            # construction and the gate stays exact.
-            record_start, record_end = span_frames(
-                segment["timeline_start"], segment["timeline_end"], fps)
-            content_frames = max(record_end - record_start, 1)
-            # The caption artefact rides the placement its tight box
-            # computed - read off the entry step 4.05 recorded - and the
-            # placer SETS it then READS BACK what Resolve holds. A
-            # sequence shares the mov's frame numbering, so the handle
-            # trim is the same arithmetic.
-            seen_intent_ids.append(segment.get("segment_id"))
-            # `draw_intent` arms the pixel half: a declared pin first (the
-            # captain's place wins over the row), else the DECLARED caption
-            # row for this reel - so a sidecar placement served under a
-            # superseded row is REPORTED rather than shipped. Unverifiable
-            # captions (legacy canvas, no render props) ride without it,
-            # exactly as before.
-            _caption_canvas = _segment_canvas(segment)
-            caption_geometry = None
-            caption_box = (segment.get("tight_box") or {}).get(
-                "absolute_canvas_box")
-            if _caption_canvas is not None:
-                from library.tools.layout_model import GeometryDescriptor
-                caption_geometry = GeometryDescriptor(
-                    frame=(int(width), int(height)),
-                    box=tuple(map(float, caption_box
-                                  or (0, 0, width, height))),
-                    canvas=tuple(map(float, _caption_canvas)),
-                ).to_dict()
-            placed, note = place_overlay_segment(
-                pool, timeline, items[0],
-                track_index=track_plan.caption_row().index,
-                record_frame=record_start,
-                source_in_frame=segment["source_in_frame"],
-                source_out_frame=segment["source_in_frame"] + content_frames,
-                placement=(segment.get("tight_box") or {}).get("placement"),
-                label=segment.get("segment_id", "caption"),
-                kind="caption",
-                segment_id=segment.get("segment_id"),
-                intent=overlay_intent,
-                canvas=_caption_canvas,
-                frame=(width, height),
-                intent_matched=applied_intent_keys,
-                draw_gain=draw_gain,
-                resolve_project=project,
-                absolute_box=caption_box,
-                geometry_descriptor=caption_geometry,
-                project_folder=project_folder,
-                timeline_name=name,
-                draw_intent=_draw_intent_for_segment(
-                    segment, kind="caption",
-                    segment_id=segment.get("segment_id"),
-                    placement_label=None,
-                    intent=overlay_intent, frame_wh=(width, height),
-                    project_folder=project_folder, reel_name=name,
-                    draw_gain=draw_gain))
-            if not placed:
-                raise ReelBuildError(
-                    f"{name}: Resolve would not place caption segment "
-                    f"{segment.get('segment_id')!r} at frame {record_start}: "
-                    f"{note or 'placement returned no item'}")
-            elif note:
-                print(f"  caption {segment.get('segment_id')}: {note}",
-                      file=sys.stderr)
-            if placed and _caption_canvas is not None:
-                # One post-build sweep record per tight caption: the values
-                # half (`overlay_verify.sweep_reel_overlays`) reads it back
-                # off the timeline after the build and judges it against
-                # intent. Full-canvas captions need no transform and leave
-                # no record.
-                caption_item = None
-                try:
-                    for candidate in (timeline.GetItemListInTrack(
-                            "video", track_plan.caption_row().index) or []):
-                        if int(candidate.GetStart()) == record_start:
-                            caption_item = candidate
-                            break
-                except Exception:  # noqa: BLE001 - placement remains recorded
-                    caption_item = None
-                held_transform = (_held_transform(
-                    caption_item, timeline, project) if caption_item is not None
-                    else None)
-                _sweep_records.append({
-                    "label": segment.get("segment_id", "caption"),
-                    "kind": "caption",
-                    "segment_id": segment.get("segment_id"),
-                    # Captions carry no placing label (the label tier is
-                    # for reel graphics); the key stays so every sweep
-                    # record has one schema.
-                    "placement_label": None,
-                    "track_index": track_plan.caption_row().index,
-                    "record_frame": record_start,
-                    "canvas_wh": _segment_canvas(segment),
-                    "placement": (segment.get("tight_box") or {}
-                                  ).get("placement"),
-                    "overlay_path": segment.get("overlay_path") or "",
-                    "frames_dir": frame_dir,
-                    "timeline_start_frame": record_start,
-                    "duration_frames": content_frames,
-                    "absolute_box": (
-                        caption_box
-                        or [0, 0, int(width), int(height)]),
-                    "geometry": caption_geometry,
-                    "source_start_frame": segment["source_in_frame"],
-                    "transform": (dict(held_transform)
-                                  if isinstance(held_transform, Mapping) else None),
-                    "native_position": _native_overlay_position(
-                        held_transform, _caption_canvas, (width, height),
-                        draw_gain),
-                })
+        caption_out = _place_caption_cards(
+            pool=pool, project=project, timeline=timeline, name=name,
+            fps=fps, width=width, height=height,
+            segments=subtitle_segments or [], track_plan=track_plan,
+            project_folder=project_folder,
+            overlay_intent=overlay_intent,
+            applied_intent_keys=applied_intent_keys,
+            seen_intent_ids=seen_intent_ids,
+            draw_gain=draw_gain, pool_index=pool_index,
+            suppressions=suppressions, suppressed_ids=suppressed_ids,
+            sweep_records=_sweep_records, resolve_app=resolve_app)
 
         # Transition elements last, on the plan's transitions row. Placed
         # from FRAMES the planner already computed against this reel's own

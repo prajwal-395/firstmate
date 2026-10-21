@@ -240,18 +240,93 @@ def footage_expected_rows(placements_list, video_row_by_angle,
     return {row: sorted(rows) for row, rows in out.items()}
 
 
+def retime_scope(placements_list, fps: float) -> Optional[dict]:
+    """What a retime in this plan moved, named.
+
+    A retime is a CLOCK change: the passage plays at another rate, so
+    the reel is shorter or longer and every placement after it moves.
+    Measured on the fake Resolve, 2026-10-21: a passage retimed to
+    110% occupied record frames 0-87 (its plan's `record_frames`)
+    instead of 0-96, and the placement after it moved from frame 96 to
+    frame 87.  So a retime is NOT a span-local change, and the scoped
+    path refuses it - correctly, because patching one clip's speed
+    would leave the reel playing a different length than the plan.
+
+    [why](docs/RULE_EVIDENCE.md#the-caption-change-that-rebuilt-the-whole-reel)
+
+    This names the interval that moved, so the refusal says WHICH
+    passage and HOW FAR the clock change reaches, instead of leaving a
+    reader to work it out.  `None` when the plan carries no retime.
+    """
+    retimed = [place for place in (placements_list or ())
+               if isinstance(place, Mapping) and "rate" in place]
+    if not retimed:
+        return None
+    passages = []
+    for place in retimed:
+        start = int(place.get("snapped_record") or 0)
+        frames = int(place.get("record_frames") or 0)
+        passages.append({
+            "rate": float(place.get("rate") or 1.0),
+            "record_start_frame": start,
+            "record_end_frame": start + frames,
+            "source_in": place.get("source_in"),
+            "source_out": place.get("source_out"),
+        })
+    passages.sort(key=lambda row: row["record_start_frame"])
+    first = passages[0]["record_start_frame"]
+    last = max(int(place.get("snapped_record") or 0)
+               for place in (placements_list or []))
+    return {
+        "kind": "retime",
+        "passages": passages,
+        # The clock change reaches every placement after the first
+        # retimed passage: that is the interval the retime moved.
+        "moved_from_frame": first,
+        "moved_to_frame": last,
+        "reason": ("a retime changes the reel's clock, so every "
+                   "placement after it moves - the scoped path patches "
+                   "no retime, and a full rebuild places it"),
+    }
+
+
 def check_rows_identical(expected: Mapping[tuple, list],
-                         live: Mapping[tuple, list], what: str) -> None:
-    """Refuse unless the plan's inventory is exactly what is there."""
+                         live: Mapping[tuple, list], what: str,
+                         scope: Optional[Mapping] = None) -> None:
+    """Refuse unless the plan's inventory is exactly what is there.
+
+    `scope` is the change's own extent when the change is a retime:
+    the refusal then says WHICH passage and HOW FAR the clock change
+    reaches, instead of leaving the reader to work it out from the row
+    dump.
+    """
     if set(expected) != set(live):
         raise IncrementalConflict(
             f"{what} rows differ (plan {sorted(expected)} vs timeline "
             f"{sorted(live)}) - refusing")
     for row in expected:
         if list(expected[row]) != list(live[row]):
+            if scope is not None and scope.get("kind") == "retime":
+                raise IncrementalConflict(
+                    f"{what} on row {row} differs from the plan - "
+                    f"refusing; {_retime_reason(scope)}")
             raise IncrementalConflict(
                 f"{what} on row {row} differs from the plan - refusing; "
                 f"a full rebuild places it")
+
+
+def _retime_reason(scope: Mapping) -> str:
+    """One sentence naming the retime's passages and its reach."""
+    passages = scope.get("passages") or ()
+    named = ", ".join(
+        f"{float(row.get('rate') or 1.0) * 100:g}% at reel frame "
+        f"{row.get('record_start_frame')}"
+        for row in passages) or "a retime"
+    return (f"a retime ({named}) changes the reel's clock, so every "
+            f"placement after frame {scope.get('moved_from_frame')} "
+            f"moves; patching one clip's speed would leave the reel "
+            f"playing a different length than the plan, and a full "
+            f"rebuild places it")
 
 
 # ── overlay spans and sources, per kind ─────────────────────────────
@@ -409,6 +484,149 @@ def _check_incremental_eligibility(freeze_tail, post_header, ledger_rows):
             "- refusing; only the full build replays them")
 
 
+def _scope_cost_decision(scope, *, project_folder: str = "") -> dict:
+    """Is the scoped patch cheaper than rebuilding the reel?
+
+    PERF-003 asks the engine to DETECT when the small-delta strategy is
+    actually more expensive than bulk reconstruction.  Two measurements
+    are compared, and neither is ever a stand-in for the other:
+
+    - the SCOPE: how many items the patch touches and how many frames
+      it moves, from `change_scope`;
+    - the COST: what this project has MEASURED for a targeted edit and
+      for a full rebuild, from its own performance ledger.
+
+    Where the project has measured nothing, the answer is
+    ``"unmeasured"`` and the scoped path continues: an unknown cost is
+    not a reason to do the expensive thing.  Where the ledger has
+    measured a full rebuild as cheaper than a targeted edit, the answer
+    is ``"bulk"`` and the caller refuses the scoped route, which is
+    the one refusal category a rebuild may follow.
+    """
+    from library.tools.change_scope import compare
+
+    measured = None
+    if project_folder:
+        from library.tools.reel_build import measured_strategy_costs
+        measured = measured_strategy_costs(project_folder)
+
+    if not isinstance(measured, Mapping):
+        return {
+            "winner": "unmeasured",
+            "reason": ("this project has measured neither a targeted "
+                       "edit nor a full rebuild, so the two cannot be "
+                       "compared - the scoped path continues, because an "
+                       "unknown cost is not a reason to do the "
+                       "expensive thing"),
+            "scope": scope.as_dict() if hasattr(scope, "as_dict") else {},
+            "measured_costs": "unmeasured",
+        }
+
+    targeted = ((measured.get("targeted") or {}).get("total_s_p50"))
+    rebuild = ((measured.get("full_rebuild") or {}).get("total_s_p50"))
+    if not isinstance(targeted, (int, float)) or not isinstance(
+            rebuild, (int, float)):
+        return {
+            "winner": "unmeasured",
+            "reason": ("this project has not measured both a targeted "
+                       "edit and a full rebuild, so the two cannot be "
+                       "compared"),
+            "scope": scope.as_dict() if hasattr(scope, "as_dict") else {},
+            "measured_costs": measured,
+        }
+
+    if rebuild < targeted:
+        return {
+            "winner": "bulk",
+            "reason": (f"this project measured a full rebuild at "
+                       f"{rebuild:g}s against a targeted edit at "
+                       f"{targeted:g}s, so rebuilding is cheaper"),
+            "scope": scope.as_dict() if hasattr(scope, "as_dict") else {},
+            "measured_costs": measured,
+        }
+    return {
+        "winner": "scoped",
+        "reason": (f"this project measured a targeted edit at "
+                   f"{targeted:g}s against a full rebuild at "
+                   f"{rebuild:g}s, so the scoped path is cheaper"),
+        "scope": scope.as_dict() if hasattr(scope, "as_dict") else {},
+        "measured_costs": measured,
+    }
+
+
+def _scope_of(plan, prepared, track_plan, fps: float):
+    """What the patch touched, as an explicit scope.
+
+    The scope names the ITEMS the patch replaced and the INTERVALS it
+    moved, and counts what it reused.  It is computed from the diff the
+    patch already made, so it cannot disagree with what was done.
+
+    Items are named by what identifies them: a caption card by its
+    segment id, an overlay segment by its own.  Intervals are the
+    record spans the patch placed at, per row.
+    """
+    from library.tools.change_scope import Scope
+    from library.tools.reel_build import _angle_key
+
+    scope = Scope(kind="incremental")
+    rows_by_index = {
+        int(row.index): row.name
+        for row in (list(track_plan.video_tracks)
+                    + list(track_plan.audio_tracks))}
+
+    for diff in plan.diffs:
+        for live, segment in diff.replace:
+            key = str(segment.get("segment_id") or segment.get("overlay_path")
+                       or diff.kind)
+            span = (caption_span_frames(segment, fps)
+                    if diff.kind == "caption"
+                    else helper_span_frames(segment, fps))
+            row_name = rows_by_index.get(
+                int(diff.rows[0]) if diff.rows else -1, "")
+            scope.add_item(key, row=row_name)
+            scope.add_interval(row_name, span[0], span[1])
+        for segment in diff.added:
+            key = str(segment.get("segment_id") or segment.get("overlay_path")
+                       or diff.kind)
+            span = (caption_span_frames(segment, fps)
+                    if diff.kind == "caption"
+                    else helper_span_frames(segment, fps))
+            row_name = rows_by_index.get(
+                int(diff.rows[0]) if diff.rows else -1, "")
+            scope.add_item(key, row=row_name)
+            scope.add_interval(row_name, span[0], span[1])
+        for live in diff.removed:
+            span = _live_span(live)
+            row_name = rows_by_index.get(
+                int(diff.rows[0]) if diff.rows else -1, "")
+            scope.add_item(str(diff.kind), row=row_name)
+            if span is not None:
+                scope.add_interval(row_name, span[0], span[1])
+
+    # What the patch did NOT touch: the caption cards and the overlay
+    # segments it left alone, and the footage rows it carried over.
+    caption_row = track_plan.caption_row()
+    if caption_row is not None:
+        scope.note_reuse(
+            "caption_cards",
+            len(prepared.subtitle_segments or ())
+            - sum(1 for diff in plan.diffs if diff.kind == "caption"
+                  for _live, _segment in diff.replace))
+    scope.note_reuse(
+        "footage_rows",
+        len({(place["clip"].track_type,
+              prepared.video_row_by_angle.get(_angle_key(place["clip"]))
+              or prepared.speech_row_by_angle.get(_angle_key(place["clip"])))
+             for place in prepared.placements_list}))
+    # WHY the scope is what it is: the kinds the patch actually changed.
+    changed = sorted({diff.kind for diff in plan.diffs
+                      if diff.replace or diff.added or diff.removed})
+    scope.reason = (
+        f"{', '.join(changed)} changed" if changed
+        else "nothing changed - the patch carried the reel over")
+    return scope
+
+
 def decide_incremental(*, timeline, track_plan, prepared,
                        placements_list, video_row_by_angle,
                        speech_row_by_angle, fps: float,
@@ -468,19 +686,21 @@ def decide_incremental(*, timeline, track_plan, prepared,
     # Footage: span + source per a-roll/speech row.
     aroll = [row.index for row in track_plan.aroll_rows()]
     speech = [row.index for row in track_plan.speech_rows()]
+    # A retime in the plan moves the reel's clock, so the footage rows
+    # differ; the scope names WHICH passage and how far the change
+    # reaches, so the refusal says so rather than dumping the rows.
+    change_scope = retime_scope(placements_list, fps)
     check_rows_identical(
         footage_expected_rows(placements_list, video_row_by_angle,
                               speech_row_by_angle, fps, _angle_key),
         {**live_row_inventory(timeline, aroll, "video"),
          **live_row_inventory(timeline, speech, "audio")},
-        "footage")
+        "footage", change_scope)
 
-    # Cards, transitions, captions, frame: span + source, identical.
+    # Cards, transitions, frame: span + source, identical.
     fixed_card_ids = _check_cards_identical(timeline, track_plan, cards)
     _check_transitions_identical(
         timeline, track_plan, transition_placements, TRANSITIONS)
-    _check_captions_identical(
-        timeline, track_plan, subtitle_segments, fps)
     _check_frame_identical(
         timeline, track_plan, frame_segments, fps, FRAME)
 
@@ -490,6 +710,16 @@ def decide_incremental(*, timeline, track_plan, prepared,
         _check_native_hold(timeline, freeze_tail, video_row_by_angle)
 
     plan = IncrementalPlan()
+    # Captions are DIFFED, not compared: a caption card is content-named
+    # (PR 3048), so a card whose words changed is a different file at
+    # the same span.  Every other card on the row is reused.
+    caption_diff = diff_caption_cards(
+        timeline, track_plan, subtitle_segments, fps)
+    if (caption_diff.replace or caption_diff.added
+            or caption_diff.removed):
+        plan.touches_overlays = True
+    plan.diffs.append(caption_diff)
+
     for kind, role, segments in (
             ("explainer", EXPLAINER, explainer_segments),
             ("semantic visual", SEMANTIC, semantic_segments),
@@ -602,28 +832,111 @@ def _check_transitions_identical(timeline, track_plan, placements,
         "transitions")
 
 
-def _check_captions_identical(timeline, track_plan, segments,
-                              fps: float) -> None:
+def caption_source_of(segment: Mapping) -> str:
+    """The artefact a caption segment names: a rendered file or a frame dir.
+
+    A caption renders either as one movie or as a frame sequence, and
+    the SEQUENCE is the artefact - a directory, not a file.  Reading
+    the wrong one would compare a directory against a file and call
+    every caption changed.
+    """
+    path = segment.get("overlay_path") or ""
+    frames = ((segment.get("frames") or {}).get("dir", "")
+              if segment.get("container") == "frames" else "")
+    return _norm_source(frames or path)
+
+
+def diff_caption_cards(timeline, track_plan, segments,
+                        fps: float) -> "OverlayDiff":
+    """Match the caption row's live cards to the plan's, by (row, span).
+
+    A caption card is CONTENT-NAMED (PR 3048: the name carries a
+    digest of the drawing inputs), so a card whose words changed is a
+    DIFFERENT FILE at the SAME SPAN.  That is the one caption change
+    this route patches: same span, different bytes -> replace that one
+    card; every other card on the row is REUSED, not re-imported and
+    re-placed.
+
+    A caption whose SPAN moved is a PLACEMENT change, not a byte
+    change, and this diff refuses it rather than guessing.  The full
+    rebuild places it correctly; a patch that deleted one card and
+    added another could leave two cards overlapping on one row, and a
+    caption row that overlaps is unreadable.  So: added, removed and
+    moved captions REFUSE, exactly as they did before.
+    """
     row = track_plan.caption_row()
-    expected: Dict[tuple, list] = {}
-    if segments:
-        if row is None:
+    diff = OverlayDiff(kind="caption")
+    if not segments:
+        if row is not None:
+            try:
+                live = list(timeline.GetItemListInTrack(
+                    "video", int(row.index)) or [])
+            except Exception as exc:
+                raise IncrementalBroken(
+                    f"caption row would not list ({exc}) - refusing") from exc
+            if live:
+                raise IncrementalRefused(
+                    "the plan has no captions and the caption row holds "
+                    f"{len(live)} card(s) - refusing; a full rebuild "
+                    "places the caption row")
+        return diff
+    if row is None:
+        raise IncrementalRefused(
+            "captions are planned with no caption row - refusing")
+    try:
+        live_items = list(timeline.GetItemListInTrack(
+            "video", int(row.index)) or [])
+    except Exception as exc:
+        raise IncrementalBroken(
+            f"caption row would not list ({exc}) - refusing") from exc
+
+    live_by_span: Dict[tuple, list] = {}
+    for item in live_items:
+        span = _live_span(item)
+        if span is None:
+            raise IncrementalBroken(
+                "caption row holds an item whose span cannot be read - "
+                "refusing")
+        live_by_span.setdefault(
+            (int(row.index), span[0], span[1]), []).append(item)
+
+    claimed: set = set()
+    for segment in segments:
+        if not isinstance(segment, Mapping):
+            raise IncrementalBroken(
+                "caption row carries an unreadable segment - refusing")
+        span = caption_span_frames(segment, fps)
+        key = (int(row.index), span[0], span[1])
+        source = caption_source_of(segment)
+        if not source:
+            raise IncrementalBroken(
+                f"caption segment {segment.get('segment_id')!r} names no "
+                "artefact - refusing")
+        found = live_by_span.get(key, [])
+        if not found:
             raise IncrementalRefused(
-                "captions are planned with no caption row - refusing")
-        rows = []
-        for segment in segments:
-            span = caption_span_frames(segment, fps)
-            path = segment.get("overlay_path") or ""
-            frames = ((segment.get("frames") or {}).get("dir", "")
-                      if segment.get("container") == "frames" else "")
-            rows.append((span[0], span[1],
-                         _norm_source(frames or path)))
-        expected[("video", int(row.index))] = sorted(rows)
-    live: Dict[tuple, list] = {}
-    if row is not None:
-        live.update(live_row_inventory(timeline, [int(row.index)],
-                                       "video"))
-    check_rows_identical(expected, live, "captions")
+                f"caption segment {segment.get('segment_id')!r} has no "
+                f"live card at {key[1]}-{key[2]} - refusing; a caption "
+                "that moved is a placement change, and a full rebuild "
+                "places the caption row")
+        if len(found) > 1:
+            raise IncrementalConflict(
+                f"caption row has {len(found)} cards at {key} - refusing "
+                "an ambiguous match")
+        live = found[0]
+        claimed.add(key)
+        if _file_digest(source) != _file_digest(_live_raw_path(live)):
+            diff.replace.append((live, dict(segment)))
+
+    unclaimed = [key for key in live_by_span if key not in claimed]
+    if unclaimed:
+        raise IncrementalRefused(
+            f"{len(unclaimed)} live caption card(s) have no planned card "
+            "at the same span - refusing; a caption that moved or was "
+            "removed is a placement change, and a full rebuild places the "
+            "caption row")
+    diff.rows = [int(row.index)]
+    return diff
 
 
 def _check_frame_identical(timeline, track_plan, segments, fps: float,
@@ -665,6 +978,12 @@ def apply_overlay_diffs(*, project, pool, timeline, staging_name: str,
     helper the full build uses, with the same intent, suppression and
     sweep-record plumbing. Returns {"sweep_records", "held_back",
     "applied_intent", "seen_ids", "seen_labels"} for the record.
+
+    A CAPTION card is placed by `reel_caption_placement` instead: the
+    caption row has its own span arithmetic (per-edge rounded), its own
+    tight-box geometry and its own sweep record, and the full build
+    places it through that owner.  Calling the same owner here is what
+    makes a patched card land exactly where a full build puts it.
     """
     from library.tools.reel_build import (
         PoolIndex, _assert_placing, place_overlay_segments,
@@ -692,6 +1011,22 @@ def apply_overlay_diffs(*, project, pool, timeline, staging_name: str,
         if not segments:
             continue
         _assert_placing(project, timeline)
+        if diff.kind == "caption":
+            from library.tools.reel_caption_placement import (
+                place_caption_cards,
+            )
+            outcome = place_caption_cards(
+                pool=pool, project=project, timeline=timeline,
+                name=staging_name, fps=fps, width=width, height=height,
+                segments=segments, track_plan=track_plan,
+                project_folder=project_folder,
+                overlay_intent=overlay_intent,
+                applied_intent_keys=applied_intent,
+                seen_intent_ids=seen_ids,
+                draw_gain=draw_gain, pool_index=pool_index,
+                suppressions=suppressions, suppressed_ids=held_back,
+                sweep_records=sweep_records, resolve_app=resolve_app)
+            continue
         held_back.extend(place_overlay_segments(
             pool, project, timeline, staging_name, fps, segments,
             list(diff.rows), kind=diff.kind, check=_kind_check(diff.kind),
@@ -946,6 +1281,23 @@ def build_staged_incremental(
             lower_third_segments=lower_third_segments,
             ledger_rows=prepared.ledger_rows)
 
+        # Is the scoped patch actually CHEAPER than rebuilding the reel?
+        # A small-delta strategy that costs more than a bulk rebuild is
+        # not a small-delta strategy, and the caller must be told which
+        # one it is running.  The comparison is made on THIS project's
+        # own measured costs; where nothing was measured the answer is
+        # "unmeasured" and the scoped path continues, because an
+        # unknown cost is not a reason to do the expensive thing.
+        _scope = _scope_of(plan, prepared, track_plan, fps)
+        _cost = _scope_cost_decision(
+            _scope, project_folder=project_folder)
+        if _cost.get("winner") == "bulk":
+            raise IncrementalRefused(
+                "the scoped patch is measurably more expensive than "
+                f"rebuilding the reel ({_cost.get('reason')}) - "
+                "refusing; a full rebuild places it",
+                category="unsupported")
+
         patch_out = apply_overlay_diffs(
             project=project, pool=project.GetMediaPool(), timeline=staging,
             staging_name=staging_name, fps=fps, width=width, height=height,
@@ -1194,6 +1546,20 @@ def build_staged_incremental(
             "incremental_patch_s": round(_time.perf_counter()
                                          - patch_started, 4),
         }
+        # WHAT THE CHANGE TOUCHED, explicitly: the items it replaced and
+        # the intervals it moved, and what it reused.  A scope nobody can
+        # read is a scope nobody can measure, and the point of the scoped
+        # route is that the work is proportional to the change.
+        build_record["change_scope"] = _scope_of(
+            plan, prepared, track_plan, fps).as_dict()
+        # A retime in the plan is a CLOCK change, and the scope of one
+        # is the interval it moved.  It is recorded even when the
+        # scoped path refused it, because a refusal that names the
+        # interval is the difference between "this reel must be built
+        # again" and "these frames moved".
+        _retime = retime_scope(prepared.placements_list, fps)
+        if _retime is not None:
+            build_record["change_scope"]["retime"] = _retime
 
         final_inventory = _RowInventory(staging)
         final_plan = decide_incremental(
