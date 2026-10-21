@@ -105,6 +105,18 @@ API_RETURN_VALUE = "api_return_value"
 #: and a STRUCTURE says what the timeline now IS.
 STRUCTURE_READBACK = "structure_readback"
 
+#: ``look_readback`` - the engine read every APPROVED SHOT's look back
+#: after the write and judged it against what the request was
+#: authorized to change: its grade, its Fusion comps and the canvas
+#: each was authored on, its transform and its keyframes
+#: (`library/tools/look_preservation.py`).
+#:
+#: The delta says what moved and the structure says what the timeline
+#: IS; the LOOK says what the picture LOOKS like, which neither of the
+#: other two can answer - a comp re-authored on another canvas is a
+#: different picture with the same comp names.
+LOOK_READBACK = "look_readback"
+
 #: The backends whose production route carries the engine's own
 #: pre/post comparison.
 #:
@@ -248,6 +260,36 @@ def verify_delta(*, baseline: Baseline, after: Mapping,
         "failures": failures,
         "preservation": verdict,
         "collateral_changes": [dict(row) for row in collateral],
+    }
+
+
+def look_readback(*, baseline: Baseline, after: Mapping,
+                  conflict_domains: Sequence[str] = ()) -> dict:
+    """Judge every approved shot's LOOK across a mutation.
+
+    The state half of QA-005: the grade, the Fusion comps and the
+    canvas each was authored on, the transform and the keyframes, read
+    before the write and after it, and judged against the authorized
+    delta.  The pixel half - the delivered frames - is not available
+    here: a mutation does not deliver a file.  It is judged where the
+    file exists (`library/tools/look_preservation.compare_frames`).
+
+    A difference nobody authorized is a failure.  A difference nobody
+    can judge - no scope to judge it against - is unprovable, which is
+    not a pass.
+    """
+    from library.tools import look_preservation, preservation_invariant
+
+    scope = preservation_invariant.scope_for(
+        baseline.intended_changes, conflict_domains=conflict_domains)
+    verdict = look_preservation.verify_look_preservation(
+        before=baseline.snapshot, after=after, scope=scope)
+    return {
+        "status": ("verified" if verdict["status"] == "verified"
+                   else "failed"),
+        "state": verdict["state"],
+        "canvas": verdict["canvas"],
+        "failures": list(verdict["failures"]),
     }
 
 
@@ -526,17 +568,24 @@ def whole_timeline_gate(path: str, *, baseline: Baseline | None = None,
             baseline=baseline, after=after,
             affected_spans=affected_spans,
             conflict_domains=conflict_domains)
+        look = look_readback(baseline=baseline, after=after,
+                             conflict_domains=conflict_domains)
     else:
         delta = {"status": "not_applicable",
                  "reason": "this outcome has no state before it to compare"}
+        look = {"status": "not_applicable",
+                "reason": "this outcome has no state before it to compare",
+                "failures": []}
     failures = list(delta.get("failures") or [])
     for finding in report.errors:
         failures.append(f"{finding.check}: {finding.detail}")
+    failures.extend(look.get("failures") or [])
     return {
         "status": "verified" if not failures else "failed",
         "path": path,
         "structure": report.as_dict(),
         "delta": delta,
+        "look": look,
         "failures": failures,
     }
 
@@ -577,6 +626,65 @@ def whole_timeline_coverage() -> dict:
         "uncovered_routes": uncovered,
         "unreachable_routes": unreachable,
     }
+
+
+def look_coverage() -> dict:
+    """How many whole-timeline paths judge the LOOK.
+
+    The LOOK read-back needs a BEFORE to compare against, so a path
+    that runs the gate without a baseline - a build, which has no state
+    before it - is NOT APPLICABLE rather than uncovered: it produces an
+    outcome, not a change.
+
+    The answer is read out of the CODE, the way `whole_timeline_coverage`
+    reads its own: a path that stops passing a baseline, or stops
+    calling the gate, is reported as not carrying it the moment it does.
+    """
+    covered = []
+    uncovered = []
+    not_applicable = []
+    for route in WHOLE_TIMELINE_ROUTES:
+        row = route.as_dict()
+        call = _gate_call(route.entry_point)
+        if not call:
+            row["reason"] = ("the path does not run the whole-timeline "
+                             "gate")
+            uncovered.append(row)
+            continue
+        if "baseline=" not in call:
+            row["reason"] = ("the gate runs without a baseline, so there "
+                             "is no before to compare the look against")
+            not_applicable.append(row)
+            continue
+        row["verification"] = LOOK_READBACK
+        covered.append(row)
+    return {
+        "denominator": len(covered) + len(uncovered),
+        "covered": len(covered),
+        "uncovered": len(uncovered),
+        "not_applicable": len(not_applicable),
+        "covered_routes": covered,
+        "uncovered_routes": uncovered,
+        "not_applicable_routes": not_applicable,
+    }
+
+
+def _gate_call(entry_point: str) -> str:
+    """The text of the entry point's `whole_timeline_gate(...)` call."""
+    source = _entry_point_source(entry_point)
+    index = source.find("whole_timeline_gate(")
+    if index < 0:
+        return ""
+    depth = 0
+    for position in range(index, len(source)):
+        character = source[position]
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return source[index:position + 1]
+    return source[index:index + 400]
 
 
 def qualified_pairs() -> tuple[tuple[str, str], ...]:

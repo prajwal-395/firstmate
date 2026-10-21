@@ -527,6 +527,91 @@ def _node_luts(item, graph, count) -> list[dict] | None:
     return luts
 
 
+def _node_records(graph, count) -> list[dict] | None:
+    """The grade graph's own nodes: their label and their group.
+
+    `None` means Resolve did not expose the graph at all - an absence,
+    never an empty graph.  A label or a group that reads empty is
+    reported as `None` too, so that two reads of the same graph agree:
+    an empty string and a missing string are the same absence.
+    """
+    if graph is None:
+        return None
+    rows = []
+    for node in range(1, count + 1):
+        label = _call(graph, "GetNodeLabel", None, node)
+        group = _call(graph, "GetNodeColorGroup", None, node)
+        rows.append({
+            "node": node,
+            "label": str(label) if label else None,
+            "group": str(group) if group else None,
+        })
+    return rows
+
+
+#: The tool whose Width and Height state the canvas a comp draws at.
+#: The engine's own comp builder sets it there
+#: (`library/tools/fusion/effects.py`), so it is where the canvas a comp
+#: was AUTHORED on is read from.
+CANVAS_TOOL = "Background"
+
+
+def _comp_canvas(comp) -> dict | None:
+    """The canvas a comp was authored on, or None where it is unreadable.
+
+    `None` is ABSENT EVIDENCE, never "the comp has no canvas": a comp
+    that could not be read is not a comp without a canvas, and a
+    comparison that treats it as one would report a change that was
+    never observed.
+    """
+    if comp is None or isinstance(comp, str):
+        return None
+    tools = _call(comp, "GetToolList", None, False)
+    if not isinstance(tools, dict):
+        return None
+    for _key, tool in sorted(tools.items(), key=lambda kv: str(kv[0])):
+        if _call(tool, "GetAttrs", None, "TOOLS_RegID") != CANVAS_TOOL:
+            continue
+        width = _call(tool, "GetInput", None, "Width")
+        height = _call(tool, "GetInput", None, "Height")
+        try:
+            width = int(width)
+            height = int(height)
+        except (TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return {"width": width, "height": height}
+    return None
+
+
+def _comp_records(item) -> list[dict]:
+    """Every comp on an item: its name, its tools and its canvas.
+
+    The names come from Resolve's own list and the bodies from
+    `GetFusionCompByIndex`, which is 1-BASED. A comp whose tools or
+    whose canvas could not be read carries `None` for them: the read
+    says what it could not see, and never fills the gap with a
+    default.
+    """
+    rows = []
+    try:
+        count = int(_call(item, "GetFusionCompCount", 0) or 0)
+    except (TypeError, ValueError):
+        count = 0
+    names = list(_call(item, "GetFusionCompNameList", []) or [])
+    for index in range(1, count + 1):
+        comp = _call(item, "GetFusionCompByIndex", None, index)
+        name = names[index - 1] if index - 1 < len(names) else ""
+        rows.append({
+            "comp_index": index,
+            "name": str(name or ""),
+            "tools": _comp_tools(item, index),
+            "canvas": _comp_canvas(comp),
+        })
+    return rows
+
+
 def _item_fades(item) -> dict | None:
     """The item's native fades, or `None` where Resolve does not expose them.
 
@@ -679,12 +764,27 @@ def clip_detail(item, track_type: str, track_index: int,
             # GetToolList plus a few GetInput calls. The mask ops'
             # verifiers judge this against what they declared.
             "mattes": mattes_of(item, comp_names),
+            # Every comp, with the canvas it was AUTHORED on. The
+            # canvas is the size of the solid image the comp draws -
+            # the Background node's Width and Height - which is how
+            # the engine's own comp builder states it. Without it two
+            # comps with the same names read EQUAL when one was drawn
+            # on the delivery canvas and the other on the source
+            # canvas, and that is exactly what Reel 26's closing shot
+            # looked like (QA-005).
+            "comps": _comp_records(item),
         },
         "color": {
             "cdl": dict(_call(item, "GetCDL", {}) or {}),
             "color_group": _call(item, "GetColorGroup", ""),
             "node_count": node_count,
             "luts": _node_luts(item, graph, node_count),
+            # The graph's own nodes, by index: their label and their
+            # group. The clip's CDL is a SUMMARY and not the graph
+            # (`resolve_property_inventory`), so a node that was
+            # relabelled or regrouped - a grade that reads the same
+            # and is not - was invisible until this read.
+            "nodes": _node_records(graph, node_count),
         },
         "markers": [
             {

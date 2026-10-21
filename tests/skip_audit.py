@@ -242,6 +242,15 @@ ENVIRONMENT_CONDITIONS = (
                      "has a video clip",
     ),
     EnvironmentCondition(
+        pattern=r"no live Resolve",
+        false_when="DaVinci Resolve is running and its scripting port "
+                   "answers - the state any live test needs before it can "
+                   "read a timeline",
+        capability="resolve_running",
+        install_hint="open DaVinci Resolve with a project open, and let "
+                     "it finish loading",
+    ),
+    EnvironmentCondition(
         pattern=r"drives the live Resolve; runs only with REN_LIVE_RESOLVE=1",
         false_when="REN_LIVE_RESOLVE=1 is exported for a granted "
                    "borrow-resolve window - the one opt-in "
@@ -250,6 +259,17 @@ ENVIRONMENT_CONDITIONS = (
         capability="resolve_live_opt_in",
         install_hint="export REN_LIVE_RESOLVE=1 inside a granted "
                      "borrow-resolve window, with Resolve running",
+    ),
+    EnvironmentCondition(
+        pattern=r"the qualification project could not be opened now",
+        false_when="DaVinci Resolve is running and the Ren Qualification "
+                   "project can be opened - it is the one project a live "
+                   "test may touch, and a run that cannot open it cannot "
+                   "touch anything",
+        capability="resolve_running",
+        install_hint="open DaVinci Resolve, and let the qualification "
+                     "project open: another lane switching projects at the "
+                     "same time overwrites the switch",
     ),
     EnvironmentCondition(
         pattern=r"node is not on PATH, so the plugin's JavaScript cannot "

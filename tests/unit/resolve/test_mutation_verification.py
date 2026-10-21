@@ -611,3 +611,72 @@ def test_a_multi_operation_revision_is_judged_by_the_structural_read_back(
     assert evidence["status"] == "failed"
     assert any("source_alignment" in failure
                for failure in evidence["failures"]), evidence["failures"]
+
+
+# ── QA-005: the LOOK read-back ─────────────────────────────────────────
+
+
+def test_the_whole_timeline_gate_refuses_a_look_nobody_authorized():
+    """Defect: a shot's comp moved and nothing said so.
+
+    The request asked for a trim on one clip.  The write also re-authored
+    the Fusion comp of ANOTHER clip on another canvas - the same comp
+    names, a different picture - and the delta cannot see it: the comp
+    names did not change.  The LOOK read-back can.
+    """
+    from library.tools import mutation_verification
+
+    graded = _clip("clip-approved", 500, 520,
+                   fusion={"comp_count": 1, "comp_names": ["MediaIn1"],
+                           "comps": [{"comp_index": 1, "name": "MediaIn1",
+                                      "canvas": {"width": 1080,
+                                                 "height": 1920},
+                                      "tools": ["Background", "MediaIn1"]}]})
+    moved = _clip("clip-approved", 500, 520,
+                  fusion={"comp_count": 1, "comp_names": ["MediaIn1"],
+                          "comps": [{"comp_index": 1, "name": "MediaIn1",
+                                     "canvas": {"width": 3840,
+                                                "height": 2160},
+                                     "tools": ["Background", "MediaIn1"]}]})
+
+    before = _snapshot(graded)
+    after = _snapshot(_clip("clip-new", 100, 120), moved)
+
+    verdict = mutation_verification.whole_timeline_gate(
+        "multi_operation_revision",
+        baseline=mutation_verification.capture_baseline(
+            project="Project", timeline="Reel 01", revision=7,
+            operations=[INSERT_OPERATION], snapshot=before),
+        after=after,
+        affected_spans=((100, 120),),
+        conflict_domains=("timeline_structure",),
+        media_on_disk=True)
+
+    assert verdict["look"]["status"] == "failed"
+    assert any("canvas" in failure for failure in verdict["failures"]), \
+        verdict["failures"]
+
+
+def test_the_whole_timeline_gate_passes_a_look_that_did_not_move():
+    """The control: the same timeline read twice carries the same look."""
+    from library.tools import mutation_verification
+
+    clip = _clip("clip-approved", 500, 520,
+                 fusion={"comp_count": 1, "comp_names": ["MediaIn1"],
+                         "comps": [{"comp_index": 1, "name": "MediaIn1",
+                                    "canvas": {"width": 1080, "height": 1920},
+                                    "tools": ["Background", "MediaIn1"]}]})
+    before = _snapshot(clip)
+    after = _snapshot(_clip("clip-new", 100, 120), dict(clip))
+
+    verdict = mutation_verification.whole_timeline_gate(
+        "multi_operation_revision",
+        baseline=mutation_verification.capture_baseline(
+            project="Project", timeline="Reel 01", revision=7,
+            operations=[INSERT_OPERATION], snapshot=before),
+        after=after,
+        affected_spans=((100, 120),),
+        conflict_domains=("timeline_structure",),
+        media_on_disk=True)
+
+    assert verdict["look"]["status"] == "verified", verdict["look"]

@@ -265,7 +265,12 @@ def test_one_read_carries_every_marker_level_and_the_clips(tmp_path):
     assert clip["color"]["luts"] is None
     assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
                               "media_windows": [],
-                              "mattes": None}
+                              "mattes": None,
+                              # The comps, each with the canvas it was
+                              # AUTHORED on - the state two comps with
+                              # the same names used to read equal under
+                              # (QA-005).
+                              "comps": []}
     assert result["fps"] == 24
     assert (result["width"], result["height"]) == (1080, 1920)
 

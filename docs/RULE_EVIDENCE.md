@@ -9613,3 +9613,69 @@ it - the caption's own measured box grows to cover the neighbour - so the
 collision would be measured again after the move and the revision would have
 changed nothing the check can see. That was measured, not assumed: with a
 two-pixel clearance the seeded collision survived its own revision.
+## the-comp-that-read-equal-while-the-picture-moved
+
+**The rule:** An approved shot's LOOK is read back before a revision and after
+it - its grade, its Fusion comps AND THE CANVAS EACH COMP WAS AUTHORED ON, its
+transform and its keyframes - and the DELIVERED pixels of the shot are
+compared too. A difference nobody authorized is a finding; a difference nobody
+can judge against an authorized delta is UNPROVABLE, which is not a pass.
+
+**What happened.** Reel 26, 2026-10-20. The closing shot's Fusion comp was
+authored on the SOURCE canvas (3840x2160) while every other comp in the reel
+was authored on the DELIVERY canvas (1080x1920) - so its vignette and glow
+landed on a different picture, and the shot read flatter and cooler than the
+shot beside it. PR 3009 re-applied the declared look, the shot moved, and
+PR 3079 had to restore the version the captain preferred.
+
+Nothing could have seen it, for three reasons that are all MEASUREMENT gaps:
+
+- the recorded state of a shot carried its transform, its keyframes, its clip
+  CDL and its comp NAMES - but not the CANVAS its comp was authored on. Two
+  comps with the same names read EQUAL when one was drawn on the delivery
+  canvas and the other on the source canvas, which is the whole defect;
+- nothing compared the DELIVERED pixels of a shot before a revision with the
+  same shot after it, so a framing change no recorded state explained went
+  unseen;
+- a shot's look was compared under Resolve's object id, so a RE-PLACED shot -
+  which gets a new id - started with an empty look and nothing compared it with
+  the shot it replaced.
+
+**Where it is.** `library/tools/look_preservation.py` is the check, in three
+parts over the snapshots the engine already takes:
+
+- the STATE: `capture_look` reads each shot's look out of a recorded snapshot
+  and `compare_look` compares two of them under the shot's EDITORIAL identity
+  (`library/tools/editorial_identity.py` - the material and the role, which
+  survives a re-place), naming every difference in the engine's own conflict
+  domains with whether the authorized scope permits it;
+- the CANVAS: `canvas_report` names the shots whose comp was authored on a
+  canvas that is not the delivery canvas, and the shots whose canvas differs
+  from their neighbours' - the signature of the reel that lost its look;
+- the PIXELS: `compare_frames` compares the DELIVERED frames of two renders,
+  shot by shot. The frames come from the delivered file, because a source
+  frame and a delivered frame are not the same picture once the canvases
+  differ.
+
+The READ that feeds it is the one reader (`library/tools/reel_read.py`), which
+now carries the comp's canvas and the grade graph's node records. The GATE is
+`mutation_verification.whole_timeline_gate`, which runs the look read-back
+beside the delta and the structure: `look_readback` is the third verdict, and
+a difference no operation authorized fails the gate.
+
+**The count, with the denominator.**
+
+| measurement | before | after |
+|---|---|---|
+| the state a shot's look is read back from | transform, keyframes, clip CDL, comp NAMES | + the canvas each comp was authored on, + the grade graph's node records |
+| shots a look comparison is matched under | Resolve's object id (a re-place starts empty) | the shot's editorial identity (a re-place is compared with what it replaced) |
+| whole-timeline paths that judge the LOOK beside the delta and the structure | 0 of 4 | 3 of 4 - the three AXI request paths, the ones with a BEFORE to compare against; the build has no before and is not applicable |
+
+**What it does not fix.** The canvas report is a REPORT: a comp authored on the
+source canvas is what the engine's own comp builder does, because Fusion
+composites over the SOURCE frame (`library/tools/fusion/comp_builder.py`), so
+the report names the shot whose look lands differently and does not change
+what the comp pass builds. The pixel half needs a DELIVERED file on each side,
+so it is judged where the file exists and not inside a mutation. And the
+look gate only runs where there is a before: a build has none, and its
+outcome is a STRUCTURE, not a look.

@@ -912,6 +912,83 @@ def resolve_session():
         LIVE_RESOLVE_GUARD.armed = True
 
 
+@pytest.fixture(scope="module")
+def qualification_resolve_session():
+    """The live Resolve, leased, with the QUALIFICATION project OPEN.
+
+    `resolve_session` requires the qualification project to be open
+    already and SKIPS where it is not - which is where another lane's
+    project is open.  This fixture borrows the open project instead:
+    it saves the open project and its current timeline, opens the
+    qualification project inside the borrow, and restores the open
+    project when the test ends.  So a live test can run whatever
+    Resolve has open, without disturbing the lane that has it.
+
+    The lease is the SAME one `resolve_session` takes, and it is
+    EXCLUSIVE: the borrow is a cursor write, and a qualification run
+    may not overlap another writer.
+
+    Skips unless `REN_LIVE_RESOLVE=1`, and skips naming the holder
+    where the instance is busy.
+    """
+    if os.environ.get(LIVE_RESOLVE_ENV) != "1":
+        pytest.skip(f"drives the live Resolve; runs only with "
+                    f"{LIVE_RESOLVE_ENV}=1 inside a granted borrow-resolve "
+                    f"window")
+    from library.tools import resolve_lock
+    previous = resolve_lock._sole_writer_reason
+    resolve_lock._sole_writer_reason = None
+    LIVE_RESOLVE_GUARD.armed = False
+    try:
+        try:
+            from library.tools.resolved.jobs import QUALIFICATION_PROJECT
+            # NOT a qualification lease: the broker refuses one unless
+            # the qualification project is the one OPEN, and this
+            # fixture opens it inside the borrow, after the lease.
+            with resolve_lock.resolve_lease(
+                    "pytest: a live test that borrows the qualification "
+                    "project", exclusive=True, timeout=5.0):
+                from library.tools.marker_feedback import connect_resolve
+                from library.tools.qualification_project import borrowed
+                try:
+                    resolve = connect_resolve()
+                except Exception as exc:                  # noqa: BLE001
+                    pytest.skip(f"no live Resolve: {exc}")
+                manager = resolve.GetProjectManager()
+                opened = manager.GetCurrentProject()
+                opened_name = opened.GetName() if opened else ""
+                if opened_name == QUALIFICATION_PROJECT:
+                    with borrowed(resolve, qualification_only=True):
+                        yield manager.GetCurrentProject()
+                else:
+                    with borrowed(resolve):
+                        from library.tools.qualification_project import (
+                            QualificationError,
+                            switch_project,
+                        )
+                        # The ONE in-repo LoadProject path: a live-handle
+                        # check, the switch settle and the name read
+                        # back.  A bare LoadProject can answer None while
+                        # the switch is still settling.
+                        try:
+                            project = switch_project(manager,
+                                                    QUALIFICATION_PROJECT)
+                        except QualificationError as exc:
+                            pytest.skip(f"the qualification project could "
+                                        f"not be opened now: {exc}")
+                        if project is None or (
+                                project.GetName() != QUALIFICATION_PROJECT):
+                            pytest.skip(
+                                f"Resolve would not open "
+                                f"{QUALIFICATION_PROJECT!r}")
+                        yield project
+        except resolve_lock.ResolveBusy as busy:
+            pytest.skip(str(busy))
+    finally:
+        resolve_lock._sole_writer_reason = previous
+        LIVE_RESOLVE_GUARD.armed = True
+
+
 # ── Stubbing DaVinciResolveScript without evicting the import graph ──
 #
 # Nine test files stub the Resolve bindings so a module that imports

@@ -544,6 +544,13 @@ def _normalized_color(value):
     `None`, and set to `[]`. Its one-node default graph is structural, not
     a grade. Those shapes carry no color edit. A graph with additional nodes
     or an assigned LUT remains part of the color value and is compared.
+
+    The graph's NODE RECORDS are read the same way: the label of a
+    one-node default graph is structure - Resolve names that node the
+    same way on every clip - so reading it as a grade made an ungraded
+    clip look graded and made every replacement of one look like a lost
+    grade (QA-005).  A graph with more than one node keeps its records:
+    there the labels are part of the authored grade.
     """
     if not isinstance(value, dict):
         return value
@@ -553,6 +560,10 @@ def _normalized_color(value):
     luts = normalized.get("luts")
     if luts is None or (isinstance(luts, (list, tuple)) and not luts):
         normalized.pop("luts", None)
+    nodes = normalized.get("nodes")
+    if (nodes is None
+            or (isinstance(nodes, (list, tuple)) and len(nodes) <= 1)):
+        normalized.pop("nodes", None)
     return normalized
 
 
