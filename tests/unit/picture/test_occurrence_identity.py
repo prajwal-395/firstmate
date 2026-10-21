@@ -41,14 +41,23 @@ OTHER_PERSON = "person-m0l1-2"
 
 def _native(measurement_type, value, *, start_tick, end_tick,
             lane="m7", coverage="complete"):
-    record = evidence_contract.new_measurement(
+    # A model-produced type is built as an INFERENCE, with the
+    # uncertainty its producer earned; the contract refuses to build one
+    # any other way (`new_measurement` raises for a model type).
+    build = (evidence_contract.new_inference
+             if evidence_contract.is_model_produced(measurement_type)
+             else evidence_contract.new_measurement)
+    extra = ({"uncertainty": evidence_contract.UNCERTAINTY_UNSTATED}
+             if evidence_contract.is_model_produced(measurement_type)
+             else {})
+    record = build(
         asset_id=ASSET, clock_id=CLOCK,
         start_tick=start_tick, end_tick=end_tick,
         measurement_type=measurement_type, value=value,
         method="event-spans-v1 over M3",
         provenance_id=f"prov-{DIGEST}-{lane}",
         coverage=evidence_contract.CoverageKind(coverage),
-        coverage_samples=1, coverage_sample_rate_hz=0.0)
+        coverage_samples=1, coverage_sample_rate_hz=0.0, **extra)
     native = evidence_contract.to_rust_evidence(record)
     native.update({
         "source_stream_id": f"stream-{DIGEST}",

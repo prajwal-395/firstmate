@@ -202,6 +202,16 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "review expose the measured layout for comparison with the "
         "project's delivery requirements."),
     FindingReader(
+        "channels", "render",
+        "Every channel the delivered file declares carries signal. A "
+        "channel that carries none is a hole where a voice was, and the "
+        "loudness measurement cannot see it: a channel at digital zero "
+        "contributes nothing to the integrated value either. The run "
+        "summary and rough-cut review surface the silent channels, and "
+        "the delivery QC gate refuses the file on this check "
+        "(deliverable_qc.verify_audio_spec), so the channel layout and "
+        "the mix are checked before delivery."),
+    FindingReader(
         "clipping", "render",
         "Clipped samples in the delivered audio. The run summary and "
         "rough-cut review surface the affected runs so the mix/export can "

@@ -19,6 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from library.processes.edit_video.run_pipeline import present_llm_step
+from library.tools import llm_handshake
 
 
 @pytest.fixture
@@ -45,7 +46,10 @@ def _answerer(req, res, answers, seen):
         for payload in answers:
             while time.time() < deadline and not stop.is_set():
                 if req.exists() and not res.exists():
-                    seen.append(json.loads(req.read_text(encoding="utf-8")))
+                    # The request is read MATERIALIZED: the wire form
+                    # names shared text by reference, and what the model
+                    # is asked is the text itself.
+                    seen.append(llm_handshake.read_request(req))
                     res.parent.mkdir(parents=True, exist_ok=True)
                     res.write_text(json.dumps(payload), encoding="utf-8")
                     break
@@ -97,9 +101,13 @@ def test_failing_qa_triggers_retry(mock_template_loader, mock_validate,
     assert len(seen) == 2
     assert mock_validate.call_count == 2
 
-    # Check that feedback was appended to the second attempt's context
-    assert "QA Feedback from previous attempt" in seen[1]["context"]
-    assert "Missing required key" in seen[1]["context"]
+    # The retry must carry WHAT WAS WRONG with the answer.  It carries
+    # it as a DELTA: the retry prompt names the mistake, and the
+    # context points at the request the model already read and the
+    # answer it already wrote, both on disk.
+    assert "Missing required key" in seen[1]["prompt"]
+    assert "attempts/test_node.request.md" in seen[1]["context"]
+    assert "attempts/test_node.attempt1.answer.json" in seen[1]["context"]
 
     # The retry budget is respected: always failing, it stops after the
     # initial attempt plus two retries and returns the best attempt.

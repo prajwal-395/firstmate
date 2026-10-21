@@ -402,6 +402,13 @@ def test_the_benchmarks_operations_have_no_production_route(op_id):
 
 REEL = "Reel 13 - the-accounting-firm-ai-called-healthcare"
 SNAPSHOT = {
+    # A shadow snapshot is what `reel_read` measured off the timeline,
+    # and it carries the timeline's own frame bounds: the edit core
+    # compiles a request against the base snapshot, and a base with no
+    # frame bounds is not a timeline snapshot.
+    "timeline": REEL,
+    "start_frame": 0,
+    "end_frame": 48,
     "tracks": [{
         "type": "video", "index": 1, "name": "V1",
         "clips": [{

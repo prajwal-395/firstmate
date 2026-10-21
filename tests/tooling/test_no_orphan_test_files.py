@@ -118,3 +118,39 @@ def test_every_test_file_sits_in_a_declared_layer():
         + "\n\nMove each into tests/<layer>/ - or tests/unit/<subsystem>/ -"
         " by what it establishes."
     )
+
+
+def test_every_test_module_has_a_basename_no_other_test_module_has():
+    """Fail if two test files share a basename.
+
+    The test tree is not a package - there is no `__init__.py` under
+    `tests/` - so pytest imports every test module by its BASENAME.
+    Two files with one name are the same module to the collector: the
+    second one is refused with `import file mismatch`, and a whole
+    file's tests are lost from the run while the tree still looks
+    collected.  `tests/unit/tools/test_candidate_treatments.py` and
+    `tests/contracts/test_candidate_treatments.py` did exactly that:
+    the contracts file was refused at collection, and the run reported
+    an error where a passing suite had been.
+
+    The fix is a name nobody else has.  This test is the guard that
+    keeps the collision from coming back silently.
+    """
+    by_name: dict[str, list[Path]] = {}
+    for path in _all_test_files():
+        by_name.setdefault(path.name, []).append(path)
+
+    collisions = {
+        name: sorted(str(p.relative_to(REPO_ROOT)) for p in paths)
+        for name, paths in by_name.items()
+        if len(paths) > 1
+    }
+    assert not collisions, (
+        "test module basename(s) used by more than one file:\n"
+        + "\n".join(
+            f"  {name}: {', '.join(paths)}" for name, paths in collisions.items()
+        )
+        + "\n\npytest imports a test module by its basename, so the second "
+        "file is refused at collection (`import file mismatch`) and its "
+        "tests never run. Rename one of each pair."
+    )
