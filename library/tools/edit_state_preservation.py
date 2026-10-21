@@ -346,11 +346,11 @@ def restore_clip_metadata(item, state: Mapping, *, source_in=None,
 
 
 def _same(wanted, actual) -> bool:
-    if (isinstance(wanted, (int, float)) and not isinstance(wanted, bool)
-            and isinstance(actual, (int, float))
-            and not isinstance(actual, bool)):
-        return abs(float(actual) - float(wanted)) <= 1e-6
-    return actual == wanted
+    """The transform-write rule for two values: the same one the
+    placement pass asks before it skips a write."""
+    from library.tools.transform_write_log import values_agree
+
+    return values_agree(wanted, actual)
 
 
 def write_properties(item, properties: Mapping, *, write_context=None,

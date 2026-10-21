@@ -23,6 +23,15 @@ from typing import Any, Iterator
 from library.tools.project_layout import Area, ProjectLayout
 
 TRANSFORM_PROPERTIES = frozenset({"Pan", "Tilt", "ZoomX", "ZoomY"})
+#: The transform properties whose value Resolve holds as a NUMBER, so a
+#: read-back can be compared with the wanted value. The same four keys
+#: today, a different question: `TRANSFORM_PROPERTIES` says what the log
+#: records, this says what can be COMPARED. `Scaling` is a dictionary in
+#: Resolve, so it is never compared and never skipped.
+NUMERIC_TRANSFORM_PROPERTIES = frozenset({"Pan", "Tilt", "ZoomX", "ZoomY"})
+#: Two transform values this close are the same value. The rule is the
+#: one `edit_state_preservation` already judged a placement by.
+VALUE_TOLERANCE = 1e-6
 LOG_FILENAME = "transform_writes.jsonl"
 RUN_ENV = "REN_TRANSFORM_WRITE_RUN"
 
@@ -248,6 +257,20 @@ def _append(row: dict, project_folder: Path) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
+
+
+def values_agree(wanted: Any, actual: Any) -> bool:
+    """Whether a value read back IS the wanted value.
+
+    Numbers agree within `VALUE_TOLERANCE`; anything else agrees only if
+    it is equal. This is the comparison the transform writes use, and
+    `edit_state_preservation` judges a placement by the same rule.
+    """
+    if (isinstance(wanted, (int, float)) and not isinstance(wanted, bool)
+            and isinstance(actual, (int, float))
+            and not isinstance(actual, bool)):
+        return abs(float(actual) - float(wanted)) <= VALUE_TOLERANCE
+    return actual == wanted
 
 
 def record_transform_write(property_name: str, new_value: Any, *,

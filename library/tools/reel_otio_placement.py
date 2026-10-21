@@ -1008,6 +1008,38 @@ def verify_channels(timeline, recorder: PlacementRecorder) -> dict:
     return record
 
 
+def _already_carries(item, key: str, value, *, fresh: bool,
+                     counts: dict) -> bool:
+    """Whether this item already carries this value - READ BACK, not assumed.
+
+    A property already at the wanted value is not changed by writing it,
+    so skipping the write leaves the timeline identical. The proof that
+    it is the same is the read-back: `GetProperty` on a handle that has
+    NOT been given this property. A handle echoes back what it was given
+    (the Reel 09 proof, in `overlay_placement`), so it is never asked
+    about a property it was written, and the write happens.
+
+    Only the four numeric transform properties are compared: `Scaling`
+    is a dictionary in Resolve, and a value that cannot be read is not
+    compared at all - the write happens.
+    """
+    from library.tools.transform_write_log import (
+        NUMERIC_TRANSFORM_PROPERTIES,
+        values_agree,
+    )
+
+    if not fresh or key not in NUMERIC_TRANSFORM_PROPERTIES:
+        return False
+    try:
+        current = item.GetProperty(key)
+    except Exception:  # noqa: BLE001 - an unreadable property is written
+        return False
+    counts["read_backs"] += 1
+    if current is None:
+        return False
+    return values_agree(value, current)
+
+
 def run_deferred(timeline, recorder: PlacementRecorder, *,
                  project_folder: str = "", project: str = "",
                  timeline_name: str = "") -> int:
@@ -1021,7 +1053,16 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
     -13.75, while the default path's SetProperty held -55 - Pan/Tilt
     units follow the PROJECT resolution (`resolve_transform`), which the
     import does not. So every one is set here, exactly as the placer set
-    it, judged by what SetProperty returns."""
+    it, judged by what SetProperty returns.
+
+    Two reductions, both without a fidelity change. The item list is
+    indexed once per TRACK, not once per spec - the same items, the same
+    order, the same writes. And a property the item ALREADY carries is
+    not written again: the value is read back (`_already_carries`) and
+    the write is skipped, because a property already at the wanted value
+    is not changed by writing it. The counts land on the profile
+    (`transform_writes`), so the no-op fraction is measured, not guessed.
+    """
     from library.tools.reel_build import _timeline_span
     from library.tools.transform_write_log import set_property
 
@@ -1035,28 +1076,51 @@ def run_deferred(timeline, recorder: PlacementRecorder, *,
         # created it); make the replay's home before it writes.
         os.makedirs(project_folder, exist_ok=True)
     started = time.perf_counter()
+    # The item list is indexed ONCE per track, not once per spec: the
+    # same items, the same order, the same writes - only the repeated
+    # `GetItemListInTrack` calls (~110 per build) go away.
+    track_items: dict = {}
+    # A handle echoes back the property it was given, so a handle that
+    # was written this property is never asked whether the item already
+    # carries the value.
+    written: set = set()
+    counts = {"applied": 0, "skipped": 0, "read_backs": 0}
     for spec in recorder.specs:
         if not spec.properties:
             continue
         kind = "video" if spec.media_type == 1 else "audio"
-        for item in timeline.GetItemListInTrack(kind, spec.track) or []:
-            if (_timeline_span(item) or (None,))[0] == spec.record:
-                for key, value in spec.properties.items():
-                    if not set_property(
-                            item, key, value,
-                            item_identity={
-                                "source_file": spec.path,
-                                "track": f"{kind[0].upper()}{spec.track}",
-                                "record_frame": spec.record,
-                                "source_in": spec.source_in,
-                                "source_out": spec.source_out,
-                            },
-                            project_folder=project_folder or None,
-                            project=project or None,
-                            timeline_name=timeline_name or None):
-                        raise OtioPlacementRefused(
-                            f"Resolve refused {key}={value} on "
-                            f"{os.path.basename(spec.path)}")
+        items = track_items.get((kind, spec.track))
+        if items is None:
+            items = list(timeline.GetItemListInTrack(kind, spec.track) or [])
+            track_items[(kind, spec.track)] = items
+        for item in items:
+            if (_timeline_span(item) or (None,))[0] != spec.record:
+                continue
+            for key, value in spec.properties.items():
+                if _already_carries(
+                        item, key, value,
+                        fresh=(id(item), key) not in written,
+                        counts=counts):
+                    counts["skipped"] += 1
+                    continue
+                if not set_property(
+                        item, key, value,
+                        item_identity={
+                            "source_file": spec.path,
+                            "track": f"{kind[0].upper()}{spec.track}",
+                            "record_frame": spec.record,
+                            "source_in": spec.source_in,
+                            "source_out": spec.source_out,
+                        },
+                        project_folder=project_folder or None,
+                        project=project or None,
+                        timeline_name=timeline_name or None):
+                    raise OtioPlacementRefused(
+                        f"Resolve refused {key}={value} on "
+                        f"{os.path.basename(spec.path)}")
+                counts["applied"] += 1
+                written.add((id(item), key))
+    recorder.profile["transform_writes"] = counts
     for label, call in recorder.timeline.deferred:
         note = call(timeline)
         if note:
