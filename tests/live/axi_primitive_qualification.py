@@ -134,10 +134,18 @@ PRIMITIVES = (
               ("target_absent", "gap_left", "other_track_untouched")),
     Primitive("delete_linked_effects", "AXI-011",
               "Delete a linked A/V clip with existing transforms and retiming",
-              "clip.delete", "resolve_axi", "resolve-axi edit delete",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch",
               "commit",
               ("video_target_absent", "linked_audio_preserved",
                "other_items_untouched")),
+    Primitive("delete_retimed_only", "AXI-011",
+              "Delete a linked A/V clip with retiming and no other effects",
+              "clip.delete", "edit_patch",
+              "edit_patch.apply_live_patch",
+              "commit",
+              ("video_target_absent", "linked_audio_preserved",
+               "other_items_untouched", "retiming_only_state")),
 
     # ── AXI-012: trimming, in/out preservation and source-range validation
     Primitive("trim_narrows_source_range", "AXI-012",
@@ -449,8 +457,30 @@ def _cases() -> dict:
                             "segments": [{"record_frame": 0,
                                           "percent": 90.0}]}],
                           ["timeline_structure"], "delete-target-retime")],
-            "commands": [_edit("delete", "--track", "video1", "--index",
-                               "0", "--apply")],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$qual_a.mp4@video"}],
+                ["timeline_structure"], "delete-linked-effects")],
+            "targets": [{"name": "qual_a.mp4", "kind": "video"}],
+        },
+        "delete_retimed_only": {
+            "operation": "clip.delete",
+            "setup": [_place("qual_a.mp4", 1, 0, source_out=95,
+                             media="both"),
+                      _place("qual_b.mp4", 1, 96, source_out=71,
+                             media="both"),
+                      _place("qual_c.mp4", 2, 0, source_out=47),
+                      _patch(
+                          [{"op": "retime.segments",
+                            "unique_id": "$qual_a.mp4@video",
+                            "segments": [{"record_frame": 0,
+                                          "percent": 90.0}]}],
+                          ["timeline_structure"],
+                          "delete-retimed-only-target")],
+            "commands": [_patch(
+                [{"op": "clip.delete",
+                  "unique_id": "$qual_a.mp4@video"}],
+                ["timeline_structure"], "delete-retimed-only")],
             "targets": [{"name": "qual_a.mp4", "kind": "video"}],
         },
         # ── AXI-012 ──
@@ -1239,7 +1269,10 @@ for name, case in CASES.items():
     _carried = cleanup()
     setup["imported"] = import_owned_media()
     for argv in case.get("setup", []):
-        receipt = call(argv)
+        if isinstance(argv, dict):
+            receipt = apply_patch(argv, live_state())
+        else:
+            receipt = call(argv)
         setup_receipts.append(receipt)
         if receipt["exit_code"]:
             # The setup is the fixture's own placement: a refusal here
@@ -1494,6 +1527,14 @@ def _judge_delete_linked_effects(case: dict) -> dict:
                                          key=repr)
         == sorted(map(signature, unrelated_after), key=repr),
     }
+
+
+def _judge_delete_retimed_only(case: dict) -> dict:
+    checks = _judge_delete_linked_effects(case)
+    measured = (case.get("qualification_state") or {}).get("state") or {}
+    checks["retiming_only_state"] = (
+        measured.get("existing_effects") == "retiming")
+    return checks
 
 
 def _judge_trim(case: dict) -> dict:
@@ -1780,6 +1821,7 @@ JUDGES = {
     "remove_ripple_closes_gap": _judge_remove_ripple,
     "remove_leaves_gap": _judge_remove_leaves_gap,
     "delete_linked_effects": _judge_delete_linked_effects,
+    "delete_retimed_only": _judge_delete_retimed_only,
     "trim_narrows_source_range": _judge_trim,
     "trim_past_handles_refused": _judge_trim_refused,
     "move_keeps_unrelated_state": _judge_move,
@@ -2252,7 +2294,8 @@ def main() -> int:
     # covers the full delete pair rather than replacing its earlier row.
     registry_report = report
     if selected:
-        pair_ids = set(cases) | {"remove_leaves_gap"}
+        pair_ids = set(cases) | {"remove_leaves_gap",
+                                 "delete_linked_effects"}
         registry_report = {
             **report,
             "results": [row for row in report["results"]

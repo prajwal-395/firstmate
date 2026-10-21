@@ -1,10 +1,10 @@
 {
   "schema": "ren-generalization-result/2",
   "evaluation_level": 1,
-  "matrix": "tests/live/fixtures/generalization_matrix.json",
+  "matrix": "Users/prajwal/.treehouse/video-editing-pilot-9487f5/28/video-editing-pilot/tests/live/fixtures/generalization_matrix.json",
   "case_count": 20,
-  "passed": 20,
-  "failed": 0,
+  "passed": 7,
+  "failed": 13,
   "invariants": [
     "same_semantic_target",
     "exact_source_and_record_intervals",
@@ -52,7 +52,7 @@
     "cleanup_inventory": "teardown validates known item names but does not inventory every disposable resource"
   },
   "timeline_recovered": false,
-  "elapsed_seconds": 179.34271091700066,
+  "elapsed_seconds": 965.5308229923248,
   "results": [
     {
       "case_id": "G01",
@@ -65,20 +65,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "2065dc16a6670278",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "observed": {
-        "moved_from_uid": "270be4e7-96c6-41d1-be9a-5a0bacc9f3a2",
-        "landed_uid": "33e3a3fc-e621-483b-93ac-0e6a4a73da2f",
-        "reidentified": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 4.122109415999148,
+      "status": "fail",
+      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
+      "elapsed_seconds": 5.550855208988651,
       "evaluation_level": 1
     },
     {
@@ -101,7 +90,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 5.872175500000594,
+      "elapsed_seconds": 8.998701500007883,
       "evaluation_level": 1
     },
     {
@@ -115,22 +104,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "7f77a4179adbe930",
-      "observed": {
-        "reidentified": true,
-        "landed_pan": 40.0,
-        "held_pan": 40.0,
-        "history_uid": "bc525db8-f2ec-4dd9-bcaa-d004f2711ec7"
-      },
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "trim_narrowed": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 9.827622166005312,
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
+      "elapsed_seconds": 5.045754000006127,
       "evaluation_level": 1
     },
     {
@@ -144,21 +120,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "14786fdac2641d8f",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 336,
-        "reidentified": true
-      },
-      "elapsed_seconds": 21.584619957997347,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 9.567181583988713,
       "evaluation_level": 1
     },
     {
@@ -172,21 +136,9 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "340dec687e862a2b",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 23.639528457992128,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 5.4677030830061994,
       "evaluation_level": 1
     },
     {
@@ -214,7 +166,7 @@
         "reorder_end": 216,
         "reidentified": true
       },
-      "elapsed_seconds": 12.519915291995858,
+      "elapsed_seconds": 5.9048849170067115,
       "evaluation_level": 1
     },
     {
@@ -228,15 +180,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "e421f42a379370c4",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 12.424739708993002,
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runt",
+      "elapsed_seconds": 3.6119079580093967,
       "evaluation_level": 1
     },
     {
@@ -250,20 +196,9 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "78005aefef4f190d",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "observed": {
-        "moved_from_uid": "9e8ab888-b726-406e-84d5-6d3d6593c6b2",
-        "landed_uid": "a822ddc9-c7fc-4afd-98ad-627e2a3fe665",
-        "reidentified": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 23.552527207997628,
+      "status": "fail",
+      "error": "RuntimeError: move refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
+      "elapsed_seconds": 1.7603257080045296,
       "evaluation_level": 1
     },
     {
@@ -285,7 +220,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 5.591497417000937,
+      "elapsed_seconds": 2.656976124999346,
       "evaluation_level": 1
     },
     {
@@ -299,15 +234,9 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "1e9dbe629d167b9f",
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 11.464101667006616,
+      "status": "fail",
+      "error": "RuntimeError: delete refused: error: EditPatch refused or failed the delete (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing fails closed (clip.delete: runt",
+      "elapsed_seconds": 2.726351416000398,
       "evaluation_level": 1
     },
     {
@@ -321,21 +250,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "bd7573c0390df851",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 216,
-        "reidentified": true
-      },
-      "elapsed_seconds": 16.033565541991265,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 3.0600931660010247,
       "evaluation_level": 1
     },
     {
@@ -357,7 +274,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 6.926908875000663,
+      "elapsed_seconds": 3.9665502499992726,
       "evaluation_level": 1
     },
     {
@@ -371,21 +288,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "f518c9f6775add8d",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 216,
-        "reidentified": true
-      },
-      "elapsed_seconds": 2.5464631250069942,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 1.1816424999997253,
       "evaluation_level": 1
     },
     {
@@ -399,21 +304,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "d02325be30a43c94",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 4.1347265420045005,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 2.4157114590052515,
       "evaluation_level": 1
     },
     {
@@ -427,21 +320,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "cc165049462912f1",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 384,
-        "reidentified": true
-      },
-      "elapsed_seconds": 4.535729999988689,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 2.179415874998085,
       "evaluation_level": 1
     },
     {
@@ -455,21 +336,9 @@
         "approved_edit_history": "manual_transform"
       },
       "fingerprint": "5a150e5392bdffd0",
-      "checks": {
-        "stale_positional_guard_refused": true,
-        "no_wrong_clip_edit": true
-      },
-      "status": "pass",
-      "refusal_evidence": "error: unrecognized arguments: --expected-record-in-frame 0 --expected-record-out-frame 96\nhelp: resolve-axi --help lists the valid flags\n",
-      "observed": {
-        "stale_record": [
-          0,
-          96
-        ],
-        "reorder_end": 96,
-        "reidentified": true
-      },
-      "elapsed_seconds": 2.5045310410059756,
+      "status": "fail",
+      "error": "RuntimeError: reorder step refused: error: move refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production ",
+      "elapsed_seconds": 1.058071834006114,
       "evaluation_level": 1
     },
     {
@@ -492,7 +361,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 2.4664060829964,
+      "elapsed_seconds": 2.2074935830023605,
       "evaluation_level": 1
     },
     {
@@ -506,22 +375,9 @@
         "approved_edit_history": "none"
       },
       "fingerprint": "f25a51d1aa0db76c",
-      "observed": {
-        "reidentified": true,
-        "landed_pan": 0.0,
-        "held_pan": 0.0,
-        "history_uid": null
-      },
-      "checks": {
-        "same_semantic_target": true,
-        "exact_intervals": true,
-        "trim_narrowed": true,
-        "approved_edits_preserved": true,
-        "no_unrelated_changes": true,
-        "output_pixel_geometry": true
-      },
-      "status": "pass",
-      "elapsed_seconds": 3.346239209000487,
+      "status": "fail",
+      "error": "RuntimeError: trim refused: error: trim refused before writing because its source delete is not authorized (ren: refused - I couldn't find a safe execution route for this edit, so nothing on the timeline changed. The blocking limitation is named below.\n  what: no production-qualified executor is available for: clip.delete\n  why: no production-qualified executor is available for: clip.delete; production routing ",
+      "elapsed_seconds": 2.595922334003262,
       "evaluation_level": 1
     },
     {
@@ -550,7 +406,7 @@
         "output_pixel_geometry": true
       },
       "status": "pass",
-      "elapsed_seconds": 2.11143291699409,
+      "elapsed_seconds": 2.969080666996888,
       "evaluation_level": 1
     },
     {
@@ -578,8 +434,10 @@
           "assumed"
         ]
       },
-      "elapsed_seconds": 0.037216708005871624,
+      "elapsed_seconds": 0.05544891700264998,
       "evaluation_level": 1
     }
-  ]
+  ],
+  "session_id": "6e84ba22e7b51a65",
+  "execution_mode": "single_exclusive_qualification_session"
 }

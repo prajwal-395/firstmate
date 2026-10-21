@@ -1,0 +1,179 @@
+{
+  "actual_state": {
+    "checks": {
+      "linked_audio_preserved": true,
+      "other_items_untouched": true,
+      "video_target_absent": true
+    },
+    "measurement": {
+      "clip_composition": "linked_video_clip",
+      "existing_effects": "transforms+retiming",
+      "frame_rate": "24",
+      "linked_audio_configuration": "linked_audio_present",
+      "media_type": "video",
+      "project_settings": "landscape_1920x1080",
+      "resolve_version": "21.1.0.14",
+      "timeline_density": "moderate",
+      "timeline_structure": "multi_item_timeline",
+      "track_layout": "video+audio",
+      "track_occupancy": "mixed"
+    },
+    "scenarios": [
+      "delete_linked_effects"
+    ]
+  },
+  "audio_verification": [
+    "not applicable: this operation writes no audio level; the audio rows are read back unchanged by the same per-item reading"
+  ],
+  "backend": "edit_patch",
+  "coverage": {
+    "configurations": [
+      "measured_qualification_timeline"
+    ],
+    "dimensions": {
+      "clip_composition": [
+        "linked_video_clip"
+      ],
+      "existing_effects": [
+        "transforms+retiming"
+      ],
+      "frame_rate": [
+        "24"
+      ],
+      "linked_audio_configuration": [
+        "linked_audio_present"
+      ],
+      "media_type": [
+        "video"
+      ],
+      "project_settings": [
+        "landscape_1920x1080"
+      ],
+      "resolve_version": [
+        "21.1.0.14"
+      ],
+      "timeline_density": [
+        "moderate"
+      ],
+      "timeline_structure": [
+        "multi_item_timeline"
+      ],
+      "track_layout": [
+        "video+audio"
+      ],
+      "track_occupancy": [
+        "mixed"
+      ]
+    },
+    "source": "measured",
+    "uncovered": {}
+  },
+  "environment": {
+    "platform": "darwin",
+    "resolve_version": "21.1.0.14"
+  },
+  "evidence": "tests/live/reports/axi-primitive-qualification.json#delete_linked_effects",
+  "expected_state": {
+    "linked_audio_preserved": true,
+    "other_items_untouched": true,
+    "video_target_absent": true
+  },
+  "operation_id": "clip.delete",
+  "preservation_checks": [
+    {
+      "check": "video_target_absent",
+      "result": "passed"
+    },
+    {
+      "check": "linked_audio_preserved",
+      "result": "passed"
+    },
+    {
+      "check": "other_items_untouched",
+      "result": "passed"
+    }
+  ],
+  "preservation_limits": [
+    "one private scratch timeline; the checks are the ones the scenarios name: linked_audio_preserved, other_items_untouched, video_target_absent"
+  ],
+  "project_conditions": [
+    "Ren Qualification / fm-scratch qualify",
+    "private target timeline only",
+    "production entry: edit_patch.apply_live_patch"
+  ],
+  "qualification_predicates": [
+    {
+      "field": "track_occupancy",
+      "operator": "equals",
+      "value": "mixed"
+    },
+    {
+      "field": "project_settings",
+      "operator": "equals",
+      "value": "landscape_1920x1080"
+    },
+    {
+      "field": "clip_composition",
+      "operator": "equals",
+      "value": "linked_video_clip"
+    },
+    {
+      "field": "track_layout",
+      "operator": "equals",
+      "value": "video+audio"
+    },
+    {
+      "field": "timeline_structure",
+      "operator": "equals",
+      "value": "multi_item_timeline"
+    },
+    {
+      "field": "linked_audio_configuration",
+      "operator": "equals",
+      "value": "linked_audio_present"
+    },
+    {
+      "field": "timeline_density",
+      "operator": "equals",
+      "value": "moderate"
+    },
+    {
+      "field": "frame_rate",
+      "operator": "equals",
+      "value": "24"
+    },
+    {
+      "field": "media_type",
+      "operator": "equals",
+      "value": "video"
+    },
+    {
+      "field": "resolve_version",
+      "operator": "equals",
+      "value": "21.1.0.14"
+    },
+    {
+      "field": "existing_effects",
+      "operator": "equals",
+      "value": "transforms+retiming"
+    }
+  ],
+  "recovery_status": "not_required",
+  "resolve_version": "21.1.0.14",
+  "result": "passed",
+  "schema": "ren-axi-qualification-result/v2",
+  "semantic_boundary": {
+    "applies_to": [
+      "clip.delete on edit_patch in the measured qualification state"
+    ],
+    "does_not_apply_to": [
+      "states or operation/backend pairs not named by this evidence"
+    ]
+  },
+  "supported_media_types": [
+    "video"
+  ],
+  "visual_verification": [
+    "the live read-back of every clip on every row, item by item (source path, source range, record span, transform, enabled state, Fusion comps) plus `resolve-axi items`"
+  ]
+}

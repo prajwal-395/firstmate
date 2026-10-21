@@ -798,6 +798,38 @@ def teardown():
     if not bool(manager.SaveProject()):
         raise RuntimeError("fixture teardown could not save the project")
 
+def ensure_graphics_media():
+    """Import the adapter's deterministic PNG fixtures through AXI."""
+    from tests.live import small_edit_qualification as _q
+    _q._write_logo_fixture(_q.LOGO)
+    _q._write_caption_fixture(_q.LOGO_ALT, 180, 64,
+                              [(20, 20, 160, 44)], (245, 145, 45, 255))
+    _q._write_caption_fixture(
+        _q.TIGHT_CAPTION, 480, 120,
+        [(70, 36, 400, 48), (40, 62, 440, 82)], (255, 255, 255, 255))
+    _q._write_caption_fixture(
+        _q.FULL_FRAME_CAPTION, 1920, 1080,
+        [(320, 800, 1600, 850), (250, 875, 1670, 945)],
+        (255, 255, 255, 255))
+    for _path in (_q.LOGO, _q.LOGO_ALT, _q.TIGHT_CAPTION,
+                  _q.FULL_FRAME_CAPTION):
+        _name = _path.name
+        try:
+            pool_uid(_name)
+            continue
+        except RuntimeError as _exc:
+            if "0 hits" not in str(_exc):
+                raise
+        _receipt = call(["ingest", str(_path), "--apply",
+                         "--project", PROJECT])
+        if _receipt["exit_code"]:
+            raise RuntimeError("could not ingest owned graphics " + _name
+                               + ": " + _receipt["stdout"]
+                               + _receipt["stderr"])
+        pool_uid(_name)
+
+ensure_graphics_media()
+
 ensure_tracks(["V2", "V3"])
 clear_marks()
 assert_empty()
