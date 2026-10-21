@@ -4170,7 +4170,8 @@ def cmd_touch_reel(args):
             project_folder, spec,
             allow_drops=args.allow_drop or None,
             supersede=args.supersede or None,
-            accept_editor_changes=args.accept_editor_changes or None)
+            accept_editor_changes=args.accept_editor_changes or None,
+            staged_only=bool(getattr(args, "staged", False)))
     except _touchup.TouchupRefused as refused:
         print(refused.render(), file=sys.stderr)
         emit_refusal_result(refused)
@@ -4194,6 +4195,16 @@ def cmd_touch_reel(args):
     print(f"  cost: {gate.get('cost', '')}")
     for note in gate.get("notes", ()):
         print(f"  - {note}")
+    if receipt.get("status") == "applied_direct":
+        print(f"  route: {receipt.get('direct_route', '')}")
+        print(f"  written in place in {receipt.get('seconds', '?')}s wall "
+              f"clock (no staging, no promotion, no replacement)")
+        print(f"  recovery: {receipt.get('recovery', {}).get('act', '')} - "
+              f"{receipt.get('recovery', {}).get('how', '')}")
+        print(f"  receipt: {receipt.get('receipt_path') or '(none)'}")
+        from library.tools.dirty_regions import describe as _describe_dirty
+        print(f"  dirty: {_describe_dirty(receipt['dirty'])}")
+        return
     composed = receipt.get("composed", {})
     print(f"  staged+composed+verified in "
           f"{receipt.get('seconds', '?')}s wall clock "
@@ -5014,6 +5025,13 @@ def main():
         "--row", default="",
         help="With --all-reels: narrow the clip search to this row "
              "(default: search every video row)")
+    touch_reel_parser.add_argument(
+        "--staged", action="store_true",
+        help="Force the staged route: duplicate the reel, conform it, "
+             "verify it and promote it by rename, even when the change "
+             "is a property write the router would take directly. It "
+             "can only escalate to staged, never widen a request to a "
+             "direct write")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
 
     still_overlays_parser = _add_command(sub, "still-overlays")

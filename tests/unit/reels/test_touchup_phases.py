@@ -14,10 +14,8 @@ the hold's own remainder is the hold the profile showed before.
 
 from __future__ import annotations
 
-import functools
 import json
 import sys
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -29,55 +27,18 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import (
-    perf_ledger,  # noqa: E402
-    touchup_phases,  # noqa: E402
+    perf_ledger,
+    touchup_phases,
 )
-from tests.composed_edit_harness import build_reel  # noqa: E402
+from tests.composed_edit_harness import (
+    build_reel,
+    ledger_lease,
+)
 
 MASTER = "Main Edit"
 REEL = "Reel 01 - topic"
 
-#: How deep the fake lease is: the real one is reentrant.
-_LEASE_DEPTH = threading.local()
-
-
 # ── The lease, as `resolve_lock` records it ─────────────────────────
-
-
-def _ledger_lease(purpose, **_kwargs):
-    """The instance lease, with the `resolve_hold` span it records.
-
-    The real lease opens a `resolve_hold` span around the whole
-    critical section and reports how long it held (`held_s`).  It is
-    REENTRANT: a section the touch opens inside its own hold takes no
-    second hold, so the touch's staging cost is ONE hold's seconds -
-    which is what the split has to account for.  The fake does the
-    same, so a test can ask the question the fix lane asks: do the
-    three phases still account for the hold, or did the split invent
-    seconds?
-    """
-
-    def decorator(function):
-        @functools.wraps(function)
-        def guarded(*args, **kwargs):
-            depth = getattr(_LEASE_DEPTH, "depth", 0)
-            _LEASE_DEPTH.depth = depth + 1
-            try:
-                if depth:
-                    return function(*args, **kwargs)
-                with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
-                                      purpose=purpose) as held:
-                    granted = time.time()
-                    try:
-                        return function(*args, **kwargs)
-                    finally:
-                        held["held_s"] = round(time.time() - granted, 3)
-            finally:
-                _LEASE_DEPTH.depth = depth
-
-        return guarded
-
-    return decorator
 
 
 class _Fence:
@@ -196,7 +157,7 @@ def _master_project(tmp_path, monkeypatch):
     timeline.SetName(MASTER)
     project = timeline._project
     project.SetCurrentTimeline(timeline)
-    monkeypatch.setattr(resolve_lock, "under_lease", _ledger_lease)
+    monkeypatch.setattr(resolve_lock, "under_lease", ledger_lease)
     monkeypatch.setattr(resolve_lock, "cursor_fence", _pass_fence)
     monkeypatch.setattr(resolve_lock, "cursor_excursion", _pass_excursion)
     _mock_edit_patch(monkeypatch)
@@ -294,16 +255,24 @@ def test_the_master_touch_measures_three_phases_that_sum_to_its_hold(
 def _reel_project(tmp_path, monkeypatch):
     """A project holding one built reel, with the proposal that names it."""
     from library.tools import reel_proposal, resolve_lock
+    from tests.resolve_double import FakeResolve
 
     timeline, _pool, _media = build_reel(tmp_path)
     timeline.SetName(REEL)
     project = timeline._project
     project.SetCurrentTimeline(timeline)
-    monkeypatch.setattr(resolve_lock, "under_lease", _ledger_lease)
+    monkeypatch.setattr(resolve_lock, "under_lease", ledger_lease)
     monkeypatch.setattr(resolve_lock, "cursor_fence", _pass_fence)
     monkeypatch.setattr(resolve_lock, "cursor_excursion", _pass_excursion)
     _mock_edit_patch(monkeypatch)
     _mock_shadow(monkeypatch)
+    # The reel touch asks the Resolve app for the runtime state its
+    # routing decision is checked against; the fake stands in for it,
+    # so no test reaches the live instance.
+    from library.tools import reel_build
+
+    monkeypatch.setattr(reel_build, "_connect_resolve",
+                        lambda: FakeResolve(project))
 
     folder = tmp_path / "project"
     folder.mkdir()
@@ -360,8 +329,13 @@ def test_the_reel_touch_measures_three_phases_that_sum_to_its_hold(
 
     rows = _rows(ledger_path)
     phases = _phase_rows(rows, "reel")
-    assert set(phases) == set(touchup_phases.PHASES), (
+    assert set(phases) == set(touchup_phases.PHASES) | {
+        touchup_phases.DIRECT_PHASE}, (
         "every phase of the touch is measured, and named")
+    assert str(phases[touchup_phases.DIRECT_PHASE].get(
+        "touchup_note") or "").startswith("declined"), (
+        "the direct route says why it did not take the request - a "
+        "route that declines silently is a route nobody can audit")
     assert phases["duplicate"]["wall_s"] >= 0.05, (
         "the seconds the staging copy spent are the duplicate's own")
     assert phases["conform_compose_verify"]["wall_s"] < 0.05, (

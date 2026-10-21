@@ -2193,7 +2193,9 @@ def open_entry(project_folder, *, final: str, reel: int,
                resolve_project: str, spec: Mapping, gate_class: str,
                source_timeline: Any, removals: Sequence[Mapping],
                fusion_manifest: Mapping | None = None,
-               batch: str = "", project=None) -> dict:
+               batch: str = "", project=None,
+               before_tracks: Sequence[Mapping] | None = None,
+               preservation_before: Mapping | None = None) -> dict:
     """Write the journal entry BEFORE the touch changes anything.
 
     Reads the approved timeline whole and captures every item the plan
@@ -2201,18 +2203,27 @@ def open_entry(project_folder, *, final: str, reel: int,
     must then refuse - when a removed item carries a colour grade, the
     one state no script can record (`reel_touchup` refuses it first,
     by the same rule as a graded swap).
+
+    `before_tracks` and `preservation_before` are the reads the caller
+    ALREADY made: the direct route reads the approved timeline before
+    it decides, so it hands those reads over instead of paying for
+    them twice (`library/tools/touchup_direct.py`).  The journal's
+    before-state is the same state either way - it is only read once.
     """
     from library.tools import reel_read
 
     entry_id = new_entry_id(final)
     root = entry_dir(project_folder, entry_id)
     comps_dir = os.path.join(root, "comps")
-    before = reel_read.read_tracks(source_timeline)
+    before = (list(before_tracks) if before_tracks is not None
+              else reel_read.read_tracks(source_timeline))
     preservation_before = None
     if project is not None:
         from library.tools.reel_replace_guard import full_timeline_snapshot
-        preservation_before = full_timeline_snapshot(
-            source_timeline, project, project_folder)
+        preservation_before = (
+            dict(preservation_before) if preservation_before is not None
+            else full_timeline_snapshot(
+                source_timeline, project, project_folder))
     live_rows = _ce._rows_of(source_timeline)
     removed = []
     for target in removals or ():

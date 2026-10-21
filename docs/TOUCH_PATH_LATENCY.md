@@ -142,3 +142,205 @@ the shared broker - `REN_RESOLVE_BUSY` after a 900 s wait, twice, while the
 one Resolve instance was held by other lanes.  Nothing was changed by either
 attempt; the successful measurement above is the third attempt, on the
 master path.
+
+---
+
+# PERF-002: the whole-reel bookkeeping, and the route that does not pay it
+
+**What this is:** the punchlist's PERF-002 - "eliminate unnecessary
+full-timeline promotion costs" - measured on the same Ren-owned scratch
+copy, and the change that answers it.
+
+**Date:** 2026-10-21. **Engine:** `video-editing-pilot` at `3d12b03c1`.
+
+## The question, in the punchlist's words
+
+> Investigate the ~53.6-second promotion phase measured for a small reel
+> touch-up. Distinguish the cost of duplication, media conform, state
+> reconciliation, and final promotion. Determine when a qualified direct
+> mutation is cheaper and equally safe. Reuse staging only when it
+> protects against a real failure mode. Preserve atomic recovery and
+> accepted edits.
+> Acceptance: common small edits no longer spend most of their time on
+> whole-reel bookkeeping when a safe local operation exists.
+
+The measurement above already answered the first half: on a reel touch
+the promotion is ~53.6 s of a 58.5 s wall clock, and the staging copy is
+~1 s of it.  The bookkeeping is the cost, not the staging.
+
+## What the promotion actually reads
+
+The promotion reads the project several times over, and none of those
+reads is about the change being made:
+
+- twice for the full timeline snapshots (the original and the staging);
+- twice for the row snapshots;
+- twice for the project-wide timeline inventory (EVERY timeline in the
+  project, for one reel's rename);
+- twice for the marker fleet (every timeline's markers, before and
+  after the rename);
+- once for the recorded generation, once for the journal close, and once
+  more for the replaced generation's export.
+
+So the promotion's cost is a function of the PROJECT's size, not of the
+edit's size.  A one-property change on one clip pays for the whole
+project's inventory twice.
+
+## The split inside the phases (measured)
+
+`touchup_phases` now measures the STEPS inside a phase, so the ledger
+says which of the four bills the promotion is: the state reconciliation
+(the snapshots, the editor-change guard, the replace guard, the marker
+fleet) and the final promotion (the rename, the journal close, the
+retirement of the replaced generation).  The steps of a phase sum to the
+phase, so the split moves no seconds and counts none twice.
+
+The conform/compose/verify phase splits the same way, into the media
+conform, the composition and the verification re-read.
+
+## The route that does not pay it
+
+`library/tools/touchup_direct.py` owns the DIRECT route: a change that
+writes nothing but a property on an item it names is a REVERSIBLE
+MUTATION, and the router (`execution_router.route_axi_dispatch`) proves
+the direct path for it when - and only when - all four of VC-11's
+conditions hold:
+
+1. the qualified plan is nothing but in-place property writes - no row
+   added, removed, moved, re-placed or re-composed;
+2. the router proves the DIRECT mode against the RUNTIME STATE it
+   measures (`axi_qualification_state.inspect_handles`), so the
+   recorded evidence applies to the state the timeline is in now;
+3. the approved timeline carries no unattributed editor change, so no
+   accepted edit is overwritten (a direct write has no candidate to
+   carry the editor's hand edit on, so it declines the whole request
+   and the staged route decides it);
+4. the write is an EditPatch: observed, written, read back, compared
+   outside the declared targets, and recorded as a generation whose
+   inverse restores the accepted generation.
+
+Everything else stages.  The staging is not removed from the touch
+path: it protects against a real failure mode - a partial write, a lost
+row, a wrong target, an editor's hand edit the change would destroy -
+and every one of those is still refused BY NAME.  A caller may also
+force the staged route (`ren touch-reel --staged`); the flag can only
+escalate to staged, never widen a request to a direct write (VC-11).
+
+The recovery is the touch's own: the same undo journal, opened before
+the write and closed after it, with the EditPatch's recorded inverse as
+the second way back.  `ren undo` reverses the direct touch exactly as it
+reverses a staged one.
+
+## The staged route, measured live on the scratch copy
+
+The scratch copy, the Ren-owned copy of a real Reel 13 (portrait
+1080x1920, 23.976 fps, 65 clips over eight video rows and two audio
+rows), one property write on V1, measured with the phase clock this
+lane added:
+
+```
+touchup_duplicate                 2.209
+touchup_conform_compose_verify   304.152   steps: conform 272.735
+                                               compose  18.705
+                                               verify    4.968
+```
+
+The machine was NOT quiet: the one Resolve instance was shared with a
+qualification batch and two other lanes, and a single full-timeline
+read cost seconds.  The shape is the shape the quiet-machine receipts
+show - the staging copy is a second or two of it and the reading of the
+reel is the rest - and the numbers are this machine's, not the
+baseline's.
+
+The quiet-machine baseline stays the receipts' own: 58.5 s of wall
+clock for a reel touch, of which the promotion was ~53.6 s (92%) and
+the staging copy ~1 s.
+
+## The direct route: what it does NOT pay
+
+The direct route has no staging copy, no conform, no composition, no
+verification re-read, no rename, no marker fleet, no project-wide
+timeline inventory, no replacement export and no retirement of a
+replaced generation.  That is the whole-reel bookkeeping the promotion's
+~53.6 s is made of, and the direct route does none of it: it opens the
+`direct` phase and nothing else, which is what the ledger shows
+(`tests/unit/reels/test_touchup_direct.py`).
+
+What the direct route DOES pay for, and what it buys with each:
+
+| | the staged route | the direct route |
+|---|---|---|
+| the staging copy | a duplicate of the whole reel | none |
+| the media conform | the source's rows against the staging's | none |
+| the composition and its verification | a re-read of the whole staging | none |
+| the promotion's rename | the reel's name changes | none - the reel keeps its name |
+| the marker fleet | every timeline's markers, twice | none |
+| the project inventory | every timeline in the project, twice | none |
+| the replaced generation's export and retirement | the replaced reel is exported and deleted | none |
+| the journal | the before state and the after state | the same |
+| the read-back | the whole staging re-read | the written property, and the timeline outside the declared targets |
+| the recovery | the journal's inverse | the SAME journal's inverse, plus the EditPatch's recorded inverse |
+
+## The live before/after, and what is missing from it
+
+**The direct route's live before/after did NOT complete, and the reason
+is the machine, not the route.**  Three attempts on the Ren-owned
+scratch copy, through the machine's one broker, under the instance
+lease:
+
+1. the first attempt measured the staged route (the numbers above) and
+   was killed by the measurement's own timeout while the promotion was
+   still running - the machine's qualification batch and two other
+   lanes held the instance for most of the 25 minutes;
+2. the second attempt found the scratch reel carrying the first
+   attempt's interrupted Tilt write as an UNATTRIBUTED EDITOR CHANGE,
+   and the direct route DECLINED it - which is the guard working - and
+   the staged route that took over then REFUSED it, naming the change
+   it would not overwrite.  That is a correct refusal, and it is also
+   why there is no before/after pair from that attempt;
+3. the third and later attempts could not start: the captain's
+   Resolve session was open on `Podcast (field test)`, whose unsaved
+   state this Resolve build cannot report, so the measurement refused
+   to switch away from it (the captain's project is never switched away
+   from on a build that cannot read its dirty state).
+
+And on the one attempt that DID reach the direct route's write, the
+process blocked inside Resolve's own scripting call for 36 minutes
+(`Fusion::RemoteApp::WaitPkt`) while holding the instance lease - so no
+other writer was in Resolve, and the direct route's write was waiting
+on Resolve itself.
+
+A later attempt refused by name because an interrupted run had left its
+staging container in the project ("a staging container '...' from an
+interrupted run is still in the project") - the touch path's own guard,
+working, and the reason the direct route never ran in that attempt
+either: the guard runs before the route is chosen.
+
+So: the live BEFORE is measured (above, and the receipts' own quiet
+numbers); the live AFTER is NOT.  What stands in for it is the
+STRUCTURE, which the offline tests pin: the direct route opens the
+`direct` phase and no staging phase at all, so the whole-reel
+bookkeeping is absent rather than cheaper, and the journal, the
+read-back and the recovery are the same ones the staged route uses.
+
+**What is left undone:** the direct route's wall clock, measured on a
+quiet machine against the staged route's, on the same reel, in one
+session.  The number to take is the touch's own wall clock and its
+`touchup_direct` phase against the staged route's `resolve_hold`; the
+denominator is the same property write on the same reel.
+
+## What the measurement left in the scratch project
+
+The scratch copy (`Ren Scratch - breaktest`) is Ren-owned and was used
+only for this measurement.  It now holds, beyond what it held before:
+
+- `Reel 13 - breaktest-selected-dc7fa3f8` - a DUPLICATE of the built
+  reel, under the name the project's own PROPOSAL declares (the copy
+  path had named the reel "Breaktest - Reel 13 - selected dc7fa3f8",
+  and the touch path addresses a reel by the name the plan gives it).
+  The duplicate is the reel the measurement touched;
+- the same name as a `(pre-rebuild backup)`, left by the interrupted
+  staged promotion;
+- the staging containers the interrupted runs left behind.
+
+None of it is the captain's project, and none of it is media.

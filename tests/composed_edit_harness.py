@@ -21,8 +21,12 @@ Nothing here reaches a real project or a real Resolve
 from __future__ import annotations
 
 import copy
+import functools
 import os
+import threading
+import time
 
+from library.tools import perf_ledger
 from tests.resolve_double import (
     BINDING_TERMS,
     FRAME_TERMS,
@@ -220,3 +224,47 @@ def duplicate(timeline, name="LAB control", drift=()):
                             project=project)
     project.SetCurrentTimeline(current)
     return copy_of
+
+
+# ── The instance lease, as `resolve_lock` records it ─────────────────
+#
+# The real lease opens a `resolve_hold` span around the whole critical
+# section and reports how long it held (`held_s`).  It is REENTRANT: a
+# section the touch opens inside its own hold takes no second hold, so
+# the touch's staging cost is ONE hold's seconds - which is what the
+# phase split has to account for.
+#
+# The depth counter lives HERE, not in the test module: a module that
+# imports `library.tools.resolve_lock` lazily binds the decorator on
+# the module that was patched when it was first imported, so two test
+# modules that each stand in for the lease can end up sharing one
+# module's decorated functions.  A counter per test module would then
+# count a nested acquisition as a top-level one, and the hold's own
+# arithmetic would stop adding up.
+_LEASE_DEPTH = threading.local()
+
+
+def ledger_lease(purpose, **_kwargs):
+    """The instance lease, with the `resolve_hold` span it records."""
+
+    def decorator(function):
+        @functools.wraps(function)
+        def guarded(*args, **kwargs):
+            depth = getattr(_LEASE_DEPTH, "depth", 0)
+            _LEASE_DEPTH.depth = depth + 1
+            try:
+                if depth:
+                    return function(*args, **kwargs)
+                with perf_ledger.span(perf_ledger.RESOLVE_HOLD,
+                                      purpose=purpose) as held:
+                    granted = time.time()
+                    try:
+                        return function(*args, **kwargs)
+                    finally:
+                        held["held_s"] = round(time.time() - granted, 3)
+            finally:
+                _LEASE_DEPTH.depth = depth
+
+        return guarded
+
+    return decorator

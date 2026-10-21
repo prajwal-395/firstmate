@@ -3632,7 +3632,8 @@ def apply_touchup(project_folder: str, spec: Mapping,
                   connect=None,
                   rederiver_override=None,
                   accept_editor_changes=None,
-                  resolve_app=None) -> dict:
+                  resolve_app=None,
+                  staged_only: bool = False) -> dict:
     """Apply a structured change to a built reel's existing timeline.
 
     Stages a DUPLICATE beside the approved reel, conforms it, routes
@@ -3640,8 +3641,18 @@ def apply_touchup(project_folder: str, spec: Mapping,
     verifies by re-reading the track, guards the replacement and
     promotes by rename.  The replaced generation is deleted once the
     undo journal holds both sides (`undo_journal`), or retired to the
-    archive when the reel carries a sign-off.  The approved timeline is
-    never edited directly.
+    archive when the reel carries a sign-off.
+
+    A change the router proves DIRECT - a property write on an item it
+    names, nothing else - does not stage at all: it is written on the
+    approved timeline through the EditPatch, read back, and recorded as
+    a generation whose inverse restores the accepted generation
+    (`library/tools/touchup_direct.py`).  Every other change stages,
+    because the staging protects against failure modes a direct write
+    does not.
+
+    `staged_only` forces the staged route.  It can only escalate to
+    staged - never widen a request to a direct write (VC-11).
 
     `connect` is a seam for tests: `connect(resolve_name) ->
     project`.  `rederiver_override` is the same for the comp pass.
@@ -3687,14 +3698,14 @@ def apply_touchup(project_folder: str, spec: Mapping,
     return _apply_under_lease(
         project_folder, spec, final, resolve_name, declared_drops,
         declared_supersede, declared_editor_acceptance, connect,
-        rederiver_override, resolve_app, started)
+        rederiver_override, resolve_app, started, staged_only)
 
 
 def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                        resolve_name: str, declared_drops,
                        declared_supersede, accept_editor_changes, connect,
                        rederiver_override, resolve_app,
-                       started: float) -> dict:
+                       started: float, staged_only: bool = False) -> dict:
     from library.tools.resolve_lock import under_lease
     from library.tools.resource_leases import (
         LeaseDeclaration,
@@ -3727,7 +3738,8 @@ def _apply_under_lease(project_folder: str, spec: Mapping, final: str,
                     project_folder, spec, final, resolve_name,
                     declared_drops, declared_supersede,
                     accept_editor_changes,
-                    connect, rederiver_override, resolve_app, started)
+                    connect, rederiver_override, resolve_app, started,
+                    staged_only=staged_only)
 
     return _guarded()
 
@@ -3736,7 +3748,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
                      resolve_name: str, declared_drops,
                      declared_supersede, accept_editor_changes, connect,
                      rederiver_override, resolve_app,
-                     started: float) -> dict:
+                     started: float, staged_only: bool = False) -> dict:
     import datetime as _dt
 
     from library.tools import reel_read as _read
@@ -3902,6 +3914,27 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
               f"no write issued", flush=True)
         print(f"  {no_op_reason}", flush=True)
         return receipt
+
+    # THE DIRECT ROUTE, asked before the staging is built.
+    #
+    # A change that writes nothing but a property on an item it names
+    # is a reversible mutation: the router can prove the direct path
+    # for it (VC-11), and the direct path does not duplicate the reel,
+    # does not rename a candidate over it, and does not run the
+    # whole-reel bookkeeping a promotion runs - 53.6 s of a 58.5 s
+    # touch on the Ren-owned scratch copy.
+    #
+    # The staging is not removed from the touch path: it protects
+    # against a real failure mode (a partial write, a lost row, a
+    # wrong target, an editor's hand edit the change would destroy),
+    # and every one of those is still refused BY NAME here.  A request
+    # the router cannot prove direct stages, exactly as before.
+    if not staged_only:
+        direct = _apply_direct(project_folder, spec, final, resolve_name,
+                               source, project, qualification, receipt,
+                               started, tracks, resolve_app)
+        if direct is not None:
+            return direct
 
     # The rederiver, chosen by the gate class - never by a flag.
     manifest = None
@@ -4078,6 +4111,155 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     }
     receipt["receipt_path"] = _write_receipt(
         project_folder, final, receipt, journal["id"])
+    return receipt
+
+
+def _apply_direct(project_folder: str, spec: Mapping, final: str,
+                  resolve_name: str, source: Any, project: Any,
+                  qualification: Qualification, receipt: dict,
+                  started: float, tracks: Sequence[Mapping],
+                  resolve_app: Any = None) -> dict | None:
+    """The direct route for a qualified small touch-up, or None to stage.
+
+    None means "this request is not a direct request": the caller
+    stages it, exactly as it always did.  A dict is a finished touch:
+    the write landed, it was read back, the journal holds the state
+    before and after it, and the version it produced is undoable.
+
+    The four requirements are the module's (`touchup_direct`): the plan
+    is nothing but a property write, the router proves the direct mode
+    against the measured runtime, the approved timeline carries no
+    unattributed editor change, and the write is an EditPatch.
+    """
+    from library.tools import touchup_direct as _direct
+
+    touchup_phases.open_phase("direct")
+    try:
+        touchup_phases.mark("plan")
+        try:
+            plan = _direct.plan(qualification, source)
+        except _direct.DirectRouteUnavailable as unavailable:
+            receipt["direct_route"] = f"staged: {unavailable}"
+            touchup_phases.note("direct", f"declined: {unavailable}")
+            return None
+        touchup_phases.mark("route")
+        # The Resolve app handle, for the one measurement the
+        # qualification needs: the runtime state the evidence was
+        # earned under.  It is opened only now - after the plan has
+        # said the request is a property write - so a touch that will
+        # stage anyway pays nothing for it.
+        if resolve_app is None:
+            try:
+                from library.tools.reel_build import _connect_resolve
+                resolve_app = _connect_resolve()
+            except Exception:  # noqa: BLE001 - no app, no direct route
+                resolve_app = None
+        try:
+            decision = _direct.route(plan["operations"], resolve=resolve_app,
+                                     project=project, timeline=source)
+        except _direct.DirectRouteUnavailable as unavailable:
+            receipt["direct_route"] = f"staged: {unavailable}"
+            touchup_phases.note("direct", f"declined: {unavailable}")
+            return None
+        touchup_phases.mark("editor_guard")
+        guard = _direct.editor_changes_clear(project_folder, final,
+                                              project, source)
+        if not guard["clear"]:
+            receipt["direct_route"] = (
+                f"staged: the approved timeline carries "
+                f"{guard['pending']} unattributed editor change(s), and a "
+                f"direct write has no candidate to carry them on")
+            touchup_phases.note("direct", receipt["direct_route"])
+            return None
+
+        # THE UNDO JOURNAL, before anything changes: the same record the
+        # staged route files, with the reads this route already made
+        # handed over instead of paid for twice.
+        touchup_phases.mark("journal")
+        from library.tools import undo_journal as _journal
+        from library.tools.resolve_lock import cursor_fence
+        try:
+            with cursor_fence(project, source, f"journal {final}"):
+                journal = _journal.open_entry(
+                    project_folder, final=final, reel=int(spec.get("reel")),
+                    resolve_project=resolve_name, spec=spec,
+                    gate_class=qualification.gate_class,
+                    source_timeline=source,
+                    removals=qualification.removals,
+                    batch=str(spec.get("batch") or ""),
+                    project=project,
+                    before_tracks=tracks,
+                    preservation_before=guard["live"])
+        except _journal.UndoRefused as unrecordable:
+            raise TouchupRefused(
+                unrecordable.what, unrecordable.why,
+                unrecordable.fix) from unrecordable
+        receipt["journal"] = journal["id"]
+
+        touchup_phases.mark("write")
+        key = _direct.idempotency_key(final)
+        try:
+            patch = _direct.apply(
+                project=project, timeline=source,
+                project_folder=project_folder,
+                capability="reel.touchup",
+                operations=plan["operations"], idempotency_key=key)
+        except _direct.DirectRouteUnavailable as failed:
+            _journal.fail_entry(project_folder, journal, str(failed))
+            raise TouchupError(
+                f"the direct write did not verify: {failed} - the "
+                f"approved timeline is unchanged.") from failed
+
+        # The journal closes on the state this write produced, and the
+        # baseline learns it, so the next touch reads the change as
+        # Ren's own write and not as an editor's hand edit.
+        touchup_phases.mark("close")
+        from library.tools import reel_replace_guard as _guard
+        rows = _guard.snapshot_timeline(source, final, side="retiring")
+        _journal.close_entry(project_folder, journal,
+                             after_timeline=source, rows=rows,
+                             project=project)
+        receipt["version"] = journal["version"]
+        touchup_phases.note(
+            "direct",
+            f"applied: {decision['backend']} wrote "
+            f"{len(plan['operations'])} operation(s) in place")
+    finally:
+        touchup_phases.close_phase("direct")
+
+    receipt["gate"] = dict(receipt.get("gate") or {})
+    receipt["gate"]["route"] = "direct"
+    receipt["direct"] = {
+        "backend": decision["backend"],
+        "mode": decision["mode"],
+        "operations": plan["operations"],
+        "targets": plan["targets"],
+        "patch_id": str(patch.get("patch_id") or ""),
+        "generation": patch.get("generation"),
+        "reasons": decision["reasons"],
+        "editor_changes": {"pending": guard["pending"]},
+    }
+    receipt["direct_route"] = (
+        f"direct: {decision['backend']} in {decision['mode']} mode - "
+        f"{'; '.join(decision['reasons'])}")
+    receipt["status"] = "applied_direct"
+    receipt["mutated"] = True
+    receipt["staging_created"] = False
+    receipt["promoted"] = None
+    receipt["recovery"] = {
+        "act": f"patch:{patch.get('patch_id') or ''}",
+        "how": "the touch's own journal restores the accepted generation "
+               "(`ren undo`); the EditPatch's recorded inverse is the "
+               "second way back",
+    }
+    receipt["seconds"] = round(time.time() - started, 3)
+    receipt["receipt_path"] = _write_receipt(
+        project_folder, final, receipt, journal["id"])
+    print(f"touch-reel {final}: direct ({decision['backend']}) - "
+          f"written in place, no staging, no promotion", flush=True)
+    print(f"  {receipt['direct_route']}", flush=True)
+    print(f"  recovery: journal {journal['id']} / "
+          f"patch {patch.get('patch_id')}", flush=True)
     return receipt
 
 
@@ -4989,6 +5171,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
         "touchup", _safe_slug(final))
     os.makedirs(comp_dir, exist_ok=True)
+    touchup_phases.mark("conform")
     conform_receipt = _ce.conform_comp_windows(
         source_rows, staged_rows, comp_dir=comp_dir,
         preserve_passthrough=True)
@@ -5097,6 +5280,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                 timeline_name=final)
 
     edit_started = time.time()
+    touchup_phases.mark("compose")
     from library.tools import reel_component_manifest as _component_manifest
     prior_component_manifest = _component_manifest.latest_manifest(
         project_folder, final)
@@ -5142,6 +5326,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # `apply_composed_edit` already verifies placement off a
     # re-read; this second read checks the whole row reads back
     # as the plan says it should.
+    touchup_phases.mark("verify")
     verify_started = time.time()
     if still_insertions:
         receipt["still_insertions"] = _place_still_insertions(
@@ -5369,6 +5554,13 @@ def _promote(project_folder: str, project: Any, pool: Any,
             f"the staging {staging!r} or the approved {final!r} "
             f"vanished mid-touchup - nothing was renamed.")
 
+    # The promotion's own steps, measured.  The punchlist asks for the
+    # promotion's seconds to be SPLIT - the state reconciliation and
+    # the final promotion are two different bills - and the marks are
+    # where one ends and the next begins.  The steps sum to the phase,
+    # so the split moves no seconds.
+    touchup_phases.mark("snapshots")
+
     audio_fade_entries = [entry for entry in qualification.in_place
                           if entry.get("kind") == "audio_fade"]
     if audio_fade_entries:
@@ -5485,6 +5677,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
          "row": edit["row"], "name": edit["name"],
          "source": edit["source"], "wording": edit["wording"]}
         for edit in touch_edits]
+    touchup_phases.mark("editor_guard")
     try:
         _guard.assert_target_inventory_unchanged(
             receipt["timeline_inventory_before"],
@@ -5554,6 +5747,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
     _signoff.assert_declared(project_folder, final,
                              declared_supersede,
                              command="touch-reel")
+    touchup_phases.mark("replace_guard")
     incoming_rows = _guard.snapshot_timeline(staged_found[staging],
                                              staging, side="staged")
     retired_rows = _guard.snapshot_timeline(originals[final], final,
@@ -5563,6 +5757,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
         allowed=allowed_rows)
     receipt["accepted_editor_drop_rows"] = sorted(editor_override_rows)
 
+    touchup_phases.mark("markers")
     from library.tools import marker_carry as _markers
     from library.tools import marker_gate as _gate
     carried_markers = None
@@ -5637,6 +5832,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
             f"the verified candidate {staging!r} could not be promoted "
             f"({promotion_error}); its approved generation remains "
             f"recoverable.") from promotion_error
+    touchup_phases.mark("rename")
     receipt["candidate_lifecycle"] = lifecycle_records[0]
     receipt["promoted"] = {"staging": staging, "final": final,
                            "backup": backup}
@@ -5655,6 +5851,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # The outside count, before the replaced generation retires:
     # the promoted reel re-read live, both planes, diffed by
     # identity against the pre-rename capture.
+    touchup_phases.mark("marker_gate")
     try:
         _gate.verify_promotion(final, gate_capture,
                                staged_found[staging],
@@ -5694,6 +5891,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
 
     # THE JOURNAL CLOSES before the replaced generation goes: until
     # `after` is on disk, the backup is the only way back.
+    touchup_phases.mark("journal")
     from library.tools import undo_journal as _journal
     _journal.close_entry(project_folder, journal,
                          after_timeline=staged_found[staging],
@@ -5778,6 +5976,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # round NNN)` copy is clutter, not safety (captain, D5,
     # 2026-09-23). A reel carrying a sign-off still RETIRES, exactly
     # as promotion does - the cut the captain approved is kept.
+    touchup_phases.mark("retire")
     from library.tools import reel_retirement as _retire
     from library.tools.versions import rounds as _rounds
     backup_timelines = timelines_to_replace(project, {backup})
