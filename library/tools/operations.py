@@ -1382,6 +1382,8 @@ _REGISTRY: tuple[Operation, ...] = (
         produces=(
             "clip_catalog",
             "project_fps",
+            "project_frame_rate_rational",
+            "project_frame_rate_assumption",
             "source_resolution",
             "audio_catalog",
             "skipped_files",

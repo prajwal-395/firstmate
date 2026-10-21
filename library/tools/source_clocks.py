@@ -22,6 +22,13 @@ provenance wherever sample precision matters.
 No single global clock is assumed: each source digest carries its own
 clock, and cross-source joins keep going through the measured
 ``time_transforms`` the Project Model already validates.
+
+A VARIABLE-rate source says so and carries the container's own measured
+presentation timestamps, because its frame index has no duration to
+divide by; where those were not measured, the question is refused BY NAME
+rather than answered by dividing by the nominal rate.
+
+[why](docs/RULE_EVIDENCE.md#the-clock-that-lost-its-rational)
 """
 from __future__ import annotations
 
@@ -115,6 +122,18 @@ def frame_count(seconds: float, rate: Fraction) -> int:
     return round(exact)
 
 
+class VariableFrameRateError(ValueError):
+    """A variable-rate source cannot answer a frame-index question.
+
+    A variable-frame-rate source has no frame duration, so a frame index
+    becomes a time only through the container's own presentation
+    timestamps.  Where those were not measured, the question is refused
+    BY NAME rather than answered by dividing by the nominal rate - which
+    the audit measured at up to 131 frames (2.18 s) of error on a real
+    variable-rate file.
+    """
+
+
 @dataclass(frozen=True)
 class SourceClock:
     """Native rates for one source, keyed by content digest.
@@ -123,6 +142,12 @@ class SourceClock:
     NTSC-style footage, 25/1 for PAL). ``sample_rate`` is audio samples
     per second, or None for a video-only source. ``ticks_per_second``
     is the Project Model clock rate, 1000 by migration convention.
+
+    A VARIABLE-rate source says so (``variable_frame_rate``) and
+    carries the container's own measured presentation timestamps
+    (``frame_timestamps``), because a frame index of such a source has
+    no duration to divide by.  A constant-rate source carries neither:
+    its rational IS the answer.
     """
 
     digest: str
@@ -130,6 +155,8 @@ class SourceClock:
     fps_den: int
     sample_rate: int | None = None
     ticks_per_second: int = 1000
+    variable_frame_rate: bool = False
+    frame_timestamps: tuple[float, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.digest or not isinstance(self.digest, str):
@@ -140,6 +167,10 @@ class SourceClock:
             raise ValueError("sample rate must be positive when present")
         if self.ticks_per_second <= 0:
             raise ValueError("ticks per second must be positive")
+        if self.variable_frame_rate and not self.frame_timestamps:
+            raise ValueError(
+                "a variable-rate source carries no measured frame "
+                "timestamps, so it can answer no frame-index question")
 
     @property
     def fps(self) -> Fraction:
@@ -154,6 +185,8 @@ class SourceClock:
             "fps_den": self.fps_den,
             "sample_rate": self.sample_rate,
             "ticks_per_second": self.ticks_per_second,
+            "variable_frame_rate": self.variable_frame_rate,
+            "frame_timestamps": list(self.frame_timestamps),
         }
 
     @staticmethod
@@ -167,6 +200,11 @@ class SourceClock:
                 sample_rate=(None if record.get("sample_rate") is None
                              else int(record["sample_rate"])),
                 ticks_per_second=int(record.get("ticks_per_second", 1000)),
+                variable_frame_rate=bool(
+                    record.get("variable_frame_rate", False)),
+                frame_timestamps=tuple(
+                    float(value) for value in
+                    (record.get("frame_timestamps") or ())),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"invalid source clock record: {exc}") from exc
@@ -191,17 +229,28 @@ def _check_tick(tick: int) -> int:
 
 
 def frame_span_ticks(clock: SourceClock, frame: int) -> tuple[int, int]:
-    """Half-open ``[start, end)`` tick range exactly covering one frame.
+    """Half-open ``[start, end)`` tick range of the ticks BELONGING to
+    one frame.
 
-    The span is the floor of the frame's start edge through the ceiling
-    of its end edge, so every frame maps to at least one tick and
-    consecutive frames tile without gaps or overlaps.
+    The range starts at the first tick at or after the frame's start
+    edge and ends at the first tick at or after its end edge, so:
+
+    * every tick in the range maps BACK to this frame
+      (``tick_to_frame(start) == frame``, and so for every tick in it),
+      which is what the round trip needs and what a floor-of-the-start
+      edge broke - the audit measured that round trip SHIFTING A FRAME
+      at 24, 30, 60, 24000/1001 and 120000/1001;
+    * consecutive frames TILE the grid exactly: the end of one range is
+      the start of the next, with no gap and no overlap.
+
+    A frame shorter than one tick still gets one tick, so no frame is
+    invisible on the grid.
     """
     frame = _check_frame(frame)
     tps = Fraction(clock.ticks_per_second)
     start = (frame * tps) / clock.fps
     end = ((frame + 1) * tps) / clock.fps
-    lo = int(start) if start.denominator == 1 else start.numerator // start.denominator
+    lo = -(-start.numerator // start.denominator)
     hi = -(-end.numerator // end.denominator)
     if hi <= lo:
         hi = lo + 1
@@ -212,6 +261,56 @@ def tick_to_frame(clock: SourceClock, tick: int) -> int:
     """The single frame containing a tick (floor, never rounded)."""
     tick = _check_tick(tick)
     value = (Fraction(tick) * clock.fps) / clock.ticks_per_second
+    return value.numerator // value.denominator
+
+
+def frame_to_seconds(clock: SourceClock, frame: int) -> Fraction:
+    """The exact time of a frame, in seconds.
+
+    A constant-rate source divides: frame ``f`` starts at ``f / fps``.
+    A VARIABLE-rate source has no duration to divide by, so the
+    container's own measured presentation timestamp answers - and a
+    frame the measurement never reached is refused by name
+    (``VariableFrameRateError``) rather than answered with a guess.
+
+    The audit measured the guess: dividing a variable source's frame
+    index by its nominal rate is wrong by up to 131 frames (2.18 s).
+    """
+    frame = _check_frame(frame)
+    if clock.variable_frame_rate:
+        if frame >= len(clock.frame_timestamps):
+            raise VariableFrameRateError(
+                f"{clock.digest}: frame {frame} has no measured "
+                f"presentation timestamp; the measured table covers "
+                f"{len(clock.frame_timestamps)} frame(s) "
+                f"(first_{len(clock.frame_timestamps)}_frames), and a "
+                f"variable-rate source cannot be divided by a rate it "
+                f"does not have")
+        return Fraction(clock.frame_timestamps[frame]).limit_denominator(
+            1_000_000)
+    return Fraction(frame * clock.fps_den, clock.fps_num)
+
+
+def seconds_to_frame(clock: SourceClock, seconds: float) -> int:
+    """The frame a time falls in (floor, never rounded).
+
+    A variable-rate source answers from its measured timestamps; a time
+    beyond the measured table is refused by name.
+    """
+    if clock.variable_frame_rate:
+        stamps = clock.frame_timestamps
+        if not stamps:
+            raise VariableFrameRateError(
+                f"{clock.digest}: a variable-rate source carries no "
+                f"measured presentation timestamps")
+        if seconds > stamps[-1]:
+            raise VariableFrameRateError(
+                f"{clock.digest}: {seconds:.6f}s is beyond the measured "
+                f"presentation timestamps (the table covers the first "
+                f"{len(stamps)} frame(s))")
+        import bisect
+        return bisect.bisect_right(list(stamps), float(seconds)) - 1
+    value = Fraction(seconds).limit_denominator(1_000_000) * clock.fps
     return value.numerator // value.denominator
 
 
@@ -256,13 +355,22 @@ def ticks_between_frames(clock: SourceClock, first: int, last: int) -> tuple[int
 
 
 def from_model_clock(digest: str, model_clock: dict,
-                     *, sample_rate: int | None = None) -> SourceClock:
+                     *, sample_rate: int | None = None,
+                     frame_timestamps: list | tuple | None = None,
+                     variable_frame_rate: bool = False) -> SourceClock:
     """Build a source clock from a Project Model clock row plus rates.
 
-    A migrated clock row carries ``ticks_per_second`` and an optional
-    ``frame_rate`` of ``{"numerator", "denominator"}``; the migration
-    writes ``frame_rate`` as None today, in which case the caller must
-    supply the measured ``fps`` or the build refuses rather than guess.
+    A migrated clock row carries ``ticks_per_second`` and the rate the
+    container stated, as a ``{"numerator", "denominator"}`` rational.
+    The migration writes the MEASURED rational now
+    (``project_model_evidence``), so the exact frame/sample machinery
+    below has a producer at last; a row with no measured rate is
+    refused rather than guessed.
+
+    A VARIABLE-rate source is refused unless the measured presentation
+    timestamps come with it: its frame index has no duration to divide
+    by, and dividing by the nominal rate is what the audit measured at
+    up to 131 frames of error.
     """
     frame_rate = (model_clock or {}).get("frame_rate")
     fps = None
@@ -274,7 +382,73 @@ def from_model_clock(digest: str, model_clock: dict,
     if fps is None:
         raise ValueError(
             f"no measured frame rate for {digest}: supply fps explicitly")
+    stamps = tuple(float(value) for value in (frame_timestamps or ()))
+    if variable_frame_rate and not stamps:
+        raise VariableFrameRateError(
+            f"{digest}: the source is variable-frame-rate and carries no "
+            f"measured presentation timestamps, so a frame index cannot "
+            f"be turned into a time; the nominal rate would be wrong by "
+            f"up to 131 frames")
     return SourceClock(digest=digest, fps_num=fps[0], fps_den=fps[1],
                        sample_rate=sample_rate,
                        ticks_per_second=int((model_clock or {}).get(
-                           "ticks_per_second", 1000)))
+                           "ticks_per_second", 1000)),
+                       variable_frame_rate=bool(variable_frame_rate),
+                       frame_timestamps=stamps)
+
+
+def clock_for_digest(model: dict, digest: str,
+                     *, sample_rate: int | None = None) -> SourceClock:
+    """The source clock of one digest, read off a Project Model.
+
+    The clock row carries the measured rational; the STREAM row carries
+    whether the source is variable-rate and the measured presentation
+    timestamps it needs.  Both are read here, so a caller never has to
+    know which row holds what - and a variable-rate source with no
+    measured table is refused by name.
+
+    A VARIABLE-rate source carries NO rate on its clock row (it keeps no
+    constant frame grid), so its clock is built from the container's
+    NOMINAL rational and the measured timestamps: the nominal rate says
+    what the container claims, the timestamps say where each frame
+    actually is.
+    """
+    stream = None
+    for row in model.get("streams") or []:
+        if isinstance(row, dict) and row.get("source_digest") == digest:
+            stream = row
+            break
+    if stream is None:
+        raise ValueError(f"no stream for digest {digest} in the model")
+    clock_id = stream.get("clock_id")
+    clock_row = None
+    for row in model.get("clocks") or []:
+        if isinstance(row, dict) and row.get("id") == clock_id:
+            clock_row = row
+            break
+    if clock_row is None:
+        raise ValueError(f"no clock {clock_id!r} for digest {digest}")
+    metadata = stream.get("metadata") or {}
+    measured = metadata.get("measured_frame_timestamps") or {}
+    timestamps = tuple(measured.get("timestamps_seconds") or ())
+    if metadata.get("variable_frame_rate"):
+        nominal = metadata.get("frame_rate_nominal_rational") or {}
+        try:
+            numerator = int(nominal["numerator"])
+            denominator = int(nominal["denominator"])
+        except (KeyError, TypeError, ValueError):
+            raise VariableFrameRateError(
+                f"{digest}: the source is variable-frame-rate and states "
+                f"no nominal rate, so no frame grid can be named for it") from None
+        if not timestamps:
+            raise VariableFrameRateError(
+                f"{digest}: the source is variable-frame-rate and carries "
+                f"no measured presentation timestamps, so a frame index "
+                f"cannot be turned into a time; the nominal rate would be "
+                f"wrong by up to 131 frames")
+        return SourceClock(
+            digest=digest, fps_num=numerator, fps_den=denominator,
+            sample_rate=sample_rate,
+            ticks_per_second=int(clock_row.get("ticks_per_second", 1000)),
+            variable_frame_rate=True, frame_timestamps=timestamps)
+    return from_model_clock(digest, clock_row, sample_rate=sample_rate)

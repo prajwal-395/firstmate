@@ -196,11 +196,26 @@ def _resolve_stated_trim(passage: dict, label: str, frame_rate):
             f"Re-run with the catalog's project_fps routed to "
             f"speech_sequence, or state the trim in seconds."
         )
-    fps = float(frame_rate) if frame_rate else 30.0
-    half = 0.5 / fps
+    # A frame rate is used here for ONE thing: honoring a trim stated in
+    # frames.  A trim stated in frames with no timebase already refused
+    # above, so there is no second use for a rate here - and the engine
+    # used to reach for 30 fps, which put a 25 fps source 20% out of
+    # the grid the trim was measured on, and said nothing about it.
+    # Nothing is assumed: with no measured rate, `half` is no grid at
+    # all, and the comparison that needs it refuses.
+    fps = float(frame_rate) if frame_rate else None
+    half = (0.5 / fps) if fps else None
 
     def _edge(frames, seconds, f_name, s_name):
         if frames is not None and seconds is not None:
+            if fps is None:
+                raise PassageAlignmentError(
+                    f"{label}: states a trim in frames but the run "
+                    f"carried no project_fps - frames have no grid "
+                    f"without the timebase. Re-run with the catalog's "
+                    f"project_fps routed to speech_sequence, or state "
+                    f"the trim in seconds."
+                )
             from_frames = frames / fps
             if abs(from_frames - float(seconds)) > half + 1e-9:
                 raise PassageAlignmentError(
@@ -213,6 +228,11 @@ def _resolve_stated_trim(passage: dict, label: str, frame_rate):
                 f"{frames} frames (agrees with stated {s_name} "
                 f"{float(seconds):.3f}s)")
         if frames is not None:
+            if fps is None:
+                raise PassageAlignmentError(
+                    f"{label}: states a trim in frames but the run "
+                    f"carried no project_fps - frames have no grid "
+                    f"without the timebase.")
             return frames / fps, f"{frames} frames"
         if seconds is not None:
             return float(seconds), f"{float(seconds):.3f}s"

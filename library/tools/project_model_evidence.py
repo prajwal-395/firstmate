@@ -86,6 +86,7 @@ import copy
 import hashlib
 import json
 import math
+from fractions import Fraction
 from collections.abc import Mapping
 from dataclasses import replace
 from decimal import ROUND_CEILING, Decimal
@@ -534,7 +535,21 @@ def _measured_source_frame_rate(catalog: list, clip_ids: list[str]
         if clip.get("is_vfr"):
             return None, ("variable frame rate: the file keeps no "
                           "constant frame grid")
-        rate = source_clocks.rational_frame_rate(clip.get("frame_rate"))
+        # The catalog keeps the container's OWN rational beside the
+        # float that reads it, so the rate is read from the
+        # measurement rather than recovered from a rounded float by a
+        # 0.001 tolerance match.  The tolerance path stays as the
+        # fallback for a catalog measured before the rational was kept.
+        rational = clip.get("frame_rate_rational")
+        rate = None
+        if isinstance(rational, dict):
+            try:
+                rate = Fraction(int(rational["numerator"]),
+                                int(rational["denominator"]))
+            except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                rate = None
+        if rate is None:
+            rate = source_clocks.rational_frame_rate(clip.get("frame_rate"))
         if rate is None:
             continue
         return ({"numerator": int(rate.numerator),
@@ -542,13 +557,45 @@ def _measured_source_frame_rate(catalog: list, clip_ids: list[str]
     return None, None
 
 
+def _measured_source_variance(clip: dict | None) -> dict:
+    """What the catalog MEASURED about a source's cadence.
+
+    Whether the source is variable-rate, the container's own rational
+    rates, and - for a variable source - the presentation timestamps
+    measured frame by frame.  A variable-rate source has no duration to
+    divide by, and the audit measured what dividing by the nominal
+    rate costs: up to 131 frames (2.18 s) of error on a real file.
+    """
+    entry = clip or {}
+    measured: dict = {}
+    if entry.get("is_vfr"):
+        measured["variable_frame_rate"] = True
+    for key in ("frame_rate_nominal_rational", "avg_frame_rate_rational"):
+        rational = entry.get(key)
+        if isinstance(rational, dict):
+            measured[key] = rational
+    timestamps = entry.get("measured_frame_timestamps")
+    if isinstance(timestamps, dict) and timestamps.get("timestamps_seconds"):
+        measured["measured_frame_timestamps"] = timestamps
+    return measured
+
+
 def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
                     clip_ids: list[str], duration: float | None,
                     root: Path | None, roster: list[dict],
-                    frame_rate: dict[str, int] | None = None) -> None:
-    """Migrate every measured lane of one source digest."""
+                    frame_rate: dict[str, int] | None = None,
+                    variance: dict | None = None) -> None:
+    """Migrate every measured lane of one source digest.
+
+    `variance` is what the catalog measured about this source's
+    CADENCE: whether it is variable-rate, the container's own rational
+    rates, and - for a variable source - the presentation timestamps
+    measured frame by frame.  It rides on the stream row, because the
+    clock row carries a RATE and a variable source has no rate.
+    """
     asset_id = _asset_id(digest)
     clock_id = _clock_id(digest)
+    variance = variance or {}
     clock_row = {
         "id": clock_id,
         "domain": {"kind": "source", "asset_id": asset_id,
@@ -600,12 +647,22 @@ def _migrate_digest(builder: _Builder, digest: str, asset_uri: str,
     for source_stream in source_streams:
         stream_index = int(source_stream.get("index", 0))
         capture_provenance = source_stream.get("capture_metadata_provenance")
+        metadata = dict(source_stream)
+        if source_stream.get("codec_type") == "video" and variance:
+            # What the catalog MEASURED about this source's cadence:
+            # whether it is variable-rate, the container's own rational
+            # rates, and - for a variable source - the presentation
+            # timestamps measured frame by frame.  A frame index of a
+            # variable-rate source has no duration to divide by, and the
+            # audit measured that division at up to 131 frames (2.18 s)
+            # of error.
+            metadata.update(variance)
         stream_record = {
             "id": _stream_id(digest, stream_index),
             "asset_id": asset_id,
             "stream_index": stream_index,
             "clock_id": clock_id,
-            "metadata": source_stream,
+            "metadata": metadata,
             "source_digest": digest,
             "coverage": "analyzed" if m0 is not None else "unavailable",
             "producer_version": "ffprobe",
@@ -4319,7 +4376,7 @@ def migrate_project_evidence(project_folder: str, *,
         if frame_rate_reason:
             builder.notes.append(f"{digest[:12]}: {frame_rate_reason}")
         _migrate_digest(builder, digest, uri, clip_ids, duration, root,
-                        roster, frame_rate)
+                        roster, frame_rate, _measured_source_variance(first))
         _migrate_m3_frames(builder, digest, _asset_id(digest),
                            _clock_id(digest), root, roster)
     _materialize_multicam_transforms(builder, sorted(seen), durations, root)

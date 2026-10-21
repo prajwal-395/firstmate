@@ -95,7 +95,7 @@
       {
         "name": "enhancement_spec",
         "type": "object",
-        "description": "State output: enhancement_spec. `visual_effects` is the resolved plan; `planning_basis` says why it is the length it is; `stabilization_authorizations` carries typed user instructions and their exact scope into compile_manifest. See library/tools/vfx_plan_basis.py and library/tools/stabilization_authorization.py. `move_effects` carries one minted move.* model effect per accepted toolkit entry (targets off the step's own assignments, so the ids are post-migration stable ids); `move_effects_skipped` names every accepted entry that minted nothing, with its reason. See library/tools/project_model_effectcraft_moves.py.",
+        "description": "State output: enhancement_spec. `visual_effects` is the resolved plan; `planning_basis` says why it is the length it is; `stabilization_authorizations` carries typed user instructions and their exact scope into compile_manifest. `frame_rate_assumption` is present ONLY when the run routed no measured frame rate to this step: it names the rate the effects were timed against as an ASSUMPTION rather than a measurement. See library/tools/vfx_plan_basis.py, library/tools/stabilization_authorization.py and library/tools/frame_rate.py.",
         "expected_schema": {
           "visual_effects": "list",
           "planning_basis": "object",

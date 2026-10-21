@@ -22,6 +22,7 @@ import subprocess
 import sys
 from datetime import datetime
 
+from library.tools import frame_rate
 from library.tools.concurrency_routing import run_lanes
 from library.tools.file_measurements import cached_ffprobe
 
@@ -59,6 +60,13 @@ MEASURE_SILENCE_DB = -60.0
 # over 3.93 s).
 VFR_RELATIVE_TOLERANCE = 0.001
 
+# How many frames of a VARIABLE-rate source are measured, frame by
+# frame, so a frame index can be turned into a time honestly.  A bound,
+# not a taste: a variable source is measured to the depth its table
+# reaches, and the scope travels beside the table so a reader knows
+# which frames were measured and which were not.
+VFR_FRAME_TABLE_LIMIT = 600
+
 
 def _parse_frame_rate(value) -> float | None:
     """`"30/1"` or `"30"` into fps, or None when there is no rate.
@@ -66,20 +74,31 @@ def _parse_frame_rate(value) -> float | None:
     `"0/0"` - what variable-frame-rate phone footage reports - is None:
     zero over zero is no rate at all, and the catalog must not read it
     as 0.0.
+
+    The float is the container's rational READ, not rounded: the audit
+    measured `round(24000/1001, 3)` = 23.976 against the container's
+    23.976023976..., a relative error of 1.0e-06 and a drift of
+    0.60 ms over ten minutes - and, worse, a float that cannot be read
+    back as the rational it came from without a tolerance guess.  The
+    rational is kept beside it (`resolve_frame_rate`), so nothing has
+    to guess.
     """
     if not value:
         return None
-    text = str(value)
-    try:
-        if "/" in text:
-            num, den = text.split("/", 1)
-            den_f = float(den)
-            if den_f == 0:
-                return None
-            return round(float(num) / den_f, 3)
-        return round(float(text), 3)
-    except (ValueError, ZeroDivisionError):
+    rational = frame_rate.parse_rational(value)
+    if rational is None:
         return None
+    numerator, denominator = rational
+    return numerator / denominator
+
+
+def _parse_frame_rate_rational(value) -> dict | None:
+    """The container's rate as the Project Model's `Rational`, or None."""
+    rational = frame_rate.parse_rational(value)
+    if rational is None:
+        return None
+    numerator, denominator = rational
+    return frame_rate.rational_dict(numerator, denominator)
 
 
 def resolve_frame_rate(video_stream: dict) -> dict:
@@ -112,13 +131,85 @@ def resolve_frame_rate(video_stream: dict) -> dict:
     elif avg_rate is not None:
         is_vfr = abs(r_rate - avg_rate) > max(
             0.01, VFR_RELATIVE_TOLERANCE * r_rate)
-    frame_rate = r_rate if r_rate is not None else avg_rate
+    nominal = r_rate if r_rate is not None else avg_rate
+    # The container's OWN rational, kept whole.  The float above is
+    # this number read; the rational is the measurement, and it is the
+    # only form a frame-exact conversion can use.
+    rational = (_parse_frame_rate_rational(video_stream.get("r_frame_rate"))
+                if r_rate is not None
+                else _parse_frame_rate_rational(
+                    video_stream.get("avg_frame_rate")))
+    avg_rational = _parse_frame_rate_rational(
+        video_stream.get("avg_frame_rate"))
     return {
-        "frame_rate": frame_rate,
+        "frame_rate": nominal,
+        "frame_rate_rational": rational,
         "frame_rate_nominal": r_rate,
+        "frame_rate_nominal_rational": (
+            _parse_frame_rate_rational(video_stream.get("r_frame_rate"))
+            if r_rate is not None else None),
         "avg_frame_rate": avg_rate,
+        "avg_frame_rate_rational": avg_rational,
         "is_vfr": is_vfr,
     }
+
+
+def measure_frame_timestamps(filepath: str,
+                            limit: int = VFR_FRAME_TABLE_LIMIT) -> dict | None:
+    """The container's own presentation timestamps, frame by frame.
+
+    A variable-rate source has no frame duration to divide by, so the
+    only honest way to turn a frame index into a time is the
+    timestamp the container gave that frame.  These are measured here,
+    for the FIRST `limit` frames, and the scope travels with them: a
+    table that covers 600 frames says so, and a reader knows that frame
+    601 was never measured.
+
+    None when the container would not answer - a source whose frames
+    carry no timestamp has no frame-index-to-time mapping at all, and
+    the caller refuses it by name rather than dividing by a rate.
+    """
+    try:
+        result = cached_ffprobe(
+            filepath,
+            ["-v", "quiet", "-print_format", "json",
+             "-select_streams", "v:0", "-show_entries",
+             "frame=best_effort_timestamp_time",
+             "-read_intervals", f"0%+#{int(limit)}"],
+            timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if getattr(result, "returncode", 1) != 0:
+        return None
+    try:
+        probe = json.loads(result.stdout or "{}")
+    except json.JSONDecodeError:
+        return None
+    timestamps = []
+    for row in probe.get("frames") or []:
+        value = row.get("best_effort_timestamp_time")
+        try:
+            timestamps.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if not timestamps:
+        return None
+    return {
+        "timestamps_seconds": timestamps,
+        "measured_frame_count": len(timestamps),
+        "scope": f"first_{len(timestamps)}_frames",
+        "limit": int(limit),
+        "method": "ffprobe best_effort_timestamp_time",
+    }
+
+
+def _measure_frame_timestamps(filepath: str,
+                             limit: int = VFR_FRAME_TABLE_LIMIT) -> dict | None:
+    """`measure_frame_timestamps` with the catalog's failure behaviour."""
+    try:
+        return measure_frame_timestamps(filepath, limit=limit)
+    except Exception:  # noqa: BLE001 - a table is a bonus, never a failure
+        return None
 
 
 def describe_audio_streams(probe: dict) -> list:
@@ -542,7 +633,7 @@ def _extract_metadata(filepath: str, program_stream=None,
     # decision - see `resolve_frame_rate` for the measured failures
     # this closes.
     frame_rate_info = resolve_frame_rate(video_stream)
-    frame_rate = frame_rate_info["frame_rate"]
+    measured_rate = frame_rate_info["frame_rate"]
 
     # Extract rotation from video stream side_data or tags
     rotation = 0
@@ -629,10 +720,22 @@ def _extract_metadata(filepath: str, program_stream=None,
         "duration_seconds": round(float(fmt.get("duration", 0)), 3),
         "width": int(video_stream.get("width", 0)),
         "height": int(video_stream.get("height", 0)),
-        "frame_rate": frame_rate,
+        "frame_rate": measured_rate,
+        "frame_rate_rational": frame_rate_info["frame_rate_rational"],
         "frame_rate_nominal": frame_rate_info["frame_rate_nominal"],
+        "frame_rate_nominal_rational": frame_rate_info[
+            "frame_rate_nominal_rational"],
         "avg_frame_rate": frame_rate_info["avg_frame_rate"],
+        "avg_frame_rate_rational": frame_rate_info["avg_frame_rate_rational"],
         "is_vfr": frame_rate_info["is_vfr"],
+        # The measured frame-by-frame times of a VARIABLE-rate source.
+        # A variable source has no single frame duration, so a frame
+        # index can only become a time through the container's own
+        # presentation timestamps - and they are measured here, with
+        # their scope stated.  A constant-rate source carries None: its
+        # rational IS the answer.
+        "measured_frame_timestamps": _measure_frame_timestamps(
+            filepath) if frame_rate_info["is_vfr"] else None,
         "timecode_start": timecode_start,
         "video_codec": video_stream.get("codec_name", "unknown"),
         "camera_make": camera_make,
@@ -919,17 +1022,42 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
     # library/tools/delivery_format.py.
     fps_counts = {}
     res_counts = {}
+    rational_counts = {}
     for entry in entries:
         fps = entry.get("frame_rate")
         if fps:
             fps_counts[fps] = fps_counts.get(fps, 0) + 1
+        rational = entry.get("frame_rate_rational")
+        if rational:
+            key = (rational.get("numerator"), rational.get("denominator"))
+            rational_counts[key] = rational_counts.get(key, 0) + 1
         w = entry.get("width")
         h = entry.get("height")
         if w and h:
             res = (w, h)
             res_counts[res] = res_counts.get(res, 0) + 1
-            
-    project_fps = max(fps_counts, key=fps_counts.get) if fps_counts else 30.0
+
+    # The project's rate is the rate the CONTAINER stated, kept whole.
+    # The float is that rational read; the rational beside it is the
+    # measurement, and it is what a frame-exact conversion needs.
+    project_rational = None
+    if rational_counts:
+        winner = max(rational_counts, key=rational_counts.get)
+        project_rational = frame_rate.rational_dict(*winner)
+    project_fps = (project_rational["numerator"] / project_rational["denominator"]
+                   if project_rational else frame_rate.ASSUMED_FPS)
+    # A catalog that measured no rate at all still has to name the rate
+    # it cut on.  The engine's standing assumption stands (a frame rate
+    # is a mechanical value, not taste), and the ASSUMPTION is recorded
+    # beside it, so a reader of the catalog knows the difference.
+    project_rate_assumption = None
+    if project_rational is None:
+        project_rate_assumption = frame_rate.assumption(
+            "catalog",
+            reason=("no clip in this catalog carries a measurable frame "
+                    "rate; the project's rate is the engine's standing "
+                    "assumption of 30 fps, which is an assumption and "
+                    "not a measurement"))
     source_res = list(max(res_counts, key=res_counts.get)) if res_counts else [1080, 1920]
 
     if len(fps_counts) > 1:
@@ -987,6 +1115,8 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
         "total_clips": len(entries),
         "skipped_files": skipped,
         "project_fps": project_fps,
+        "project_frame_rate_rational": project_rational,
+        "project_frame_rate_assumption": project_rate_assumption,
         "source_resolution": source_res,
         "audio_catalog": audio_catalog,
         "duplicate_groups": duplicate_groups,

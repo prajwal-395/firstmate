@@ -1323,6 +1323,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # checks before it can safely publish edits to a project timeline.
         "library/tools/edit_state_preservation.py",
         "library/tools/git_guard.py",
+        # The catalog reads the container's own rational frame rate through
+        # this module, so a fix to how a rate is resolved or how an
+        # unmeasurable rate is assumed changes the cached catalog result.
+        "library/tools/frame_rate.py",
         # The catalog can commit timeline edit receipts and deliver audio
         # artifacts; keep those execution and cleanup paths in its cache key.
         "library/tools/artifact_lifecycle.py",

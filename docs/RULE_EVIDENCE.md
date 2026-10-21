@@ -8904,3 +8904,53 @@ than claiming a retime it did not make. And the operation still refuses on a ree
 whose opening row carries a Fusion composition: the replacement path cannot carry
 one, and that refusal is a PRESERVATION requirement, not a bug - the
 `reel.opening` row says so in its preservation limits.
+
+**The rule:** A frame rate is a MEASUREMENT or a NAMED ASSUMPTION, and it is
+never a silent one. The container's rational rate is kept whole beside the
+float that reads it, and a source with no measurable rate produces a record
+that says which site assumed what and why.
+
+**What happened.** Measured on 2026-10-21 in the A-06 audit lane, against
+fixtures built by ffmpeg (seven constant rates, one variable-rate file):
+
+| measurement | before | after |
+|---|---|---|
+| catalog float vs the container's rational (24000/1001) | 23.976 - off by 2.4e-05, relative 1.0e-06 | exact (0.0) |
+| the rational itself | unrecoverable without a 0.001 tolerance guess | the catalog's own `frame_rate_rational` |
+| the clock row's rate | recovered from the ROUNDED float by a tolerance match | the container's own rational, carried whole |
+| a variable-rate source: frame index to time | 1.15 s out = 69 frames (the audit measured 131 frames / 2.18 s on real footage) | the container's own measured timestamps: 0.0 s out |
+| `tick_to_frame(frame_span_ticks(f))` | shifted a frame at 24, 30, 60, 24000/1001, 30000/1001 and 60000/1001 (133-196 frames of 200) | 0 at every rate |
+| silent `30.0` frame-rate defaults | 7 sites, 0 named | 0 silent; the assumption is named in the run record |
+
+The seven silent defaults were `step_2_02_speech_sequence/post_bridge.py`
+(one), `step_4_03_plan_vfx/post_bridge.py` (five) and `window_frames.py` (one).
+A PAL source cut on an assumed 30 fps is 20 % out, and nothing said so.
+
+**Where it is.** `library/tools/frame_rate.py` is the one place a rate is
+resolved: a measurement (with the rational it came from) or the engine's
+standing assumption, NAMED with the site, the value and the reason.
+`library/capabilities/footage/catalog.py` keeps the container's rational
+(`frame_rate_rational`, `avg_frame_rate_rational`) beside the float, measures
+the presentation timestamps of a VARIABLE-rate source (`measured_frame_timestamps`,
+with its scope stated), and names the project's assumption when no clip carried
+a rate. `library/tools/project_model_evidence.py` writes that rational into the
+migrated clock row - it already wrote a rate there, but recovered one from the
+ROUNDED float by a 0.001 tolerance match, which is the guess this lane removes -
+and carries the variable-rate facts into the stream row, so
+`library/tools/source_clocks.py` can answer a frame question at all:
+`from_model_clock` reads the rational, `clock_for_digest` reads the whole clock
+off the model, and `frame_to_seconds` answers a variable-rate source from the
+container's own timestamps or REFUSES BY NAME. `frame_span_ticks` starts at the first tick at
+or after the frame's start edge, so every tick in a frame's span maps back to
+that frame and consecutive frames still tile the grid exactly. The runner
+collects the assumptions into `state["frame_rate_assumptions"]` and the rate
+itself into `state["frame_rate"]`.
+
+**What it does not fix.** The measured table reaches only the frames it
+measured (`VFR_FRAME_TABLE_LIMIT`, 600), and a frame past it is refused by
+name rather than answered - a variable-rate source longer than the table is
+not yet fully mapped. The 1 000-tick grid is still coarse: a frame boundary
+that does not land on a millisecond is quantised to the millisecond, which is
+why the exact mapping lives beside the grid rather than in it. And the engine
+still has ONE assumption value (30 fps); what changed is that it is named,
+where it stands and why.

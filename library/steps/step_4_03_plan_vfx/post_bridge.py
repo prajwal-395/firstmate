@@ -14,6 +14,7 @@ Idempotent: Yes
 import json
 import sys
 
+from library.tools import frame_rate as frame_rate_module
 from library.tools.frame_utils import frame_to_seconds, seconds_to_frame
 from library.tools.native_ops import (
     NATIVE_SPEED_EFFECTS,
@@ -452,10 +453,23 @@ def _derive_ken_burns_direction(params: dict):
     return None
 
 
+def _resolved_rate(frame_rate) -> float:
+    """The rate a helper times against, when the caller named none.
+
+    The step resolves its rate ONCE, in `main`, and the assumption it
+    made is recorded in the step's output.  A helper reached without a
+    rate resolves it here, so the value it uses is the SAME named
+    assumption rather than a second, silent one.
+    """
+    rate = frame_rate_module.resolve({"frame_rate": frame_rate},
+                                      site="step_4_03_plan_vfx")
+    return rate.fps
+
+
 def resolve_vfx(
     creative_plan: list,
     timed_spine: dict,
-    frame_rate: float = 30.0,
+    frame_rate: float | None = None,
     dropped: list = None,
     music_analysis: dict | None = None,
     music_selection: dict | None = None,
@@ -479,6 +493,7 @@ def resolve_vfx(
     # model re-plans, which a recorded drop cannot do.
     refuse_unknown_keys(creative_plan, VFX_ENTRY_KEYS,
                          step="plan_vfx", plan="vfx_creative")
+    frame_rate = _resolved_rate(frame_rate)
     def _drop(pos, effect_type, reason, detail):
         print(f"  {detail}", file=sys.stderr)
         if dropped is not None:
@@ -832,7 +847,7 @@ def resolve_vfx(
             # failed 6.01 with "no timeline item spans ... - nothing
             # was written"). Refuse the ONE entry here, with its
             # reason: a step must span exactly one spine block.
-            _step_tol = 1.5 / (frame_rate or 30.0) + 1e-6
+            _step_tol = 1.5 / _resolved_rate(frame_rate) + 1e-6
             _block_spans = [
                 (b.get("timeline_start"), b.get("timeline_end"))
                 for b in spine_blocks
@@ -1030,7 +1045,7 @@ def _assert_vfx_distinct(resolved: list) -> None:
 def resolve_generator_overlays(
     creative_plan: list,
     timed_spine: dict,
-    frame_rate: float = 30.0,
+    frame_rate: float | None = None,
 ) -> list:
     """Extract generator presets from the creative plan and resolve them
     to overlay track entries.
@@ -1041,6 +1056,10 @@ def resolve_generator_overlays(
     resolve_vfx: that function rejects generators from V1, this one
     routes them to the overlay track.
 
+    `frame_rate` is the rate the overlays are timed against.  The step
+    resolves it once and records the assumption when it had to assume
+    one; a helper reached without a rate resolves it here.
+
     Returns a list of overlay entries, each with:
       - overlay_id: unique identifier
       - effect_name: the generator preset's snake_case name
@@ -1049,6 +1068,7 @@ def resolve_generator_overlays(
       - composite_mode: how to composite (default: "screen")
       - rationale: from the creative plan
     """
+    frame_rate = _resolved_rate(frame_rate)
     spine_blocks = timed_spine.get(
         "structure",
         timed_spine.get("audio_spine", {}).get("structure", []),
@@ -1172,7 +1192,7 @@ def _splice_region_moves(fresh, raw_creative, stored_spec, positions,
 
 def splice_region_vfx(vfx_creative: list, timed_spine: dict,
                       stored_spec: dict, scope,
-                      frame_rate: float = 30.0,
+                      frame_rate: float | None = None,
                       music_analysis: dict | None = None,
                       music_selection: dict | None = None,
                       temporal_event_indices=None,
@@ -1220,6 +1240,7 @@ def splice_region_vfx(vfx_creative: list, timed_spine: dict,
     )
     from library.tools.spine_contract import blocks_overlapping
 
+    frame_rate = _resolved_rate(frame_rate)
     span = scope.region_span
     structure = timed_spine.get(
         "structure", timed_spine.get("audio_spine", {}).get("structure", []))
@@ -1307,7 +1328,15 @@ def main():
     creative = [v for v in creative if isinstance(v, dict)]
 
     spine = data.get("timed_spine", {})
-    fps = data.get("frame_rate", 30.0)
+    # The rate this step timed its effects against.  Measured when the
+    # run routed one; otherwise the engine's standing assumption, which
+    # is a MECHANICAL default (AGENTS.md 10.5) and therefore stays - but
+    # it is NAMED in the step's output, because a silent 30 fps put a
+    # 25 fps source 20% out and said nothing about it.
+    rate = frame_rate_module.resolve(
+        {"frame_rate": data.get("frame_rate")},
+        site="step_4_03_plan_vfx")
+    fps = rate.fps
     music_analysis = data.get("music_analysis", {})
     music_selection = data.get("music_selection", {})
     temporal_raw = data.get("temporal_event_indices", [])
@@ -1403,6 +1432,14 @@ def main():
     }}
     if gen_overlays:
         output["enhancement_spec"]["generator_overlays"] = gen_overlays
+    # The rate this plan was timed against, and - when there was no
+    # measured rate - the NAMED assumption that stood in for it.  The
+    # assumption is a mechanical default (AGENTS.md 10.5), so it stays;
+    # what it may not do is stay SILENT, because a 25 fps source timed
+    # against an assumed 30 fps is 20% out.
+    if rate.assumption is not None:
+        output["enhancement_spec"]["frame_rate_assumption"] = (
+            rate.assumption)
     json.dump(output, sys.stdout, indent=2)
 
 

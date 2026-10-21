@@ -93,13 +93,23 @@ def test_a_vfr_file_carries_the_rate_resolve_uses_and_the_average_beside_it(
     (`GetClipProperty("FPS")`), so the catalog keeps `frame_rate` at
     that nominal rate and records the measured average beside it for
     the consumers that need true timing.  On origin/main the average
-    was unread and the file was not even recorded as variable."""
+    was unread and the file was not even recorded as variable.
+
+    The average is the container's own rational, READ and not rounded:
+    `round(num/den, 3)` put it 6.8e-05 away from the container's rate,
+    and a rate that cannot be read back as the rational it came from is
+    a rate a reader has to guess at."""
     path = _vfr_divergent_mp4(tmp_path)
     md = catalog_step.extract_metadata(path)
     assert md["frame_rate"] == 30.0
     assert md["frame_rate_nominal"] == 30.0
-    assert md["avg_frame_rate"] == 23.644
+    assert abs(md["avg_frame_rate"] - 23.64406779661017) <= 1e-9
+    assert md["avg_frame_rate_rational"] == {"numerator": 1395,
+                                             "denominator": 59}
     assert md["is_vfr"] is True
+    # And the variable source carries the frame times it measured, so a
+    # frame index of it is never divided by the nominal rate.
+    assert md["measured_frame_timestamps"]["timestamps_seconds"]
 
 
 def test_a_constant_file_is_not_flagged_as_variable(tmp_path):

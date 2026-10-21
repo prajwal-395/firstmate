@@ -68,7 +68,19 @@
       {
         "name": "project_fps",
         "type": "number",
-        "description": "Modal frame rate of the source footage - the pipeline's timebase."
+        "description": "Modal frame rate of the source footage - the pipeline's timebase. Read from the container's own rational, unrounded."
+      },
+      {
+        "name": "project_frame_rate_rational",
+        "type": "object",
+        "description": "State output: project_frame_rate_rational - the project's frame rate as the container's own rational ({numerator, denominator}). The float beside it is that rational read; this is the measurement. Absent when no clip carried a measurable rate.",
+        "required": false
+      },
+      {
+        "name": "project_frame_rate_assumption",
+        "type": "object",
+        "description": "State output: project_frame_rate_assumption - the NAMED assumption, when no clip in the catalog carried a measurable frame rate and the project rate is the engine's standing assumption of 30 fps. Names the site, the value and the reason. Absent when a rate was measured.",
+        "required": false
       },
       {
         "name": "source_resolution",

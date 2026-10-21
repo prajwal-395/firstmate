@@ -107,6 +107,8 @@ import math
 import os
 import subprocess
 
+from library.tools import frame_rate
+
 
 # ── Which harnesses can be shown a picture ────────────────────────────
 #
@@ -197,6 +199,20 @@ MAX_STRIPS = 400
 FFMPEG_TIMEOUT_SECONDS = 60
 
 
+def sampling_rate(source_fps, *, site: str = "window_frames.sample_times"):
+    """The rate the strip sampling times against, and its assumption.
+
+    A strip's LAST sample is one frame before the window ends, so the
+    rate decides which frame that is.  With no measured rate the
+    engine's standing assumption stands (a frame rate is a mechanical
+    value, not taste), but it is NAMED here rather than reached for in
+    silence - the audit measured seven places in the engine where a
+    missing rate became a silent 30 fps, and a 25 fps source cut on
+    that assumption is 20 % out.
+    """
+    return frame_rate.resolve({"source_fps": source_fps}, site=site)
+
+
 def sample_times(video_in: float, video_out: float, source_fps: float) -> list:
     """The instants of `[video_in, video_out)` the strip shows.
 
@@ -206,10 +222,16 @@ def sample_times(video_in: float, video_out: float, source_fps: float) -> list:
     The last sample is one frame BEFORE `video_out`, because that is the
     last frame the viewer actually sees: a cutaway plays the half-open
     range and the frame at `video_out` belongs to whatever comes next.
+
+    With no measured rate the engine's standing assumption is used, and
+    it is a NAMED one - `sampling_rate` returns the assumption beside
+    the rate, so a caller that records it can say which grid the strip
+    was drawn on.
     """
     if video_out <= video_in:
         return [round(max(0.0, video_in), 3)]
-    fps = source_fps if source_fps and source_fps > 0 else 30.0
+    rate = sampling_rate(source_fps)
+    fps = rate.fps
     last = max(video_in, video_out - 1.0 / fps)
     span = last - video_in
     if span <= 0:

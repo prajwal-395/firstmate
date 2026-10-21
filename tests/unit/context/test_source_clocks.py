@@ -4,10 +4,13 @@ import pytest
 
 from library.tools.source_clocks import (
     SourceClock,
+    VariableFrameRateError,
+    clock_for_digest,
     frame_count,
     frame_grid_ticks,
     frame_index_ceil,
     frame_span_ticks,
+    frame_to_seconds,
     from_model_clock,
     rational_frame_rate,
     sample_span_ticks,
@@ -152,3 +155,89 @@ def test_a_span_counts_the_frames_the_build_planned():
     assert frame_count(5.0, rate) == 120
     assert frame_count(1.0 / 24, rate) == 1
     assert frame_count(0.0, rate) == 0
+
+
+def test_a_variable_rate_clock_needs_its_measured_timestamps():
+    """A variable-rate source has no duration to divide by.
+
+    The audit measured what dividing by the nominal rate costs: up to
+    131 frames (2.18 s) of error on a real variable-rate file.  So a
+    variable clock with no measured table REFUSES, by name.
+    """
+    with pytest.raises(VariableFrameRateError):
+        from_model_clock("sha256:vfr",
+                         {"ticks_per_second": 1000,
+                          "frame_rate": {"numerator": 60, "denominator": 1}},
+                         variable_frame_rate=True)
+    clock = from_model_clock(
+        "sha256:vfr",
+        {"ticks_per_second": 1000,
+         "frame_rate": {"numerator": 60, "denominator": 1}},
+        variable_frame_rate=True, frame_timestamps=[0.0, 0.016, 0.1])
+    assert frame_to_seconds(clock, 2) == Fraction(1, 10)
+    with pytest.raises(VariableFrameRateError):
+        frame_to_seconds(clock, 9)
+
+
+def test_clock_for_digest_reads_the_rate_off_the_model():
+    """The migrated model carries the rate; the clock reads it back."""
+    model = {
+        "clocks": [{"id": "clock-1", "ticks_per_second": 1000,
+                    "frame_rate": {"numerator": 24000,
+                                   "denominator": 1001}}],
+        "streams": [{"id": "stream-1", "clock_id": "clock-1",
+                     "source_digest": "sha256:abc",
+                     "metadata": {"variable_frame_rate": False}}],
+    }
+    clock = clock_for_digest(model, "sha256:abc")
+    assert (clock.fps_num, clock.fps_den) == (24000, 1001)
+    assert clock.variable_frame_rate is False
+    with pytest.raises(ValueError):
+        clock_for_digest(model, "sha256:other")
+
+
+def test_clock_for_digest_answers_a_variable_source_from_its_timestamps():
+    """A variable source keeps no rate on its clock row - it keeps its
+    frame TIMES."""
+    model = {
+        "clocks": [{"id": "clock-1", "ticks_per_second": 1000,
+                    "frame_rate": None}],
+        "streams": [{"id": "stream-1", "clock_id": "clock-1",
+                     "source_digest": "sha256:vfr",
+                     "metadata": {
+                         "variable_frame_rate": True,
+                         "frame_rate_nominal_rational": {
+                             "numerator": 60, "denominator": 1},
+                         "measured_frame_timestamps": {
+                             "timestamps_seconds": [0.0, 0.016, 0.1]}}}],
+    }
+    clock = clock_for_digest(model, "sha256:vfr")
+    assert clock.variable_frame_rate is True
+    assert frame_to_seconds(clock, 2) == Fraction(1, 10)
+
+    # Without the measured timestamps it refuses by name, rather than
+    # dividing by the nominal rate.
+    model["streams"][0]["metadata"].pop("measured_frame_timestamps")
+    with pytest.raises(VariableFrameRateError):
+        clock_for_digest(model, "sha256:vfr")
+
+
+@pytest.mark.parametrize("rate", [Fraction(24, 1), Fraction(25, 1),
+                                   Fraction(30, 1), Fraction(60, 1),
+                                   Fraction(24000, 1001),
+                                   Fraction(30000, 1001),
+                                   Fraction(60000, 1001)], ids=str)
+def test_a_frame_span_maps_back_to_its_own_frame(rate):
+    """`tick_to_frame(frame_span_ticks(f)) == f`, at every rate.
+
+    The span used to start at the FLOOR of the frame's start edge, so
+    its first tick belonged to the PREVIOUS frame: the round trip
+    shifted a frame at 24, 30, 60, 24000/1001, 30000/1001 and
+    60000/1001.
+    """
+    clock = SourceClock(digest="d", fps_num=rate.numerator,
+                        fps_den=rate.denominator)
+    for frame in range(200):
+        start, end = frame_span_ticks(clock, frame)
+        assert tick_to_frame(clock, start) == frame
+        assert tick_to_frame(clock, end - 1) == frame

@@ -142,6 +142,7 @@ _STEPS = os.path.join(_REPO, "library", "steps")
 MEASURED_OUTPUTS = {
     "clip_catalog": "1.02 - measured duration, frame rate and stored resolution per clip",
     "project_fps": "1.02 - the footage's measured frame rate",
+    "project_frame_rate_rational": "1.02 - the footage's measured frame rate, as the container's own rational",
     "source_resolution": "1.02 - the footage's measured stored resolution",
     "picture_plan": "3.0 - global shot selection: per-block gesture coverage, continuity, variety and illustration scores",
     # A MIXED container: per-window camera segments, usable ranges with a
@@ -412,6 +413,7 @@ DECLINED_OUTPUTS = {
     "total_files": "1.01 - a count of a listing",
     "total_clips": "1.02 - a count of a listing",
     "model_revision": "1.01/1.02 - which Project Model revision the footage was migrated at: a store pointer so readers resolve ids, not a measurement of the material",
+    "project_frame_rate_assumption": "1.02 - the NAMED assumption that stood in for an unmeasurable frame rate: a statement about what the engine did NOT measure, not a measurement of the material",
     "total_clips_analyzed": "1.03 - a count of a listing",
     "index_dir": "1.04 - a path",
     "source": "1.04 - which route produced the index",

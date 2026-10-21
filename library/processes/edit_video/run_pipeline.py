@@ -82,6 +82,7 @@ from library.tools.project_layout import Area, ProjectLayout
 from library.tools import event_log, perf_ledger, provenance
 from library.tools import run_id as run_identity
 from library.tools import external_inputs, run_scope
+from library.tools import frame_rate as frame_rate_record
 from library.tools.ren_refusal import RenRefusal
 from library.tools.versions import runs
 from library.tools import requirements
@@ -4557,6 +4558,60 @@ def run_pipeline(
             save_pipeline_state(project_dir, state)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
         print(f"  WARNING: could not read the value decisions: {exc}",
+              file=sys.stderr)
+
+    # The frame rate this run cut on, and - when nothing measurable
+    # reached it - the NAMED assumption that stood in for it.  Seven
+    # places in the engine used to turn a missing rate into a silent
+    # 30 fps, and a 25 fps source cut on that assumption is 20% out
+    # with nothing saying so.  The assumption is a MECHANICAL default
+    # (AGENTS.md 10.5), so it stays; what it may not do is stay
+    # SILENT, so the run record names it.
+    # See library/tools/frame_rate.py.
+    frame_rate_records = []
+    try:
+        for _node_id, _out in capability_outputs.node_outputs(state).items():
+            for _candidate in (_out.get("frame_rate_assumption"),
+                               (_out.get("enhancement_spec") or {}).get(
+                                   "frame_rate_assumption")):
+                if isinstance(_candidate, dict):
+                    frame_rate_records.append(_candidate)
+        _catalog = capability_outputs.value(
+            state, "footage.catalog", "clip_catalog") or []
+        _catalog_rational = capability_outputs.value(
+            state, "footage.catalog", "project_frame_rate_rational")
+        _catalog_assumption = capability_outputs.value(
+            state, "footage.catalog", "project_frame_rate_assumption")
+        if isinstance(_catalog_assumption, dict):
+            frame_rate_records.append(_catalog_assumption)
+        else:
+            _project_assumption = frame_rate_record.project_assumption(
+                _catalog)
+            if _project_assumption:
+                frame_rate_records.append(_project_assumption)
+        # The rate itself, with the rational it was measured at, so the
+        # run record says WHICH grid the picture was cut on - and not
+        # only when that grid had to be assumed.
+        _run_rate = (frame_rate_record.resolve(
+            {"catalog": _catalog_rational}, site="run")
+            if _catalog_rational else
+            frame_rate_record.measured_from_catalog(_catalog))
+        if _run_rate is not None and _run_rate.measured:
+            state["frame_rate"] = _run_rate.as_dict()
+        for _line in frame_rate_record.summary_lines(frame_rate_records):
+            print(_line, file=sys.stderr)
+        if _run_rate is not None:
+            print(f"  frame rate: {_run_rate.numerator}/"
+                  f"{_run_rate.denominator} ({_run_rate.fps:.6f} fps, "
+                  f"measured)", file=sys.stderr)
+        if frame_rate_records:
+            # MERGED, not replaced - the sibling keys' reasoning exactly.
+            frame_rate_records = frame_rate_record.merge(
+                state.get(frame_rate_record.STATE_KEY), frame_rate_records)
+            state[frame_rate_record.STATE_KEY] = frame_rate_records
+            save_pipeline_state(project_dir, state)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the frame rate assumptions: {exc}",
               file=sys.stderr)
 
     # Where a step's measurements contradicted the creative direction it
