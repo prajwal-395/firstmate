@@ -760,6 +760,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # any of them changes what the step measured, so they belong
         # to its identity.
         "library/tools/analysis/detection_coverage.py",
+        # The scoped replacement (AXI-007) and the look preservation
+        # (QA-005) modules joined this closure through the algebra
+        # and the mutation verification it already declares; the
+        # caption specification and the OCR reader come with them.
+        "library/tools/caption_ocr.py",
+        "library/tools/delivered_caption_spec.py",
+        "library/tools/look_preservation.py",
+        "library/tools/scoped_replacement.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1438,6 +1446,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # any of them changes what the step measured, so they belong
         # to its identity.
         "library/tools/analysis/detection_coverage.py",
+        # The scoped replacement (AXI-007) and the look preservation
+        # (QA-005) modules joined this closure through the algebra
+        # and the mutation verification it already declares; the
+        # caption specification and the OCR reader come with them.
+        "library/tools/caption_ocr.py",
+        "library/tools/delivered_caption_spec.py",
+        "library/tools/look_preservation.py",
+        "library/tools/scoped_replacement.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2162,6 +2178,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # any of them changes what the step measured, so they belong
         # to its identity.
         "library/tools/analysis/detection_coverage.py",
+        # The scoped replacement (AXI-007) and the look preservation
+        # (QA-005) modules joined this closure through the algebra
+        # and the mutation verification it already declares; the
+        # caption specification and the OCR reader come with them.
+        "library/tools/caption_ocr.py",
+        "library/tools/delivered_caption_spec.py",
+        "library/tools/look_preservation.py",
+        "library/tools/scoped_replacement.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2865,6 +2889,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # any of them changes what the step measured, so they belong
         # to its identity.
         "library/tools/analysis/detection_coverage.py",
+        # The scoped replacement (AXI-007) and the look preservation
+        # (QA-005) modules joined this closure through the algebra
+        # and the mutation verification it already declares; the
+        # caption specification and the OCR reader come with them.
+        "library/tools/caption_ocr.py",
+        "library/tools/delivered_caption_spec.py",
+        "library/tools/look_preservation.py",
+        "library/tools/scoped_replacement.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3599,6 +3631,14 @@ STEP_IMPLEMENTATION_DEPS = {
         # any of them changes what the step measured, so they belong
         # to its identity.
         "library/tools/analysis/detection_coverage.py",
+        # The scoped replacement (AXI-007) and the look preservation
+        # (QA-005) modules joined this closure through the algebra
+        # and the mutation verification it already declares; the
+        # caption specification and the OCR reader come with them.
+        "library/tools/caption_ocr.py",
+        "library/tools/delivered_caption_spec.py",
+        "library/tools/look_preservation.py",
+        "library/tools/scoped_replacement.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

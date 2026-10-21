@@ -1727,7 +1727,15 @@ def test_the_cache_rebuilds_when_a_new_exploration_lands(
         tmp_path, monkeypatch):
     """Defect, same shape as the versions-ledger one: the explorations
     are a graph input the fingerprint must cover, or a new exploration
-    keeps serving the old graph until some unrelated input changes."""
+    keeps serving the old graph until some unrelated input changes.
+
+    The branches come back OLDEST FIRST, and an exploration is stamped
+    with a second-resolution timestamp: two explorations that land in
+    the same second sort by name, and two that straddle a second
+    boundary sort by the clock. The order is the clock's, so what this
+    test names - the new exploration is in the rebuilt graph - is
+    asserted on the set of branches, not on their order.
+    """
     project, base = _variant_project(tmp_path, monkeypatch)
     _explore(project, base, ["faster-intro"])
 
@@ -1737,8 +1745,8 @@ def test_the_cache_rebuilds_when_a_new_exploration_lands(
     _explore(project, base, ["emotional-intro"])
 
     second = project_graph.load_or_build(str(project))
-    assert [r["name"] for r in
-            project_graph.find_variant_branches(second)] == [
+    assert sorted(r["name"] for r in
+                  project_graph.find_variant_branches(second)) == [
         "emotional-intro", "faster-intro"]
 
     third = project_graph.load_or_build(str(project))

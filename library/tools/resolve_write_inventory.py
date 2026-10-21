@@ -1,7 +1,17 @@
-"""Generate the operation-to-Resolve execution inventory from edit_algebra."""
+"""Generate the operation-to-Resolve execution inventory from edit_algebra.
+
+The same module also owns the STATIC call-site enumeration: every
+statically dispatched Resolve mutation under `library/`.  The registry
+(`tests/contracts/resolve_write_registry.json`), the static table in the
+inventory document and the contract test all read that one enumeration,
+so a call site cannot be registered in one place and missing from
+another - which is how the AXI-007 scoped-replacement module reached main
+with eleven writes that no inventory named.
+"""
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 from pathlib import Path
@@ -10,8 +20,88 @@ from library.tools import edit_algebra
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = ROOT / "docs" / "RESOLVE_WRITE_INVENTORY.md"
+REGISTRY = ROOT / "tests" / "contracts" / "resolve_write_registry.json"
+LIBRARY = ROOT / "library"
 START = "<!-- BEGIN GENERATED EDITORIAL OPERATION INVENTORY -->"
 END = "<!-- END GENERATED EDITORIAL OPERATION INVENTORY -->"
+
+#: Resolve's scripting API uses these verbs for state changes.  This is an
+#: inventory detector, not an API ban: new names fail until classified.
+MUTATION_PREFIXES = (
+    "Add", "Apply", "Append", "Create", "Delete", "Import", "Insert",
+    "Load", "Move", "Remove", "Rename", "Set", "Update", "Write",
+)
+IGNORED_GENERIC = frozenset({"append", "add", "update", "write", "remove"})
+
+
+def _enclosing_function(parents) -> str:
+    """The function a call sits in, or `<module>` at module level."""
+    function = "<module>"
+    for parent in reversed(parents):
+        if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            function = parent.name
+            break
+    return function
+
+
+def static_call_sites(root: Path | None = None) -> list[dict]:
+    """Every statically dispatched Resolve mutation call site in `library/`.
+
+    One row per call site: the file, the line, the column, the enclosing
+    function, the API method, and the occurrence of that method within
+    that function.  The occurrence is the stable identity - line numbers
+    move with every edit, and the registry keys on the rest.
+    """
+    from library.tools.ast_cache import parse_file
+
+    library = Path(root or LIBRARY)
+    found: list[dict] = []
+    for path in sorted(library.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = parse_file(path)
+        source_path = path
+
+        def visit(node, parents, source_path):
+            if (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr.startswith(MUTATION_PREFIXES)
+                    and node.func.attr not in IGNORED_GENERIC):
+                found.append({
+                    "path": source_path.relative_to(ROOT).as_posix(),
+                    "line": node.lineno,
+                    "column": node.col_offset,
+                    "function": _enclosing_function(parents),
+                    "method": node.func.attr,
+                })
+            for child in ast.iter_child_nodes(node):
+                visit(child, [*parents, node], source_path)
+
+        visit(tree, [], source_path)
+    occurrences: dict[tuple[str, str, str], int] = {}
+    for site in found:
+        base = (site["path"], site["function"], site["method"])
+        count = occurrences.get(base, 0) + 1
+        occurrences[base] = count
+        site["occurrence"] = count
+    found.sort(key=lambda site: (site["path"], site["line"], site["column"]))
+    return found
+
+
+def registry_rows(sites: list[dict] | None = None) -> list[list]:
+    """The registry rows for the enumerated call sites."""
+    return [[site["path"], site["function"], site["method"],
+             site["occurrence"]]
+            for site in (sites if sites is not None else static_call_sites())]
+
+
+def write_registry(sites: list[dict] | None = None,
+                   path: Path = REGISTRY) -> list[list]:
+    """Write the registry rows and return them."""
+    rows = registry_rows(sites)
+    Path(path).write_text(
+        json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+    return rows
 
 BACKEND_ENTRYPOINTS = {
     "edit_patch": "library/tools/edit_patch.py",
@@ -121,11 +211,55 @@ def render_operation_inventory() -> str:
     return "\n".join(lines)
 
 
+def render_static_call_table(sites: list[dict] | None = None) -> str:
+    """The static call-site table, one row per enumerated call site.
+
+    The stable identity is the file, the enclosing function, the API
+    method and the occurrence of that method within the function; the
+    line number is informational and moves with every edit.
+    """
+    rows = (sites if sites is not None else static_call_sites())
+    lines = []
+    for site in rows:
+        path = site["path"]
+        function = site["function"]
+        method = site["method"]
+        lines.append(
+            "| `{path}:{line}` (`{function}`, occurrence {occurrence} of "
+            "`{method}`) | `{method}` | `{function}` in `{path}` | "
+            "Resolve scripting API (source call) | See call arguments at "
+            "site | See enclosing implementation | See enclosing "
+            "implementation/read-back | See enclosing implementation | "
+            "See enclosing implementation | Source callers of owner | "
+            "Contract/unit/scenario tests by owner | API call plus "
+            "owner-specific work |".format(
+                path=path, line=site["line"], function=function,
+                occurrence=site["occurrence"], method=method))
+    return "\n".join(lines)
+
+
+def _replace_static_call_table(text: str, table: str) -> str:
+    """Swap the static call-site table in the document for the fresh one.
+
+    The table is the run of rows that open with a repository path; the
+    generated operation inventory that follows it is replaced separately.
+    """
+    lines = text.splitlines()
+    first = next((index for index, line in enumerate(lines)
+                  if line.startswith("| `library/")), None)
+    if first is None:
+        return text.rstrip() + "\n\n" + table + "\n"
+    last = first
+    while last + 1 < len(lines) and lines[last + 1].startswith("| `library/"):
+        last += 1
+    return "\n".join([*lines[:first], table, *lines[last + 1:]]) + "\n"
+
+
 def write_inventory(path: Path = DOC) -> None:
     text = path.read_text(encoding="utf-8")
     generated = render_operation_inventory()
-    registry = ROOT / "tests" / "contracts" / "resolve_write_registry.json"
-    rows = json.loads(registry.read_text(encoding="utf-8"))
+    sites = static_call_sites()
+    rows = write_registry(sites)
     counts = {method: sum(row[2] == method for row in rows)
               for method in ("AppendToTimeline", "SetCurrentTimeline")}
     # The sentence's NUMBERS move with the registry; the sentence itself
@@ -145,6 +279,7 @@ def write_inventory(path: Path = DOC) -> None:
             f"`{counts['AppendToTimeline']}` `AppendToTimeline` sites and "
             f"`{counts['SetCurrentTimeline']}` `SetCurrentTimeline` sites"
             ".", 1)
+    text = _replace_static_call_table(text, render_static_call_table(sites))
     if START in text and END in text:
         before, rest = text.split(START, 1)
         _old, after = rest.split(END, 1)

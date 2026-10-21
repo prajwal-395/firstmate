@@ -684,6 +684,12 @@
     1
   ],
   [
+    "library/tools/composed_edit.py",
+    "apply_composed_edit",
+    "DeleteClips",
+    1
+  ],
+  [
     "library/tools/computer_use/__main__.py",
     "_run_recipe",
     "SetCurrentTimecode",
@@ -937,6 +943,12 @@
   ],
   [
     "library/tools/edit_algebra.py",
+    "_apply_track_delete",
+    "DeleteTrack",
+    1
+  ],
+  [
+    "library/tools/edit_algebra.py",
     "_apply_track_add",
     "AddTrack",
     1
@@ -997,12 +1009,6 @@
   ],
   [
     "library/tools/edit_algebra.py",
-    "_apply_track_delete",
-    "DeleteTrack",
-    1
-  ],
-  [
-    "library/tools/edit_algebra.py",
     "<module>",
     "SetTrackName",
     1
@@ -1011,6 +1017,36 @@
     "library/tools/edit_ledger.py",
     "apply_lut_to_item",
     "SetLUT",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipEnabled",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipColor",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "AddFlag",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/edit_state_preservation.py",
+    "restore_clip_metadata",
+    "SetClipsLinked",
     1
   ],
   [
@@ -1239,6 +1275,12 @@
     "library/tools/execution/prune_orphans.py",
     "remove_pool_items",
     "SetCurrentFolder",
+    1
+  ],
+  [
+    "library/tools/execution/remove_proof.py",
+    "retire_captain_task_timeline",
+    "DeleteClips",
     1
   ],
   [
@@ -1531,6 +1573,30 @@
   ],
   [
     "library/tools/qualification_project.py",
+    "_create_qualification_project",
+    "DeleteProject",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_create_qualification_project",
+    "CreateProject",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_place_declared_clips",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_place_declared_clips",
+    "AddMarker",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
     "rebuild",
     "SetSetting",
     1
@@ -1549,18 +1615,6 @@
   ],
   [
     "library/tools/qualification_project.py",
-    "_place_declared_clips",
-    "AppendToTimeline",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
-    "_place_declared_clips",
-    "AddMarker",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
     "_ensure_pool_items",
     "ImportMedia",
     1
@@ -1569,18 +1623,6 @@
     "library/tools/qualification_project.py",
     "_ensure_timeline",
     "CreateEmptyTimeline",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
-    "_create_qualification_project",
-    "CreateProject",
-    1
-  ],
-  [
-    "library/tools/qualification_project.py",
-    "_create_qualification_project",
-    "DeleteProject",
     1
   ],
   [
@@ -1945,9 +1987,33 @@
   ],
   [
     "library/tools/reel_retirement.py",
+    "delete_exact",
+    "DeleteTimelines",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
     "collect_superseded",
     "DeleteTimelines",
     1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "SetCurrentTimeline",
+    1
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "SetCurrentTimeline",
+    2
+  ],
+  [
+    "library/tools/reel_retirement.py",
+    "delete_exact",
+    "DeleteTimelines",
+    2
   ],
   [
     "library/tools/reel_touchup.py",
@@ -1999,8 +2065,32 @@
   ],
   [
     "library/tools/resolve_axi_core_commands.py",
+    "discard_unverified",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
     "_restore_trim_snapshot",
     "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/resolve_axi_core_commands.py",
+    "cmd_edit_track_ripple_remove",
+    "SetClipsLinked",
     1
   ],
   [
@@ -2113,6 +2203,18 @@
   ],
   [
     "library/tools/resolve_scratch_projects.py",
+    "_import_qualification_drts",
+    "ImportTimelineFromFile",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "_import_qualification_drts",
+    "SetName",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
     "_write_project_setting",
     "SetSettings",
     1
@@ -2151,6 +2253,12 @@
     "library/tools/resolve_scratch_projects.py",
     "import_project",
     "ImportTimelineFromFile",
+    1
+  ],
+  [
+    "library/tools/resolve_scratch_projects.py",
+    "retire_exact",
+    "DeleteProject",
     1
   ],
   [
@@ -2434,6 +2542,72 @@
     "place_on_timeline",
     "SetTrackEnable",
     1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "import_pool_item",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "restore_state",
+    "ImportFusionComp",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_restore_grade",
+    "SetCDL",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_restore_grade",
+    "SetLUT",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_replace_scoped",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_replace_scoped",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_replace_scoped",
+    "DeleteClips",
+    3
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "_place",
+    "AppendToTimeline",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "move_item",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "move_item",
+    "DeleteClips",
+    2
+  ],
+  [
+    "library/tools/scoped_replacement.py",
+    "move_item",
+    "DeleteClips",
+    3
   ],
   [
     "library/tools/segment_renderer.py",
@@ -2733,114 +2907,6 @@
     "library/tools/versions/variants.py",
     "choose",
     "DeleteTimelines",
-    1
-  ],
-  [
-    "library/tools/composed_edit.py",
-    "apply_composed_edit",
-    "DeleteClips",
-    1
-  ],
-  [
-    "library/tools/execution/remove_proof.py",
-    "retire_captain_task_timeline",
-    "DeleteClips",
-    1
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    "delete_exact",
-    "DeleteTimelines",
-    1
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    "delete_exact",
-    "DeleteTimelines",
-    2
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    "delete_exact",
-    "SetCurrentTimeline",
-    1
-  ],
-  [
-    "library/tools/reel_retirement.py",
-    "delete_exact",
-    "SetCurrentTimeline",
-    2
-  ],
-  [
-    "library/tools/resolve_scratch_projects.py",
-    "retire_exact",
-    "DeleteProject",
-    1
-  ],
-  [
-    "library/tools/resolve_scratch_projects.py",
-    "_import_qualification_drts",
-    "ImportTimelineFromFile",
-    1
-  ],
-  [
-    "library/tools/resolve_scratch_projects.py",
-    "_import_qualification_drts",
-    "SetName",
-    1
-  ],
-  [
-    "library/tools/edit_state_preservation.py",
-    "restore_clip_metadata",
-    "AddFlag",
-    1
-  ],
-  [
-    "library/tools/edit_state_preservation.py",
-    "restore_clip_metadata",
-    "AddMarker",
-    1
-  ],
-  [
-    "library/tools/edit_state_preservation.py",
-    "restore_clip_metadata",
-    "SetClipColor",
-    1
-  ],
-  [
-    "library/tools/edit_state_preservation.py",
-    "restore_clip_metadata",
-    "SetClipEnabled",
-    1
-  ],
-  [
-    "library/tools/edit_state_preservation.py",
-    "restore_clip_metadata",
-    "SetClipsLinked",
-    1
-  ],
-  [
-    "library/tools/resolve_axi_core_commands.py",
-    "cmd_edit_track_ripple_remove",
-    "DeleteClips",
-    1
-  ],
-  [
-    "library/tools/resolve_axi_core_commands.py",
-    "cmd_edit_track_ripple_remove",
-    "DeleteClips",
-    2
-  ],
-  [
-    "library/tools/resolve_axi_core_commands.py",
-    "cmd_edit_track_ripple_remove",
-    "SetClipsLinked",
-    1
-  ],
-  [
-    "library/tools/resolve_axi_core_commands.py",
-    "discard_unverified",
-    "DeleteClips",
     1
   ]
 ]

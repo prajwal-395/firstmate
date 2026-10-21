@@ -1324,6 +1324,15 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
     # available to semantic requests through that route while their live
     # qualification remains incomplete. Ordinary router calls still refuse
     # them under the default production policy above.
+    #
+    # A PROMOTED adapter is still on this route. AXI-008 promoted the
+    # overlay family on the touch-up adapter, and the promotion closed
+    # the route for `ren revise` - the grant the policy still makes
+    # became unreachable, and the whole edit surface closed behind the
+    # production-enabled operations again. The promotion says the
+    # adapter is qualified in the state the qualification measured; it
+    # does not withdraw the executor, and the protected guarantees
+    # (staging, preservation, verification) still hold on this route.
     if (len(ids) == 1
             and ids[0] in {"audio.gain", "audio.fade", "transition",
                            "overlay.resize", "overlay.position",
@@ -1332,15 +1341,19 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
             and context.get("qualification_policy") == "protected_experimental"):
         status = edit_algebra.status(ids[0])
         row = status.for_backend("reel_touchup") if status else None
-        if (row is not None and row.compilable
-                and not row.production_enabled):
-            backend_gaps = ((ids[0],
-                             ("reel_touchup",) if row.qualified else (),
-                             ()),)
+        if row is not None and row.compilable:
+            promoted = bool(row.production_enabled)
+            backend_gaps = gaps or ((ids[0],
+                                     ("reel_touchup",) if row.qualified else (),
+                                     ()),)
             return ExecutionDecision(
                 backend="reel_touchup",
                 reasons=("the operation has a registered staged touch-up adapter",
-                         "protected experimental execution keeps production qualification closed",
+                         ("the adapter's production qualification is recorded, "
+                          "and the protected route still stages the edit and "
+                          "verifies it before promotion"
+                          if promoted else
+                          "protected experimental execution keeps production qualification closed"),
                          *checked, *gap_reasons),
                 rejected_alternatives=(
                     RejectedBackend("edit_patch", "no qualified EditPatch writer is available for this operation"),
@@ -1354,7 +1367,12 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                 qualification_gaps=backend_gaps,
                 selection=_selection_basis(
                     operations, context, "reel_touchup",
-                    limitations=("protected experimental route; live operation qualification deferred",)),
+                    limitations=("protected experimental route; the adapter's "
+                                 "production qualification is conditional on the "
+                                 "state the qualification measured"
+                                 if promoted else
+                                 "protected experimental route; live operation "
+                                 "qualification deferred")),
             )
 
     # AXI-11: the route chosen for an executed edit must be the path

@@ -14,6 +14,14 @@ def test_capability_search_finds_overlay_resize_by_editorial_request(capsys):
 
 
 def test_capability_detail_reports_schema_backends_evidence_and_cost(capsys):
+    """The overlay family earned its live qualification (AXI-008), so the
+    detail must report the executor that carries it.
+
+    The capability detail is how a caller learns what can be routed; a
+    qualified executor reported as ineligible is a route nobody can
+    find, and a promotion whose evidence is not named is a qualification
+    nobody can check.
+    """
     assert cmd_capabilities(Namespace(
         operation="overlay.resize", search="", json=True,
     )) == 0
@@ -21,10 +29,12 @@ def test_capability_detail_reports_schema_backends_evidence_and_cost(capsys):
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema"]["required"] == ["unique_id", "width", "height"]
-    assert payload["eligible_backends"] == []
-    assert any(row["id"] == "reel_touchup" and not row["eligible"]
+    assert payload["eligible_backends"] == ["reel_touchup"]
+    assert any(row["id"] == "reel_touchup" and row["eligible"]
+               and row["production_enabled"]
+               and row["qualification_evidence"]
                for row in payload["backends"])
-    assert payload["recovery_limits"]["qualified_backends"] == []
+    assert payload["recovery_limits"]["qualified_backends"] == ["reel_touchup"]
     assert payload["measured_cost"]["status"] == "unmeasured"
 
 
