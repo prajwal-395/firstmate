@@ -3501,13 +3501,15 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
     declared = reel_signoff.parse_supersede(supersede)
     signoff = reel_signoff.assert_declared(
         project_folder, final, declared, command="ren undo")
+    normalized = reel_versions.read_recovery_receipt(receipt)
+    act_receipt = reel_versions.read_recovery_receipt(
+        act.get("recovery_archive"))
     (restore_archive(project_folder, final, target, receipt)
      if restore_archive else _restore_archive_by_resolve_id(
          project_folder, final, target, receipt,
-         expected_current_id=(act.get("recovery_archive") or {}).get(
-             "timeline_id")))
+         expected_current_id=act_receipt.get("timeline_id") or None))
     after = dict(read_live_rows(final) or {})
-    if rounds.digest_rows(after) != target["rows_digest"]:
+    if not rounds.rows_agree(after, target["rows"]):
         raise UndoNotVerified(
             f"archive restoration for {final!r} did not read back as "
             f"version {target['version']}; the timeline is preserved for "
@@ -3516,14 +3518,14 @@ def _rollback_from_verified_archive(project_folder: str, final: str,
         project_folder, final, kind=reel_versions.KIND_ROLLBACK,
         rows=target["rows"], undoes=int(act["version"]),
         recovery_archive=dict(receipt),
-        restored_from_timeline_id=receipt["timeline_id"])
+        restored_from_timeline_id=normalized["timeline_id"])
     reel_versions.mark_undone(
         project_folder, final, int(act["version"]), entry["version"])
     if signoff:
         reel_signoff.supersede(project_folder, final)
     return {"final": final, "rolled_back": act["version"],
             "to": target["version"], "restored_from_archive": True,
-            "timeline_id": receipt["timeline_id"]}
+            "timeline_id": normalized["timeline_id"]}
 
 
 def _restore_archive_by_resolve_id(project_folder: str, final: str,
@@ -3537,7 +3539,7 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
     from library.tools import reel_read
     from library.tools.resolve_archive import read_archive
     from library.tools.resolve_lock import resolve_lease
-    from library.tools.versions import rounds, store
+    from library.tools.versions import reel_versions, rounds, store
 
     if not expected_current_id:
         raise UndoRefused(
@@ -3546,9 +3548,16 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
             "to the version being rolled back", "record a verified recovery "
             "archive for the current version before retrying")
 
-    archive_path = Path(str(receipt["archive_path"]))
+    normalized = reel_versions.read_recovery_receipt(receipt)
+    archive_path = Path(str(normalized["archive_path"]))
+    if not normalized["archive_path"] or not normalized["archive_sha256"]:
+        raise UndoRefused(
+            f"the recovery receipt for version {target['version']} of "
+            f"{final!r} names no archive", "a version with no archive "
+            "cannot be restored exactly", "record a verified recovery "
+            "archive for this version before retrying")
     if (not archive_path.is_file()
-            or store._sha256(archive_path) != receipt.get("archive_sha256")):
+            or store._sha256(archive_path) != normalized["archive_sha256"]):
         raise UndoRefused(
             f"the recovery archive for {final!r} is missing or changed",
             "its recorded hash does not verify", "recover the immutable DRT "
@@ -3557,7 +3566,7 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
     archived_items = [item for timeline in facts["timelines"]
                       for track in timeline["tracks"]
                       for item in track["items"]]
-    manifest = list(receipt.get("assets") or [])
+    manifest = list(normalized["assets"])
     for asset in manifest:
         path = Path(str(asset["path"]))
         if (not path.is_file() or path.stat().st_size != int(asset["bytes"])
@@ -3571,9 +3580,28 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
                      for item in archived_items if item.get("media_path")}
     manifest_paths = {os.path.normcase(os.path.realpath(str(item["path"])))
                       for item in manifest}
-    if (archive_paths != manifest_paths
-            or len(archived_items) != int(receipt.get("inventory_items", -1))
-            or rounds.digest_rows(target["rows"]) != receipt.get("rows_digest")):
+    if normalized["has_asset_manifest"]:
+        counted = (int(normalized["inventory_items"])
+                   if normalized["inventory_items"] is not None else -1)
+        inventory_ok = (archive_paths == manifest_paths
+                        and len(archived_items) == counted)
+    else:
+        # A receipt written before the asset manifest existed proves the
+        # ARCHIVE by its own hash, and cannot prove each media file's
+        # content. What it can still prove is that the media the archive
+        # PLAYS is present, so a restore cannot install a timeline whose
+        # media is gone.
+        missing_media = sorted(path for path in archive_paths
+                               if not Path(path).is_file())
+        inventory_ok = not missing_media
+        if missing_media:
+            raise UndoRefused(
+                f"the media version {target['version']} of {final!r} plays "
+                f"is missing: {missing_media[:3]}",
+                "the archive's inventory names media the machine does not "
+                "have", "restore the media before retrying")
+    if (not inventory_ok
+            or rounds.digest_rows(target["rows"]) != normalized["rows_digest"]):
         raise UndoRefused(
             f"the recovery archive for version {target['version']} of "
             f"{final!r} failed inventory verification", "its contents do "
@@ -3680,10 +3708,10 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
                 f"imported archive for {final!r}")
         donor = imported
         donor_rows = reel_read.rows_of({"tracks": reel_read.read_tracks(donor)})
-        if rounds.digest_rows(donor_rows) != target["rows_digest"]:
+        if not rounds.rows_agree(donor_rows, target["rows"]):
             pool.DeleteTimelines([donor])
             raise UndoNotVerified(
-                f"imported archive {receipt['timeline_id']!r} does not read "
+                f"imported archive {normalized['timeline_id']!r} does not read "
                 f"as version {target['version']}; the current generation "
                 "remains in place")
         donor_name = donor.GetName()
@@ -3700,18 +3728,128 @@ def _restore_archive_by_resolve_id(project_folder: str, final: str,
                 f"Resolve would not install the verified archive as "
                 f"{final!r}; the prior generation was restored")
         readback = reel_read.rows_of({"tracks": reel_read.read_tracks(donor)})
-        if rounds.digest_rows(readback) != target["rows_digest"]:
+        if not rounds.rows_agree(readback, target["rows"]):
             donor.SetName(donor_name)
             current.SetName(final)
             pool.DeleteTimelines([donor])
             raise UndoNotVerified(
-                f"archive timeline {receipt['timeline_id']!r} changed during "
+                f"archive timeline {normalized['timeline_id']!r} changed during "
                 f"restore of {final!r}; the prior generation was restored")
         if not pool.DeleteTimelines([current]):
             raise UndoNotVerified(
                 f"{final!r} reads as the archived version, but Resolve could "
                 f"not remove the preserved backup {backup!r}; both remain")
-    return {"restored": True, "timeline_id": receipt["timeline_id"]}
+    return {"restored": True, "timeline_id": normalized["timeline_id"]}
+
+
+def restore_version(project_folder: str, final: str, version: int, *,
+                    read_live_rows: Callable | None = None,
+                    restore_archive: Callable | None = None,
+                    supersede=(), accept_editor_changes=None) -> dict:
+    """Restore ONE recorded version onto the live timeline, from its archive.
+
+    `ren undo` reverses an ACT. A version that is not an act - an
+    ADOPTED generation, or any state the ledger recorded and nothing
+    undoes - could not be reached at all: the captain who had said
+    "that was the one" had no way back to it, because the archive that
+    held it exactly was never read by anything.
+
+    This restores a NAMED version: the generation it names is imported
+    from its verified recovery archive by Resolve identity, installed
+    under the reel's name, read back and compared with the version's
+    recorded rows, and recorded as a rollback. Nothing is deleted: the
+    version it replaced stays in the ledger, with its own archive.
+
+    The live timeline must still read as the version this one
+    superseded, or the restore is refused - restoring over work done
+    since would destroy it.
+
+    `tests/unit/reels/test_restore_recorded_version.py`.
+    """
+    from library.tools.reel_replace_guard import accepts_editor_changes
+    from library.tools.versions import reel_versions, rounds
+
+    history = reel_versions.versions_of(project_folder, final)
+    target = next((entry for entry in history
+                   if int(entry.get("version", 0)) == int(version)), None)
+    if target is None:
+        raise UndoRefused(
+            f"{final!r} has no version {version}",
+            "the ledger holds no such version, so there is nothing to "
+            "restore",
+            "list the reel's versions with `ren undo <project> --list`")
+    receipt = target.get("recovery_archive")
+    if not isinstance(receipt, Mapping):
+        raise UndoRefused(
+            f"version {version} of {final!r} carries no verified recovery "
+            "archive", "the exact generation cannot be restored without it",
+            "record a verified recovery archive for this version before "
+            "retrying")
+    normalized = reel_versions.read_recovery_receipt(receipt)
+    if not normalized["archive_path"] or not normalized["archive_sha256"]:
+        raise UndoRefused(
+            f"the recovery receipt of version {version} of {final!r} names "
+            "no archive", "a version with no archive cannot be restored "
+            "exactly", "record a verified recovery archive for this version "
+            "before retrying")
+    newer = [entry for entry in history
+             if int(entry.get("version", 0)) > int(version)]
+    current = newer[-1] if newer else None
+    if current is None:
+        raise UndoRefused(
+            f"version {version} of {final!r} is the newest recorded state",
+            "no later version superseded it, so there is nothing for this "
+            "restore to replace",
+            "restore an earlier version, or leave the reel as it is")
+    current_receipt = reel_versions.read_recovery_receipt(
+        current.get("recovery_archive"))
+    if not current_receipt.get("timeline_id"):
+        raise UndoRefused(
+            f"version {current['version']} of {final!r} has no Resolve "
+            "identity in its recovery receipt",
+            "the live generation cannot be matched to the version being "
+            "replaced",
+            "record a verified recovery archive for the current version "
+            "before retrying")
+    reader = read_live_rows or _live_rows_reader(project_folder)
+    live = dict(reader(final) or {})
+    if (not rounds.rows_agree(live, current.get("rows") or {})
+            and not accepts_editor_changes(final, accept_editor_changes)):
+        raise TimelineMovedSinceTouch(
+            f"{final!r} no longer reads as version {current['version']} "
+            f"({current.get('kind')}) - it was changed outside Ren since",
+            "restoring an earlier version would destroy that work; "
+            "nothing was changed",
+            "re-apply the outside change after the restore, or leave the "
+            "timeline as it is - `ren undo` will not destroy it")
+    from library.tools import reel_signoff
+    declared = reel_signoff.parse_supersede(supersede)
+    signoff = reel_signoff.assert_declared(
+        project_folder, final, declared, command="ren undo")
+    (restore_archive(project_folder, final, target, receipt)
+     if restore_archive else _restore_archive_by_resolve_id(
+         project_folder, final, target, receipt,
+         expected_current_id=current_receipt["timeline_id"]))
+    after = dict(reader(final) or {})
+    if not rounds.rows_agree(after, target.get("rows") or {}):
+        raise UndoNotVerified(
+            f"the restore of version {version} of {final!r} did not read "
+            "back as that version; the timeline is preserved for recovery "
+            "and the restore was not recorded")
+    entry = reel_versions.record(
+        project_folder, final, kind=reel_versions.KIND_ROLLBACK,
+        rows=target.get("rows") or {}, undoes=int(current["version"]),
+        recovery_archive=dict(receipt),
+        restored_from_timeline_id=normalized["timeline_id"])
+    reel_versions.mark_undone(
+        project_folder, final, int(current["version"]), entry["version"])
+    if signoff:
+        reel_signoff.supersede(project_folder, final)
+    return {"final": final, "restored": int(version),
+            "replaced": int(current["version"]),
+            "restored_from_archive": True,
+            "timeline_id": normalized["timeline_id"],
+            "version": int(entry["version"])}
 
 
 def _apply_touch(project_folder: str, spec: Mapping):

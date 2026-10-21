@@ -356,6 +356,45 @@ def digest_rows(rows: Mapping) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def _shared_fields(left, right) -> bool:
+    """Do two values agree on every field BOTH of them carry?"""
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return all(_shared_fields(left[key], right[key])
+                   for key in set(left) & set(right))
+    if isinstance(left, (list, tuple)) and isinstance(right, (list, tuple)):
+        if len(left) != len(right):
+            return False
+        return all(_shared_fields(one, other)
+                   for one, other in zip(left, right))
+    return left == right
+
+
+def rows_agree(recorded: Mapping, live: Mapping) -> bool:
+    """Do two recordings of a reel's rows describe the SAME state?
+
+    Two producers read the same timeline: the ledger's own reader, and
+    the live snapshot the undo path compares against. They read the same
+    rows and the same items, and they differ in exactly the fields only
+    ONE of them reads - the caption tokens the live projection attaches
+    and a recorded snapshot need not carry.
+
+    Comparing the two DIGESTS therefore reads every such pair as "the
+    timeline moved on": an adopted version, recorded from the plain
+    reader, never equals the live read of the very same timeline, and a
+    restore of a version recorded with the richer projection is refused
+    before it starts. So a state is compared on the fields BOTH
+    recordings carry - a field only one side has is ABSENT evidence,
+    never a disagreement, and a field both carry must agree.
+
+    `tests/unit/reels/test_restore_recorded_version.py`.
+    """
+    recorded = dict(recorded or {})
+    live = dict(live or {})
+    if set(recorded) != set(live):
+        return False
+    return all(_shared_fields(recorded[key], live[key]) for key in recorded)
+
+
 # ── Reconstructing the rounds that predate the stamp ─────────────
 
 SNAPSHOT_SUFFIX = ".timeline.json"

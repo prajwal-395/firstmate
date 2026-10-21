@@ -8739,6 +8739,48 @@ cost on a file that was just rendered. And the channel check measures the PEAKS
 per channel, not the mix: a channel carrying only room tone passes, which is
 right - it carries signal.
 
+## the-version-the-captain-could-not-go-back-to
+
+The captain, 2026-10-21, on Reel 26: PR 3009 had re-applied the declared house
+look to the closing shot, and the frame came back tighter than the one he had
+approved. He was shown both and answered "i like this version" about the
+earlier one - version 25, whose recovery archive sat on disk, hash-verified,
+holding that exact generation.
+
+The version path could not put it back, and each reason was a defect rather
+than a policy:
+
+- **An adopted generation was not an act, so nothing could undo it.** v26 was
+  recorded as an `adopt`, and `reel_versions.ACTS` is `(build, touch)` - so
+  `ren undo <project> <reel> --act 26` refused by name ("no act '26' is
+  recorded"), and every other address reached a DIFFERENT version. The
+  deliberate rule that an adoption is a state and not an act is right about the
+  captain's HAND; it left a state Ren itself had changed with no way back.
+- **A receipt written before the current format raised instead of
+  restoring.** v25's receipt carries `path`, `sha256` and `timeline_unique_id`
+  and no asset manifest; the archive reader asked for `archive_path`,
+  `archive_sha256` and `timeline_id` and raised `KeyError` where a restore
+  should have happened. The receipt's FORMAT is not the state: the archive is
+  the payload, and the format the payload was written in is a detail the
+  reader has to know about - the same ledger already reads both shapes in
+  `versions/doctor.py`.
+- **Two producers read one timeline and disagreed on the fields only one of
+  them reads.** The live projection attaches caption tokens to the subtitles
+  row; a recorded snapshot need not carry them. Comparing the two digests
+  therefore read every such pair as "the timeline moved on", so the restore
+  would have been refused before it started - and the archive's own donor,
+  read through the plain reader, could never have matched a version recorded
+  through the richer one.
+
+**The rule.** A version that carries a verified recovery archive is a version
+Ren can put BACK, whatever kind it is and whatever format its receipt was
+written in; and two recordings of one timeline are compared on the fields BOTH
+record, because a field only one side carries is ABSENT evidence and never a
+disagreement. `ren undo <project> <reel> --restore-version N` restores one
+named version from its own archive, refuses when the live timeline has moved on
+since the version it superseded, and deletes nothing: the version it replaced
+stays in the ledger with its own archive.
+
 ## the-licence-that-removed-the-event-lane
 
 **The rule:** Identity is an ENRICHMENT of the event lane, not its

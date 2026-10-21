@@ -253,6 +253,46 @@ def attach_recovery_archive(project_folder, final: str, version: int,
         f"{final!r} has no version {version} to attach its recovery archive.")
 
 
+def read_recovery_receipt(receipt: Mapping | None) -> dict:
+    """One recovery receipt in ONE shape, whichever format it was written in.
+
+    A receipt written before the current format carries `path`,
+    `sha256` and `timeline_unique_id`, and no asset manifest; the
+    current one carries `archive_path`, `archive_sha256` and
+    `timeline_id`, plus the hashed manifest of the media the generation
+    plays.
+
+    A reader that knows only the current shape cannot restore a version
+    recorded before it - it asks for a key the receipt does not carry
+    and raises instead of restoring. So the reader here returns ONE
+    shape, and says WHICH it read, so a caller can be strict about the
+    evidence a receipt actually carries rather than strict about the
+    date it was written.
+
+    `has_asset_manifest` is what tells the two apart: a manifest the
+    receipt does not carry is ABSENT evidence, never an empty one.
+    """
+    receipt = dict(receipt or {})
+    archive_path = receipt.get("archive_path") or receipt.get("path") or ""
+    archive_sha256 = (receipt.get("archive_sha256")
+                      or receipt.get("sha256") or "")
+    timeline_id = (receipt.get("timeline_id")
+                   or receipt.get("timeline_unique_id") or "")
+    assets = [dict(asset) for asset in (receipt.get("assets") or [])]
+    inventory_items = receipt.get("inventory_items")
+    return {
+        "archive_path": str(archive_path),
+        "archive_sha256": str(archive_sha256),
+        "timeline_id": str(timeline_id),
+        "rows_digest": str(receipt.get("rows_digest") or ""),
+        "assets": assets,
+        "inventory_items": inventory_items,
+        "has_asset_manifest": "assets" in receipt,
+        "legacy": "archive_path" not in receipt,
+        "receipt": receipt,
+    }
+
+
 def attach_component_manifest(project_folder, final: str, version: int,
                                 manifest: Mapping) -> None:
     """Attach a VC-14 component manifest to its exact version.
@@ -459,6 +499,7 @@ __all__ = [
     "mark_undone",
     "path_for",
     "read",
+    "read_recovery_receipt",
     "record",
     "set_pending_redo",
     "set_pending_rollback",

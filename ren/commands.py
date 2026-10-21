@@ -432,7 +432,8 @@ VERBS = (
     Verb("undo", "Reels", "Undo a touch-up (in place) or rebuild (by version)",
          effects=("read", "project_write", "resolve_read", "resolve_write"), subcommand="undo",
           detail="Reverse a Ren act: a touch-up in place from its journal, a rebuild by rolling back to the version before it. "
-                 "--act addresses any recorded act by id, including a committed EditPatch as `patch:<id>` or direct transaction as `direct:<id>`, not just the newest",
+                 "--act addresses any recorded act by id, including a committed EditPatch as `patch:<id>` or direct transaction as `direct:<id>`, not just the newest. "
+                 "--restore-version restores a RECORDED version from its verified recovery archive - the way back to a state no act can undo",
          params=(MCP_PROJECT,)),
     Verb("redo", "Reels", "Re-apply a reversed touch-up or rebuild",
          effects=("read", "project_write", "resolve_read", "resolve_write"), subcommand="redo",

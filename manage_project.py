@@ -4403,6 +4403,33 @@ def cmd_undo(args):
             "asked for it - check with them), then re-run `ren undo`") \
             from None
     accepted = args.accept_editor_changes or None
+    if getattr(args, "restore_version", None) is not None:
+        if not final:
+            raise RenRefusal(
+                "a restore names ONE reel",
+                "the version to restore belongs to a reel, and the reel "
+                "was not named",
+                "run `ren undo <project> <reel> --restore-version N`") \
+                from None
+        try:
+            receipt = _undo.restore_version(
+                project_folder, final=final,
+                version=int(args.restore_version),
+                supersede=args.supersede or (),
+                accept_editor_changes=accepted)
+        except _undo.UndoRefused as refused:
+            print(refused.render(), file=sys.stderr)
+            emit_refusal_result(refused)
+            sys.exit(REFUSAL_EXIT_CODE)
+        except (_undo.UndoNotVerified, _undo.RollbackDiverged) as failed:
+            print(f"FAILED: {failed}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Restored {receipt['final']!r} to version "
+              f"{receipt['restored']} from its verified recovery archive; "
+              f"version {receipt['replaced']} stays in the ledger with its "
+              f"own archive, and the restore is recorded as version "
+              f"{receipt['version']}.")
+        return
     try:
         print(_undo.render_undo_plan(_undo.explain_undo(
             project_folder, final=final, act=args.act,
@@ -5123,6 +5150,14 @@ def main():
     undo_parser.add_argument(
         "--list", action="store_true",
         help="Print what would be undone, newest first, and stop")
+    undo_parser.add_argument(
+        "--restore-version", type=int, default=None, metavar="VERSION",
+        help="Restore this RECORDED version onto the reel's timeline, from "
+             "its verified recovery archive - the version path's way back "
+             "to a state no act can undo (an adopted generation, or any "
+             "state the ledger recorded). The live timeline must still "
+             "read as the version this one superseded, or the restore is "
+             "refused")
     undo_parser.add_argument(
         "--supersede", dest="supersede", action="append", default=[],
         metavar="REEL",
