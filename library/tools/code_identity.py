@@ -779,6 +779,22 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/delivered_caption_spec.py",
         "library/tools/look_preservation.py",
         "library/tools/scoped_replacement.py",
+        # The shared Resolve project opener, the broker's failure
+        # reader, the storage and version bookkeeping and the
+        # picture-split writer reached this step's import closure:
+        # a fix to any of them changes what the cached rows
+        # resolve to.
+        # The acceptance state, the delivery QA readers and the
+        # transition carriers they reach joined the same chain.
+        "library/tools/picture_split.py",
+        "library/tools/resolve_project_open.py",
+        "library/tools/resolved/failure_reader.py",
+        "library/tools/storage_categories.py",
+        "library/tools/version_dependencies.py",
+        "library/tools/acceptance_state.py",
+        "library/tools/deliverable_qc.py",
+        "library/tools/subtitle_qa.py",
+        "library/tools/transition_carriers.py",
     ),
     "step_1_01_scan_project": (
         "library/tools/alignment_quality.py",
@@ -1476,6 +1492,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/delivered_caption_spec.py",
         "library/tools/look_preservation.py",
         "library/tools/scoped_replacement.py",
+        # The shared Resolve project opener, the broker's failure
+        # reader, the storage and version bookkeeping and the
+        # picture-split writer reached this step's import closure:
+        # a fix to any of them changes what the cached rows
+        # resolve to.
+        "library/tools/picture_split.py",
+        "library/tools/resolve_project_open.py",
+        "library/tools/resolved/failure_reader.py",
+        "library/tools/storage_categories.py",
+        "library/tools/version_dependencies.py",
     ),
     "step_1_02_catalog_footage": (
         # Shared measurement and evidence readers reached by the catalog's
@@ -2219,6 +2245,22 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/delivered_caption_spec.py",
         "library/tools/look_preservation.py",
         "library/tools/scoped_replacement.py",
+        # The shared Resolve project opener, the broker's failure
+        # reader, the storage and version bookkeeping and the
+        # picture-split writer reached this step's import closure:
+        # a fix to any of them changes what the cached rows
+        # resolve to.
+        # The acceptance state, the delivery QA readers and the
+        # transition carriers they reach joined the same chain.
+        "library/tools/picture_split.py",
+        "library/tools/resolve_project_open.py",
+        "library/tools/resolved/failure_reader.py",
+        "library/tools/storage_categories.py",
+        "library/tools/version_dependencies.py",
+        "library/tools/acceptance_state.py",
+        "library/tools/deliverable_qc.py",
+        "library/tools/subtitle_qa.py",
+        "library/tools/transition_carriers.py",
     ),
     "step_1_03_semantic_analysis": (
         "library/tools/alignment_quality.py",
@@ -2941,6 +2983,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/delivered_caption_spec.py",
         "library/tools/look_preservation.py",
         "library/tools/scoped_replacement.py",
+        # The shared Resolve project opener, the broker's failure
+        # reader, the storage and version bookkeeping and the
+        # picture-split writer reached this step's import closure:
+        # a fix to any of them changes what the cached rows
+        # resolve to.
+        "library/tools/picture_split.py",
+        "library/tools/resolve_project_open.py",
+        "library/tools/resolved/failure_reader.py",
+        "library/tools/storage_categories.py",
+        "library/tools/version_dependencies.py",
     ),
     "step_1_04_temporal_index": (
         "library/tools/alignment_quality.py",
@@ -3694,6 +3746,16 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/delivered_caption_spec.py",
         "library/tools/look_preservation.py",
         "library/tools/scoped_replacement.py",
+        # The shared Resolve project opener, the broker's failure
+        # reader, the storage and version bookkeeping and the
+        # picture-split writer reached this step's import closure:
+        # a fix to any of them changes what the cached rows
+        # resolve to.
+        "library/tools/picture_split.py",
+        "library/tools/resolve_project_open.py",
+        "library/tools/resolved/failure_reader.py",
+        "library/tools/storage_categories.py",
+        "library/tools/version_dependencies.py",
     ),
     "step_1_05_prosody_analysis": (
         # The legacy step delegates the measurement here.

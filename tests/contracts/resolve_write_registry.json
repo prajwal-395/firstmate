@@ -1548,6 +1548,18 @@
     3
   ],
   [
+    "library/tools/picture_split.py",
+    "composed_picture_split",
+    "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/picture_split.py",
+    "composed_picture_split",
+    "AppendToTimeline",
+    1
+  ],
+  [
     "library/tools/project_model_qualification.py",
     "_setup_fusion_live",
     "AddFusionComp",
@@ -2781,6 +2793,12 @@
     "library/tools/undo_journal.py",
     "_write_inverse",
     "DeleteClips",
+    1
+  ],
+  [
+    "library/tools/undo_journal.py",
+    "_revert_in_place",
+    "SetCDL",
     1
   ],
   [

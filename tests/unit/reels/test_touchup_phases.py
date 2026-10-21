@@ -210,11 +210,19 @@ def test_the_master_touch_measures_three_phases_that_sum_to_its_hold(
 
     # The fake Resolve is instant, so the duplicate is the one phase
     # given a measurable cost: the seconds must land in THAT phase.
+    # The cost is a QUARTER of a second, not the 50 ms it was: the old
+    # margin was a wall-clock threshold, and a conform phase that
+    # measured 59 ms on a loaded machine failed a correct touch-up.
+    # A quarter second is far above what the other two phases can
+    # reach (they are in-memory work), so the assertion below can be
+    # RELATIVE - the duplicate's own seconds against the others' - and
+    # stop being a race against the machine's load.
+    duplicate_cost = 0.25
     timeline = next(t for t in project.timelines if t.GetName() == MASTER)
     duplicate = timeline.DuplicateTimeline
 
     def slow_duplicate(name):
-        time.sleep(0.05)
+        time.sleep(duplicate_cost)
         return duplicate(name)
 
     monkeypatch.setattr(timeline, "DuplicateTimeline", slow_duplicate)
@@ -234,9 +242,11 @@ def test_the_master_touch_measures_three_phases_that_sum_to_its_hold(
     phases = _phase_rows(rows, "master")
     assert set(phases) == set(touchup_phases.PHASES), (
         "every phase of the touch is measured, and named")
-    assert phases["duplicate"]["wall_s"] >= 0.05, (
+    assert phases["duplicate"]["wall_s"] >= duplicate_cost - 0.01, (
         "the seconds the duplicate spent are the duplicate's own")
-    assert phases["conform_compose_verify"]["wall_s"] < 0.05, (
+    others = sum(row["wall_s"] for name, row in phases.items()
+                 if name != "duplicate")
+    assert others < phases["duplicate"]["wall_s"], (
         "and they are not charged to the phase that follows it")
 
     holds = [row for row in rows

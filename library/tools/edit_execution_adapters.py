@@ -231,6 +231,7 @@ def _verified_command(context, command: list[str], operation: dict,
     operation_matches = False
     evidence = {}
     id_map = None
+    split_span: tuple[int, int] | None = None
     if operation_id == "clip.trim" and before_clip:
         expected_in = int(before_clip["source_in_frame"]) + (
             int(operation["in_frame"]) - int(before_clip["record_in"]))
@@ -281,6 +282,13 @@ def _verified_command(context, command: list[str], operation: dict,
         at = int(operation["at_frame"])
         start = int(before_clip["record_in"])
         end = int(before_clip["record_out"])
+        # The split's blast radius: the target's own record span. The
+        # cut replaces one item with two halves INSIDE that span, and
+        # the linked audio beside it occupies the same frames - so the
+        # span is what the write was authorized to touch. Without it the
+        # two halves read as clips that appeared where none was
+        # authorized, and the refusal lands on a correct cut.
+        split_span = (start, end)
         source_at = int(before_clip["source_in_frame"]) + (at - start)
         halves = sorted(
             (clip for track in after["tracks"]
@@ -334,7 +342,8 @@ def _verified_command(context, command: list[str], operation: dict,
         # reel.opening qualification).
         preservation_operations.append({**operation, "unique_id": new_id})
     preservation = _preservation_verdict(
-        context, preservation_operations, before, after)
+        context, preservation_operations, before, after,
+        affected_spans=[split_span] if split_span else ())
     _refuse_collateral(operation_id, preservation)
     acceptance = operation_acceptance.evaluate(
         {**operation, "op": operation_id},

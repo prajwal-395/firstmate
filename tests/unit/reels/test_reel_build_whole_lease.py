@@ -195,12 +195,30 @@ _real_subtitles = rb.reel_subtitle_segments
 _real_prepare = rb.prepare_reel_timeline
 
 
+def _resolve_double(name: str = "Mock Project"):
+    """A Resolve handle whose project manager reports `name` as OPEN.
+
+    The build opens its project through the Resolve session (PR #3021):
+    the session asks the project manager what is open and refuses when
+    the answer is not the project's name. A unit test's double has to
+    answer that read-back, or the build refuses before it starts - and
+    the answer must name the same project the fake project carries.
+    """
+    resolve = MagicMock()
+    manager = resolve.GetProjectManager.return_value
+    manager.GetCurrentProject.return_value.GetName.return_value = name
+    manager.GetProjectListInCurrentFolder.return_value = [name]
+    return resolve
+
+
 def _install_build_mocks(project, on_derive=None, on_prepare=None,
-                         on_place=None):
+                         on_place=None, resolve=None):
     """The mock set that drives one full offline build (see reel_build_runner)."""
     from library.tools import draw_gain_probe as probe_mod
     from library.tools import reel_replace_guard
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
+    resolve = resolve if resolve is not None else _resolve_double()
 
     def fake_snapshot(timeline, _project, _project_folder=None):
         return {
@@ -256,7 +274,8 @@ def _install_build_mocks(project, on_derive=None, on_prepare=None,
                                "material": {}}}
 
     return (
-        patch("library.tools.resolve_locale.scriptapp_preserving_locale"),
+        patch("library.tools.resolve_locale.scriptapp_preserving_locale",
+              return_value=resolve),
         patch("library.tools.reel_build.resolve_project_exactly",
               return_value=project),
         patch("library.tools.reel_proposal.read_proposal",
@@ -290,6 +309,20 @@ _BUILD_WORKER = textwrap.dedent("""
     # Never touch live Resolve: the bindings are a double, and the
     # connection itself is stubbed below.
     sys.modules["DaVinciResolveScript"] = MagicMock()
+
+    # The build opens its project through the Resolve session (PR #3021):
+    # the session asks the project manager what is open and refuses when
+    # the answer is not the project's name. The double answers it.
+    def _resolve_double(name="Mock Project"):
+        resolve = MagicMock()
+        manager = resolve.GetProjectManager.return_value
+        manager.GetCurrentProject.return_value.GetName.return_value = name
+        manager.GetProjectListInCurrentFolder.return_value = [name]
+        return resolve
+
+    _RESOLVE_DOUBLE = _resolve_double()
+    sys.modules["DaVinciResolveScript"].scriptapp.return_value = (
+        _RESOLVE_DOUBLE)
 
     from library.tools import resolve_lock
     from library.tools import reel_build as rb
@@ -365,6 +398,10 @@ _BUILD_WORKER = textwrap.dedent("""
         m.timeline_end = 10.0
         return m
 
+    # The build opens its project through the Resolve session (PR #3021):
+    # the session asks the project manager what is open and refuses when
+    # the answer is not the project's name. The double answers it.
+
     from pathlib import Path
     project_path = Path(project_dir)
     project_path.mkdir(parents=True, exist_ok=True)
@@ -430,7 +467,8 @@ _BUILD_WORKER = textwrap.dedent("""
         return {"track_plan": {"video_tracks": [], "audio_tracks": [],
                                "material": {}}}
 
-    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \\
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale",
+               return_value=_RESOLVE_DOUBLE), \\
             patch("library.tools.reel_build.resolve_project_exactly",
                   return_value=project), \\
             patch("library.tools.reel_proposal.read_proposal",
@@ -603,6 +641,12 @@ def test_graphics_prepare_runs_without_resolve_lease(
     project_dir = tmp_path / "project"
     _write_project(project_dir)
     project = _ResolveProject([MASTER])
+    # The stubbed BINDINGS are the connection the session reaches when
+    # it was imported before the patch below started, so the double is
+    # configured on both routes: the bindings' own `scriptapp` and the
+    # patched handshake.
+    resolve = _resolve_double()
+    stub_resolve_script.scriptapp.return_value = resolve
     renderer_entered = []
     place_reader = []
     events = []
@@ -674,7 +718,8 @@ def test_graphics_prepare_runs_without_resolve_lease(
 
     patches = _install_build_mocks(
         project, on_derive=blocked_graphics_renderer,
-        on_prepare=lambda: markers.append("prepare"), on_place=place)
+        on_prepare=lambda: markers.append("prepare"), on_place=place,
+        resolve=resolve)
     try:
         with _spy_outer_lease(events) as snapshot:
             for patcher in patches:

@@ -1591,20 +1591,50 @@ def _migrate_voice_match_conflicts(builder: _Builder,
             voices_by_digest[digest] = eligible
     matches = person_entity.match_voices_across_sources(
         voices_by_digest, person_entity.VOICE_MATCH_THRESHOLD)
+
+    def _conflict_key(conflict: Mapping[str, Any]) -> tuple:
+        """The voice-track PAIR a conflict is about.
+
+        The roster and the matcher below can report the SAME measured
+        similarity - one as a contested attribution, the other as a
+        face-backed disagreement - and a conflict is about a pair of
+        voice tracks, so the pair is its identity.
+        """
+        tracks = [track for track in conflict.get("voice_tracks", [])
+                  if isinstance(track, dict)]
+        return tuple(sorted(
+            (str(track.get("content_digest")), str(track.get("voice_track")))
+            for track in tracks))
+
+    seen_conflicts: set[tuple] = set()
+    unique_conflicts: list[dict] = []
+    for conflict in conflicts:
+        key = _conflict_key(conflict)
+        if key in seen_conflicts:
+            continue
+        seen_conflicts.add(key)
+        unique_conflicts.append(conflict)
+    conflicts = unique_conflicts
+
     for match in matches:
         left_key = (match["source_a"], match["voice_a"])
         right_key = (match["source_b"], match["voice_b"])
         left_owners = owner_by_voice.get(left_key, set())
         right_owners = owner_by_voice.get(right_key, set())
         if left_owners and right_owners and left_owners != right_owners:
-            conflicts.append({
+            conflict = {
                 "voice_tracks": [
                     {"content_digest": left_key[0],
                      "voice_track": left_key[1]},
                     {"content_digest": right_key[0],
                      "voice_track": right_key[1]}],
                 "persons": sorted(left_owners | right_owners),
-            })
+            }
+            key = _conflict_key(conflict)
+            if key in seen_conflicts:
+                continue
+            seen_conflicts.add(key)
+            conflicts.append(conflict)
 
     for conflict in conflicts:
         tracks = [track for track in conflict.get("voice_tracks", [])
