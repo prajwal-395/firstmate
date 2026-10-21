@@ -44,6 +44,19 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
+# The whole suite runs against a scratch home and a scratch data directory,
+# so a console login lookup that falls through the fixture can never reach
+# the account of the person running the machine.
+export HOME="$TMP_ROOT/home"
+export XDG_DATA_HOME="$TMP_ROOT/xdg-data"
+mkdir -p "$HOME" "$XDG_DATA_HOME"
+
+# The console token expiry the fixtures carry, in milliseconds the way the
+# real console schema stores it. A fixture that cannot prove its own
+# freshness reads as a stale login, which is what the pin refresh path
+# refuses to hand to OpenCode.
+FIXTURE_TOKEN_EXPIRY=4102444800000
+
 ORG_ID='org_01FIXTURESECONDARY00'
 
 empty_config() {  # <name> -> config dir with no second workspace
@@ -156,7 +169,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
   printf '{\n  "provider": {\n$lead_json    "opencode": {\n      "name": "%s",\n      "models": {}\n    }\n  }\n}\n' "$provider"
   exit 0
@@ -180,11 +193,64 @@ restore_fixture_opencode() {
 # console login database (account plus account_state) under <data-dir>.
 fixture_login_db() {  # <data-dir> <access-token> <active-org>
   sqlite3 "$1/opencode.db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', '$2', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', '$2', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$3');" \
     || fail "the fixture login database refused its seed"
+}
+
+# install_refreshing_fixture_opencode <name>: fixture opencode that models
+# the real CLI's console refresh. A database whose console token has expired
+# is refreshed in place, and every call is recorded in FM_FIXTURE_CALLS so a
+# test can prove which database the refresh happened in. FM_FIXTURE_NO_REFRESH
+# models a console login that cannot be refreshed at all. Unquoted heredoc:
+# runtime `$` stays escaped while the fixture ids expand at install time.
+install_refreshing_fixture_opencode() {  # <name>
+  local name=$1 bindir datadir
+  bindir="$TMP_ROOT/fbin-$name"
+  datadir="$TMP_ROOT/fdata-$name"
+  rm -rf "$bindir" "$datadir"
+  mkdir -p "$bindir" "$datadir"
+  cat > "$bindir/opencode" <<FIXTURE_EOF
+#!/usr/bin/env bash
+set -u
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
+  printf 'data %s\n' "$datadir"
+  exit 0
+fi
+if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
+  [ -n "\${OPENCODE_DB:-}" ] || exit 1
+  printf 'config %s\n' "\${OPENCODE_DB}" >> "\${FM_FIXTURE_CALLS:-/dev/null}"
+  sqlite3 "\${OPENCODE_DB}" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+  expiry=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT token_expiry FROM account LIMIT 1;' 2>/dev/null) || expiry=
+  case "\$expiry" in
+    ''|*[!0-9]*) ;;
+    *)
+      if [ "\${FM_FIXTURE_NO_REFRESH:-0}" = 1 ]; then
+        :
+      elif [ "\$expiry" -le "\$(( \$(date +%s) * 1000 ))" ]; then
+        printf 'refresh %s\n' "\${OPENCODE_DB}" >> "\${FM_FIXTURE_CALLS:-/dev/null}"
+        sqlite3 "\${OPENCODE_DB}" "UPDATE account SET access_token='fixture-refreshed-token', token_expiry=\$(( \$(date +%s) * 1000 + 86400000 ));" >/dev/null 2>&1 || true
+      fi
+      ;;
+  esac
+  active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
+  if [ "\$active" = "$ORG_ID" ]; then
+    printf '%s\n' '{"provider": {"opencode": {"name": "secondary / OpenCode", "models": {}}}}'
+  else
+    printf '%s\n' '{"provider": {"opencode": {"name": "main / OpenCode", "models": {}}}}'
+  fi
+  exit 0
+fi
+exit 1
+FIXTURE_EOF
+  chmod +x "$bindir/opencode"
+  SAVED_PATH=$PATH
+  PATH="$bindir:$PATH"
+  export PATH
+  FIXTURE_DATADIR=$datadir
+  export FIXTURE_DATADIR
 }
 
 test_db_heals_a_drifted_pin() {
@@ -199,9 +265,9 @@ test_db_heals_a_drifted_pin() {
   cfg=$(second_config heal)
   db="$cfg/opencode-second.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-OLD', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-OLD', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', 'wrk_01MAIN');" \
     || fail "fixture pin refused its seed"
   got=$(fm_opencode_second_db "$cfg") || {
@@ -229,9 +295,9 @@ test_db_refreshes_a_stale_token() {
   cfg=$(second_config refresh)
   db="$cfg/opencode-second.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-STALE', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-STALE', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$ORG_ID');" \
     || fail "fixture pin refused its seed"
   got=$(fm_opencode_second_db "$cfg") || {
@@ -247,6 +313,100 @@ test_db_refreshes_a_stale_token() {
   pass "a stale pin token is re-copied from the live login on every launch"
 }
 
+# A re-login refreshes the live console login. The pin has to carry that
+# live token afterwards, and the refresh has to happen in the live database:
+# a refresh inside the pin rotates the console refresh token server-side and
+# revokes the live login for every other caller.
+test_db_refreshes_the_live_login_and_copies_it_outward() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "the live-login refresh needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg db got calls
+  install_refreshing_fixture_opencode relogin
+  calls="$TMP_ROOT/relogin-calls"
+  : > "$calls"
+  export FM_FIXTURE_CALLS="$calls"
+  # The live login holds a token only OpenCode can refresh; the pin still
+  # holds the token from before the re-login.
+  sqlite3 "$FIXTURE_DATADIR/opencode.db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
+     INSERT INTO account VALUES('acc_01FIXTURE','live-access-EXPIRED','refresh-01FIXTURE',1);
+     INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
+    || { restore_fixture_opencode; fail "the fixture login database refused its seed"; }
+  cfg=$(second_config relogin)
+  db="$cfg/opencode-second.db"
+  sqlite3 "$db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
+     INSERT INTO account VALUES('acc_01FIXTURE','pinned-access-STALE','refresh-01FIXTURE',$FIXTURE_TOKEN_EXPIRY);
+     INSERT INTO account_state VALUES(1,'acc_01FIXTURE','$ORG_ID');" \
+    || { restore_fixture_opencode; fail "fixture pin refused its seed"; }
+  got=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_second_db "$cfg" 2>&1) || {
+    restore_fixture_opencode
+    fail "a pin must publish after the live login was refreshed: $got"
+  }
+  restore_fixture_opencode
+  unset FM_FIXTURE_CALLS
+  [ "$got" = "$db" ] || fail "the pin path mismatch: got '$got'"
+  [ "$(sqlite3 "$db" 'SELECT access_token FROM account LIMIT 1;')" = fixture-refreshed-token ] \
+    || fail "the pin did not carry the live token after the re-login"
+  grep -q "^refresh $FIXTURE_DATADIR/opencode.db\$" "$calls" \
+    || fail "the console token was never refreshed in the live database: $(tr '\n' ';' < "$calls")"
+  if grep -q "^refresh $db\$" "$calls"; then
+    fail "the console token was refreshed inside the pin, which revokes the live login"
+  fi
+  pass "a re-login reaches the pin through the live database, never through a refresh inside the pin"
+}
+
+# A pin whose own console login expired is refused rather than refreshed in
+# place: the refresh would rotate the console refresh token and revoke the
+# live login, so the pin has to be refreshed from the live login instead.
+test_db_refuses_an_expired_pin_instead_of_refreshing_it_in_place() {
+  command -v sqlite3 >/dev/null 2>&1 || {
+    pass "the expired-pin refusal needs sqlite3 (absent here; live proof covers the real path)"
+    return 0
+  }
+  local cfg db err calls
+  install_refreshing_fixture_opencode expired-pin
+  calls="$TMP_ROOT/expired-pin-calls"
+  : > "$calls"
+  export FM_FIXTURE_CALLS="$calls"
+  export FM_FIXTURE_NO_REFRESH=1
+  # The live login is expired and cannot be refreshed, so the pin keeps the
+  # expired login it already holds.
+  sqlite3 "$FIXTURE_DATADIR/opencode.db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
+     INSERT INTO account VALUES('acc_01FIXTURE','live-access-EXPIRED','refresh-01FIXTURE',1);
+     INSERT INTO account_state VALUES(1,'acc_01FIXTURE','wrk_01FIXTUREMAIN');" \
+    || { restore_fixture_opencode; fail "the fixture login database refused its seed"; }
+  cfg=$(second_config expired-pin)
+  db="$cfg/opencode-second.db"
+  sqlite3 "$db" \
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
+     CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
+     INSERT INTO account VALUES('acc_01FIXTURE','pinned-access-EXPIRED','refresh-01FIXTURE',1);
+     INSERT INTO account_state VALUES(1,'acc_01FIXTURE','$ORG_ID');" \
+    || { restore_fixture_opencode; fail "fixture pin refused its seed"; }
+  if err=$(FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_second_db "$cfg" 2>&1); then
+    restore_fixture_opencode
+    fail "a pin holding an expired console login must not publish"
+  fi
+  restore_fixture_opencode
+  unset FM_FIXTURE_CALLS
+  unset FM_FIXTURE_NO_REFRESH
+  case "$err" in
+    *'expired console login'*) ;;
+    *) fail "the refusal must name the expired login; got: $err" ;;
+  esac
+  if grep -q "$db" "$calls"; then
+    fail "OpenCode was pointed at a copy whose console login had expired: $(tr '\n' ';' < "$calls")"
+  fi
+  pass "an expired pin is refused instead of refreshed in place"
+}
+
 test_db_refuses_a_wrong_workspace() {
   command -v sqlite3 >/dev/null 2>&1 || {
     pass "pin proof needs sqlite3 (absent here; live proof covers the real path)"
@@ -258,9 +418,9 @@ test_db_refuses_a_wrong_workspace() {
   cfg=$(second_config refuse)
   db="$cfg/opencode-second.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'live-access-MAIN03', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'live-access-MAIN03', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$ORG_ID');" \
     || fail "fixture pin refused its seed"
   if err=$(fm_opencode_second_db "$cfg" 2>&1); then
@@ -349,7 +509,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
   active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
   if [ "\$active" = "$MAIN_ORG_ID" ]; then
@@ -466,7 +626,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
   active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
   if [ "\$active" = "$MAIN_ORG_ID" ]; then
@@ -598,9 +758,9 @@ test_main_db_heals_a_drifted_pin() {
   cfg=$(main_config heal-main)
   db="$cfg/opencode-main.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-OLD', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-OLD', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$ORG_ID');" \
     || fail "fixture pin refused its seed"
   got=$(fm_opencode_main_db "$cfg") || {
@@ -651,9 +811,9 @@ test_refresh_never_touches_the_live_login() {
   cfg=$(main_config refresh-isolation)
   db="$cfg/opencode-main.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-STALE', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'pinned-access-STALE', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$MAIN_ORG_ID');" \
     || fail "fixture pin refused its seed"
   live="$FIXTURE_DATADIR/opencode.db"
@@ -750,7 +910,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
     exit 1
   fi
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
   active=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null) || active=
   if [ "\$active" = "$MAIN_ORG_ID" ]; then
@@ -796,7 +956,7 @@ if [ "\${1:-}" = debug ] && [ "\${2:-}" = paths ]; then
 fi
 if [ "\${1:-}" = debug ] && [ "\${2:-}" = config ]; then
   if [ -n "\${OPENCODE_DB:-}" ] && command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
+    sqlite3 "\$OPENCODE_DB" 'CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer); CREATE TABLE IF NOT EXISTS account_state (id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);' >/dev/null 2>&1 || true
   fi
   rows=\$(sqlite3 "\${OPENCODE_DB:-/nonexistent}" 'SELECT COUNT(*) FROM account;' 2>/dev/null) || rows=
   case "\$rows" in ''|0) exit 0 ;; esac
@@ -824,7 +984,7 @@ test_copy_refuses_an_empty_login() {
   local cfg err
   install_mapping_fixture_opencode empty-login
   sqlite3 "$FIXTURE_DATADIR/opencode.db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);" \
     || { restore_fixture_opencode; fail "the fixture login database refused its seed"; }
   cfg=$(main_config empty-login)
@@ -866,7 +1026,7 @@ SHIM
   fixture_login_db "$dir/live" 'live-access-NOBACKUP' 'wrk_01FIXTUREMAIN'
   dest="$dir/pin.db"
   sqlite3 "$dest" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);" \
     || fail "the fixture pin refused its seed"
   if ! (PATH="$dir/shim:$PATH" FM_OPENCODE_VERIFY_SLEEP=0 FM_OPENCODE_COPY_ATTEMPTS=1 \
@@ -940,9 +1100,9 @@ test_proved_wrong_verify_returns_one() {
   cfg=$(main_config wrong-code)
   db="$cfg/opencode-main.db"
   sqlite3 "$db" \
-    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL);
+    "CREATE TABLE account(id TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, token_expiry integer);
      CREATE TABLE account_state(id INTEGER PRIMARY KEY, active_account_id TEXT, active_org_id TEXT);
-     INSERT INTO account VALUES('acc_01FIXTURE', 'live-access-CODE12', 'refresh-01FIXTURE');
+     INSERT INTO account VALUES('acc_01FIXTURE', 'live-access-CODE12', 'refresh-01FIXTURE', $FIXTURE_TOKEN_EXPIRY);
      INSERT INTO account_state VALUES(1, 'acc_01FIXTURE', '$ORG_ID');" \
     || { restore_fixture_opencode; fail "fixture pin refused its seed"; }
   FM_OPENCODE_VERIFY_SLEEP=0 fm_opencode_workspace_verify "$db" main >/dev/null 2>&1
@@ -1053,6 +1213,8 @@ test_lane_workspace_defaults_to_main
 test_lane_workspace_marker_selects_second
 test_db_build_refuses_when_unconfigured
 test_db_heals_a_drifted_pin
+test_db_refreshes_the_live_login_and_copies_it_outward
+test_db_refuses_an_expired_pin_instead_of_refreshing_it_in_place
 test_db_refreshes_a_stale_token
 test_db_refuses_a_wrong_workspace
 test_db_builds_from_scratch

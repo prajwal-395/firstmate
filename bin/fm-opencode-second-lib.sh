@@ -77,6 +77,18 @@
 # are read from the live database: it grows to tens of gigabytes, so a
 # whole-file copy is never taken.
 #
+# ONE REFRESH TOKEN, ONE HOLDER. The console refresh token belongs to the
+# live database alone: a refresh performed with a copy's refresh token
+# rotates it server-side and revokes the live login, so every later copy
+# carries a dead login and its console fetch fails. The live database is
+# therefore the only place a console token is ever refreshed. It is
+# refreshed through OpenCode against the live database itself, and the
+# fresh rows are then copied outward into the pins and the task databases.
+# OpenCode is never pointed at a copy whose token has expired, because that
+# refresh would happen inside the copy and would revoke the live login. A
+# pin whose own token expired is reported as unreadable and has to be
+# refreshed from the live login instead.
+#
 # PROOF. Before a launch rides a pin, OPENCODE_DB=<pin> opencode debug
 # config must resolve the opencode provider name to that launch's own
 # workspace. A pin that proves another workspace refuses the launch, so a
@@ -531,6 +543,117 @@ fm_opencode_login_copy() {  # <live-db> <dest-db>
   [ "$copied" -eq 1 ]
 }
 
+# The margin a console token must keep to count as usable. A token inside
+# the margin is refreshed through the live database before it is copied
+# outward, so no copy is ever handed a login that is about to expire.
+FM_OPENCODE_TOKEN_MARGIN_MS=300000
+
+# fm_opencode_login_state <db>: print the console login state of a database:
+# none when it holds no account row at all, fresh when its token stays valid
+# beyond the margin, and stale when its token expired. none means OpenCode
+# has no refresh token in that database, so nothing can be rotated there;
+# stale means OpenCode would refresh the token in place, which is exactly
+# what a copy must never do.
+fm_opencode_login_state() {  # <db>
+  local db=${1:-} margin=${2:-$FM_OPENCODE_TOKEN_MARGIN_MS} tables expiry now
+  [ -n "$db" ] && [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1 || return 1
+  tables=$(sqlite3 "$db" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='account';" 2>/dev/null) || return 1
+  case "$tables" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$tables" -gt 0 ] || { printf 'none\n'; return 0; }
+  expiry=$(sqlite3 "$db" 'SELECT token_expiry FROM account LIMIT 1;' 2>/dev/null) || return 1
+  rows=$(sqlite3 "$db" 'SELECT COUNT(*) FROM account;' 2>/dev/null) || return 1
+  case "$rows" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$rows" -gt 0 ] || { printf 'none\n'; return 0; }
+  now=$(date +%s) || return 1
+  case "$expiry" in
+    ''|*[!0-9]*) printf 'stale\n'; return 0 ;;
+  esac
+  if [ "$expiry" -gt "$((now * 1000 + margin))" ] 2>/dev/null; then
+    printf 'fresh\n'
+  else
+    printf 'stale\n'
+  fi
+}
+
+# fm_opencode_login_fresh <db> [margin-ms]: 0 when the database holds a
+# console token that stays valid beyond the margin.
+fm_opencode_login_fresh() {  # <db> [margin-ms]
+  local state
+  state=$(fm_opencode_login_state "$1" "${2:-$FM_OPENCODE_TOKEN_MARGIN_MS}") || return 1
+  [ "$state" = fresh ]
+}
+
+# fm_opencode_login_stale <db> [margin-ms]: 0 when the database holds a
+# console token that has expired.
+fm_opencode_login_stale() {  # <db> [margin-ms]
+  local state
+  state=$(fm_opencode_login_state "$1" "${2:-$FM_OPENCODE_TOKEN_MARGIN_MS}") || return 1
+  [ "$state" = stale ]
+}
+
+# fm_opencode_live_login_refresh_unlocked <live-db>: refresh the machine's
+# own console login through OpenCode, with a bounded retry. The caller holds
+# no lock.
+fm_opencode_live_login_refresh_unlocked() {  # <live-db>
+  local live=${1:-} attempts attempt
+  [ -n "$live" ] && [ -f "$live" ] || return 1
+  command -v opencode >/dev/null 2>&1 || return 1
+  attempts=$(fm_opencode_attempt_count "${FM_OPENCODE_VERIFY_ATTEMPTS:-}" 3)
+  attempt=1
+  while [ "$attempt" -le "$attempts" ]; do
+    if OPENCODE_DB="$live" opencode debug config >/dev/null 2>&1; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$attempts" ]; then
+      fm_opencode_retry_sleep "$attempt"
+    fi
+    attempt=$((attempt + 1))
+  done
+  return 1
+}
+
+# fm_opencode_live_login_refresh <live-db> [lock-dir]: refresh the machine's
+# own console login through OpenCode. This is the only place a console token
+# may be refreshed: one refresh token has exactly one valid holder, the live
+# console database, so a refresh inside a copy would rotate the token
+# server-side and revoke the live login for every other caller. The refresh
+# runs under the home's console refresh lock, the same lock the request-time
+# credential command uses, so two refreshes never race each other. The lock
+# is taken and released before any workspace pin lock, so the two locks are
+# never held at once in opposite orders.
+fm_opencode_live_login_refresh() {  # <live-db> [lock-dir]
+  local live=${1:-} lock_dir=${2:-} lock lib
+  [ -n "$live" ] && [ -f "$live" ] || return 1
+  command -v opencode >/dev/null 2>&1 || return 1
+  if [ -z "$lock_dir" ] || [ ! -d "$lock_dir" ]; then
+    fm_opencode_live_login_refresh_unlocked "$live"
+    return $?
+  fi
+  lock="$lock_dir/opencode-pi-token.lock"
+  lib="$_FM_OPENCODE_SECOND_LIB_DIR/$(basename "${BASH_SOURCE[0]}")"
+  if command -v lockf >/dev/null 2>&1; then
+    lockf -t 20 "$lock" bash -c '. "$1"; shift; fm_opencode_live_login_refresh_unlocked "$@"' _ "$lib" "$live"
+  elif command -v flock >/dev/null 2>&1; then
+    flock -w 20 "$lock" bash -c '. "$1"; shift; fm_opencode_live_login_refresh_unlocked "$@"' _ "$lib" "$live"
+  else
+    fm_opencode_live_login_refresh_unlocked "$live"
+  fi
+}
+
+# fm_opencode_live_login_ensure_fresh <live-db> [lock-dir]: make sure the
+# live console login holds a usable token, refreshing it through the live
+# database when it is missing or inside the margin. Returns 0 only when the
+# live login is usable afterwards.
+fm_opencode_live_login_ensure_fresh() {  # <live-db> [lock-dir]
+  local live=${1:-} lock_dir=${2:-}
+  [ -n "$live" ] && [ -f "$live" ] || return 1
+  if fm_opencode_login_fresh "$live"; then
+    return 0
+  fi
+  fm_opencode_live_login_refresh "$live" "$lock_dir" || return 1
+  fm_opencode_login_fresh "$live"
+}
+
 # fm_opencode_prepare_db <db>: migrate a fresh pin database through opencode
 # itself with bounded retry. An empty file is migrated on first load; a
 # transient console fetch during migration retries rather than failing the
@@ -579,11 +702,15 @@ fm_opencode_second_refresh() {  # <db> <live-db> <org>
 # resolves <workspace> before a launch rides it. Returns 0 only when
 # OPENCODE_DB=<db> opencode debug config resolves the opencode provider name
 # to "<workspace> / OpenCode" across a bounded retry, 1 when it proves
-# another workspace, and 2 when the workspace cannot be read at all: a
+# another workspace, 2 when the workspace cannot be read at all: a
 # drifted pin, a stale token falling back past the console config, or a
 # console fetch that keeps failing under load. Callers refuse on 1 and 2
 # alike but report them differently: proved-wrong names the workspace, while
-# could-not-read never claims one.
+# could-not-read never claims one. Returns 3 when the database holds an
+# expired console login: OpenCode is never pointed at such a copy, because
+# the refresh it would perform there would rotate the console refresh token
+# and revoke the live login, so the pin has to be refreshed from the live
+# login instead.
 fm_opencode_workspace_verify() {  # <db> <workspace>
   local db=$1 workspace=${2:-} name expected
   [ -n "$db" ] && [ -f "$db" ] || return 2
@@ -591,6 +718,11 @@ fm_opencode_workspace_verify() {  # <db> <workspace>
     "$FM_OPENCODE_WORKSPACE_MAIN"|"$FM_OPENCODE_WORKSPACE_SECOND") ;;
     *) return 2 ;;
   esac
+  # Never point OpenCode at a copy whose console token has expired: it would
+  # refresh the token inside the copy, and one refresh token has exactly one
+  # valid holder, the live console database. A pin whose token expired is
+  # reported as unreadable and has to be refreshed from the live login.
+  fm_opencode_login_stale "$db" && return 3
   expected="$workspace / OpenCode"
   name=$(fm_opencode_config_name "$db" 2>/dev/null) || return 2
   [ "$name" = "$expected" ] || return 1
@@ -627,7 +759,7 @@ fm_opencode_main_verify() {  # <db>
 # Fails closed with the reason on stderr, never printing a workspace id.
 fm_opencode_workspace_db_build_unlocked() {  # <workspace> <org> [config-dir]
   local workspace=${1:-} org=${2:-} config_dir=${3:-}
-  local db live tmp old_umask got_name label infix verify_rc
+  local db live tmp old_umask got_name label infix verify_rc live_fresh
   label=$(fm_opencode_workspace_label "$workspace") || return 1
   infix=$(fm_opencode_workspace_infix "$workspace") || return 1
   [ -n "$org" ] || {
@@ -662,9 +794,19 @@ fm_opencode_workspace_db_build_unlocked() {  # <workspace> <org> [config-dir]
     echo "error: $label OpenCode workspace pin names the live console database; refusing to touch it" >&2
     return 1
   fi
+  # The live console database is the only holder of the console refresh
+  # token, so it is the only place a token is refreshed: the public entry
+  # point refreshes it there before this locked body copies the fresh rows
+  # outward. A copy that carried an expired token would make OpenCode
+  # refresh it in place, which rotates the token server-side and revokes the
+  # live login.
+  live_fresh=0
+  fm_opencode_login_fresh "$live" && live_fresh=1
   # A pin that will not refresh is quarantined and rebuilt below. Never
-  # truncate the old inode: a reader may still have it open.
-  if [ -f "$db" ] && ! fm_opencode_second_refresh "$db" "$live" "$org"; then
+  # truncate the old inode: a reader may still have it open. A pin is never
+  # quarantined because the live login could not be refreshed: that pin may
+  # still hold a usable token, and the proof below decides.
+  if [ "$live_fresh" -eq 1 ] && [ -f "$db" ] && ! fm_opencode_second_refresh "$db" "$live" "$org"; then
     mv "$db" "$db.corrupt.$(date +%s).$$" || {
       echo "error: $label OpenCode workspace could not quarantine its invalid pin" >&2
       return 1
@@ -715,6 +857,10 @@ fm_opencode_workspace_db_build_unlocked() {  # <workspace> <org> [config-dir]
     echo "error: $label OpenCode workspace pin resolves ${got_name:-an unknown workspace}, not '$workspace / OpenCode'; refusing the launch" >&2
     return 1
   fi
+  if [ "$verify_rc" -eq 3 ]; then
+    echo "error: the $label OpenCode workspace pin holds an expired console login; it was not refreshed in place because one refresh token has exactly one valid holder, the live console database" >&2
+    return 1
+  fi
   echo "error: $label OpenCode workspace pin could not be verified: the workspace could not be read; refusing the launch" >&2
   return 1
 }
@@ -722,16 +868,18 @@ fm_opencode_workspace_db_build_unlocked() {  # <workspace> <org> [config-dir]
 # Run a workspace operation under a per-pin advisory lock. lockf is available
 # on macOS and BSD; flock is the Linux equivalent. Fail closed without either.
 fm_opencode_workspace_locked() {  # <workspace> <config-dir> <function> <args...>
-  local workspace=$1 config_dir=$2 fn=$3 infix lock lib
+  local workspace=$1 config_dir=$2 fn=$3 infix lock lib timeout
   shift 3
   infix=$(fm_opencode_workspace_infix "$workspace") || return 1
   [ -d "$config_dir" ] || return 1
   lock="$config_dir/opencode-$infix.db.lock"
   lib="$_FM_OPENCODE_SECOND_LIB_DIR/$(basename "${BASH_SOURCE[0]}")"
+  timeout=${FM_OPENCODE_LOCK_TIMEOUT:-120}
+  case "$timeout" in ''|*[!0-9]*) timeout=120 ;; esac
   if command -v lockf >/dev/null 2>&1; then
-    lockf -t 120 "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
+    lockf -t "$timeout" "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
   elif command -v flock >/dev/null 2>&1; then
-    flock -w 120 "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
+    flock -w "$timeout" "$lock" bash -c '. "$1"; shift; "$@"' _ "$lib" "$fn" "$workspace" "$@"
   else
     echo "error: OpenCode workspace pin requires lockf or flock for concurrency safety" >&2
     return 1
@@ -741,11 +889,72 @@ fm_opencode_workspace_locked() {  # <workspace> <config-dir> <function> <args...
 # fm_opencode_workspace_db_build <workspace> <org> [config-dir]: serialized
 # public entry point. Builders for the same workspace/config directory share
 # one lock and therefore cannot refresh, quarantine, or publish over one
-# another.
+# another. The live login is refreshed before that lock is taken, so the
+# console refresh lock and the pin lock are never held at once.
 fm_opencode_workspace_db_build() {  # <workspace> <org> [config-dir]
+  local config_dir=${3:-} live
+  [ -n "$config_dir" ] || config_dir=$(fm_opencode_second_config_dir) || return 1
+  live=$(fm_opencode_second_live_db) && fm_opencode_live_login_ensure_fresh "$live" "$config_dir"
+  fm_opencode_workspace_locked "$1" "$config_dir" fm_opencode_workspace_db_build_unlocked "$2" "$config_dir"
+}
+
+# fm_opencode_workspace_pin_sync_unlocked <workspace> <org> <config-dir>:
+# copy the live console login into the pinned database and re-pin the
+# workspace id. The copy runs outward only: OpenCode is never pointed at the
+# pin, because a refresh inside a copy would rotate the console refresh
+# token and revoke the live login.
+fm_opencode_workspace_pin_sync_unlocked() {  # <workspace> <org> <config-dir>
+  local workspace=$1 org=$2 config_dir=$3 db live
+  db=$(fm_opencode_workspace_db_file "$workspace" "$config_dir") || return 1
+  [ -n "$org" ] && [ -f "$db" ] || return 1
+  fm_opencode_workspace_id_valid "$org" || return 1
+  live=$(fm_opencode_second_live_db) || return 1
+  fm_opencode_same_file "$db" "$live" && return 1
+  fm_opencode_login_copy "$live" "$db" || return 1
+  sqlite3 "$db" "UPDATE account_state SET active_org_id='$org' WHERE id=1;" >/dev/null 2>&1 || return 1
+  [ "$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)" = "$org" ] || return 1
+  [ "$(sqlite3 "$db" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" = "$(sqlite3 "$live" 'SELECT access_token FROM account LIMIT 1;' 2>/dev/null)" ] || return 1
+  return 0
+}
+
+# fm_opencode_workspace_pin_sync <workspace> <org> [config-dir]: serialized
+# refresh of one pinned database from the live console login.
+fm_opencode_workspace_pin_sync() {  # <workspace> <org> [config-dir]
   local config_dir=${3:-}
   [ -n "$config_dir" ] || config_dir=$(fm_opencode_second_config_dir) || return 1
-  fm_opencode_workspace_locked "$1" "$config_dir" fm_opencode_workspace_db_build_unlocked "$2" "$config_dir"
+  fm_opencode_workspace_locked "$1" "$config_dir" fm_opencode_workspace_pin_sync_unlocked "$2" "$config_dir"
+}
+
+# fm_opencode_pins_refresh [config-dir]: refresh every pinned workspace
+# database in the home from the live console login, so the pins stay current
+# even when no OpenCode worker runs. The live login is refreshed first,
+# through the live database, and the fresh rows are copied outward into the
+# pins. A pin that cannot be refreshed is reported and the other pins still
+# are; the return value is 0 only when every configured pin was refreshed.
+fm_opencode_pins_refresh() {  # [config-dir]
+  local config_dir=${1:-} live workspace org db label rc=0
+  config_dir=$(fm_opencode_second_config_dir "${config_dir:-}") || return 1
+  live=$(fm_opencode_second_live_db) || {
+    echo "error: the live OpenCode console database could not be found; the workspace pins cannot be refreshed" >&2
+    return 1
+  }
+  if ! fm_opencode_live_login_ensure_fresh "$live" "$config_dir"; then
+    echo "error: the live OpenCode console login could not be refreshed; the workspace pins cannot be refreshed from it" >&2
+    return 1
+  fi
+  for workspace in "$FM_OPENCODE_WORKSPACE_MAIN" "$FM_OPENCODE_WORKSPACE_SECOND"; do
+    db=$(fm_opencode_workspace_db_file "$workspace" "$config_dir") || continue
+    [ -f "$db" ] || continue
+    org=$(fm_opencode_workspace_org "$workspace" "$config_dir" 2>/dev/null) \
+      || org=$(sqlite3 "$db" 'SELECT active_org_id FROM account_state WHERE id=1;' 2>/dev/null)
+    [ -n "$org" ] || continue
+    label=$(fm_opencode_workspace_label "$workspace") || label=workspace
+    if ! fm_opencode_workspace_pin_sync "$workspace" "$org" "$config_dir"; then
+      echo "warning: the $label OpenCode workspace pin could not be refreshed from the live console login" >&2
+      rc=1
+    fi
+  done
+  return $rc
 }
 
 # Build and verify the shared pin, then give one task a private writable copy.
@@ -772,7 +981,8 @@ fm_opencode_workspace_db_for_task_unlocked() {  # <workspace> <org> <config-dir>
 }
 
 fm_opencode_workspace_db_for_task() {  # <workspace> <org> <config-dir> <task-id> <state-dir>
-  local workspace=$1 org=$2 config_dir=$3 task_id=$4 state_dir=$5
+  local workspace=$1 org=$2 config_dir=$3 task_id=$4 state_dir=$5 live
+  live=$(fm_opencode_second_live_db) && fm_opencode_live_login_ensure_fresh "$live" "$config_dir"
   fm_opencode_workspace_locked "$workspace" "$config_dir" fm_opencode_workspace_db_for_task_unlocked \
     "$org" "$config_dir" "$task_id" "$state_dir"
 }

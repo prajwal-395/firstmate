@@ -399,6 +399,16 @@ token_for_task() {
       FM_PI_TOKEN_STEP=refresh-lock
       out=$(token_refresh "$db" "$org" "$config_dir" "$live" "$refresh_seconds") && {
         FM_PI_TOKEN_STEP=refresh-served
+        # The pinned workspace databases carry the same console login, so a
+        # re-login reaches them too: a pin that keeps the old token reports
+        # a rejected provider to everything that reads it. The copy runs
+        # outward only, because the live database stays the single holder of
+        # the console refresh token, and it runs after the console refresh
+        # lock is released so it never delays another worker's request.
+        (
+          export FM_OPENCODE_LOCK_TIMEOUT=2
+          fm_opencode_pins_refresh "$config_dir"
+        ) >/dev/null 2>&1 || true
         printf '%s' "$out"
         return 0
       }
