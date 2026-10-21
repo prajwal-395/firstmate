@@ -395,6 +395,8 @@ def _qualification_context(resolve, project, timeline, operations) -> dict:
 _LOCAL_COMMANDS = frozenset({
     "cmd_capabilities",
     "cmd_operation_map",
+    "cmd_capability_coverage",
+    "cmd_support",
     "cmd_api_search", "cmd_api_stubs", "cmd_api_docs",
     "cmd_api_whats_new", "cmd_api_intellisearch_query",
     "cmd_intellisearch_collect",
@@ -448,6 +450,111 @@ def cmd_operation_map(args) -> int:
         return 0
     sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     return 0
+
+
+def cmd_capability_coverage(args) -> int:
+    """Serve the capability coverage report: what is covered, and what is not.
+
+    One report over the whole edit vocabulary, generated from the
+    registry (`edit_algebra.OP_STATUS`), the qualification records and
+    the router itself - never from a list written here.  The default
+    output is the SUMMARY, because the full report is a megabyte of
+    evidence and a reader who wants one operation asks for one
+    operation.
+    """
+    from library.tools import capability_coverage
+
+    requested = (getattr(args, "operation", "") or "").strip()
+    full = bool(getattr(args, "full", False))
+    report = capability_coverage.coverage_report()
+    if requested:
+        row = report["operations"].get(requested)
+        if row is None:
+            return fail(f"unknown operation {requested!r}",
+                        f"{TOOL} capability-coverage --operation <id>")
+        payload = {"schema": report["schema"],
+                   "operation": row}
+    elif full:
+        payload = report
+    else:
+        payload = {key: report[key] for key in (
+            "schema", "generated_by", "sources", "operation_count",
+            "qualification_status_counts", "production_enabled_operations",
+            "operations_refused_by_the_production_route",
+            "production_route_note", "qualification_gap_priority",
+            "priority_note", "priority")}
+    sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    return 0
+
+
+def cmd_support(args) -> int:
+    """Answer whether one operation may run on a timeline in these conditions.
+
+    The read-only question BASE-002 asks for: "is this edit supported on
+    the timeline in front of me, and what prevents it if not".  The
+    conditions are the measured state of that timeline, in the
+    qualification dimension vocabulary; with none, the answer is
+    "unknown" - never "supported".
+    """
+    from library.tools import capability_coverage
+
+    requested = (getattr(args, "operation", "") or "").strip()
+    if not requested:
+        return fail("an operation id is required",
+                    f"{TOOL} support <operation> --conditions '<json>'")
+    conditions = _support_conditions(args)
+    params = _support_params(args)
+    payload = capability_coverage.support(requested, conditions=conditions,
+                                          params=params)
+    if not payload.get("known"):
+        return fail(payload["why"][0], f"{TOOL} capability-coverage")
+    sys.stdout.write(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    return 0
+
+
+def _support_conditions(args) -> dict | None:
+    """The measured state the support question is asked about."""
+    inline = (getattr(args, "conditions", "") or "").strip()
+    path = (getattr(args, "conditions_file", "") or "").strip()
+    if inline and path:
+        raise AxiError("give the conditions once, not twice",
+                       f"pass --conditions or --conditions-file, not both")
+    text = inline
+    if path:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise AxiError(f"cannot read the conditions file: {exc}",
+                           f"pass --conditions '<json>' instead") from exc
+    if not text:
+        return None
+    try:
+        conditions = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AxiError(f"the conditions are not JSON: {exc}",
+                       "pass the measured state as a JSON object, e.g. "
+                       "'{\"media_type\": \"video\", ...}'") from exc
+    if not isinstance(conditions, dict):
+        raise AxiError("the conditions must be a JSON object",
+                       "the measured state is a mapping of qualification "
+                       "dimension to value")
+    return conditions
+
+
+def _support_params(args) -> dict | None:
+    """The operation parameters the caller has, if any."""
+    inline = (getattr(args, "params", "") or "").strip()
+    if not inline:
+        return None
+    try:
+        params = json.loads(inline)
+    except json.JSONDecodeError as exc:
+        raise AxiError(f"the parameters are not JSON: {exc}",
+                       "pass the parameters as a JSON object") from exc
+    if not isinstance(params, dict):
+        raise AxiError("the parameters must be a JSON object",
+                       "pass the operation's own parameters as a JSON object")
+    return params
 
 
 def _operation_map_toon(payload: dict) -> str:
@@ -9909,6 +10016,32 @@ def build_parser() -> Parser:
     p.add_argument("--toon", action="store_true",
                    help="render compact tables for a person instead of JSON")
     p.set_defaults(func=cmd_operation_map)
+
+    p = subs.add_parser(
+        "capability-coverage",
+        help="the capability coverage report: implemented backends, "
+             "production eligibility, tested states, missing qualification "
+             "dimensions and the routes the router would take")
+    p.add_argument("operation", nargs="?", default="",
+                   help="one operation id; the summary when omitted")
+    p.add_argument("--full", action="store_true",
+                   help="print the whole report, not the summary")
+    p.set_defaults(func=cmd_capability_coverage)
+
+    p = subs.add_parser(
+        "support",
+        help="answer whether one operation may run on a timeline in the "
+             "measured conditions, and what prevents it when it may not")
+    p.add_argument("operation", nargs="?", default="",
+                   help="one algebra operation id")
+    p.add_argument("--conditions", default="",
+                   help="the measured state of the timeline, as JSON in "
+                        "the qualification dimension vocabulary")
+    p.add_argument("--conditions-file", default="",
+                   help="read the measured state from a JSON file")
+    p.add_argument("--params", default="",
+                   help="the operation's own parameters, as JSON")
+    p.set_defaults(func=cmd_support)
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
                                          "exact name")
