@@ -40,6 +40,15 @@ not this checkout's.
     REN_AXI_QUAL_TIMELINE="<disposable reel copy>" \\
     python3 -m tests.live.product_format_qualification
 
+The replacement media the `clip.replace` case places is PROVISIONED by
+the run when the operator names none: a synthetic clip rendered in the
+product format, into the /tmp copy this run owns.  An operator may
+name their own file with `REN_AXI_QUAL_REPLACEMENT_SOURCE`; the run
+copies it into the same owned place.  The lane used to fall back to a
+file inside an operator's home directory, which put a machine-specific
+path in the checkout - the dependency itself was the defect, so the
+fallback is gone rather than rewritten.
+
 `tests/unit/resolve/test_product_format_qualification.py` names the
 defects this closes.
 """
@@ -71,6 +80,14 @@ EVIDENCE_PATH = REPORT_DIR / "product-format-evidence.json"
 #: in /tmp - never a captain's file, never a shared fixture.
 OWNED_DIR = Path("/tmp/vep-qual-owned")
 OWNED_REPLACEMENT = OWNED_DIR / "vep-qual-owned-replacement.mov"
+
+#: The provisioned replacement: the PRODUCT format (portrait, 23.976),
+#: and long enough that re-pointing a clip at it cannot shorten the
+#: record span the replace case measures.
+REPLACEMENT_WIDTH = 1080
+REPLACEMENT_HEIGHT = 1920
+REPLACEMENT_FPS = "24000/1001"
+REPLACEMENT_SECONDS = 120
 
 #: The report schema the importer consumes.
 REPORT_SCHEMA = "ren-axi-qualification-result/v2"
@@ -971,11 +988,56 @@ def _import_report(path: Path) -> dict:
 # ── The run ──────────────────────────────────────────────────────────
 
 
+def _render_replacement(path: Path) -> None:
+    """Render the synthetic replacement this run owns.
+
+    The clip is in the PRODUCT format, so the file the replace case
+    re-points a reel clip at is the shape the reel is in, and it is
+    long enough that the replace cannot shorten the record span the
+    case measures.  ffmpeg is a tool this repo requires; without it the
+    run refuses and names the variable an operator can set to supply
+    the file itself.
+    """
+    command = [
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i",
+        (f"color=c=0x2050c0:size={REPLACEMENT_WIDTH}x{REPLACEMENT_HEIGHT}"
+         f":rate={REPLACEMENT_FPS}:duration={REPLACEMENT_SECONDS}"),
+        "-f", "lavfi", "-i",
+        (f"sine=frequency=440:sample_rate=48000"
+         f":duration={REPLACEMENT_SECONDS}"),
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+        "-r", REPLACEMENT_FPS,
+        "-c:a", "aac", "-shortest", str(path),
+    ]
+    done = subprocess.run(command, capture_output=True, encoding="utf-8",
+                          check=False)
+    if done.returncode != 0:
+        raise SystemExit(
+            "the replacement media could not be provisioned: "
+            + (done.stderr.strip() or "ffmpeg could not be run")
+            + "; set REN_AXI_QUAL_REPLACEMENT_SOURCE to a media file "
+              "this run may copy instead")
+
+
 def _owned_media(source: str) -> str:
-    """A copy this run owns, so a replacement never writes a pool item
-    that draws from a captain's file."""
+    """The replacement file this run owns, in /tmp.
+
+    A replacement writes to the pool item it re-points, so the source
+    a case replaces with is a COPY this run made in /tmp - never a
+    captain's file, never a shared fixture.
+
+    The copy's own source is the operator's, named by
+    REN_AXI_QUAL_REPLACEMENT_SOURCE.  When that variable names nothing,
+    the file is PROVISIONED here.  There is no fallback to a file
+    outside the checkout: a checkout that names a machine's directory
+    is the defect, so the dependency is removed rather than rewritten.
+    """
     OWNED_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source, OWNED_REPLACEMENT)
+    if source:
+        shutil.copyfile(source, OWNED_REPLACEMENT)
+        return str(OWNED_REPLACEMENT)
+    _render_replacement(OWNED_REPLACEMENT)
     return str(OWNED_REPLACEMENT)
 
 
@@ -1169,9 +1231,7 @@ def main() -> int:
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
     evidence_path = REPORT_DIR / "product-format-evidence.json"
     owned = _owned_media(
-        os.environ.get("REN_AXI_QUAL_REPLACEMENT_SOURCE", "").strip()
-        or "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/"
-           "vep-lucie-new-lower-thirds/variants/b-soft-focus-craig.mov")
+        os.environ.get("REN_AXI_QUAL_REPLACEMENT_SOURCE", "").strip())
 
     cases_arg = {name: {"operation": case.operation,
                         "backend": case.backend,
