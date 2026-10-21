@@ -664,7 +664,7 @@ fn schedule_loop(state: Arc<(Mutex<State>, Condvar)>, store: Arc<JobStore>) {
             drop(state);
             continue;
         }
-        reap_dead_grants(&mut state, &store);
+        reap_dead_owners(&mut state, &store);
         let now = crate::store::now();
         let running: Vec<Pending> = state.running.values().cloned().collect();
         let queued: Vec<Pending> = state.queued.values().cloned().collect();
@@ -824,15 +824,23 @@ fn run_job(
 /// The owner is the process that asked, and the pid is in the owner's
 /// name, so the daemon can CHECK whether it is gone rather than guess.
 ///
-/// Only GRANTS are reaped. An executed job's submitter may legitimately
-/// exit after submitting - `ren resolved submit` prints the id and
-/// returns - and that job is still wanted.
-fn reap_dead_grants(state: &mut State, store: &JobStore) {
+/// A JOB THAT HAS NOT STARTED and whose owner is dead is reaped
+/// PROMPTLY - on owner death, not when it reaches the front of the
+/// queue. Nobody is left to read its receipt, verify it or promote it,
+/// and Ren never lands an unverified write it cannot account for
+/// (captain's ruling, 2026-10-21; measured the same day: five
+/// dead-owner jobs held places 1, 2, 3, 8 and 11 of a busy queue for
+/// 365-2032 s).
+///
+/// A job that is ALREADY RUNNING finishes, and its receipt is recorded
+/// for whoever comes back: it may already have done its work. A LIVE
+/// owner is never reaped on idle time.
+fn reap_dead_owners(state: &mut State, store: &JobStore) {
     let dead: Vec<String> = state
         .queued
         .keys()
         .filter(|id| match store.get(id) {
-            Some(receipt) => receipt.kind == "lease" && owner_is_gone(&receipt.owner),
+            Some(receipt) => owner_is_gone(&receipt.owner),
             None => false,
         })
         .cloned()
@@ -853,7 +861,7 @@ fn reap_dead_grants(state: &mut State, store: &JobStore) {
                 &[
                     ("state", json!("cancelled")),
                     ("finished", json!(crate::store::now())),
-                    ("error", json!("the owner of this grant is gone")),
+                    ("error", json!("reaped:owner-gone")),
                 ],
             )
             .ok();
@@ -1132,7 +1140,7 @@ mod tests {
                     locality: "none".to_string(),
                 },
             );
-            reap_dead_grants(&mut state, &store);
+            reap_dead_owners(&mut state, &store);
             assert!(
                 !state.queued.contains_key("abandoned"),
                 "the dead owner's grant stayed in the queue"
@@ -1176,7 +1184,7 @@ mod tests {
                     locality: "none".to_string(),
                 },
             );
-            reap_dead_grants(&mut state, &store);
+            reap_dead_owners(&mut state, &store);
             assert!(state.queued.contains_key("live"));
         }
         assert_eq!(store.get("live").unwrap().state, "queued");
@@ -1185,11 +1193,14 @@ mod tests {
         std::fs::remove_dir_all(scratch).ok();
     }
 
-    /// An executed job's submitter may legitimately exit after
-    /// submitting - `ren resolved submit` prints the id and returns -
-    /// so a dead owner never reaps one.
+    /// A job that has NOT STARTED and whose owner is dead is reaped
+    /// promptly, whatever its kind: nobody is left to read its receipt,
+    /// verify it or promote it, and Ren never lands an unverified write
+    /// it cannot account for (captain's ruling, 2026-10-21). Measured the
+    /// same day: five dead-owner jobs held places 1, 2, 3, 8 and 11 of
+    /// a busy queue for 365-2032 s.
     #[test]
-    fn an_executed_job_is_never_reaped_on_a_dead_owner() {
+    fn a_queued_job_that_has_not_started_is_reaped_when_its_owner_is_gone() {
         let scratch = scratch_dir("reap-executed");
         let db = scratch.join("jobs.sqlite3");
         let store = Arc::new(JobStore::open(&db).unwrap());
@@ -1232,10 +1243,73 @@ mod tests {
                     locality: "none".to_string(),
                 },
             );
-            reap_dead_grants(&mut state, &store);
-            assert!(state.queued.contains_key("executed"));
+            reap_dead_owners(&mut state, &store);
+            assert!(
+                !state.queued.contains_key("executed"),
+                "the dead owner's job stayed in the queue"
+            );
         }
-        assert_eq!(store.get("executed").unwrap().state, "queued");
+        let receipt = store.get("executed").unwrap();
+        assert_eq!(receipt.state, "cancelled");
+        assert_eq!(receipt.error, "reaped:owner-gone");
+        drop(broker);
+        drop(store);
+        std::fs::remove_dir_all(scratch).ok();
+    }
+
+    /// A job that is ALREADY RUNNING finishes: it may have done its
+    /// work, and its receipt is recorded for whoever comes back.
+    #[test]
+    fn a_running_job_with_a_dead_owner_is_left_to_finish() {
+        let scratch = scratch_dir("reap-running");
+        let db = scratch.join("jobs.sqlite3");
+        let store = Arc::new(JobStore::open(&db).unwrap());
+        store
+            .insert(&JobRecord {
+                id: "running".to_string(),
+                kind: "resolve_axi".to_string(),
+                priority: "mutation".to_string(),
+                mode: "exclusive".to_string(),
+                executed: true,
+                params: json!({}),
+                project: String::new(),
+                timeline: String::new(),
+                qualification: false,
+                coalesce_key: None,
+                interrupt_policy: String::new(),
+                owner: format!("pid-{DEAD_PID}"),
+                description: "submitted".to_string(),
+                progress: String::new(),
+                state: "running".to_string(),
+                subscribers: 1,
+                submitted: crate::store::now(),
+            })
+            .unwrap();
+        let broker = Broker::new(Arc::clone(&store));
+        {
+            let (lock, _) = &*broker.state;
+            let mut state = lock.lock().unwrap();
+            state.running.insert(
+                "running".to_string(),
+                Pending {
+                    id: "running".to_string(),
+                    priority: "mutation".to_string(),
+                    mode: "exclusive".to_string(),
+                    submitted: crate::store::now(),
+                    project: String::new(),
+                    timeline: String::new(),
+                    executed: true,
+                    qualification: false,
+                    locality: "none".to_string(),
+                },
+            );
+            reap_dead_owners(&mut state, &store);
+            assert!(
+                state.running.contains_key("running"),
+                "a running job was reaped: it may have done its work"
+            );
+        }
+        assert_eq!(store.get("running").unwrap().state, "running");
         drop(broker);
         drop(store);
         std::fs::remove_dir_all(scratch).ok();

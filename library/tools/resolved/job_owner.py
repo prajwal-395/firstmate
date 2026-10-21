@@ -8,12 +8,15 @@ pid is a process.
 A grant (`lease` job) is the case that matters: the client that asked
 for it is the connection that holds it, so a client that dies while
 waiting leaves a grant queued with nobody waiting for it. The broker
-reaps those (see `server.Broker._reap_dead_grants`), and the queue
+reaps those (see `server.Broker._reap_dead_owners`), and the queue
 report names them (`library.tools.resolved.queue_status`).
 
-An EXECUTED job is never reaped on a dead owner: its submitter may
-legitimately exit after submitting (`ren resolved submit` prints the id
-and returns), and the job is still wanted.
+A job that has NOT STARTED and whose owner is dead is reaped on owner
+death, whatever its kind: nobody is left to read its receipt, verify it
+or promote it, and Ren never lands an unverified write it cannot
+account for (captain's ruling, 2026-10-21). A job that is ALREADY
+RUNNING finishes - it may already have done its work - and a LIVE
+owner is never reaped on idle time.
 """
 
 from __future__ import annotations

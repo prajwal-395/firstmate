@@ -53,11 +53,21 @@ from library.tools import axi_qualification_dimensions as dimensions
 #: the runtime did not report.
 PREDICATE_FIELDS = frozenset(dimensions.DIMENSIONS)
 
-#: How long the inspection waits for the instance. It is a READ that
-#: gates a routing decision, so it rides out a write in progress and then
-#: says the instance is held - it does not stall a front door for the
-#: lease's own quarter-hour default.
-INSPECTION_LEASE_TIMEOUT_SECONDS = 120.0
+#: How long the inspection waits for the instance. NOTHING: the lease
+#: owns contention, and a gate that needs Resolve rides out the queue
+#: the way every other lease does - with the lease's own budget, and
+#: with the holder named when it finally cannot.
+#:
+#: The gate used to cap its own wait at two minutes, and the cap turned
+#: a busy machine into a REFUSAL: "no production-qualified executor is
+#: available for: clip.set_property", with the real cause folded
+#: inside - "runtime qualification state was not inspected (ResolveBusy:
+#: ... timed out waiting for Resolve)". The engine refused a write
+#: because the machine was busy, which is not the same as the write
+#: being wrong, and it refused it on a saturated machine where the
+#: whole point of the gate is to MEASURE (measured 2026-10-21: every
+#: brief-level write attempt failed this way).
+INSPECTION_LEASE_TIMEOUT_SECONDS = None
 
 
 def with_runtime_state(context: Mapping | None, *, project: str,
@@ -109,6 +119,23 @@ def _promotion_at_stake(operations: Sequence[Mapping]) -> bool:
     return False
 
 
+def _holder_name() -> str:
+    """Who holds the instance now, for a refusal that says WAITED."""
+    from library.tools import resolve_lock
+
+    try:
+        status = resolve_lock.lease_status()
+    except Exception:  # noqa: BLE001 - an unknown holder is no holder
+        return ""
+    active = getattr(status, "active", None)
+    if active is None:
+        return ""
+    try:
+        return active.describe()
+    except Exception:  # noqa: BLE001 - a record that cannot describe itself
+        return ""
+
+
 def inspect(*, project: str, timeline: str,
             operations: Sequence[Mapping] = (), resolve=None) -> dict:
     """The measured runtime state, or why it could not be measured.
@@ -127,14 +154,25 @@ def inspect(*, project: str, timeline: str,
         from library.tools.resolve_lock import held, resolve_lease
 
         if held():
+            # The session that holds the instance ALREADY has this
+            # inspection: the lease is the session's claim, and the
+            # runtime is read through the handles in hand.
             return _measure(_read_runtime(project, timeline, resolve),
                             operations)
+        # A GATE THAT NEEDS RESOLVE WAITS. The lease owns contention:
+        # the machine's one Resolve is scheduled, and the gate rides
+        # out the queue the way every other lease does.
         with resolve_lease("axi qualification inspection", exclusive=False,
                            timeout=INSPECTION_LEASE_TIMEOUT_SECONDS):
             return _measure(_read_runtime(project, timeline, resolve),
                             operations)
     except Exception as exc:  # noqa: BLE001 - an unread state refuses
-        return {"inspected": False, "reason": f"{type(exc).__name__}: {exc}"}
+        holder = _holder_name()
+        reason = f"{type(exc).__name__}: {exc}"
+        if holder:
+            reason = (f"{reason} - the instance is held by {holder}; the "
+                      f"gate waited for it and the wait ran out")
+        return {"inspected": False, "reason": reason}
 
 
 def inspect_handles(*, resolve, resolve_project, timeline,

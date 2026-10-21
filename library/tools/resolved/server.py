@@ -380,7 +380,7 @@ class Broker:
                 if resolve_lock.read_handoff_fence() is not None:
                     self._cond.wait(0.5)
                     continue
-                self._reap_dead_grants()
+                self._reap_dead_owners()
                 job = scheduler.next_job(self._queued.values(),
                                          self._running.values(),
                                          self._cursor, time.time())
@@ -406,8 +406,8 @@ class Broker:
                     self._started[job.id].set()
                 self._cond.notify_all()
 
-    def _reap_dead_grants(self) -> None:
-        """Cancel a queued grant whose owner is gone.
+    def _reap_dead_owners(self) -> None:
+        """Cancel a queued job whose owner is gone.
 
         A GRANT is a client's own turn: the client asked for it on the
         connection that holds it. A client that dies while waiting
@@ -422,16 +422,24 @@ class Broker:
         owner's name (`library/tools/resolved/job_owner`), so the broker
         can CHECK whether it is gone rather than guess.
 
-        Only GRANTS are reaped. An executed job's submitter may
-        legitimately exit after submitting - `ren resolved submit` prints
-        the id and returns - and that job is still wanted.
+        A JOB THAT HAS NOT STARTED and whose owner is dead is reaped
+        PROMPTLY - on owner death, not when it reaches the front of the
+        queue. Nobody is left to read its receipt, verify it or promote
+        it, and Ren never lands an unverified write it cannot account
+        for (captain's ruling, 2026-10-21; measured the same day: five
+        dead-owner jobs held places 1, 2, 3, 8 and 11 of a busy queue
+        for 365-2032 s).
+
+        A job that is ALREADY RUNNING finishes, and its receipt is
+        recorded for whoever comes back. A LIVE owner is never reaped on
+        idle time.
         """
         from library.tools.resolved.job_owner import owner_alive
 
         dead = []
         for job_id, job in self._queued.items():
             receipt = self.store.get(job_id)
-            if receipt is None or receipt["kind"] != "lease":
+            if receipt is None:
                 continue
             if owner_alive(receipt["owner"]) is False:
                 dead.append(job_id)
@@ -441,7 +449,7 @@ class Broker:
             self._forget(job_id)
             self.store.update(
                 job_id, state="cancelled", finished=time.time(),
-                error="the owner of this grant is gone")
+                error="reaped:owner-gone")
         if dead:
             self._cond.notify_all()
 

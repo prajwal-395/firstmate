@@ -202,12 +202,15 @@ def test_a_live_owner_is_never_reaped(tmp_path):
         store.close()
 
 
-def test_an_executed_job_is_never_reaped_on_a_dead_owner(tmp_path):
-    """A submitter may exit after submitting; the job is still wanted.
+def test_a_queued_job_whose_owner_is_gone_is_reaped(tmp_path):
+    """A job that has NOT STARTED and whose owner is dead leaves the queue.
 
-    `ren resolved submit` prints the job's id and returns: the process
-    that submitted it is gone by the time the job runs, and the job is
-    exactly the one somebody asked for.
+    Nobody is left to read its receipt, verify it or promote it, and
+    Ren never lands an unverified write it cannot account for
+    (captain's ruling, 2026-10-21). Measured the same day: five
+    dead-owner jobs held places 1, 2, 3, 8 and 11 of a busy queue for
+    365-2032 s, because the broker reaped them only when they reached
+    the front - which on a busy machine never came.
     """
     store = JobStore(tmp_path / "jobs.sqlite3")
     broker = Broker(store, connect=lambda: None)
@@ -220,8 +223,11 @@ def test_an_executed_job_is_never_reaped_on_a_dead_owner(tmp_path):
             "resolve_axi", {"argv": ["project"]}, owner=f"pid-{dead}")
         time.sleep(1.5)
         receipt = store.get(submitted["id"])
-        assert receipt["state"] == "queued", (
-            "an executed job was reaped on a dead owner")
+        assert receipt["state"] == "cancelled", (
+            "the dead owner's job stayed in the queue")
+        assert receipt["error"] == "reaped:owner-gone", (
+            "the receipt did not say why it was reaped: %r"
+            % receipt["error"])
     finally:
         broker.stop()
         store.close()
