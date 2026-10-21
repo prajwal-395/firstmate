@@ -735,6 +735,43 @@ def _detect_rf_detr(detector: str, image_path: str, phrases: list[str],
     return out
 
 
+def fixed_vocabulary_labels(detector: str) -> list[str]:
+    """The class names a fixed-vocabulary detector can answer.
+
+    The open-vocabulary backends answer any phrase, so they have no
+    vocabulary to list; the COCO detectors answer only the classes they
+    were trained on, and a request for anything else is a request they
+    cannot answer at all.
+    """
+    if detector not in (RFDETR_NANO, RFDETR_SMALL):
+        return []
+    model_id, revision = (
+        (RFDETR_NANO_MODEL_ID, RFDETR_NANO_REVISION)
+        if detector == RFDETR_NANO
+        else (RFDETR_SMALL_MODEL_ID, RFDETR_SMALL_REVISION))
+    try:
+        from transformers import AutoConfig
+        config = AutoConfig.from_pretrained(model_id, revision=revision)
+    except Exception as exc:
+        # An unreadable config is a producer that cannot answer, never a
+        # producer with no vocabulary at all.
+        raise DetectorNotAvailable(
+            f"the {detector} class list could not be read: "
+            f"{type(exc).__name__}: {exc}") from exc
+    id2label = getattr(config, "id2label", None) or {}
+    return [str(label) for label in id2label.values()]
+
+
+def matches_query(label: str, phrase: str) -> bool:
+    """Whether a detector's own label answers a queried phrase.
+
+    The same rule the scoring path uses (`_match_phrase`), exposed so a
+    producer can be asked BEFORE it runs whether it can answer the
+    question at all.
+    """
+    return _match_phrase(label, [phrase]) == phrase
+
+
 def detect_image(detector: str, image_path: str, phrases: Sequence[str],
                  *, score_threshold: float = DEFAULT_SCORE_THRESHOLD,
                  ) -> list[Detection]:

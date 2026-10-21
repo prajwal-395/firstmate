@@ -106,8 +106,8 @@ PRODUCER_CATALOG: dict[str, list[dict[str, Any]]] = {
     # Named-object detection: OWLv2 3.64 s/frame measured on the MU-15
     # 40-frame set (object-detector-tiering-2026-10-14, recall 0.892);
     # Apple Vision nominations 0.16 s/frame as the cheap tier.
-    "segmentation": [
-        {"id": "segmentation-vision-nominations",
+    "object_detection": [
+        {"id": "object-detection-vision-nominations",
          "capability": "visual.detect",
          "tier": TIER_CHEAP, "cost_seconds_per_window": 1.6,
          "peak_rss_gb": 0.1, "window_seconds": 10.0,
@@ -119,7 +119,7 @@ PRODUCER_CATALOG: dict[str, list[dict[str, Any]]] = {
                  "frames 1.1-2.7 s/frame, so marginal 1.6 s budget "
                  "deferrals are expected variance, not failure; "
                  "nominations only, negatives stay not_yet_analysed"},
-        {"id": "segmentation-owlv2-named",
+        {"id": "object-detection-owlv2-named",
          "capability": "visual.detect",
          "tier": TIER_STANDARD, "cost_seconds_per_window": 36.4,
          "peak_rss_gb": 1.2, "window_seconds": 10.0,
@@ -196,7 +196,7 @@ PRODUCER_CATALOG: dict[str, list[dict[str, Any]]] = {
 # cost), heavy VLM last. Chosen on calibration, reported once.
 DEFAULT_SELECTIVITY = {
     "m1": 0.9, "retrieval": 0.8, "m5": 0.6, "ocr_extraction": 0.6,
-    "segmentation": 0.5, "m7": 0.5, "m10": 0.4, "m4": 0.3,
+    "object_detection": 0.5, "m7": 0.5, "m10": 0.4, "m4": 0.3,
     "verify": 0.5, "no-lane-yet": 0.0,
 }
 

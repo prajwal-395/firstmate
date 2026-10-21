@@ -668,7 +668,7 @@ VERBS = (
          effects=("read", "heavy_lock", "network"), json=True,
          module_argv=(_FOOTAGE_QUERY, "search"),
          params=(MCP_PROJECT,)),
-    Verb("evidence", "Footage", "Query typed Project Model evidence; --trace follows one thing through it",
+    Verb("evidence", "Footage", "Query typed Project Model evidence; --object asks for a named object, --trace follows one thing through it",
          effects=("read", "project_write", "heavy_lock"), json=True,
          module_argv=("library.tools.analysis.footage_evidence_query",),
          params=(MCP_PROJECT, MCP_EVIDENCE_PLAN, MCP_EVIDENCE_TRACE),
@@ -681,8 +681,12 @@ VERBS = (
                 "observations, its possible identity links, its relations, the "
                 "interpretations resting on it, and the source file and exact "
                 "seconds behind every leaf: why does Ren believe this, and "
-                "what original evidence supports it? `--acquire` opts in to one "
-                "bounded M4 window."),
+                "what original evidence supports it? `ren evidence <project> "
+                "--object <name>` asks for a NAMED OBJECT: the object lane "
+                "answers the request, and the answer carries the detections "
+                "AND the coverage map - the frames it inspected and the "
+                "seconds it never looked at. `--acquire` opts in to one "
+                "bounded window."),
     Verb("where", "Footage", "Where is this person in the footage (region tracks, or the region at --at)",
          effects=("read",), json=True,
          module_argv=(_FOOTAGE_QUERY, "where"),

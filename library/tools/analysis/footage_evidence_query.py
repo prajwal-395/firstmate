@@ -10,6 +10,61 @@ from pathlib import Path
 from library.tools.ren_refusal import REFUSAL_EXIT_CODE, RenRefusal
 
 
+def _object_plan(model: dict, args) -> dict:
+    """The plan an --object request compiles to.
+
+    The request names the object and the requirement it carries; the
+    scope is the asset it is about, resolved from the Project Model
+    rather than typed by the caller.
+    """
+    from library.tools import evidence_query
+
+    assets = [row for row in model.get("assets") or []
+              if isinstance(row, dict) and row.get("id")]
+    if args.asset_id:
+        assets = [row for row in assets if row.get("id") == args.asset_id]
+    if not assets:
+        raise RenRefusal(
+            "the request names no asset to look at",
+            "the project's Project Model holds no asset (or none with "
+            "that id)",
+            "run the preflight first, or pass --asset-id")
+    if len(assets) > 1:
+        raise RenRefusal(
+            "the request names more than one asset to look at",
+            "the project's Project Model holds several assets",
+            "pass --asset-id to say which one")
+    asset = assets[0]
+    clocks = [row for row in model.get("clocks") or []
+              if isinstance(row, dict)
+              and (row.get("domain") or {}).get("asset_id") == asset["id"]]
+    if not clocks:
+        raise RenRefusal(
+            "the asset has no clock to measure on",
+            "the Project Model carries no clock for this asset",
+            "run the preflight first")
+    scope = {"clock_id": clocks[0]["id"], "asset_id": asset["id"]}
+    if args.at:
+        parts = str(args.at).replace(":", "-").split("-")
+        if len(parts) != 2:
+            raise RenRefusal(
+                "the window is not a range",
+                "--at takes START-END seconds",
+                "ren evidence <project> --object <name> --at 30-40")
+        try:
+            scope["start_s"] = float(parts[0])
+            scope["end_s"] = float(parts[1])
+        except ValueError:
+            raise RenRefusal(
+                "the window is not a range of seconds",
+                "--at takes START-END seconds",
+                "ren evidence <project> --object <name> --at 30-40") from None
+    return evidence_query.compile_plan(
+        [{"predicate": "object_presence", "phrase": args.object,
+          "requirement": args.requirement}], scope=scope)
+
+
+
 def main(argv: list[str] | None = None) -> int:
     from ren import hosts
 
@@ -35,6 +90,27 @@ def main(argv: list[str] | None = None) -> int:
         help="how many relation and identity-link hops the trace walks "
              "(default: 2)")
     parser.add_argument(
+        "--object",
+        help=("ask for a named object; the plan is compiled here, so the "
+              "plan file is optional"),
+    )
+    parser.add_argument(
+        "--requirement",
+        choices=("presence", "grounded"),
+        default="grounded",
+        help=("what the object request needs: 'presence' asks whether the "
+              "object is in the window, 'grounded' asks where it is"),
+    )
+    parser.add_argument(
+        "--asset-id",
+        help=("the asset an --object request is about (the only asset when "
+              "the project holds one)"),
+    )
+    parser.add_argument(
+        "--at",
+        help="the window an --object request covers, as START-END seconds",
+    )
+    parser.add_argument(
         "--acquire",
         action="store_true",
         help="opt in to bounded acquisition of missing M4 scene evidence",
@@ -59,18 +135,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if not args.trace and not args.plan:
+    if not args.trace and not args.plan and not args.object:
         raise RenRefusal(
-            "an evidence query needs a plan or a reference to trace",
-            "the verb was given neither a compiled plan file nor --trace",
-            "pass a compiled plan file, or `ren evidence <project> --trace "
-            "<entity|event|observation>`",
+            "an evidence query needs a plan, a reference to trace, or an "
+            "object to look for",
+            "the verb was given neither a compiled plan file, nor --trace, "
+            "nor --object",
+            "pass a compiled plan file, `ren evidence <project> --trace "
+            "<entity|event|observation>`, or `ren evidence <project> "
+            "--object <name>`",
         )
-    if args.trace and args.plan:
+    if args.trace and (args.plan or args.object):
         raise RenRefusal(
             "a trace and a plan ask two different questions",
-            "both a plan file and --trace were given",
+            "a trace was given together with a plan file or --object",
             "run the trace on its own, or the plan on its own",
+        )
+    if args.plan and args.object:
+        raise RenRefusal(
+            "a plan and an object request ask two different questions",
+            "both a plan file and --object were given",
+            "run the plan on its own, or the object request on its own",
         )
 
     from library.tools import evidence_query, project_model_store, source_memory
@@ -96,7 +181,10 @@ def main(argv: list[str] | None = None) -> int:
                           "source_revision": source_revision,
                           "result_revision": source_revision}, indent=2))
         return 0
-    plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
+    if args.object:
+        plan = _object_plan(model, args)
+    else:
+        plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
     if not args.acquire:
         answer = evidence_query.evidence_for(model, plan,
                                              project=str(project))
@@ -127,9 +215,22 @@ def main(argv: list[str] | None = None) -> int:
     m0 = source_memory.read_m0(digest, memory_root) or {}
     duration = m0.get("duration_seconds")
     if not duration:
+        duration = (asset.get("metadata") or {}).get("duration_seconds")
+    if not duration:
+        # The object lane measures the source itself, so a project whose
+        # M0 has not been built can still answer an object request: the
+        # duration is read off the media.
+        from library.tools.analysis import object_grounding
+        try:
+            duration = object_grounding.probe_source(
+                asset["uri"]).get("duration_seconds")
+        except (OSError, ValueError, KeyError):
+            duration = None
+    if not duration:
         raise RenRefusal(
             "evidence acquisition needs source duration",
-            "M0 duration is unavailable for this asset",
+            "neither M0, the asset metadata nor the media carries a "
+            "duration",
             "run source metadata analysis before acquiring evidence",
         )
     from library.tools.project_model_acquisition import query_project

@@ -16,12 +16,22 @@ from library.tools import (
     project_model_store,
     source_memory,
 )
+from library.tools.analysis import object_grounding
 from library.tools.query_directed_acquisition import query_with_acquisition
+
+OBJECT_LANE = object_grounding.OBJECT_LANE
+"""The request-driven object lane this adapter can acquire."""
 
 WINDOW_SECONDS = 10.0
 PRODUCER_VERSION = "gemma-4-12b-it-4bit:m4-scene-window-v1"
 MODEL_IMPLEMENTATION_ID = "gemma.vision_4_12b_it_4bit"
 M4_WINDOW_COST_SECONDS = 90.0
+OBJECT_BUDGET_MARGIN = 1.5
+"""How much over its measured cost a pass may run before it defers.
+
+The measured per-frame cost is a mean; a frame that takes longer than
+the mean is variance, not a failure. A pass that overruns its budget
+is DEFERRED, never reported as acquired evidence."""
 
 
 def _m4_window_evidence_id(digest: str, start_s: float | None,
@@ -29,6 +39,171 @@ def _m4_window_evidence_id(digest: str, start_s: float | None,
     if start_s is None or end_s is None:
         return ""
     return f"m4-window:{digest}:{round(float(start_s) * 1000)}:{round(float(end_s) * 1000)}"
+
+
+def _object_phrases(plan: dict[str, Any]) -> list[str]:
+    """The object names a plan asks about."""
+    phrases: list[str] = []
+    for query in plan.get("object_queries") or []:
+        phrase = str((query or {}).get("phrase") or "").strip()
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+    if phrases:
+        return phrases
+    for compiled in plan.get("predicates") or []:
+        if compiled.get("predicate") == "object_presence":
+            phrase = str(compiled.get("phrase") or "").strip()
+        elif (compiled.get("measurement_type") == "object.detection"
+              and compiled.get("equals")):
+            phrase = str(compiled.get("equals")).strip()
+        else:
+            continue
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+    return phrases
+
+
+def _object_requirement(plan: dict[str, Any]) -> str:
+    """The task requirement a plan carries for the object request."""
+    for query in plan.get("object_queries") or []:
+        requirement = str((query or {}).get("requirement") or "").strip()
+        if requirement:
+            return requirement
+    for compiled in plan.get("predicates") or []:
+        if compiled.get("predicate") == "object_presence":
+            requirement = str(compiled.get("requirement") or "").strip()
+            if requirement:
+                return requirement
+    return "grounded"
+
+
+def _object_pass_budget(plan: dict[str, Any],
+                          duration_seconds: float) -> float:
+    """What one object pass may cost, from the producer's measured cost.
+
+    The pass is one extraction over the source plus one detection per
+    sampled frame; both halves are measured, and the budget carries a
+    margin over them.
+    """
+    producer = object_grounding.select_producer(
+        _object_requirement(plan), _object_phrases(plan))
+    scope = plan.get("scope") or {}
+    start = float(scope.get("start_s") or 0.0)
+    end = float(scope.get("end_s") or duration_seconds)
+    seconds = max(0.0, end - start)
+    frames = seconds * object_grounding.DEFAULT_SAMPLE_FPS
+    extraction = seconds * object_grounding.EXTRACTION_SECONDS_PER_SOURCE_SECOND
+    return max(1.0, (extraction + producer.cost_seconds_per_frame * frames) *
+               OBJECT_BUDGET_MARGIN)
+
+
+def _cached_object_pass(model: dict[str, Any], *, phrases: list[str],
+                        start_s: float, end_s: float) -> dict[str, Any] | None:
+    """An earlier pass over the same window, or None.
+
+    The model's own rows are the cache: a window whose coverage row
+    already spans what the query asks about needs no new measurement.
+    """
+    wanted = {phrase.strip().lower() for phrase in phrases if phrase}
+    for observation in model.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        if not object_grounding.is_coverage_row(observation):
+            continue
+        if object_grounding.phrase_of(observation).lower() not in wanted:
+            continue
+        looked = object_grounding.value_of(observation).get("looked") or {}
+        scope = looked.get("scope") or {}
+        try:
+            covered_start = float(scope.get("start_s"))
+            covered_end = float(scope.get("end_s"))
+        except (TypeError, ValueError):
+            continue
+        if covered_start <= float(start_s) and covered_end >= float(end_s):
+            return {
+                "sufficient": True,
+                "coverage": "sampled",
+                "producer_version": object_grounding.PRODUCER_VERSION,
+            }
+    return None
+
+
+def _produce_object_pass(*, project: Path, model: dict[str, Any],
+                         source_digest: str, source_file: str,
+                         asset_id: str, clock_id: str, plan: dict[str, Any],
+                         start_s: float, end_s: float,
+                         budget_seconds: float, max_peak_rss_gb: float,
+                         ) -> dict[str, Any]:
+    """Measure one window for the objects the plan names.
+
+    The pass answers with detections and a coverage map, and it files
+    both in the Project Model, so the next query for the same object
+    reads the rows instead of paying for the pass again.
+    """
+    phrases = _object_phrases(plan)
+    if not phrases:
+        return {
+            "measured": False,
+            "cost_seconds": 0,
+            "peak_rss_gb": 0,
+            "producer_version": object_grounding.PRODUCER_VERSION,
+            "reason": "the plan names no object to look for",
+        }
+    producer = object_grounding.select_producer(
+        _object_requirement(plan), phrases)
+    source_path = Path(source_file)
+    if not source_path.is_file():
+        return {
+            "measured": False,
+            "cost_seconds": 0,
+            "peak_rss_gb": 0,
+            "producer_version": object_grounding.PRODUCER_VERSION,
+            "reason": f"source media is unavailable: {source_file}",
+        }
+    from library.tools.footage_identity import fingerprint
+
+    live_digest = fingerprint(str(source_path))["content_digest"]
+    if live_digest != source_digest:
+        return {
+            "measured": False,
+            "cost_seconds": 0,
+            "peak_rss_gb": 0,
+            "producer_version": object_grounding.PRODUCER_VERSION,
+            "reason": "source media changed since its Project Model digest",
+        }
+    result = object_grounding.detect_window(
+        source_path, phrases=phrases, start_s=start_s, end_s=end_s,
+        producer=producer, sample_fps=object_grounding.DEFAULT_SAMPLE_FPS)
+    cost = float(result.get("cost_seconds") or 0.0)
+    peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    rss_gb = peak_rss / (1024**3 if sys.platform == "darwin" else 1024**2)
+    measured = cost <= float(budget_seconds) and rss_gb <= float(max_peak_rss_gb)
+    if measured:
+        observations, provenance = object_grounding.build_observations(
+            model=model, digest=source_digest, asset_id=asset_id,
+            clock_id=clock_id, phrases=phrases, result=result)
+        for attempt in range(3):
+            revision, _current = project_model_store.load_project_model(project)
+            try:
+                project_model_store.merge_evidence_records(
+                    project, observations=observations, provenance=provenance,
+                    expected_revision=revision,
+                    reason="request-driven object detection")
+                break
+            except RuntimeError as exc:
+                if "stale project model revision" not in str(exc) or attempt == 2:
+                    raise
+    return {
+        "measured": measured,
+        "cost_seconds": cost,
+        "peak_rss_gb": rss_gb,
+        "producer_version": object_grounding.PRODUCER_VERSION,
+        "producer": result.get("producer"),
+        "samples": len(result.get("detections") or []),
+        "coverage": "sampled" if measured else "incomplete",
+        "coverage_map": result.get("coverage"),
+        "detections": result.get("detections"),
+    }
 
 
 def filter_m4_by_reuse_policy(model: dict[str, Any], project: Path, *,
@@ -142,6 +317,10 @@ def query_project(
     asset_id, clock_id = asset["id"], clock["id"]
 
     def cached(*, lane: str, start_s: float, end_s: float):
+        if lane == OBJECT_LANE:
+            return _cached_object_pass(
+                model, phrases=_object_phrases(plan),
+                start_s=start_s, end_s=end_s)
         if lane != "m4":
             return None
         memory = source_memory.read_scenes(source_digest, root)
@@ -186,6 +365,20 @@ def query_project(
         budget_seconds: float,
         max_peak_rss_gb: float,
     ):
+        if lane == OBJECT_LANE:
+            return _produce_object_pass(
+                project=project,
+                model=model,
+                source_digest=source_digest,
+                source_file=source_file,
+                asset_id=asset_id,
+                clock_id=clock_id,
+                plan=plan,
+                start_s=start_s,
+                end_s=end_s,
+                budget_seconds=budget_seconds,
+                max_peak_rss_gb=max_peak_rss_gb,
+            )
         if lane != "m4":
             return {
                 "measured": False,
@@ -288,6 +481,11 @@ def query_project(
             shutil.rmtree(temp, ignore_errors=True)
 
     def refresh(_old_model):
+        if "m4" not in (plan.get("required_lanes") or []):
+            # The refresh migrates what the PLAN asked for. An object
+            # request does not ask for scene evidence, so it does not
+            # file any.
+            return project_model_store.load_project_model(project)[1]
         interval = plan.get("scope") or {"start_s": 0.0, "end_s": duration_seconds}
         if interval.get("start_s") is None or interval.get("end_s") is None:
             interval = {"start_s": 0.0, "end_s": duration_seconds}
@@ -331,13 +529,17 @@ def query_project(
         source_digest=source_digest,
         duration_seconds=duration_seconds,
         cached=cached,
-        producers={"m4": produce},
+        producers={"m4": produce, OBJECT_LANE: produce},
         refresh_model=refresh,
         max_cost_seconds=max_cost_seconds,
-        available_lanes=("m4",),
-        producer_budgets={"m4": M4_WINDOW_COST_SECONDS},
+        available_lanes=("m4", OBJECT_LANE),
+        producer_budgets={"m4": M4_WINDOW_COST_SECONDS,
+                          OBJECT_LANE: _object_pass_budget(
+                              plan, duration_seconds)},
         window_seconds_by_lane={"m4": WINDOW_SECONDS},
-        producer_cost_per_window_seconds={"m4": M4_WINDOW_COST_SECONDS},
+        producer_cost_per_window_seconds={
+            "m4": M4_WINDOW_COST_SECONDS,
+            OBJECT_LANE: _object_pass_budget(plan, duration_seconds)},
     )
     result["source_revision"] = source_revision
     result["result_revision"] = project_model_store.load_project_model(project)[0]

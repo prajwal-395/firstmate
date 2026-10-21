@@ -60,7 +60,7 @@ LANE_SOUND = "m5"
 LANE_EVENT = "m7"
 LANE_RELATION = "m10"
 LANE_OCR = "ocr_extraction"
-LANE_SEGMENTATION = "segmentation"
+LANE_OBJECT_DETECTION = "object_detection"
 
 # Action verbs this planner maps onto lane-3 temporal-action candidate
 # kinds (`temporal_action_candidates.py`). Anything else stays a
@@ -596,7 +596,7 @@ def compile_requirement(requirement: dict[str, Any], *,
                            "measurement_type": "object.detection",
                            "equals": value}])
         return unanswerable("an image requirement names what is visible",
-                            LANE_SEGMENTATION, "a visible-object name")
+                            LANE_OBJECT_DETECTION, "a visible-object name")
     if family == ACTION:
         if kind == "candidate" and isinstance(value, str) and value:
             return verify(LANE_EVENT,

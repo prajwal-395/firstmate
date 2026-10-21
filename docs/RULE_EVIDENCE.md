@@ -9331,3 +9331,58 @@ overlay landed at is REPORTED, never failed: the defect the captain caught was a
 SIZE, and a placement that moved is a different rule. The picture spec adds
 passes over the delivered file - a frame sample, a freeze detection, and one
 correlation per declared overlay - at delivery time.
+
+## the-grounding-question-that-could-not-ask-for-anything
+
+**The rule:** A query that names an object may ASK for the object lane, and the
+answer carries the detections AND the coverage map. The producer the task
+requirement selects is named in the answer, and a request-driven row never claims
+a producer that did not write it.
+`library/tools/analysis/object_grounding.py` owns the request path;
+`library/tools/evidence_query.py` owns the `object_presence` predicate;
+`library/tools/project_model_acquisition.py` owns the `object_detection` producer.
+
+**What happened.** The M0 baseline (2026-10-21) asked where the handheld device
+is on the M0 fixture and found nothing: `object_segmentation` (1.06) is
+PLAN-triggered - it segments only the clips a subject grade or a behind-subject
+title names - so a request-driven grounding question had no way to reach the
+lane that measures objects. The query layer could not even name the question:
+`object_presence` was an unknown predicate, and the measurement form of the same
+question (`object.detection` with `equals`) named the TRACKER's lane,
+`segmentation`, which no request-driven producer served. The Project Model
+carried 0 `object.detection` rows and the migration said so: `clip_001: no 1.06
+segmentation; no object tracks or subject masks`.
+
+**Why it hid.** The lane's absence was reported honestly - `not_yet_analysed`,
+naming the lane that never ran - and an honest refusal reads like a working
+system. Nothing in the query layer said that a lane existed whose PRODUCER
+answered requests, so the plan-triggered step and the request-driven lane were
+the same word (`segmentation`) with different shapes.
+
+**Where it is.** `object_presence` is a first-class predicate: it names the
+object and the task requirement (`presence` or `grounded`), and it requires the
+`object_detection` lane - the request-driven one, with a producer registered for
+it. The producer selection is by task requirement (C-08): the cheapest producer
+that can answer the question for `presence`, the best measured recall for
+`grounded`, and a fixed-vocabulary detector is only eligible for a phrase it can
+name. The answer carries `detections`, a `coverage_map` (the frames inspected,
+the rate, and the seconds nobody looked at) and the D-01 `coverage_by_category`
+table with its denominators. The rows are filed in their OWN provenance lane:
+a provenance record names one producer, so a request must not overwrite 1.06's.
+
+**Measured.** On the M0 fixture (48 s, 1440 frames @ 30 fps, 1920×1080): the
+`presence` request for "cell phone" ran the cheap producer in 44.8 s and
+answered `present` with 76 detections over 48 of 48 inspected frames, which made
+the D-01 `phone` row MEASURED (it was UNMEASURED on the D-01 corpus, which holds
+no phone); the `grounded` request for "handheld device" ran OWLv2 in 531.3 s and
+answered `present` with 58 detections, detecting the object at source frames
+960/990/1020 - the adjudicated onset band is 33.30-33.70 s and is PROVISIONAL
+pending the captain's re-adjudication. Numbers, method and limits:
+`docs/benchmarks/2026-10-21-m0-request-driven-objects.md`. Defect-naming tests:
+`tests/unit/picture/test_object_grounding.py`.
+
+**What it does not fix.** It finds the object; it does not resolve the ordinal
+("the second time"), which is lane 1's occurrence identity. It buys DETECTIONS,
+not a track: SAM 2 tracking stays the plan-triggered 1.06 path. A sampled pass
+never claims absence - a request that finds nothing answers `inconclusive` with
+its coverage map, because a sparse pass cannot support an exhaustive claim.

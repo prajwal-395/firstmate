@@ -95,7 +95,7 @@ def live_loop(frames: list[Path], phrases: list[str], times: list[float],
     Each planned step runs the producer the plan selected (never a
     heavier tier wearing the cheap tier's budget): Vision nominations
     run the Vision baseline, OWLv2 steps run OWLv2. Produced rows
-    merge into the model as segmentation-lane observations; the
+    merge into the model as object-detection-lane observations; the
     requery decides. Steps naming any other producer defer with the
     reason: this loop proves the detector path live, not every lane.
     """
@@ -123,7 +123,7 @@ def live_loop(frames: list[Path], phrases: list[str], times: list[float],
     def append_row(start_s: float, end_s: float, det, version: str) -> None:
         produced.append({
             "id": f"live-seg-{len(produced)}",
-            "provenance_id": "prov-live-segmentation",
+            "provenance_id": "prov-live-object_detection",
             "asset_id": "asset-live",
             "modality": "object_detection",
             "interval": {"clock_id": "clk",
@@ -198,7 +198,7 @@ def live_loop(frames: list[Path], phrases: list[str], times: list[float],
     spent, peak = 0.0, 0.0
     rounds = []
     first = ea.run_acquisition(
-        plan, cached=cached, producers={"segmentation": produce_vision},
+        plan, cached=cached, producers={"object_detection": produce_vision},
         refresh_model=refresh, max_cost_seconds=600.0)
     spent += first["acquisition"].get("cost_seconds", 0.0) or 0.0
     peak = max(peak, first["acquisition"].get("peak_rss_gb", 0.0) or 0.0)
@@ -211,7 +211,7 @@ def live_loop(frames: list[Path], phrases: list[str], times: list[float],
     if escalated["action"] == "refine":
         second = ea.run_acquisition(
             escalated, cached=cached,
-            producers={"segmentation": produce_owlv2},
+            producers={"object_detection": produce_owlv2},
             refresh_model=refresh, max_cost_seconds=600.0)
         spent += second["acquisition"].get("cost_seconds", 0.0) or 0.0
         peak = max(peak, second["acquisition"].get("peak_rss_gb", 0.0) or 0.0)

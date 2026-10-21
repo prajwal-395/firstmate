@@ -79,21 +79,21 @@ def test_commercial_client_refuses_unresolved_licenses():
 
 
 def test_research_purpose_records_pending_review():
-    selection = ea.select_producers(["segmentation"],
+    selection = ea.select_producers(["object_detection"],
                                     purpose="permitted_research")
-    assert selection["segmentation"]["selected"]["id"] == (
-        "segmentation-vision-nominations")
-    assert "pending" in selection["segmentation"]["selected"][
+    assert selection["object_detection"]["selected"]["id"] == (
+        "object-detection-vision-nominations")
+    assert "pending" in selection["object_detection"]["selected"][
         "registry_note"]
 
 
 def test_memory_ceiling_defers_heaviest_first():
     selection = ea.select_producers(
-        ["segmentation"], purpose="permitted_research",
+        ["object_detection"], purpose="permitted_research",
         fidelity="exhaustive", allow_escalation=True,
         memory_ceiling_gb=0.05)
-    assert selection["segmentation"]["selected"] is None
-    assert "ceiling" in selection["segmentation"]["deferred_memory"]
+    assert selection["object_detection"]["selected"] is None
+    assert "ceiling" in selection["object_detection"]["deferred_memory"]
 
 
 def test_latency_budget_keeps_highest_value_work():
@@ -104,7 +104,7 @@ def test_latency_budget_keeps_highest_value_work():
     # windows do not fit the 1.0 s budget and are refused by name.
     assert all(step["cost_budget_seconds"] == 0.0
                for step in plan["steps"])
-    assert any(step["lane"] == "segmentation" for step in plan["steps"]) \
+    assert any(step["lane"] == "object_detection" for step in plan["steps"]) \
         is False
     assert any("budget" in row["reason"] for row in plan["refused"])
 
@@ -321,7 +321,7 @@ def test_escalation_schedules_heavier_tier_for_open_requirements():
                "req-2": {"status": "inconclusive"}}
     second = ea.plan_escalation(plan, answers)
     assert second["action"] == "refine"
-    assert all(step["producer"] == "segmentation-owlv2-named"
+    assert all(step["producer"] == "object-detection-owlv2-named"
                for step in second["steps"])
     assert all(step["requirement_id"] == "req-2"
                for step in second["steps"])
@@ -365,7 +365,7 @@ def test_full_run_lands_cached_evidence_and_requeries():
                 "producer_version": "vision-test-v1"}
 
     refreshed = {"observations": list(model["observations"]) + [
-        _obs("d1", "segmentation", "object_detection", "clk", 10000,
+        _obs("d1", "object_detection", "object_detection", "clk", 10000,
              20000, "object.detection",
              {"label": "chart", "category": "chart", "score": 0.9}),
     ]}

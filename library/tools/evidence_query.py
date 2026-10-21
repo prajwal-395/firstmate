@@ -7,6 +7,12 @@ four states - ``present``, ``confidently_absent``, ``not_yet_analysed``,
 compiles the evidence-backed subset of
 ``FootageIndex.filter()`` kwargs so the two stores can be parity-checked.
 
+A plan may also ask about a NAMED OBJECT (``object_presence``). An
+object request names the object and the task requirement it carries,
+and its answer carries the detections AND the coverage map - the frames
+the pass inspected and the seconds it never looked at
+(:mod:`library.tools.analysis.object_grounding`).
+
 **The answer's own vocabulary is five states.** The four ``status``
 values are the Project Model's row vocabulary (the Rust
 ``QueryResultStatus`` enum pins them), so a row can be written into the
@@ -63,11 +69,13 @@ from typing import Any
 try:
     from library.tools import evidence_contract, processing_status
     from library.tools import occurrence_identity
+    from library.tools.analysis import object_grounding
     from library.tools.identity_reassociation import IDENTITY_SCOPES
     from library.tools.relation_classes import RELATION_CLASSES
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import evidence_contract, processing_status
     from tools import occurrence_identity
+    from tools.analysis import object_grounding
     from tools.identity_reassociation import IDENTITY_SCOPES
     from tools.relation_classes import RELATION_CLASSES
 
@@ -120,6 +128,16 @@ def classify_absence(status: str, *, has_explicit_negative: bool,
 
 QUERY_STATES = (PRESENT, CONFIDENTLY_ABSENT, NOT_YET_ANALYSED, INCONCLUSIVE)
 """The four query outcomes. Complete: an answer carries exactly one."""
+
+OBJECT_DETECTION_LANE = object_grounding.OBJECT_LANE
+"""The lane the REQUEST-driven object detector writes into.
+
+It is not 1.06's ``segmentation`` lane: a provenance record names one
+producer, and a request is written by another one
+(:mod:`library.tools.analysis.object_grounding`). The object
+DETECTION measurement is answered by this lane, while the object's
+track samples and visibility stay with the tracker that measured them.
+"""
 
 
 def answer_state(status: str, *, has_explicit_negative: bool,
@@ -202,9 +220,12 @@ MEASUREMENT_TO_LANE.update({
     "audio.sound_event": "m5",
     "sync.multicam_offset": "m6",
     "speech.take_link": "m1",
-    # Object presence and visibility are migrated from 1.06's tracked
-    # segmentations, whose provenance lane is named `segmentation`.
-    "object.detection": "segmentation",
+    # Object presence is answered by the REQUEST-driven detector, whose
+    # provenance lane is `object_detection`: it is the lane that can run
+    # on request. The tracker's own detector-seeded detections keep the
+    # tracker's provenance lane, and the tracked object's visibility
+    # stays with the tracker that measured it.
+    "object.detection": OBJECT_DETECTION_LANE,
     "object.visibility": "segmentation",
     # OCR text and graphic tracks migrate under `ocr_extraction`
     # (see MODALITY_TO_LANE above): same coverage argument.
@@ -376,7 +397,10 @@ def compile_plan(predicates: list[dict[str, Any]], *,
             f"{list(GRAPH_PREDICATES)}, never both")
     lanes = sorted({lane for lane in
                     (_required_lane(p) for p in compiled) if lane})
+    object_queries = [{"phrase": p["phrase"], "requirement": p["requirement"]}
+                      for p in compiled if p["predicate"] == "object_presence"]
     return {"predicates": compiled, "required_lanes": lanes,
+            "object_queries": object_queries,
             "scope": plan_scope, "level": level, "join_mode": join_mode,
             "max_clock_error_ticks": max_clock_error_ticks}
 
@@ -391,12 +415,37 @@ def _compile_predicate(predicate: dict[str, Any]) -> dict[str, Any]:
         return _compile_event(predicate)
     if kind == "nth_event":
         return _compile_nth_event(predicate)
+    if kind == "object_presence":
+        return _compile_object(predicate)
     if kind in GRAPH_PREDICATES:
         return _compile_graph(predicate)
     raise EvidenceQueryError(
         f"unknown predicate {kind!r}: this query answers "
-        f"'measurement', 'event_span', 'nth_event' and the graph predicates "
-        f"{list(GRAPH_PREDICATES)}")
+        f"'measurement', 'event_span', 'nth_event', 'object_presence' and "
+        f"the graph predicates {list(GRAPH_PREDICATES)}")
+
+
+def _compile_object(predicate: dict[str, Any]) -> dict[str, Any]:
+    """A request for a named object, compiled.
+
+    The query names the object and the task requirement it carries:
+    ``presence`` asks whether the object is in the window at all,
+    ``grounded`` asks where it is. An unknown requirement is refused -
+    a request that does not say what it needs gets neither a silent
+    upgrade nor a silent downgrade.
+    """
+    phrase = predicate.get("phrase")
+    if not isinstance(phrase, str) or not phrase.strip():
+        raise EvidenceQueryError(
+            "an object_presence names the object it asks about")
+    requirement = predicate.get("requirement") or "grounded"
+    if requirement not in object_grounding.REQUIREMENTS:
+        raise EvidenceQueryError(
+            f"unknown task requirement {requirement!r}: one of "
+            f"{sorted(object_grounding.REQUIREMENTS)}")
+    return {"predicate": "object_presence", "phrase": phrase.strip(),
+            "requirement": requirement,
+            "measurement_type": "object.detection", "unit": "record"}
 
 
 def _string_selector(predicate: dict[str, Any], key: str) -> str | None:
@@ -578,6 +627,10 @@ def _required_lane(compiled: dict[str, Any]) -> str | None:
         # The events lane: the model numbers the occurrences the lane
         # produced, so a missing lane means no occurrence was measured.
         return "m7"
+    if compiled["predicate"] == "object_presence":
+        # The request-driven object lane: the lane that can run on
+        # request, not the tracker that runs on a plan.
+        return OBJECT_DETECTION_LANE
     if compiled["event"] in MEASURED_EVENTS:
         return "m7"
     return "m7"
@@ -702,6 +755,60 @@ def _observation_entities(model: dict[str, Any]) -> dict[str, set[str]]:
     return mapping
 
 
+def _object_phrase_of(obs: dict[str, Any]) -> str:
+    """The object name one row answers about."""
+    native = _native_evidence(obs) or {}
+    value = native.get("value")
+    if isinstance(value, dict):
+        for key in ("query", "phrase", "label"):
+            text = value.get(key)
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return ""
+
+
+def _is_coverage_row(obs: dict[str, Any]) -> bool:
+    """A row that records what a pass LOOKED at, not a detection.
+
+    The coverage row answers the same question a detection answers, so
+    a query that counted it would report an object where the pass found
+    none.
+    """
+    native = _native_evidence(obs) or {}
+    value = native.get("value")
+    return isinstance(value, dict) and value.get("kind") == "coverage"
+
+
+def _matches_object(compiled: dict[str, Any], obs: dict[str, Any]) -> bool:
+    """Whether a row is a detection of the object the query named."""
+    if _record_kind(obs) != compiled["measurement_type"]:
+        return False
+    if _is_coverage_row(obs):
+        return False
+    wanted = str(compiled["phrase"]).strip().lower()
+    return _object_phrase_of(obs).strip().lower() == wanted
+
+
+def _belongs_to_query(obs: dict[str, Any],
+                      compiled: dict[str, Any]) -> bool:
+    """Whether a lane record is about the question this query asks.
+
+    An object request is about ONE object: another object's detections
+    are a different question's evidence, and a lane that answered
+    "where is the phone" has not answered "where is the handheld
+    device". The lane's coverage is counted per question, or a second
+    request would read the first one's rows as a partial answer.
+    """
+    if compiled["predicate"] != "object_presence":
+        return True
+    if _matches_object(compiled, obs):
+        return True
+    if _is_coverage_row(obs):
+        return (_object_phrase_of(obs).strip().lower()
+                == str(compiled["phrase"]).strip().lower())
+    return False
+
+
 def _matches_participant(obs: dict[str, Any], wanted: set[str],
                          entities: dict[str, set[str]]) -> bool:
     if obs.get("id") in entities and entities[obs["id"]] & wanted:
@@ -756,11 +863,18 @@ def _match_observations(model: dict[str, Any], compiled: dict[str, Any],
         if compiled["predicate"] == "measurement":
             if _record_kind(obs) != compiled["measurement_type"]:
                 continue
+            if (compiled["measurement_type"] == "object.detection"
+                    and _is_coverage_row(obs)):
+                # A coverage row records the look, not an object.
+                continue
             if (compiled.get("target_entity_id")
                     and (native or {}).get("target_entity_id")
                     != compiled["target_entity_id"]):
                 continue
             if not _matches_value(compiled, native, obs):
+                continue
+        elif compiled["predicate"] == "object_presence":
+            if not _matches_object(compiled, obs):
                 continue
         elif compiled["predicate"] == "event_span":
             event = compiled["event"]
@@ -1334,6 +1448,7 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
             f"is no occurrence {compiled['nth']}")
     corrections = _lane_corrections(model, compiled_predicates)
     reasons.extend(_correction_reasons(corrections))
+    extension = _object_extension(model, plan, per_predicate, scope)
     if fresh_results:
         return _answer(PRESENT, results=fresh_results,
                        completeness_basis=_basis_for(
@@ -1344,9 +1459,39 @@ def evidence_for(model: dict[str, Any], plan: dict[str, Any], *,
                            evidence_id
                            for result in fresh_results
                            for evidence_id in result["evidence_ids"]},
-                       lane_corrections=corrections)
-    return _empty_answer(model, plan, per_predicate, scope, level,
-                         lane_presence, reasons, corrections)
+                       lane_corrections=corrections, **extension)
+    answer = _empty_answer(model, plan, per_predicate, scope, level,
+                            lane_presence, reasons, corrections)
+    answer.update(extension)
+    return answer
+
+
+def _object_extension(model: dict[str, Any], plan: dict[str, Any],
+                      per_predicate: list[list[dict[str, Any]]],
+                      scope: dict[str, Any]) -> dict[str, Any]:
+    """The detections, the coverage map and the coverage table.
+
+    A query for a named object answers with the boxes it found AND with
+    what it looked at: the coverage map names the frames the pass
+    inspected and the seconds it never looked at, so a reader can tell a
+    narrow answer from a broad one.
+    """
+    object_predicates = [compiled for compiled in plan["predicates"]
+                         if compiled["predicate"] == "object_presence"]
+    if not object_predicates:
+        return {}
+    matches: list[dict[str, Any]] = []
+    for compiled, rows in zip(plan["predicates"], per_predicate):
+        if compiled["predicate"] == "object_presence":
+            matches.extend(rows)
+    detections = object_grounding.detection_rows(matches)
+    phrases = [compiled["phrase"] for compiled in object_predicates]
+    coverage = object_grounding.coverage_map_for(
+        model, phrases=phrases, scope=scope)
+    table = object_grounding.coverage_table(
+        detections, frames_inspected=int(coverage.get("frames_inspected") or 0))
+    return {"detections": detections, "coverage_map": coverage,
+            "coverage_by_category": table}
 
 
 def _answer(status: str, *, results: list[dict[str, Any]],
@@ -1634,7 +1779,9 @@ def _lane_states(model: dict[str, Any], plan: dict[str, Any],
         for lane in _effective_lanes(lane_records, compiled, required):
             if lane in states:
                 continue
-            records = _scoped_records(lane_records.get(lane, []), scope)
+            records = [obs for obs
+                       in _scoped_records(lane_records.get(lane, []), scope)
+                       if _belongs_to_query(obs, compiled)]
             fresh = [obs for obs in records if freshness_of(obs) == "fresh"]
             absences = [obs for obs in fresh
                         if _record_answers_predicate(obs, compiled)
@@ -1818,6 +1965,8 @@ def _record_answers_predicate(obs: dict[str, Any],
     """Keep lane completeness evidence scoped to the requested measurement."""
     if compiled["predicate"] == "measurement":
         return _record_kind(obs) == compiled["measurement_type"]
+    if compiled["predicate"] == "object_presence":
+        return _matches_object(compiled, obs)
     payload = obs.get("payload") or {}
     if compiled["predicate"] == "nth_event":
         # The events lane answers an ordinal question with the records
