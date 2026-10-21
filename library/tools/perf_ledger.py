@@ -181,6 +181,12 @@ STAGE_LAYERS = {
     "touchup_duplicate": "axi",
     "touchup_conform_compose_verify": "axi",
     "touchup_promote": "axi",
+    # The DIRECT route's own phase (PR 3077).  It is the same AXI
+    # stage as the staged phases it replaces: without it the direct
+    # route's seconds claimed NO stage and read as unattributed time,
+    # which is how the whole-reel bookkeeping the direct route avoids
+    # became invisible in the stage table.
+    "touchup_direct": "axi",
     "version_store": "axi",
     "archive_export": "axi",
     # The OTIO placement pass: the reel being cut and laid onto the
@@ -246,6 +252,7 @@ EXTERNAL_LAYERS = {
     "touchup_duplicate": "resolve_api",
     "touchup_conform_compose_verify": "resolve_api",
     "touchup_promote": "resolve_api",
+    "touchup_direct": "resolve_api",
     "project_switch_load": "resolve_api",
     "project_switch_settle": "resolve_api",
     "project_switch_readback": "resolve_api",
@@ -1651,6 +1658,16 @@ def main(argv=None) -> int:
                         help="report the source material measured AGAIN "
                              "across edits and runs (read only, every run "
                              "in the ledger)")
+    parser.add_argument("--critical-path", action="store_true",
+                        help="the run's CRITICAL PATH: which stages are "
+                             "serial and which are overlapped, the "
+                             "resource each stage is limited by, and "
+                             "whether the task is limited by inference, "
+                             "transaction overhead or queue contention "
+                             "(read only)")
+    parser.add_argument("--task-class",
+                        help="read every run of this task class the same "
+                             "way (with --critical-path)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
     if not args.project and not args.ledger:
@@ -1674,6 +1691,24 @@ def main(argv=None) -> int:
             print(json.dumps(summary, indent=2))
         else:
             print(render_agent(summary))
+        return 0
+    if args.critical_path:
+        from library.tools import critical_path
+        if args.task_class:
+            report = critical_path.summarise_class(rows, args.task_class)
+        else:
+            ids = run_ids(rows)
+            if not ids:
+                print("No run ids in this ledger.", file=sys.stderr)
+                return 1
+            run_id = args.run or ids[-1]
+            if run_id not in ids:
+                print(f"No run {run_id!r} in this ledger; "
+                      "`--list` shows what is there.", file=sys.stderr)
+                return 1
+            report = critical_path.analyse_run(rows, run_id)
+        print(json.dumps(report, indent=2) if args.json
+              else critical_path.render(report))
         return 0
     ids = run_ids(rows)
     if args.list:
