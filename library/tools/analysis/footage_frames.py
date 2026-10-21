@@ -594,7 +594,7 @@ class FrameIndex:
                     f"no frame index at {path}",
                     "visual search reads the built frame index; nothing has "
                     "built one for this project yet",
-                    f"build it first: ren search-index '{self.project_folder}' --frames")
+                    f"build it first: ren search-index '{self.project_folder}' --frames", blocker="missing_media")
             with open(path, encoding="utf-8") as f:
                 self._payload = json.load(f)
         return self._payload

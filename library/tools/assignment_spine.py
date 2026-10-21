@@ -358,7 +358,7 @@ def _refuse_concurrent(record: dict) -> None:
             f"assignment {record['assignment_id']} is already running "
             f"`{request.get('verb')}` (process {request.get('pid')})",
             "two acts on one assignment would race for its state",
-            "wait for it to finish, then repeat this command")
+            "wait for it to finish, then repeat this command", blocker="resource_contention")
 
 
 def _begin(root: str, record: dict, verb: str, operation_id: str,
@@ -386,7 +386,7 @@ def _refuse_paused(root: str, record: dict) -> None:
         fix=(f"resume it and repeat this command: "
              f"`{assignment_actions.resume_command(root, record['assignment_id'])}`"),
         code="REN_ASSIGNMENT_PAUSED", recovery_class="needs_question",
-        ask_reason="missing_authorization")
+        ask_reason="missing_authorization", blocker="unsafe_state")
 
 
 def _finish_checkpoint(record: dict, key: str, status: str, detail: str):
@@ -700,7 +700,7 @@ def named_assignment(project, assignment_id: str) -> dict:
             "a correction is attached to the request it updates, and that "
             "request has to exist",
             f"run `ren assignment-state {shlex.quote(_root(project))}` to "
-            f"list the requests on record")
+            f"list the requests on record", blocker="missing_media")
     return record
 
 
@@ -742,7 +742,7 @@ def begin_revision(project, assignment_id: str, reel: str = "") -> Act:
         raise RenRefusal(
             f"assignment {assignment_id} has no record",
             "a revision is checkpointed on the assignment it revises",
-            "run `ren revise` again so it attaches the note first")
+            "run `ren revise` again so it attaches the note first", blocker="missing_media")
     _refuse_paused(root, record)
     moment = _moment_for_timeline(root, reel) if reel else None
     entry = ((record.get("reels") or {}).get(moment.moment_id)

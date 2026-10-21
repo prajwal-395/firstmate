@@ -91,7 +91,7 @@ def test_step_timer_records_the_refusal_code(tmp_path, isolated_singleton):
 
     @pipeline_logger.step_timer(step_id_kwarg="node_id")
     def refused(node_id):
-        raise RenRefusal("no reel 9", "never invented", "propose first")
+        raise RenRefusal("no reel 9", "never invented", "propose first", blocker="missing_media")
 
     @pipeline_logger.step_timer(step_id_kwarg="node_id")
     def buggy(node_id):
@@ -168,17 +168,18 @@ def test_logging_failure_is_reported_and_counted(tmp_path, capsys,
 
 def test_refusal_codes_default_from_the_class_name():
     """Every existing subclass is coded without touching its file."""
-    assert RenRefusal("w", "y", "f").code == "REN_REFUSAL"
+    assert RenRefusal("w", "y", "f", blocker="unsupported_operation").code == "REN_REFUSAL"
 
     from library.tools.plan_splice import SpliceRefused
     assert SpliceRefused("w", "y", "f").code == "REN_SPLICE_REFUSED"
 
 
-def test_refusal_code_explicit_wins_and_to_dict_carries_all_seven():
+def test_refusal_code_explicit_wins_and_to_dict_carries_every_field():
     class Pinned(RenRefusal):
         CODE = "REN_STABLE_ACROSS_RENAMES"
+        BLOCKER = "unsupported_operation"
 
-    explicit = RenRefusal("w", "y", "f", code="REN_ONE_OFF")
+    explicit = RenRefusal("w", "y", "f", code="REN_ONE_OFF", blocker="unsupported_operation")
     assert explicit.code == "REN_ONE_OFF"
     assert Pinned("w", "y", "f").code == "REN_STABLE_ACROSS_RENAMES"
     assert Pinned("w", "y", "f", code="REN_X").code == "REN_X"
@@ -187,21 +188,27 @@ def test_refusal_code_explicit_wins_and_to_dict_carries_all_seven():
         "code": "REN_ONE_OFF", "what": "w", "why": "y", "fix": "f",
         "user_message": explicit.user_message,
         "recovery_class": "blocked", "conflict_class": "",
-        "ask_reason": ""}
+        "ask_reason": "",
+        "blocker": "unsupported_operation",
+        "next_action": "use_a_supported_operation",
+        "blocking_reason": "the engine has no proven way to do this"}
 
 
 def test_render_shape_is_unchanged():
     """The human shape stays pinned: a plain-language consequence first,
-    then the technical detail; the code travels in `to_dict`, never in
-    prose a machine would parse."""
+    then the kind of block, then the technical detail; the code travels
+    in `to_dict`, never in prose a machine would parse."""
     refused = RenRefusal("the plan names no reel 9",
                          "a touchup never invents one",
-                         "run `ren propose <project>` first")
+                         "run `ren propose <project>` first", blocker="missing_media")
     assert refused.render() == (
         f"ren: refused - {refused.user_message}\n"
+        "  blocker: missing_media - "
+        "the media this change needs is not there\n"
         "  what: the plan names no reel 9\n"
         "  why: a touchup never invents one\n"
-        "  fix: run `ren propose <project>` first")
+        "  fix: run `ren propose <project>` first\n"
+        "  next action: supply_the_missing_media")
     assert refused.render().startswith("ren: refused - ")
     assert "REN_" not in refused.render()
 

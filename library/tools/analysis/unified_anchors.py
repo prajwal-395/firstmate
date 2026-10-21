@@ -204,12 +204,12 @@ def extract_window_audio(source_file, start: float, end: float,
         raise RenRefusal(
             "ffmpeg is not on PATH",
             "window audio is cut with ffmpeg",
-            "install ffmpeg and rebuild the unified anchors")
+            "install ffmpeg and rebuild the unified anchors", blocker="unsupported_operation")
     if not source_file or not Path(source_file).is_file():
         raise RenRefusal(
             f"no media file at {source_file!r}",
             "a window's audio comes from its clip's media file",
-            "build the unified anchors on a machine holding the media")
+            "build the unified anchors on a machine holding the media", blocker="missing_media")
     length = float(end) - float(start)
     proc = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", str(start), "-t", str(length),
@@ -221,13 +221,13 @@ def extract_window_audio(source_file, start: float, end: float,
             f"no audio for {source_file}@{start}-{end}",
             "the window cannot be audio-embedded without its samples",
             ((proc.stderr or b"").decode("utf-8", "replace")[-300:]
-             or "the source may carry no audio stream"))
+             or "the source may carry no audio stream"), blocker="missing_media")
     samples = np.frombuffer(proc.stdout, dtype="<f4").astype("float32")
     if samples.size == 0:
         raise RenRefusal(
             f"no audio for {source_file}@{start}-{end}",
             "ffmpeg returned zero samples",
-            "the source may carry no audio stream")
+            "the source may carry no audio stream", blocker="missing_media")
     return {"array": samples, "sampling_rate": sample_rate}
 
 
@@ -762,7 +762,7 @@ class UnifiedIndex:
                     "unified search reads the built anchors; nothing has "
                     "built them for this project yet",
                     "build them first: ren search-index "
-                    f"'{self.project_folder}' --unified-anchors")
+                    f"'{self.project_folder}' --unified-anchors", blocker="missing_media")
             with open(path, encoding="utf-8") as f:
                 self._payload = json.load(f)
         return self._payload
@@ -864,7 +864,7 @@ class UnifiedIndex:
             raise RenRefusal(
                 f"unknown search mode {mode!r}",
                 "unified search runs hybrid, dense or lexical",
-                "use --mode hybrid, --mode dense or --mode lexical")
+                "use --mode hybrid, --mode dense or --mode lexical", blocker="unsupported_operation")
         descriptors = self.descriptors
         n = len(descriptors)
         floors = self.payload.get("anchor_floors") or {}
@@ -879,7 +879,7 @@ class UnifiedIndex:
                     "retention is judged on raw anchor cosines and no "
                     "anchor measured a floor to judge them by",
                     "rebuild the unified anchors with the EG2 model "
-                    "available so calibration runs")
+                    "available so calibration runs", blocker="insufficient_evidence")
             # Retention is per anchor, each judged by ITS OWN floor: the
             # five anchors live in one space but their absent
             # distributions differ (a transcript floor of 0.79 would

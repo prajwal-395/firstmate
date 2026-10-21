@@ -358,7 +358,8 @@ class OperationResult:
         detail = self.error.strip() or reason
         fix = self.fix.strip() or detail
         return RenRefusal(what=reason, why=detail, fix=fix,
-                          code="REN_OPERATION_REFUSED")
+                          code="REN_OPERATION_REFUSED",
+                          blocker="unsupported_operation")
 
     def refusal_reason(self) -> str:
         """Why it refused, naming a producer for each missing requirement."""
@@ -2960,7 +2961,7 @@ def main(argv=None) -> int:
                 "no --project given",
                 "an operation runs against a project: it is where the "
                 "inputs come from and where the result lands",
-                "re-run with --project <slug or project folder>")
+                "re-run with --project <slug or project folder>", blocker="ambiguous_intent")
         overrides = parse_overrides(args.overrides)
     except RenRefusal as refused:
         from library.tools.ren_refusal import emit_refusal_result

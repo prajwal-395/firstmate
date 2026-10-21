@@ -620,7 +620,7 @@ def main(argv=None) -> int:
     if found is None:
         raise RenRefusal(f"{args.project!r} is not a project",
                          "an export reads one project's catalog and memory",
-                         "ren export-memory <path to project or collection>")
+                         "ren export-memory <path to project or collection>", blocker="missing_media")
     result = write_export(str(found.parent), args.out,
                           embeddings=args.include_embeddings,
                           full_frames=args.include_frame_measurements)

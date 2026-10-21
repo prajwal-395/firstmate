@@ -26,6 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 
+from library.tools import refusal_taxonomy
 from library.tools.ren_refusal import RenRefusal
 from library.tools.resolved import broker_paths
 
@@ -81,11 +82,39 @@ class TestSpawnRefused(RenRefusal):
 
 
 class BrokerError(RuntimeError):
-    """The broker answered with an error. `reply` is what it said."""
+    """The broker answered with an error. `reply` is what it said.
+
+    PROD-003: it carries the BLOCKER - which of the six kinds of block
+    this is - and the NEXT ACTION, so a broker refusal is actionable
+    where it reaches the caller.  A broker that closed the connection is
+    a RESOURCE the caller does not have, and the next action names the
+    broker's own command; a broker that answered with a refusal is
+    carrying the engine's own answer, blocker and next action included.
+    """
 
     def __init__(self, reply: dict):
         super().__init__(reply.get("error", "ren-resolved error"))
         self.reply = reply
+        self.blocker = str(reply.get("blocker") or self._blocker_for())
+        self.next_action = str(
+            reply.get("next_action")
+            or refusal_taxonomy.next_action_for(self.blocker))
+
+    def _blocker_for(self) -> str:
+        """The blocker this broker error reports, when it names none."""
+        error = str(self.reply.get("error") or "")
+        if ("closed the connection" in error
+                or "not serving" in error
+                or "no broker" in error):
+            return "resource_contention"
+        return "unsupported_operation"
+
+    def as_dict(self) -> dict:
+        """The error, with the kind of block and the next action."""
+        return {"error": str(self), "blocker": self.blocker,
+                "next_action": self.next_action,
+                "blocking_reason": refusal_taxonomy.plain_reason(
+                    self.blocker)}
 
 
 def _path(path=None) -> Path:
@@ -115,7 +144,10 @@ def _exchange(sock: socket.socket, stream, request: dict,
     sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
     line = stream.readline()
     if not line:
-        raise BrokerError({"error": "ren-resolved closed the connection"})
+        raise BrokerError({
+            "error": ("ren-resolved closed the connection before it "
+                      "answered - the broker is not serving this request"),
+            "next_action": ("wait_for_the_resource",)})
     reply = json.loads(line)
     if "error" in reply:
         raise BrokerError(reply)
@@ -572,7 +604,7 @@ def ensure(path=None, timeout: float = START_TIMEOUT_SECONDS) -> Optional[dict]:
                 "production Resolve calls on unmerged code from a "
                 "directory a worktree tool may reclaim",
             fix="run from the installed engine checkout; a linked "
-                "worktree cannot start the production broker")
+                "worktree cannot start the production broker", blocker="unsafe_state")
     try:
         import fcntl
     except ImportError:  # pragma: no cover - not POSIX

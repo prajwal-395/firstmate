@@ -3671,6 +3671,12 @@ EXEMPT_IMPORTS = {
     # revert and error-display behavior cannot change a measured value.
     "library/tools/project_migration.py",
     "library/tools/ren_refusal.py",
+    # The refusal taxonomy the refusal shape reads: the six kinds of
+    # block, the next action each demands, and the inventory of refusal
+    # families. A change here can change what a refusal SAYS, never a
+    # measured value - and it is declared so the preflight cache
+    # invalidates rather than blessing a stale refusal.
+    "library/tools/refusal_taxonomy.py",
     # Cache-identity plumbing: hashing a step's sources and stamping
     # which code wrote a cache. A fix here can only invalidate good
     # cache (a re-analysis, the safe direction) - never silently bless

@@ -150,6 +150,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import refusal_taxonomy
+
 VERSION = "0.7.0"
 
 DESCRIPTION = ("Read recorded timeline generations or explicitly refresh "
@@ -270,17 +272,43 @@ def preview(text: str, full: bool) -> str:
 
 
 class AxiError(RuntimeError):
-    """A structured failure: what went wrong plus the fixing command."""
+    """A structured failure: what went wrong plus the fixing command.
 
-    def __init__(self, message: str, fix: str = "") -> None:
+    PROD-003: it carries the BLOCKER - which of the six kinds of block
+    this is - and the NEXT ACTION, the move the caller can take, so an
+    AXI refusal says the same thing the engine's own refusals say.  The
+    fixing command is REQUIRED: a refusal with no next step is the
+    defect this removes, and it is refused here, at the raise site.
+    """
+
+    def __init__(self, message: str, fix: str = "",
+                 blocker: str = "unsupported_operation",
+                 next_action: str = "") -> None:
         super().__init__(message)
         self.fix = fix
+        self.blocker = blocker
+        self.next_action = (next_action
+                            or refusal_taxonomy.next_action_for(blocker))
+        if not str(fix).strip():
+            raise ValueError(
+                "an AXI refusal must carry the command or edit that "
+                "answers it; state the next step the caller can take "
+                f"(message: {message!r})")
+        refusal_taxonomy.assert_supplyable(
+            str(fix), supplyable_commands(),
+            where="the AXI refusal's fix")
 
 
-def fail(message: str, fix: str = "") -> int:
+def fail(message: str, fix: str = "", blocker: str = "",
+         next_action: str = "") -> int:
     parts = [f"error: {message}"]
+    if blocker:
+        parts.append(f"blocker: {blocker} - "
+                     f"{refusal_taxonomy.plain_reason(blocker)}")
     if fix:
         parts.append(f"help: {fix}")
+    if next_action:
+        parts.append(f"next action: {next_action}")
     emit(parts)
     return 1
 
@@ -1403,7 +1431,7 @@ def cmd_timeline_get(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     snapshot = view.snapshot
     timeline_name = view.generation.timeline_name
     start = int(snapshot["start_frame"])
@@ -1552,7 +1580,7 @@ def cmd_markers(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     timeline_name = view.generation.timeline_name
     notes = view.snapshot["markers"]["notes"]
     rows = _note_rows(notes, args.full, args.plane or "")
@@ -1610,19 +1638,19 @@ def cmd_markers_snapshot(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         try:
             timeline, _, note = _target_timeline(project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             notes = _read_notes(
                 timeline, f"{TOOL} markers --timeline "
                 f"\"{args.timeline or '<name>'}\"")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         payload = _snapshot_payload(project.GetName(), timeline.GetName(),
                                     notes)
     try:
@@ -1859,13 +1887,13 @@ def cmd_markers_restore(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, _, note = _target_timeline(project, wanted_name)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if timeline.GetName() != snapshot.get("timeline"):
             return fail(
                 f"snapshot is for {snapshot.get('timeline')!r} but the "
@@ -1983,19 +2011,19 @@ def cmd_markers_reply(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, _, note = _target_timeline(project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             notes = _read_notes(
                 timeline, f"{TOOL} markers --timeline "
                 f"\"{args.timeline or '<name>'}\"")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         answered = [n for n in notes
                     if args.answers_frame is not None
                     and n.frame == args.answers_frame]
@@ -2143,14 +2171,14 @@ def cmd_markers_audit_replies(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         from library.tools import marker_carry as _carry
         from library.tools import marker_feedback
         try:
@@ -2164,7 +2192,7 @@ def cmd_markers_audit_replies(args) -> int:
                 timeline, f"{TOOL} markers --timeline "
                 f"\"{args.timeline or '<name>'}\"")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         clip_replies = [
             n for n in live if n.source != "timeline_marker"
             and marker_feedback.reply_records_in(n.custom_data_raw)]
@@ -2209,7 +2237,7 @@ def cmd_items(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     timeline_name = view.generation.timeline_name
     tracks = view.snapshot["tracks"]
     rows = []
@@ -2293,7 +2321,7 @@ def cmd_target(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     resolution = target_resolution.resolve_text(
         description, target_resolution.clips_of(view.snapshot))
     rows = [match.as_dict() for match in resolution.matches]
@@ -2389,7 +2417,7 @@ def cmd_fusion(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     timeline_name = view.generation.timeline_name
     tracks = view.snapshot["tracks"]
     rows = []
@@ -2435,7 +2463,7 @@ def cmd_captions(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     from library.tools.caption_swap import SUBTITLES_TRACK_NAME
     timeline_name = view.generation.timeline_name
     rows = [{"start": clip["record_in"],
@@ -2541,7 +2569,7 @@ def cmd_pool(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         try:
@@ -2619,7 +2647,7 @@ def cmd_renders(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         try:
@@ -3362,7 +3390,7 @@ def cmd_project(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         from library.tools.marker_feedback import current_timeline
@@ -3527,7 +3555,7 @@ def cmd_ownership_adopt(args) -> int:
               help_block([f"{TOOL} ownership <project> --who <name>"])])
         return 0
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     except Exception as exc:  # noqa: BLE001
         return fail(
             f"reel timeline adoption failed ({type(exc).__name__}: {exc}).",
@@ -3552,14 +3580,14 @@ def cmd_audio(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             count = timeline.GetTrackCount("audio") or 0
         except Exception as exc:
@@ -3633,7 +3661,7 @@ def cmd_cursor(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, "")
         from library.tools.marker_feedback import current_timeline
@@ -3664,7 +3692,7 @@ def cmd_frames(args) -> int:
             refresh_live=getattr(args, "refresh_live", False),
             exact=bool(getattr(args, "_reel_exact", False)))
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     snapshot = view.snapshot
     timeline_name = view.generation.timeline_name
     start, end = int(snapshot["start_frame"]), int(snapshot["end_frame"])
@@ -4044,7 +4072,7 @@ class _NoProjectSwitchManager:
                 raise AxiError(
                     f"recorded scripts cannot call ProjectManager.{name}; "
                     "Resolve's open project is restored and project switches "
-                    "are not part of this run.")
+                    "are not part of this run.", fix="run the ren-side command for this instead of a recorded script")
             return refuse
         return getattr(self._manager, name)
 
@@ -4063,7 +4091,7 @@ class _NoProjectSwitchResolve:
             def refuse(*_args, **_kwargs):
                 raise AxiError(
                     f"recorded scripts cannot call Resolve.{name}; project "
-                    "switches are refused")
+                    "switches are refused", fix="run the command against the project already open in Resolve")
             return refuse
         return getattr(self._resolve, name)
 
@@ -4147,7 +4175,7 @@ def _cmd_run_recorded(args) -> int:
         refused = _refused_resolve_writes(script)
         tree = ast.parse(script)
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     except SyntaxError as exc:
         return fail(f"script would not parse ({exc}).", f"{TOOL} run --help")
     # `--unsafe` is the caller's declaration that a dynamic or indirect
@@ -4189,7 +4217,7 @@ def _cmd_run_recorded(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
 
     run_id = resolve_script_store.new_run_id()
     started = datetime.now(timezone.utc).isoformat()
@@ -4226,7 +4254,7 @@ def _cmd_run_recorded(args) -> int:
             timeline, is_current, note = _target_timeline(
                 project, getattr(args, "timeline", ""), resolve)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         project_name = project.GetName()
         timeline_name = timeline.GetName()
         try:
@@ -4506,7 +4534,7 @@ def cmd_run(args) -> int:
     try:
         refused = _refused_resolve_writes(script)
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     if refused and not args.unsafe:
         timeline_flag = (f"--timeline \"{args.timeline}\" "
                          if args.timeline else "")
@@ -4526,7 +4554,7 @@ def cmd_run(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.unsafe):
         if use_borrow:
             from library.tools.qualification_project import borrowed as _borrowed
@@ -4539,7 +4567,7 @@ def cmd_run(args) -> int:
                 timeline, is_current, note = _target_timeline(
                     project, args.timeline, resolve)
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             from library.tools import marker_feedback
             from library.tools.marker_feedback import current_timeline
             try:
@@ -4553,7 +4581,7 @@ def cmd_run(args) -> int:
             script_manager = script_resolve.GetProjectManager()
             def refuse_project_switch(_name):
                 raise AxiError(
-                    "recorded scripts cannot switch Resolve projects")
+                    "recorded scripts cannot switch Resolve projects", fix="open the project in Resolve, then run the command against it")
             scope = {
                 "resolve": script_resolve,
                 "manager": script_manager,
@@ -4584,7 +4612,7 @@ def cmd_run(args) -> int:
             try:
                 rendered = _run_parts(result, args.full, args.json)
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     try:
         _meta_name = timeline.GetName()
     except Exception:
@@ -4755,7 +4783,7 @@ def _edit_item_by_identity(timeline, args):
     if missing:
         raise AxiError(
             "stable item targeting requires media identity fields: "
-            + ", ".join(missing))
+            + ", ".join(missing), fix="supply the media identity the target needs (source file and source range), then re-run")
     track_type, _track_index = _parse_track(args.track)
     selector = {
         "resolve_item_id": str(unique_id),
@@ -4769,17 +4797,17 @@ def _edit_item_by_identity(timeline, args):
         address = timeline_addressing.resolve_item(timeline, selector)
         timeline_addressing.verify_item(timeline, address)
     except timeline_addressing.AddressingError as exc:
-        raise AxiError(f"stable target revalidation failed: {exc}") from exc
+        raise AxiError(f"stable target revalidation failed: {exc}", fix="re-run once Resolve answers the target read; nothing was written") from exc
     try:
         items = timeline.GetItemListInTrack(address.track_type,
                                             address.track_index) or []
         matches = [(index, item) for index, item in enumerate(items)
                    if str(item.GetUniqueId() or "") == address.resolve_item_id]
     except Exception as exc:
-        raise AxiError(f"could not re-read the stable target position: {exc}") from exc
+        raise AxiError(f"could not re-read the stable target position: {exc}", fix="re-run once Resolve answers the target read; nothing was written") from exc
     if len(matches) != 1:
         raise AxiError(
-            f"stable target {unique_id!r} occupies {len(matches)} live positions")
+            f"stable target {unique_id!r} occupies {len(matches)} live positions", fix="the target moved: re-read the timeline, state the item by its current position, then re-run")
     index, item = matches[0]
     span = _item_span(item)
     if (int(span["record_in"]) != int(args.expected_record_in_frame)
@@ -4787,7 +4815,7 @@ def _edit_item_by_identity(timeline, args):
         raise AxiError(
             f"stable target {unique_id!r} changed record span from "
             f"[{args.expected_record_in_frame}, {args.expected_record_out_frame}] "
-            f"to [{span['record_in']}, {span['record_out']}] since preparation")
+            f"to [{span['record_in']}, {span['record_out']}] since preparation", fix="the target moved: re-read the timeline, state the item's current record span, then re-run")
     args.index = index
     return item, address.track_type, address.track_index, address.resolve_item_id
 
@@ -5212,14 +5240,14 @@ def cmd_edit_place(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if not args.clip and not getattr(args, "clip_id", ""):
             return fail("place needs --clip or --clip-id.",
                         f"{TOOL} pool")
@@ -5230,7 +5258,7 @@ def cmd_edit_place(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             if getattr(args, "clip_id", ""):
                 clip, row = _pool_find_clip_by_id(project, args.clip_id)
@@ -5238,7 +5266,7 @@ def cmd_edit_place(args) -> int:
                 clip, row = _pool_find_clip(project, args.clip,
                                             args.bin or "")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         # The clip is named by its DISPLAY name everywhere the plan, the
         # journal and the receipt are written, whether it was asked for
         # by name or by its pool unique id.
@@ -5672,7 +5700,7 @@ def _timeline_trim_snapshot(timeline):
         except Exception as exc:
             raise AxiError(
                 f"timeline snapshot could not read {track_type} track count: "
-                f"{exc}") from exc
+                f"{exc}", fix="re-run once Resolve answers the track read; nothing was written") from exc
         for track_index in range(1, count + 1):
             try:
                 items = list(timeline.GetItemListInTrack(
@@ -5680,7 +5708,7 @@ def _timeline_trim_snapshot(timeline):
             except Exception as exc:
                 raise AxiError(
                     f"timeline snapshot could not read {track_type}{track_index}: "
-                    f"{exc}") from exc
+                    f"{exc}", fix="re-run once Resolve answers the track read; nothing was written") from exc
             for item in items:
                 span = _item_span(item)
                 try:
@@ -5691,11 +5719,11 @@ def _timeline_trim_snapshot(timeline):
                     duration = end - start
                 except (TypeError, ValueError):
                     raise AxiError(
-                        "timeline snapshot could not read every item span")
+                        "timeline snapshot could not read every item span", fix="re-run once Resolve answers the item read; nothing was written")
                 if not span["uid"] or duration <= 0:
                     raise AxiError(
                         "timeline snapshot found an item without a stable "
-                        "identity or positive duration")
+                        "identity or positive duration", fix="re-run against a timeline whose items carry stable identities and durations")
                 pool_item = None
                 try:
                     pool_item = item.GetMediaPoolItem()
@@ -5710,7 +5738,7 @@ def _timeline_trim_snapshot(timeline):
                 except edit_state_preservation.StatePreservationError as exc:
                     raise AxiError(
                         f"timeline snapshot cannot preserve {span['name']!r}: "
-                        f"{exc}") from exc
+                        f"{exc}", fix="re-run against a timeline whose items can be read back") from exc
                 rows.append({
                     "track_type": track_type,
                     "track_index": track_index,
@@ -5887,16 +5915,16 @@ def _linked_items(item):
     try:
         linked = list(item.GetLinkedItems() or [])
     except Exception as exc:
-        raise AxiError(f"linked-item state could not be read ({exc})") from exc
+        raise AxiError(f"linked-item state could not be read ({exc})", fix="re-run once Resolve answers the linked-item read; nothing was written") from exc
     items = [item, *linked]
     by_uid = {}
     for member in items:
         try:
             uid = str(member.GetUniqueId() or "")
         except Exception as exc:
-            raise AxiError(f"a linked item has no readable identity ({exc})") from exc
+            raise AxiError(f"a linked item has no readable identity ({exc})", fix="supply the linked item's stable Resolve identity (unique id), then re-run") from exc
         if not uid:
-            raise AxiError("a linked item has no stable Resolve identity")
+            raise AxiError("a linked item has no stable Resolve identity", fix="supply the linked item's stable Resolve identity (unique id), then re-run")
         by_uid[uid] = member
     return list(by_uid.values())
 
@@ -5912,9 +5940,9 @@ def _ripple_member_snapshot(item, track_type, track_index):
         pool_item = item.GetMediaPoolItem()
         pool_uid = str(pool_item.GetUniqueId() or "") if pool_item else ""
     except Exception as exc:
-        raise AxiError(f"{span.get('name')!r} cannot be safely re-placed ({exc})") from exc
+        raise AxiError(f"{span.get('name')!r} cannot be safely re-placed ({exc})", fix="re-read the timeline, state the item by its current position, then re-run") from exc
     if pool_item is None or record_out <= record_in:
-        raise AxiError(f"{span.get('name')!r} has unsupported media or span")
+        raise AxiError(f"{span.get('name')!r} has unsupported media or span", fix="use a span whose media kind this replacement path can carry")
     # The source end has ONE reading before the re-place.  Resolve
     # reports the inclusive end on an existing clip and the exclusive
     # end on a fresh placement, and the re-place adds one to it - so a
@@ -5931,7 +5959,7 @@ def _ripple_member_snapshot(item, track_type, track_index):
             f"{span.get('name')!r} has a source range this replacement path "
             f"cannot read faithfully (source {source_in}..{source_out} over "
             f"{record_out - record_in} record frames) - nothing was "
-            f"changed.")
+            f"changed.", fix="use a source range this path can read faithfully, or re-cut the clip")
     try:
         from library.tools import edit_state_preservation
         from library.tools.reel_read import _speed_percent
@@ -5941,14 +5969,14 @@ def _ripple_member_snapshot(item, track_type, track_index):
             item, picture=track_type == "video")
     except edit_state_preservation.StatePreservationError as exc:
         raise AxiError(
-            f"{span.get('name')!r} cannot be safely re-placed ({exc})") from exc
+            f"{span.get('name')!r} cannot be safely re-placed ({exc})", fix="re-read the timeline, state the item by its current position, then re-run") from exc
     except (AttributeError, TypeError, ValueError) as exc:
         raise AxiError(
-            f"{span.get('name')!r} speed state cannot be read ({exc})") from exc
+            f"{span.get('name')!r} speed state cannot be read ({exc})", fix="re-run once Resolve answers the speed read; nothing was written") from exc
     if speed is None or abs(speed - 100.0) > 1e-6:
         raise AxiError(
             f"{span.get('name')!r} is retimed; this replacement path cannot "
-            "preserve speed changes")
+            "preserve speed changes", fix="replace a clip that carries no speed change, or re-time it after the replacement")
     # The shared preservation contract re-links by live handle after each
     # group has been re-placed below, so old native ids are only evidence.
     preservation_state = dict(preservation_state)
@@ -5998,11 +6026,11 @@ def _track_ripple_inventory(timeline):
                 except (TypeError, ValueError, AttributeError) as exc:
                     raise AxiError(
                         f"timeline {track_type}{track_index} contains an item "
-                        f"whose structural identity cannot be verified ({exc})") from exc
+                        f"whose structural identity cannot be verified ({exc})", fix="re-run against a timeline whose items carry stable structural identities") from exc
                 if not uid or end <= start:
                     raise AxiError(
                         f"timeline {track_type}{track_index} contains an item "
-                        "without a stable structural identity or positive span")
+                        "without a stable structural identity or positive span", fix="re-run against a timeline whose items carry stable structural identities")
                 rows.append({
                     "uid": uid, "name": str(span["name"] or ""),
                     "track_type": track_type, "track_index": track_index,
@@ -6028,7 +6056,7 @@ def cmd_edit_track_ripple_remove(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         journal = None
@@ -6040,7 +6068,7 @@ def cmd_edit_track_ripple_remove(args) -> int:
             start, end = int(target_span["record_in"]), int(target_span["record_out"])
             duration = end - start
             if duration <= 0:
-                raise AxiError("target clip has no positive record duration")
+                raise AxiError("target clip has no positive record duration", fix="state a clip that carries frames on the timeline")
             rows = []
             for kind in ("video", "audio"):
                 for row in range(1, int(timeline.GetTrackCount(kind) or 0) + 1):
@@ -6054,7 +6082,7 @@ def cmd_edit_track_ripple_remove(args) -> int:
                 if str(span["uid"]) in target_ids:
                     target_records.append(_ripple_member_snapshot(member, kind, row))
             if target_ids != {record["uid"] for record in target_records}:
-                raise AxiError("an explicitly linked target is not on a readable timeline track")
+                raise AxiError("an explicitly linked target is not on a readable timeline track", fix="name a linked item that is on the timeline")
 
             target_track_successors = [
                 (member, span) for kind, row, member, span in rows
@@ -6070,13 +6098,13 @@ def cmd_edit_track_ripple_remove(args) -> int:
                     linked_uid = str(linked.GetUniqueId())
                     if linked_uid in claimed:
                         raise AxiError(
-                            "two ripple items share a link group; refusing ambiguous movement")
+                            "two ripple items share a link group; refusing ambiguous movement", fix="split the ripple so no two items share a link group")
                     hits = [(kind, row, live, live_span)
                             for kind, row, live, live_span in rows
                             if str(live_span["uid"]) == linked_uid]
                     if len(hits) != 1:
                         raise AxiError(
-                            f"linked item {linked_uid!r} is not uniquely present")
+                            f"linked item {linked_uid!r} is not uniquely present", fix="name the linked item by its unique id, then re-run")
                     kind, row, live, _ = hits[0]
                     records.append(_ripple_member_snapshot(live, kind, row))
                     claimed.add(linked_uid)
@@ -6099,7 +6127,7 @@ def cmd_edit_track_ripple_remove(args) -> int:
                        for dest_kind, dest_row, dest_in, dest_out
                        in destination_claims):
                     raise AxiError(
-                        f"track-scoped ripple would overlap unrelated {kind}{row} content")
+                        f"track-scoped ripple would overlap unrelated {kind}{row} content", fix="narrow the ripple to the row you mean, or re-time the clip so nothing else is covered")
 
             if not args.apply:
                 emit([kv_block("track_ripple_remove_plan", {
@@ -6122,24 +6150,24 @@ def cmd_edit_track_ripple_remove(args) -> int:
                     gate_class="edit_track_ripple_remove") as (journal, state):
                 if not timeline.DeleteClips(
                         [record["item"] for record in target_records], False):
-                    raise AxiError("Resolve refused the local target and linked-item delete")
+                    raise AxiError("Resolve refused the local target and linked-item delete", fix="re-read the timeline and check whether the item is still there, then re-run")
                 if any(_presence(timeline, record["uid"])
                        for record in target_records):
-                    raise AxiError("the target or an explicitly linked item remained after delete")
+                    raise AxiError("the target or an explicitly linked item remained after delete", fix="re-read the timeline: the item is still there, so nothing was deleted")
 
                 for group in successor_groups:
                     if not timeline.DeleteClips(
                             [record["item"] for record in group], False):
-                        raise AxiError("Resolve refused to clear a shifted link group")
+                        raise AxiError("Resolve refused to clear a shifted link group", fix="re-read the timeline and re-run; the link group is unchanged")
                     if any(_presence(timeline, record["uid"]) for record in group):
-                        raise AxiError("a shifted original remained before re-placement")
+                        raise AxiError("a shifted original remained before re-placement", fix="re-read the timeline and re-run; nothing was moved")
                     replacements = []
                     for record in group:
                         media_type = {"video": 1, "audio": 2}.get(
                             record["track_type"])
                         if media_type is None:
                             raise AxiError(
-                                f"linked {record['track_type']} items cannot be re-placed safely")
+                                f"linked {record['track_type']} items cannot be re-placed safely", fix="re-state the plan against what the linked items are now")
                         replacement, error = _replace_item(
                             timeline, project.GetMediaPool(), None,
                             record["source_in"], record["source_out"],
@@ -6157,17 +6185,17 @@ def cmd_edit_track_ripple_remove(args) -> int:
                                            "timeline_id": timeline.GetUniqueId(),
                                            "timeline_name": timeline.GetName()})
                         if error:
-                            raise AxiError(error)
+                            raise AxiError(error, fix="re-run once the underlying error clears; nothing was written")
                         replacements.append(replacement)
                     if len(replacements) > 1:
                         if not timeline.SetClipsLinked(replacements, True):
-                            raise AxiError("Resolve refused to restore an explicit link group")
+                            raise AxiError("Resolve refused to restore an explicit link group", fix="re-read the timeline and re-run; the link group is unchanged")
                         replacement_ids = {str(item.GetUniqueId()) for item in replacements}
                         if any(replacement_ids - {str(item.GetUniqueId())}
                                - {str(linked.GetUniqueId()) for linked in
                                   (item.GetLinkedItems() or [])}
                                for item in replacements):
-                            raise AxiError("replacement link group did not read back")
+                            raise AxiError("replacement link group did not read back", fix="re-read the timeline and re-run; the replacement did not land")
 
                 # Verify the requested track's complete post-removal sequence.
                 final_items = list(timeline.GetItemListInTrack(
@@ -6179,7 +6207,7 @@ def cmd_edit_track_ripple_remove(args) -> int:
                        for group in successor_groups for record in group
                        if record["track_type"] == track_type
                        and record["track_index"] == track_index):
-                    raise AxiError("the downstream track sequence did not close the removed gap")
+                    raise AxiError("the downstream track sequence did not close the removed gap", fix="re-read the timeline: the gap is still open, so the ripple did not land")
                 after_rows = _track_ripple_inventory(timeline)
                 before_by_uid = {str(record["uid"]): record
                                  for record in before_rows}
@@ -6189,20 +6217,20 @@ def cmd_edit_track_ripple_remove(args) -> int:
                 for old_uid, old_record in before_by_uid.items():
                     if old_uid in target_ids:
                         if old_uid in after_by_uid:
-                            raise AxiError("the target or its linked items remain")
+                            raise AxiError("the target or its linked items remain", fix="re-read the timeline: the items are still there, so nothing was deleted")
                         continue
                     if old_uid in affected_ids:
                         if old_uid in after_by_uid:
-                            raise AxiError("a shifted original item remained on the timeline")
+                            raise AxiError("a shifted original item remained on the timeline", fix="re-read the timeline and re-run; the item did not move")
                         continue
                     if old_uid not in affected_ids:
                         new = after_by_uid.get(old_uid)
                         if (new is None or _trim_row_semantic_signature(new)
                                 != _trim_row_semantic_signature(old_record)):
-                            raise AxiError("an unrelated item changed during track ripple")
+                            raise AxiError("an unrelated item changed during track ripple", fix="re-read the timeline: the ripple touched an item outside the plan")
                 for record in expected_moves:
                     if _presence(timeline, record["uid"]):
-                        raise AxiError("a shifted original item remained on the timeline")
+                        raise AxiError("a shifted original item remained on the timeline", fix="re-read the timeline and re-run; the item did not move")
                     wanted_in = record["record_in"] - duration
                     wanted_out = record["record_out"] - duration
                     matches = [candidate for candidate in after_rows
@@ -6215,9 +6243,9 @@ def cmd_edit_track_ripple_remove(args) -> int:
                                and candidate["record_in"] == wanted_in
                                and candidate["record_out"] == wanted_out]
                     if len(matches) != 1:
-                        raise AxiError("a downstream item did not read back at its exact shifted span")
+                        raise AxiError("a downstream item did not read back at its exact shifted span", fix="re-read the timeline and re-run; the shift did not land")
                 if len(after_rows) != len(rows) - len(target_records):
-                    raise AxiError("the timeline item count differs from the scoped ripple plan")
+                    raise AxiError("the timeline item count differs from the scoped ripple plan", fix="re-read the timeline and re-state the plan against what is there")
                 state["success"] = True
             emit([kv_block("track_ripple_removed", {
                 "timeline": timeline.GetName(), "target": target_span["name"],
@@ -6263,25 +6291,25 @@ def cmd_edit_delete(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, uid = _edit_item_by_identity(
                 timeline, args)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         if args.apply:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("delete_plan", {
                       "timeline": timeline.GetName() +
@@ -6389,25 +6417,25 @@ def cmd_edit_move(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         dest_track = args.track_to or f"{track_type}{track_index}"
         try:
             _dest_type, dest_index = _parse_track(dest_track)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if args.to is None:
             return fail("move needs --to.",
                         f"{TOOL} edit move --help")
@@ -6415,7 +6443,7 @@ def cmd_edit_move(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("move_plan", {
                       "timeline": timeline.GetName() +
@@ -6506,19 +6534,19 @@ def cmd_edit_trim(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, uid = _edit_item_by_identity(
                 timeline, args)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         if args.source_in is None and args.source_out is None:
             return fail("trim needs --source-in and/or --source-out.",
@@ -6558,7 +6586,7 @@ def cmd_edit_trim(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("trim_plan", {
                       "timeline": timeline.GetName() +
@@ -6673,7 +6701,7 @@ def cmd_edit_switch_camera(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     camera_file = os.path.abspath(args.camera_source_file)
     camera_path = os.path.realpath(camera_file)
     if not os.path.isfile(camera_path):
@@ -6698,7 +6726,7 @@ def cmd_edit_switch_camera(args) -> int:
             item, track_type, track_index, uid = _edit_item_by_identity(
                 timeline, args)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if track_type != "video":
             return fail("multicam camera selection requires a video item",
                         f"{TOOL} items --timeline \"{timeline.GetName()}\"")
@@ -6855,19 +6883,19 @@ def cmd_edit_title(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         current = _title_current(item)
         if not args.text:
@@ -6877,7 +6905,7 @@ def cmd_edit_title(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("title_plan", {
                       "timeline": timeline.GetName() +
@@ -6962,19 +6990,19 @@ def cmd_edit_speed(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         percent = getattr(args, "percent", None)
         freeze = bool(getattr(args, "freeze", False))
@@ -7007,7 +7035,7 @@ def cmd_edit_speed(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             _dry_linked, _dry_skipped, _dry_refused, _dry_unchecked = \
                 _linked_audio_for_speed(timeline, item, span)
@@ -7194,14 +7222,14 @@ def cmd_edit_transition(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=bool(getattr(args, "apply", False))):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             clips = (timeline.GetItemListInTrack("video", 1) or [])
         except Exception as exc:
@@ -7317,7 +7345,7 @@ def cmd_edit_transition(args) -> int:
         try:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         with _journal_write(
                 args, timeline=timeline, project=project,
                 spec={"verb": "edit_transition",
@@ -7399,7 +7427,7 @@ def cmd_ingest(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
@@ -7559,7 +7587,7 @@ def cmd_relink(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     try:
         with _lease(exclusive=args.apply):
             project = _project(resolve, args.project)
@@ -7577,7 +7605,7 @@ def cmd_relink(args) -> int:
                 candidates, scanned, unreadable = _relink_candidates(
                     pool, old_path, deadline)
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             except ResolveCallTimeout as exc:
                 return fail(f"Resolve stopped answering: {exc}",
                             f"{TOOL} pool")
@@ -7674,7 +7702,7 @@ def cmd_relink(args) -> int:
                   help_block([f"{TOOL} pool"])])
             return 0 if not failed else 1
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     except ResolveCallTimeout as exc:
         return fail(f"Resolve stopped answering: {exc}",
                     f"{TOOL} pool")
@@ -7752,14 +7780,14 @@ def cmd_render_queue(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if args.preset:
             try:
                 presets = project.GetRenderPresetList() or []
@@ -7776,7 +7804,7 @@ def cmd_render_queue(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("queue_plan", {
                       "timeline": timeline.GetName() +
@@ -7848,7 +7876,7 @@ def cmd_render_start(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         rows = _render_job_rows(project)
@@ -7922,7 +7950,7 @@ def cmd_render_stop(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
@@ -7981,7 +8009,7 @@ def cmd_render_inspect(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     if not args.out:
         return fail("render inspect needs --out <directory>.",
                     f"{TOOL} render inspect --out <directory> --apply")
@@ -7993,7 +8021,7 @@ def cmd_render_inspect(args) -> int:
             timeline, _is_current, _note = _target_timeline(project, "",
                                                             resolve=resolve)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if not args.apply:
             emit([kv_block("inspect_plan", {
                       "project": project.GetName(),
@@ -8067,7 +8095,7 @@ def cmd_project_set(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         if not args.key:
@@ -8160,7 +8188,7 @@ def _scratch_apply(args, scratch) -> dict:
         resolve = _connect()
         manager = resolve.GetProjectManager()
         if manager is None:
-            raise AxiError("Resolve returned no live Project Manager")
+            raise AxiError("Resolve returned no live Project Manager", fix="open a project in Resolve, then re-run")
         if args.scratch_command == "create":
             return scratch.create(
                 resolve, manager, args.name,
@@ -8182,14 +8210,14 @@ def _scratch_apply(args, scratch) -> dict:
         if args.scratch_command == "collect":
             if args.apply:
                 if not args.manifest:
-                    raise AxiError("scratch collection apply needs --manifest")
+                    raise AxiError("scratch collection apply needs --manifest", fix="pass --manifest <file>, then re-run")
                 return scratch.apply_collection(resolve, manager, args.manifest)
             manifest = scratch.plan_collection(manager)
             return {"planned": True, "manifest": str(manifest),
                     "note": "review and select exact project rows before --apply"}
         if args.scratch_command == "delete":
             return scratch.delete(resolve, manager, args.name)
-        raise AxiError("choose a scratch lifecycle operation")
+        raise AxiError("choose a scratch lifecycle operation", fix="name one of the scratch lifecycle operations, then re-run")
 
 
 def cmd_project_scratch(args) -> int:
@@ -8252,7 +8280,7 @@ def cmd_project_export_timeline(args) -> int:
             resolve = _connect()
             manager = resolve.GetProjectManager()
             if manager is None:
-                raise AxiError("Resolve returned no live Project Manager")
+                raise AxiError("Resolve returned no live Project Manager", fix="open a project in Resolve, then re-run")
             result = reel_export.export_into_scratch(
                 resolve, manager,
                 source_project=args.source_project,
@@ -8299,7 +8327,7 @@ def cmd_timeline_retire_owned(args) -> int:
             resolve = _connect()
             manager = resolve.GetProjectManager()
             if manager is None:
-                raise AxiError("Resolve returned no live Project Manager")
+                raise AxiError("Resolve returned no live Project Manager", fix="open a project in Resolve, then re-run")
             from library.tools import reel_retirement
             result = [reel_retirement.retire_owned_qualification_timeline(
                 resolve, manager, args.project_folder, artifact_id)
@@ -8321,14 +8349,14 @@ def cmd_timeline_duplicate(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, _is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         names = _timeline_names(project)
         if not args.name:
             return fail("duplicate needs --name.",
@@ -8451,7 +8479,7 @@ def cmd_multicam_build(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         wanted = [c for c in (args.clip or []) if c]
@@ -8481,7 +8509,7 @@ def cmd_multicam_build(args) -> int:
                 clip, _row = _pool_find_clip(project, name,
                                              args.bin or "")
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             items.append(clip)
         const_name = _MULTICAM_SYNCS[sync]
         try:
@@ -8557,7 +8585,7 @@ def cmd_multicam_sync(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=False):
         project = _project(resolve, args.project)
         wanted = [c for c in (args.clip or []) if c]
@@ -8581,7 +8609,7 @@ def cmd_multicam_sync(args) -> int:
                 clip, _row = _pool_find_clip(project, name,
                                              args.bin or "")
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             items.append(clip)
         const_name = _AUDIO_SYNC_MODES[mode]
         try:
@@ -8733,19 +8761,19 @@ def cmd_color_lut(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         if not args.lut:
             return fail("color lut needs --lut <Resolve LUT path>.",
@@ -8788,7 +8816,7 @@ def cmd_color_lut(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("lut_plan", {
                       "timeline": timeline.GetName() +
@@ -8886,19 +8914,19 @@ def cmd_color_group(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         if not args.group:
             return fail("color group needs --group <name>.",
@@ -8913,7 +8941,7 @@ def cmd_color_group(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("group_plan", {
                       "timeline": timeline.GetName() +
@@ -9023,14 +9051,14 @@ def cmd_audio_isolate(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         track = args.track
         if track is None or track < 1:
             return fail("isolate needs --track <audio track number, "
@@ -9070,7 +9098,7 @@ def cmd_audio_isolate(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         else:
             emit([kv_block("isolate_plan", {
                       "timeline": timeline.GetName() +
@@ -9266,13 +9294,13 @@ def cmd_sense_transcribe(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             clip = _sense_clip(project, args.clip, args.bin or "")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             name = clip.GetName()
         except Exception:
@@ -9282,7 +9310,7 @@ def cmd_sense_transcribe(args) -> int:
             try:
                 language, voiced = _transcription_words(clip)
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             _emit_transcription(name, language, voiced, args.full)
             emit([f"cursor: {before} (reported, never moved)",
                   help_block([f"{TOOL} sense transcribe --clip "
@@ -9365,14 +9393,14 @@ def cmd_sense_cuts(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         if not args.apply:
             starts = _cut_frames(timeline)
             emit([kv_block("cuts_plan", {
@@ -9393,7 +9421,7 @@ def cmd_sense_cuts(args) -> int:
         try:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         before = _cut_frames(timeline)
         try:
             detected = bool(timeline.DetectSceneCuts())
@@ -9464,13 +9492,13 @@ def cmd_sense_classify(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             clip = _sense_clip(project, args.clip, args.bin or "")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             name = clip.GetName()
         except Exception:
@@ -9527,13 +9555,13 @@ def cmd_sense_intellisearch(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             clip = _sense_clip(project, args.clip, args.bin or "")
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             name = clip.GetName()
         except Exception:
@@ -9614,19 +9642,19 @@ def cmd_sense_reframe(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         if not args.apply:
             emit([kv_block("reframe_plan", {
@@ -9647,7 +9675,7 @@ def cmd_sense_reframe(args) -> int:
         try:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         before = _reframe_state(item)
         if not uid:
             return fail("the item has no unique id, so EditPatch cannot "
@@ -9723,14 +9751,14 @@ def cmd_edit_transform(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         matches = []
         for track_type in ("video",):
             try:
@@ -9800,7 +9828,7 @@ def cmd_edit_transform(args) -> int:
             try:
                 _assert_cursor_on(resolve, timeline.GetName())
             except AxiError as exc:
-                return fail(str(exc), exc.fix)
+                return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
             from library.tools import edit_patch
             from library.tools.execution_router import route_axi_dispatch
             try:
@@ -9875,19 +9903,19 @@ def cmd_sense_mask(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         from library.tools import magic_mask
         try:
@@ -9923,7 +9951,7 @@ def cmd_sense_mask(args) -> int:
         try:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             graph = item.GetNodeGraph()
             nodes_before = (graph.GetNumNodes() if graph is not None
@@ -9989,19 +10017,19 @@ def cmd_sense_switch(args) -> int:
     try:
         resolve = _connect()
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     with _lease(exclusive=args.apply):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
                 project, args.timeline)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             item, track_type, track_index, _uid = _edit_item(
                 timeline, args.track, args.index)
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         span = _item_span(item)
         try:
             window = float(args.min_edit if args.min_edit is not None
@@ -10028,7 +10056,7 @@ def cmd_sense_switch(args) -> int:
         try:
             _assert_cursor_on(resolve, timeline.GetName())
         except AxiError as exc:
-            return fail(str(exc), exc.fix)
+            return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
         try:
             items_before = len(timeline.GetItemListInTrack(
                 track_type, track_index) or [])
@@ -10271,6 +10299,37 @@ def _resolve_reel_scope(args, what: str):
         args.name = resolved["timeline"]
     args._reel_exact = True
     return None
+
+
+def supplyable_commands() -> tuple[str, ...]:
+    """What a caller can supply on the AXI command surface.
+
+    The commands the AXI has, the flags it accepts, and the qualifier
+    dimension names its conditions carry - read from the parser itself,
+    so the vocabulary cannot drift from what the CLI accepts.  A
+    refusal's fix is checked against this, so it cannot recommend a
+    command or a flag the caller cannot supply.
+    """
+    import argparse as _argparse
+
+    parser = build_parser()
+    commands: set[str] = set()
+    flags: set[str] = set()
+
+    def walk(node) -> None:
+        for action in node._actions:
+            flags.update(action.option_strings)
+            if isinstance(action, _argparse._SubParsersAction):
+                commands.update(action.choices.keys())
+                for sub in action.choices.values():
+                    walk(sub)
+
+    walk(parser)
+    from library.tools import axi_qualification_dimensions as dimensions
+
+    names = set(getattr(dimensions, "DIMENSIONS", {}) or {})
+    names.update(getattr(dimensions, "MEDIA_TYPES", ()) or ())
+    return tuple(sorted(commands | flags | names))
 
 
 def build_parser() -> Parser:
@@ -11631,7 +11690,7 @@ def _main_impl(argv=None) -> int:
                 lambda: _dispatch(func, args), deadline)
         return _dispatch(func, args)
     except AxiError as exc:
-        return fail(str(exc), exc.fix)
+        return fail(str(exc), exc.fix, exc.blocker, exc.next_action)
     except ResolveBusy as exc:
         return fail(str(exc),
                     "wait for the named Resolve holder to finish, "

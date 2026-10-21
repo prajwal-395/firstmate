@@ -57,6 +57,8 @@ import threading
 import time
 from typing import Optional
 
+from library.tools import refusal_taxonomy
+
 
 #: The broker's own pid, in the environment of every worker it starts.
 #: The daemon is the worker's owner: it schedules the work, and it is
@@ -162,7 +164,8 @@ def _watch_the_broker(pid: int) -> None:
 
 
 def _reply(request_id: str, ok: bool, result=None, error: str = "",
-           refused: bool = False, extra: Optional[dict] = None) -> dict:
+           refused: bool = False, extra: Optional[dict] = None,
+           blocker: str = "", next_action: str = "") -> dict:
     reply = {"id": request_id, "ok": ok}
     if ok:
         reply["result"] = result
@@ -170,6 +173,14 @@ def _reply(request_id: str, ok: bool, result=None, error: str = "",
         reply["error"] = error
         if refused:
             reply["refused"] = True
+            # PROD-003: a refusal says what KIND of block it was and
+            # what the caller can do about it, not only that it happened.
+            if blocker:
+                reply["blocker"] = blocker
+                reply["blocking_reason"] = refusal_taxonomy.plain_reason(
+                    blocker)
+            if next_action:
+                reply["next_action"] = next_action
         if result is not None:
             reply["result"] = result
     if extra:
@@ -197,7 +208,9 @@ def _execute_prepare(submit: dict) -> dict:
     except job_kinds.JobRefused as exc:
         # The refusal's message, without the class name - the Python
         # daemon's dispatch answers `{"error": str(exc), "refused": true}`.
-        return _reply(submit.get("id", ""), False, error=str(exc), refused=True)
+        return _reply(submit.get("id", ""), False, error=str(exc),
+                      refused=True, blocker=exc.blocker,
+                      next_action=exc.next_action)
     shape["description"] = job_kinds.activity_description(
         submit["kind"], submit["params"])
     shape["progress"] = str(submit["params"].get("progress") or "")
@@ -280,7 +293,8 @@ def _execute_job(job: dict) -> dict:
                       extra={"cancelled": True})
     except job_kinds.JobRefused as exc:
         return _reply(job["id"], False, error=str(exc), refused=True,
-                      result=exc.result)
+                      result=exc.result, blocker=exc.blocker,
+                      next_action=exc.next_action)
     except Exception as exc:                              # noqa: BLE001
         # The job failed; the worker does not. A dead connection is
         # dropped rather than trusted - except inside a project-switch

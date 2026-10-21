@@ -234,7 +234,7 @@ def test_no_second_hand_maintained_catalog():
 
 def test_refusal_payload_carries_the_ren_result_shape():
     refused = RenRefusal("what happened", "why it refused",
-                         "run `ren x` to fix it")
+                         "run `ren x` to fix it", blocker="unsupported_operation")
     payload = refusal_payload("edit", "what happened", "why it refused",
                               "run `ren x` to fix it")
     assert set(payload) == (set(refused.to_dict()) | {"ok", "exit", "verb"})

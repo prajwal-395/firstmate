@@ -136,7 +136,7 @@ def _resolve_build_project_name(manifest: dict) -> str:
                  "current, least of all on the captain's machine"),
             fix=("declare resolve.project_name in project.yaml (the "
                  "exact name as Resolve's project list reports it) and "
-                 "recompile"))
+                 "recompile"), blocker="unsafe_state")
     return name
 
 

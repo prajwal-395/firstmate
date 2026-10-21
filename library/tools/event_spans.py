@@ -1446,7 +1446,7 @@ def _predicate_spans(person: dict, predicate: str,
                 f"M7 on {digest[:12]} carries no {predicate!r} predicate",
                 (record.get("predicates_unavailable") or {}).get(
                     predicate, "the record was built without it"),
-                "python3 -m library.tools.event_spans build <project>")
+                "python3 -m library.tools.event_spans build <project>", blocker="insufficient_evidence")
         for span in body.get("spans") or []:
             if span.get("face_track") in tracks:
                 spans.append({"content_digest": digest,
@@ -1485,7 +1485,7 @@ def resolve_person(project_folder: str, query: str,
         "build M3b and M7 first (`person_entity build`, `event_spans build`), "
         "or declare `source.person_names` in project.yaml. M3b is the "
         "identity lane: when its model is licence-blocked, the roster is "
-        "empty and the candidate spans are still measured per source")
+        "empty and the candidate spans are still measured per source", blocker="missing_media")
 
 
 def _candidate_spans(person: dict, predicate: str,
@@ -1499,7 +1499,7 @@ def _candidate_spans(person: dict, predicate: str,
                 f"M7 on {digest[:12]} carries no {predicate!r} candidates",
                 "it was built before candidates were recorded; an unbuilt "
                 "source would read as 'never happens there'",
-                "python3 -m library.tools.event_spans build <project>")
+                "python3 -m library.tools.event_spans build <project>", blocker="insufficient_evidence")
         for span in body["spans"]:
             if span.get("face_track") in tracks:
                 # Older M7 records predate tiering. Hand-to-mouth frames
@@ -1541,10 +1541,10 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
             "the VLM looks at candidate spans only, never a whole episode; "
             f"{predicate!r} spans are not candidates (on_screen runs the "
             "length of every take)",
-            f"candidate predicates: {', '.join(CANDIDATE_PREDICATES)}")
+            f"candidate predicates: {', '.join(CANDIDATE_PREDICATES)}", blocker="unsupported_operation")
     if not statement.strip():
         raise RenRefusal("--verify needs a statement", "nothing to judge",
-                         "--verify \"covers his mouth with his hand\"")
+                         "--verify \"covers his mouth with his hand\"", blocker="ambiguous_intent")
     person, naming = resolve_person(project_folder, person_query, root)
     missing = [digest for digest in _tracks_of(person)
                if read_m7(digest, root) is None]
@@ -1552,7 +1552,7 @@ def verified_query(project_folder: str, person_query: str, predicate: str,
         raise RenRefusal(
             f"M7 is missing for {len(missing)} of this person's sources",
             "an unbuilt source would read as 'never happens there'",
-            f"python3 -m library.tools.event_spans build '{project_folder}'")
+            f"python3 -m library.tools.event_spans build '{project_folder}'", blocker="missing_media")
     candidates = _candidate_spans(person, predicate, root)
     ordered = sorted(candidates, key=lambda s: (s.get("tier", TIER_STRONG),
                                                 -(s.get("score", 0.0) or 0.0),
@@ -1638,18 +1638,18 @@ def query(project_folder: str, person_query: str, predicate: str,
                          UNSHIPPED[predicate],
                          f"ren search <project> --person <name> --predicate "
                          f"{predicate} --verify \"<what you see>\"; or "
-                         f"answerable alone: {', '.join(PREDICATES)}")
+                         f"answerable alone: {', '.join(PREDICATES)}", blocker="unsupported_operation")
     if predicate in CANDIDATE_PREDICATES:
         raise RenRefusal(
             f"predicate {predicate!r} is a candidate, not an answer",
             CANDIDATE_PREDICATES[predicate],
             f"ren search <project> --person <name> --predicate "
             f"{predicate} --verify \"<what you see>\"; answerable alone: "
-            f"{', '.join(PREDICATES)}")
+            f"{', '.join(PREDICATES)}", blocker="insufficient_evidence")
     if predicate not in PREDICATES:
         raise RenRefusal(f"unknown predicate {predicate!r}",
                          f"M7 measures: {', '.join(PREDICATES)}",
-                         f"use --predicate {' / --predicate '.join(PREDICATES)}")
+                         f"use --predicate {' / --predicate '.join(PREDICATES)}", blocker="unsupported_operation")
     person, naming = resolve_person(project_folder, person_query, root)
     missing = [digest for digest in _tracks_of(person)
                if read_m7(digest, root) is None]
@@ -1657,7 +1657,7 @@ def query(project_folder: str, person_query: str, predicate: str,
         raise RenRefusal(
             f"M7 is missing for {len(missing)} of this person's sources",
             "an unbuilt source would read as 'never happens there'",
-            f"python3 -m library.tools.event_spans build '{project_folder}'")
+            f"python3 -m library.tools.event_spans build '{project_folder}'", blocker="missing_media")
     items = timeline_items(project_folder)
     files = _digest_of_files(project_folder)
     hits = []

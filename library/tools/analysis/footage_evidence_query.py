@@ -28,12 +28,14 @@ def _object_plan(model: dict, args) -> dict:
             "the request names no asset to look at",
             "the project's Project Model holds no asset (or none with "
             "that id)",
-            "run the preflight first, or pass --asset-id")
+            "run the preflight first, or pass --asset-id",
+            blocker="missing_media")
     if len(assets) > 1:
         raise RenRefusal(
             "the request names more than one asset to look at",
             "the project's Project Model holds several assets",
-            "pass --asset-id to say which one")
+            "pass --asset-id to say which one",
+            blocker="ambiguous_intent")
     asset = assets[0]
     clocks = [row for row in model.get("clocks") or []
               if isinstance(row, dict)
@@ -42,7 +44,8 @@ def _object_plan(model: dict, args) -> dict:
         raise RenRefusal(
             "the asset has no clock to measure on",
             "the Project Model carries no clock for this asset",
-            "run the preflight first")
+            "run the preflight first",
+            blocker="missing_media")
     scope = {"clock_id": clocks[0]["id"], "asset_id": asset["id"]}
     if args.at:
         parts = str(args.at).replace(":", "-").split("-")
@@ -50,7 +53,8 @@ def _object_plan(model: dict, args) -> dict:
             raise RenRefusal(
                 "the window is not a range",
                 "--at takes START-END seconds",
-                "ren evidence <project> --object <name> --at 30-40")
+                "ren evidence <project> --object <name> --at 30-40",
+                blocker="unsupported_operation")
         try:
             scope["start_s"] = float(parts[0])
             scope["end_s"] = float(parts[1])
@@ -58,7 +62,8 @@ def _object_plan(model: dict, args) -> dict:
             raise RenRefusal(
                 "the window is not a range of seconds",
                 "--at takes START-END seconds",
-                "ren evidence <project> --object <name> --at 30-40") from None
+                "ren evidence <project> --object <name> --at 30-40",
+                blocker="unsupported_operation") from None
     return evidence_query.compile_plan(
         [{"predicate": "object_presence", "phrase": args.object,
           "requirement": args.requirement}], scope=scope)
@@ -144,19 +149,19 @@ def main(argv: list[str] | None = None) -> int:
             "pass a compiled plan file, `ren evidence <project> --trace "
             "<entity|event|observation>`, or `ren evidence <project> "
             "--object <name>`",
-        )
+            blocker="ambiguous_intent")
     if args.trace and (args.plan or args.object):
         raise RenRefusal(
             "a trace and a plan ask two different questions",
             "a trace was given together with a plan file or --object",
             "run the trace on its own, or the plan on its own",
-        )
+            blocker="ambiguous_intent")
     if args.plan and args.object:
         raise RenRefusal(
             "a plan and an object request ask two different questions",
             "both a plan file and --object were given",
             "run the plan on its own, or the object request on its own",
-        )
+            blocker="ambiguous_intent")
 
     from library.tools import evidence_query, project_model_store, source_memory
     from library.tools.project_model_cli import resolve_project_root
@@ -209,7 +214,7 @@ def main(argv: list[str] | None = None) -> int:
             "evidence acquisition needs one scoped asset",
             "the plan must identify an asset_id in scope",
             "compile the plan with scope.asset_id set",
-        )
+        blocker="ambiguous_intent")
     digest = asset["content_digest"]
     memory_root = Path(args.memory_root).expanduser() if args.memory_root else None
     m0 = source_memory.read_m0(digest, memory_root) or {}
@@ -232,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             "neither M0, the asset metadata nor the media carries a "
             "duration",
             "run source metadata analysis before acquiring evidence",
-        )
+        blocker="insufficient_evidence")
     from library.tools.project_model_acquisition import query_project
 
     answer = query_project(

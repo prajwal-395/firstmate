@@ -67,7 +67,7 @@ def _refuse_engine_checkout(project_folder: str) -> None:
         "pipeline_data.json - a root that contains this package is a "
         "cwd-relative test root, never a project",
         "pass the test's tmp_path project (a test builds its project "
-        "under tmp_path, never the repo)")
+        "under tmp_path, never the repo)", blocker="unsafe_state")
 
 
 def _input_fingerprint(project_folder: str, root: Path | None = None) -> str:

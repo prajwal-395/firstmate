@@ -196,7 +196,7 @@ def test_project_format_failure_keeps_the_active_version(
     def formats_fail(*_args):
         raise RenRefusal(
             "project format is not supported", "candidate supports 0..1",
-            "open the project with a newer Ren build")
+            "open the project with a newer Ren build", blocker="unsupported_operation")
 
     monkeypatch.setattr(upgrade, "_verify_project_formats", formats_fail)
 

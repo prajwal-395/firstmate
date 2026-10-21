@@ -401,7 +401,7 @@ def resolve_project_in_declared_folder(project_manager, name: str,
                 user_message=(f"The declared Resolve project {name!r} is ready. "
                               "May I open it? Reply yes or no."),
                 recovery_class="needs_question",
-                ask_reason="missing_authorization")
+                ask_reason="missing_authorization", blocker="unsafe_state")
         if current is not None:
             try:
                 dirty = current.GetIsProjectDirty()

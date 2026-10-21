@@ -136,7 +136,7 @@ def main(argv=None) -> int:
                 "--init writes a starter file; overwriting one would "
                 "discard this machine's settings",
                 f"edit {config_file} in place, or delete it and re-run "
-                "`ren config --init`")
+                "`ren config --init`", blocker="unsafe_state")
         config_file.parent.mkdir(parents=True, exist_ok=True)
         config_file.write_text(STARTER, encoding="utf-8")
         print(f"Wrote {config_file}. Edit it, then run `ren doctor`.")

@@ -171,7 +171,9 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             f"the operation effect {effect['effect']!r} requires a human decision",
             "resolve the decision for this assignment, then resubmit",
             code="REN_ASSIGNMENT_DECISION_REQUIRED", recovery_class="needs_question",
-            ask_reason="missing_authorization").to_dict()
+            ask_reason="missing_authorization",
+            blocker="unsafe_state",
+            next_action="answer_the_question").to_dict()
         from library.tools import assignment_refusal
 
         refusal["kind"] = assignment_refusal.classify(refusal)["kind"]
@@ -205,7 +207,8 @@ def _execute_locked(req: AssignmentRequest) -> dict:
             detail,
             "the operation's declared requirements or execution contract did not permit completion",
             result.error or "resolve the stated issue and resubmit this assignment operation",
-            code="REN_OPERATION_REFUSED", recovery_class="blocked")
+            code="REN_OPERATION_REFUSED", recovery_class="blocked",
+            blocker="unsupported_operation")
         refusal = refusal_obj.to_dict()
         if result.unsatisfied:
             refusal["unsatisfied"] = [

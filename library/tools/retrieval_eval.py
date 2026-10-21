@@ -1305,7 +1305,7 @@ def main(argv=None) -> int:
     if found is None:
         raise RenRefusal(f"{args.project!r} is not a project",
                          "the eval searches one project or collection",
-                         "ren eval-search <path to project or collection>")
+                         "ren eval-search <path to project or collection>", blocker="missing_media")
     with open(args.set, encoding="utf-8") as handle:
         eval_set = json.load(handle)
     result = run(str(found.parent), eval_set, args.families, args.timing_record)

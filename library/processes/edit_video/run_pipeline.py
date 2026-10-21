@@ -4932,14 +4932,17 @@ def _summary_refusal(summary: dict) -> "RenRefusal":
             user_message=info.get("user_message") or "",
             recovery_class=info.get("recovery_class") or "",
             conflict_class=info.get("conflict_class") or "",
-            ask_reason=info.get("ask_reason") or "")
+            ask_reason=info.get("ask_reason") or "",
+            blocker=info.get("blocker") or "",
+            next_action=info.get("next_action") or "")
     reason = summary.get("reason") or "the run refused before starting"
     first_line = (reason.splitlines() or [""])[0].strip() or reason
     fix = summary.get("fix") or (
         "address the refusal printed above, then re-run this command")
     return RenRefusal(what=summary.get("what") or first_line,
                       why=summary.get("why") or reason,
-                      fix=fix, code="REN_RUN_REFUSED")
+                      fix=fix, code="REN_RUN_REFUSED",
+                      blocker="unsafe_state")
 
 
 def main():

@@ -75,7 +75,7 @@ def resolve_project_folder(ref: str) -> Path:
         raise RenRefusal(
             "no project was named",
             "the project argument was empty",
-            "pass a project folder or a slug under PIPELINE_PROJECTS_ROOT")
+            "pass a project folder or a slug under PIPELINE_PROJECTS_ROOT", blocker="ambiguous_intent")
     candidate = Path(wanted).expanduser()
     try:
         candidate = candidate.resolve()
@@ -91,13 +91,13 @@ def resolve_project_folder(ref: str) -> Path:
             f"it carries neither {STATE_FILE} nor {CONFIG_FILE}, so it has "
             "no clip catalog to measure",
             "point the command at a Ren project folder, or create one "
-            "with `ren new <slug>`")
+            "with `ren new <slug>`", blocker="missing_media")
     if os.sep in wanted or wanted.startswith(("~", ".")):
         raise RenRefusal(
             f"{wanted} does not exist",
             "the path was given as a folder, and there is nothing there",
             "point the command at a Ren project folder, or create one "
-            "with `ren new <slug>`")
+            "with `ren new <slug>`", blocker="missing_media")
     root = projects_root()
     for folder in _slug_candidates(root, wanted):
         if folder.is_dir() and _looks_like_a_project(folder):
@@ -107,7 +107,7 @@ def resolve_project_folder(ref: str) -> Path:
         f"the projects root {root} holds no project by that name, and "
         f"{wanted!r} is not a path on disk",
         f"list what is there (`manage_project.py list`), or create the "
-        f"project with `ren new {wanted}`")
+        f"project with `ren new {wanted}`", blocker="missing_media")
 
 
 def require_project_state(folder: Path) -> Path:
@@ -123,7 +123,7 @@ def require_project_state(folder: Path) -> Path:
             "the clip catalog a measurement reads is written by the scan "
             "and catalog steps, and this project has not been scanned",
             "run the preflight first: `ren edit <project> --only scan "
-            "--only catalog`")
+            "--only catalog`", blocker="missing_media")
     return folder
 
 

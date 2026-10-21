@@ -196,7 +196,7 @@ def resolve_audio_mix(data: dict) -> dict:
             why=str(exc),
             fix=("re-plan the word-gap level so it stays within Resolve's "
                  "measurable clip-volume range"),
-        ) from exc
+        blocker="unsupported_operation") from exc
 
     for line in decided_value.summary_lines(decisions):
         print(f"  {line}", file=sys.stderr)
@@ -441,7 +441,7 @@ def resolve_music_ducking_plan(data: dict) -> dict:
             why="the renderer cannot read ducking fields from this answer.",
             fix=("return enabled, duck_db, release_ms, and why in one "
                  "music_ducking_plan object"),
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([plan], DUCKING_PLAN_KEYS, step="audio_mix",
                         plan="music_ducking_plan")
     if set(plan) != DUCKING_PLAN_KEYS:
@@ -450,27 +450,27 @@ def resolve_music_ducking_plan(data: dict) -> dict:
             what="the word-gap music plan is incomplete",
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return all four music_ducking_plan keys",
-        )
+        blocker="insufficient_evidence")
     if not isinstance(plan["enabled"], bool):
         raise RenRefusal(
             what="the word-gap enabled value is not boolean",
             why="a string or number does not declare whether ducking applies.",
             fix="set enabled to true or false",
-        )
+        blocker="insufficient_evidence")
     why = plan["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
             what="the word-gap plan has no reason",
             why="the chosen depth and recovery timing have no stated basis.",
             fix="state the request or creative reading behind the values",
-        )
+        blocker="insufficient_evidence")
     if not plan["enabled"]:
         if plan["duck_db"] is not None or plan["release_ms"] is not None:
             raise RenRefusal(
                 what="the disabled word-gap plan carries active values",
                 why="duck_db and release_ms would be unread settings.",
                 fix="set both numeric keys to null when enabled is false",
-            )
+            blocker="unsupported_operation")
         return {**plan, "why": why.strip()}
 
     duck_db = _finite_plan_number(plan["duck_db"], "duck_db")
@@ -480,7 +480,7 @@ def resolve_music_ducking_plan(data: dict) -> dict:
             what="the word-gap music values cannot be delivered",
             why="duck_db must be non-negative and release_ms positive.",
             fix="re-plan the duck depth and recovery duration with those units",
-        )
+        blocker="unsupported_operation")
     return {**plan, "duck_db": duck_db, "release_ms": release_ms,
             "why": why.strip()}
 
@@ -501,7 +501,7 @@ def resolve_audio_delivery_plan(data: dict) -> dict:
             why="the export step cannot read targets from this answer.",
             fix=("return dialogue_target_lufs, "
                  "true_peak_ceiling_dbtp, and why in one object"),
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([plan], DELIVERY_PLAN_KEYS, step="audio_mix",
                         plan="audio_delivery_plan")
     if set(plan) != DELIVERY_PLAN_KEYS:
@@ -510,14 +510,14 @@ def resolve_audio_delivery_plan(data: dict) -> dict:
             what="the audio delivery plan is incomplete",
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return all three audio_delivery_plan keys",
-        )
+        blocker="insufficient_evidence")
     why = plan["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
             what="the audio delivery plan has no reason",
             why="the declared targets have no stated request or basis.",
             fix="state why the exact numeric targets or delivery defaults apply",
-        )
+        blocker="insufficient_evidence")
     resolved = {"why": why.strip()}
     for key in ("dialogue_target_lufs", "true_peak_ceiling_dbtp"):
         value = plan[key]
@@ -554,7 +554,7 @@ def resolve_dynamics_plan(data: dict,
                 "answer.",
             fix=("return dialogue_compression, "
                  "master_limiter_release_ms, and why in one object"),
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([plan], DYNAMICS_PLAN_KEYS, step="audio_mix",
                          plan="dynamics_plan")
     if set(plan) != DYNAMICS_PLAN_KEYS:
@@ -563,7 +563,7 @@ def resolve_dynamics_plan(data: dict,
             what="the dynamics plan is incomplete",
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return all three dynamics_plan keys",
-        )
+        blocker="insufficient_evidence")
     why = plan["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
@@ -571,7 +571,7 @@ def resolve_dynamics_plan(data: dict,
             why="the compression and release have no stated basis in "
                 "the measured speech.",
             fix="state what in the measured levels earns each value",
-        )
+        blocker="insufficient_evidence")
     compression = plan["dialogue_compression"]
     if compression is not None:
         compression = _resolve_dialogue_compression(compression)
@@ -587,7 +587,7 @@ def resolve_dynamics_plan(data: dict,
                 what="the limiter release cannot be delivered",
                 why=str(exc),
                 fix="re-plan the release inside the intent scale",
-            ) from exc
+            blocker="unsupported_operation") from exc
     return {"dialogue_compression": compression,
             "master_limiter_release_ms": release,
             "why": why.strip()}
@@ -601,7 +601,7 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
             why="threshold, ratio, attack, release and why cannot be "
                 "read from this answer.",
             fix="return the five required compression keys as an object",
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([entry], DIALOGUE_COMPRESSION_KEYS,
                          step="audio_mix", plan="dynamics_plan")
     missing = sorted(DIALOGUE_COMPRESSION_REQUIRED_KEYS - set(entry))
@@ -611,7 +611,7 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return threshold_db, ratio, attack_ms, release_ms "
                 "and why",
-        )
+        blocker="insufficient_evidence")
     why = entry["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
@@ -619,7 +619,7 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
             why="the threshold and ratio have no stated basis in the "
                 "measured speech.",
             fix="state what in the measured levels earns the compression",
-        )
+        blocker="insufficient_evidence")
     raw = {}
     for key in ("threshold_db", "ratio", "attack_ms", "release_ms",
                 "knee_db", "makeup_gain_db"):
@@ -633,7 +633,7 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
                 why="the Fairlight executor reads JSON numbers, not "
                     "text or nulls.",
                 fix=f"re-plan {key} as a finite numeric value",
-            )
+            blocker="insufficient_evidence")
         raw[key] = value
     try:
         checked = validate_dynamics(raw)
@@ -642,7 +642,7 @@ def _resolve_dialogue_compression(entry: dict) -> dict:
             what="the dialogue compression cannot be delivered",
             why=str(exc),
             fix="re-plan the compression inside the intent scale",
-        ) from exc
+        blocker="unsupported_operation") from exc
     return {"threshold_db": checked.threshold_db,
             "ratio": checked.ratio,
             "attack_ms": checked.attack_ms,
@@ -675,7 +675,7 @@ def resolve_gate_plan(data: dict) -> dict:
             why="the Fairlight executor cannot read a gate from this "
                 "answer.",
             fix="return dialogue_gate and why in one object",
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([plan], GATE_PLAN_KEYS, step="audio_mix",
                          plan="gate_plan")
     if set(plan) != GATE_PLAN_KEYS:
@@ -684,14 +684,14 @@ def resolve_gate_plan(data: dict) -> dict:
             what="the gate plan is incomplete",
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return both gate_plan keys",
-        )
+        blocker="insufficient_evidence")
     why = plan["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
             what="the gate plan has no reason",
             why="the gate has no stated basis in the measured room.",
             fix="state what in the measured floors earns the gate",
-        )
+        blocker="insufficient_evidence")
     gate = plan["dialogue_gate"]
     if gate is not None:
         gate = _resolve_dialogue_gate(gate)
@@ -706,7 +706,7 @@ def _resolve_dialogue_gate(entry: dict) -> dict:
             why="threshold, ratio, attack, release, hold, range and "
                 "why cannot be read from this answer.",
             fix="return the seven required gate keys as an object",
-        )
+        blocker="insufficient_evidence")
     refuse_unknown_keys([entry], DIALOGUE_GATE_KEYS,
                          step="audio_mix", plan="gate_plan")
     missing = sorted(DIALOGUE_GATE_KEYS - set(entry))
@@ -715,7 +715,7 @@ def _resolve_dialogue_gate(entry: dict) -> dict:
             what="the dialogue gate is incomplete",
             why=f"the answer omitted {', '.join(missing)}.",
             fix="return all seven gate keys",
-        )
+        blocker="insufficient_evidence")
     why = entry["why"]
     if not isinstance(why, str) or not why.strip():
         raise RenRefusal(
@@ -723,7 +723,7 @@ def _resolve_dialogue_gate(entry: dict) -> dict:
             why="the threshold has no stated basis in the measured "
                 "room.",
             fix="state what in the measured floors earns the gate",
-        )
+        blocker="insufficient_evidence")
     raw = {}
     for key in ("threshold_db", "ratio", "attack_ms", "release_ms",
                 "hold_ms", "range_db"):
@@ -735,7 +735,7 @@ def _resolve_dialogue_gate(entry: dict) -> dict:
                 why="the Fairlight executor reads JSON numbers, not "
                     "text or nulls.",
                 fix=f"re-plan {key} as a finite numeric value",
-            )
+            blocker="insufficient_evidence")
         raw[key] = value
     try:
         checked = validate_gate(raw)
@@ -744,7 +744,7 @@ def _resolve_dialogue_gate(entry: dict) -> dict:
             what="the dialogue gate cannot be delivered",
             why=str(exc),
             fix="re-plan the gate inside the intent scale",
-        ) from exc
+        blocker="unsupported_operation") from exc
     return {"threshold_db": checked.threshold_db,
             "ratio": checked.ratio,
             "attack_ms": checked.attack_ms,
@@ -760,14 +760,14 @@ def _finite_plan_number(value, label: str) -> float:
             what=f"{label} is not a number",
             why="the plan must supply a JSON number, not text or a boolean.",
             fix=f"re-plan {label} as a finite numeric value",
-        )
+        blocker="insufficient_evidence")
     result = float(value)
     if not math.isfinite(result):
         raise RenRefusal(
             what=f"{label} is not finite",
             why=f"the answer supplied {value!r}.",
             fix=f"re-plan {label} as a finite numeric value",
-        )
+        blocker="insufficient_evidence")
     return result
 
 

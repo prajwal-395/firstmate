@@ -58,6 +58,17 @@ change is not authorized, or the available evidence does not settle it.
 WHY, and it is the difference between asking the person and the host
 improvising a question for them. A refusal that does not ask carries
 an empty reason.
+
+PROD-003: a refusal also carries a BLOCKER - what KIND of thing blocked
+it, in the six kinds `library/tools/refusal_taxonomy.py` enumerates -
+and a NEXT ACTION, the move the caller can actually take. The two are
+required: a refusal without a blocker says what happened but not what
+kind of block it was, and a refusal without a next action is a dead
+end. A family declares its blocker once (`BLOCKER`) or is classified in
+the taxonomy's inventory; a raise site may name its own. A refusal whose
+fix recommends an argument the caller cannot supply is refused at the
+raise site (`SUPPLIES` names the surface whose vocabulary the fix may
+use), because advice the caller cannot act on is worse than no advice.
 """
 
 from __future__ import annotations
@@ -67,6 +78,8 @@ import os
 import re
 import sys
 import traceback
+
+from library.tools import refusal_taxonomy
 
 
 REFUSAL_EXIT_CODE = 4
@@ -159,9 +172,29 @@ class RenRefusal(RuntimeError, ValueError):
     ambiguous request from an unauthorized one from an unproven one
     without reading the prose."""
 
+    BLOCKER = ""
+    """What KIND of thing blocks this family, in the six kinds
+    `refusal_taxonomy.BLOCKERS` names. A family that leaves it empty is
+    classified in the taxonomy's inventory; a family that sets it wins
+    over the inventory, and a raise site may name its own."""
+
+    NEXT_ACTION = ""
+    """The move the caller can take, in the vocabulary
+    `refusal_taxonomy.NEXT_ACTIONS` names. Empty means the blocker's
+    own next action, which is the right one unless this family knows
+    better."""
+
+    SUPPLIES = ""
+    """The surface whose vocabulary this family's fix may name.
+
+    Empty means the fix is not checked. A family that names a surface
+    has its fix checked against what the caller can supply there, and a
+    fix naming anything else is refused at the raise site."""
+
     def __init__(self, what: str, why: str, fix: str, code: str = "",
                  user_message: str = "", recovery_class: str = "",
-                 conflict_class: str = "", ask_reason: str = "") -> None:
+                 conflict_class: str = "", ask_reason: str = "",
+                 blocker: str = "", next_action: str = "") -> None:
         missing = [name for name, value in
                    (("what", what), ("why", why), ("fix", fix))
                    if not (isinstance(value, str) and value.strip())]
@@ -192,14 +225,36 @@ class RenRefusal(RuntimeError, ValueError):
             raise ValueError(
                 f"ask_reason must be one of {list(ASK_REASONS)}, or empty; "
                 f"got {self.ask_reason!r}")
+        self.blocker = (blocker.strip() or type(self).BLOCKER.strip()
+                        or refusal_taxonomy.blocker_for(type(self)))
+        if self.blocker not in refusal_taxonomy.BLOCKERS:
+            raise ValueError(
+                f"blocker must be one of {list(refusal_taxonomy.BLOCKERS)}; "
+                f"got {self.blocker!r}")
+        self.next_action = (next_action.strip()
+                            or type(self).NEXT_ACTION.strip()
+                            or refusal_taxonomy.next_action_for(self.blocker))
+        if self.next_action not in refusal_taxonomy.NEXT_ACTIONS:
+            raise ValueError(
+                f"next_action must be one of "
+                f"{list(refusal_taxonomy.NEXT_ACTIONS)}; got "
+                f"{self.next_action!r}")
+        surface = type(self).SUPPLIES.strip()
+        if surface:
+            refusal_taxonomy.assert_supplyable(
+                self.fix, refusal_taxonomy.supplyable(surface),
+                where=f"{type(self).__module__}.{type(self).__name__}")
         super().__init__(self.render())
 
     def render(self) -> str:
         """The host-facing consequence, with technical detail retained."""
         return (f"ren: refused - {self.user_message}\n"
+                f"  blocker: {self.blocker} - "
+                f"{refusal_taxonomy.plain_reason(self.blocker)}\n"
                 f"  what: {self.what}\n"
                 f"  why: {self.why}\n"
-                f"  fix: {self.fix}")
+                f"  fix: {self.fix}\n"
+                f"  next action: {self.next_action}")
 
     def to_dict(self) -> dict:
         """Structured refusal, including editor guidance and recovery."""
@@ -208,7 +263,11 @@ class RenRefusal(RuntimeError, ValueError):
                 "user_message": self.user_message,
                 "recovery_class": self.recovery_class,
                 "conflict_class": self.conflict_class,
-                "ask_reason": self.ask_reason}
+                "ask_reason": self.ask_reason,
+                "blocker": self.blocker,
+                "next_action": self.next_action,
+                "blocking_reason": refusal_taxonomy.plain_reason(
+                    self.blocker)}
 
 
 def _default_code(class_name: str) -> str:

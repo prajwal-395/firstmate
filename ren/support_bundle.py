@@ -129,7 +129,7 @@ def resolve_project(ref) -> Path:
             f"no project {ref!r}",
             f"{project_dir} has no project.yaml",
             "run `ren projects` to list projects, or pass the "
-            "project's absolute path")
+            "project's absolute path", blocker="missing_media")
     return project_dir
 
 

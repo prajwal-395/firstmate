@@ -421,7 +421,9 @@ class HandshakeRefusal(RuntimeError):
             f"the file at {response_path} is not the JSON object the "
             f"request's expected_schema asked for",
             f"write a UTF-8 JSON object satisfying the request's "
-            f"expected_schema to {response_path}, then {resume}")
+            f"expected_schema to {response_path}, then {resume}",
+            blocker="insufficient_evidence",
+            next_action="supply_the_missing_parameter")
         super().__init__(str(self._ren.render()))
 
 

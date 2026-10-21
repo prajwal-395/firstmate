@@ -785,7 +785,7 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
             "a step has a declared role or it does not - both tables "
             "claiming it decides nothing",
             "keep each step in exactly one table in "
-            "library/tools/craft_role.py")
+            "library/tools/craft_role.py", blocker="unsafe_state")
     unaccounted = sorted(
         _REACHES_A_MODEL - set(ROLES) - set(WITHOUT_A_DECLARED_ROLE))
     if unaccounted:
@@ -797,7 +797,7 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
             "add each step to ROLES (with the discipline worked out) "
             "or to WITHOUT_A_DECLARED_ROLE in "
             "library/tools/craft_role.py, saying what it is addressed "
-            "as now")
+            "as now", blocker="unsafe_state")
     stale = sorted(
         (set(ROLES) | set(WITHOUT_A_DECLARED_ROLE)) - _REACHES_A_MODEL)
     if stale:
@@ -807,7 +807,7 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
             "a role for a step with no prompt reaches nothing",
             "remove each stale entry from library/tools/craft_role.py, "
             "or restore the step's model prompt if the removal was "
-            "accidental")
+            "accidental", blocker="unsafe_state")
     for step_id, role in ROLES.items():
         if role.step_id != step_id:
             raise RenRefusal(
@@ -815,14 +815,14 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
                 f"whose step_id is {role.step_id!r}",
                 "the key and the role disagree about which step this is",
                 "fix the key or the role's step_id in "
-                "library/tools/craft_role.py so they match")
+                "library/tools/craft_role.py so they match", blocker="unsafe_state")
         if not (role.discipline and role.addressed_as):
             raise RenRefusal(
                 f"the {step_id!r} role names no discipline or does not "
                 f"address the model as one",
                 "a role without a discipline is a stance nobody chose",
                 f"fill in discipline and addressed_as for {step_id!r} in "
-                f"ROLES in library/tools/craft_role.py")
+                f"ROLES in library/tools/craft_role.py", blocker="unsafe_state")
         if not (role.reads_with and role.decides and role.defers):
             raise RenRefusal(
                 f"the {step_id!r} role is incomplete",
@@ -830,7 +830,7 @@ def _assert_roles_account_for_every_model_reaching_step() -> None:
                 "with, what it decides and what it does not; a role with "
                 "no boundary reads as licence",
                 f"fill in reads_with, decides and defers for {step_id!r} "
-                f"in ROLES in library/tools/craft_role.py")
+                f"in ROLES in library/tools/craft_role.py", blocker="unsafe_state")
 
 
 _assert_roles_account_for_every_model_reaching_step()

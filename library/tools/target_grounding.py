@@ -72,6 +72,17 @@ STATES: tuple[str, ...] = (CLAIMED, OBSERVED, VERIFIED, UNRESOLVED)
 exactly one."""
 
 
+#: PROD-003: the kind of block each unverified state reports, and the
+#: move the caller can take.  Several candidates is an ambiguous
+#: intent; a role carried by nothing is not settled by the record; a
+#: role nothing found is not there at all.
+_BLOCKER_BY_STATE: dict[str, tuple[str, str]] = {
+    OBSERVED: ("ambiguous_intent", "state_the_intent"),
+    CLAIMED: ("insufficient_evidence", "collect_the_evidence"),
+    UNRESOLVED: ("missing_media", "supply_the_missing_media"),
+}
+
+
 #: The operations that rewrite, replace or remove material in place, on
 #: top of the structural class.  They destroy what they act on: the
 #: words of a caption, the source of a clip, the angle of a moment, the
@@ -515,6 +526,12 @@ def refuse_ungrounded(operations: Sequence[Mapping[str, Any]],
     VERIFIED target.  A role that is claimed, merely observed or
     unresolved is not a thing the plan can act on yet, and the refusal
     says which role and which state it was.
+
+    PROD-003: the refusal also carries the BLOCKER - which of the six
+    kinds of block this is - and the NEXT ACTION the caller can take.
+    The four states differ, so the blocker differs: several candidates
+    is an AMBIGUOUS intent, a role carried by nothing is INSUFFICIENT
+    evidence, and a role nothing found is MISSING media.
     """
     rows = {str(row.get("role")): row
             for row in ((grounding.get("targets") or ())
@@ -531,10 +548,14 @@ def refuse_ungrounded(operations: Sequence[Mapping[str, Any]],
         state = str((row or {}).get("state") or UNRESOLVED)
         if state == VERIFIED:
             continue
+        blocker, next_action = _BLOCKER_BY_STATE.get(
+            state, ("missing_media", "supply_the_missing_media"))
         refusals.append({
             "op": op,
             "target_role": role,
             "state": state,
+            "blocker": blocker,
+            "next_action": next_action,
             "reason": (f"{op} is a destructive change and its target role "
                        f"{role!r} is {state}: a unique target was not "
                        "established, so the change is refused"),

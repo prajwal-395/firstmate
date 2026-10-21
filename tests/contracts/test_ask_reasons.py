@@ -208,11 +208,13 @@ def test_a_reason_outside_the_vocabulary_is_refused_at_the_raise_site():
     with pytest.raises(ValueError):
         ren_refusal.RenRefusal("what", "why", "fix",
                                recovery_class="needs_question",
-                               ask_reason="ambiguous")
+                               ask_reason="ambiguous",
+                               blocker="ambiguous_intent")
 
 
 def test_a_refusal_that_does_not_ask_carries_no_reason():
-    refused = ren_refusal.RenRefusal("what", "why", "fix")
+    refused = ren_refusal.RenRefusal("what", "why", "fix",
+                                     blocker="unsupported_operation")
     assert refused.ask_reason == ""
     assert refused.to_dict()["ask_reason"] == ""
 

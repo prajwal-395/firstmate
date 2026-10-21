@@ -133,7 +133,7 @@ def test_summary_refusal_reconstructs_a_caught_refusal():
     original = RenRefusal("the profile names no step", "it names nothing",
                           "point it at a declared profile",
                           code="REN_PROFILE_REFUSED",
-                          recovery_class="needs_question")
+                          recovery_class="needs_question", blocker="insufficient_evidence")
     summary = {"status": "REFUSED", "reason": "the profile names no step",
                "refusal": original.to_dict()}
     rebuilt = runner._summary_refusal(summary)
@@ -340,7 +340,7 @@ def test_run_pipeline_caught_refusal_emits_one_line(tmp_path, monkeypatch,
 
     def _refuse(folder):
         raise RenRefusal("this project is too old", "it predates formats",
-                         "migrate it first: ren organize <project>")
+                         "migrate it first: ren organize <project>", blocker="unsupported_operation")
     monkeypatch.setattr(project_format, "ensure_project_format", _refuse)
     with pytest.raises(SystemExit) as done:
         runner.main()

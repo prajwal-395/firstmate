@@ -241,7 +241,7 @@ def test_video_build_resumes_checkpointed_batches(media_project, monkeypatch):
     _write(media_project / "pipeline_data.json", data)
     def extract(source, *_):
         if "GONE" in str(source):
-            raise RenRefusal("missing media", "fixture", "keep it unembedded")
+            raise RenRefusal("missing media", "fixture", "keep it unembedded", blocker="missing_media")
         return [np.zeros((8, 8, 3), dtype="uint8")] * 8
 
     monkeypatch.setattr(footage_query, "extract_chunk_frames", extract)

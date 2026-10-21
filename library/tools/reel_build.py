@@ -17365,7 +17365,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           "that no Ren act explains - a hand edit is live "
                           "on this reel"),
                     fix=("let the captain finish, then rebuild: "
-                         "`ren build-reels`"))
+                         "`ren build-reels`"), blocker="unsafe_state")
             prepared_artifact = _PreparedReelArtifact(
                 derivation_digest=build_signatures[name],
                 reel_inputs=_reel_inputs,

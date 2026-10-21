@@ -29,13 +29,14 @@ from library.tools.ren_refusal import (
     REFUSAL_EXIT_CODE,
     RenRefusal,
 )
+from library.tools import refusal_taxonomy
 
 
 def test_the_shape_carries_what_why_and_fix_and_requires_all_three():
     """A refusal without a why or a fix fails at the raise site."""
     refused = RenRefusal("the plan names no reel 9",
                          "a touchup never invents one",
-                         "run `ren propose <project>` first")
+                         "run `ren propose <project>` first", blocker="missing_media")
     rendered = refused.render()
     assert rendered.startswith("ren: refused - I couldn't safely finish this step.")
     assert "\n  what: the plan names no reel 9" in rendered
@@ -56,7 +57,7 @@ def test_a_refusal_stays_catchable_as_before():
     """Adopting a class changes what its message carries, never who
     catches it: every existing `except ValueError` / `except
     RuntimeError` keeps working."""
-    refused = RenRefusal("w", "y", "f")
+    refused = RenRefusal("w", "y", "f", blocker="unsupported_operation")
     assert isinstance(refused, ValueError)
     assert isinstance(refused, RuntimeError)
     with pytest.raises(ValueError):
@@ -151,6 +152,20 @@ def test_every_ren_refusal_family_declares_editor_recovery_metadata():
         message = getattr(family, "USER_MESSAGE", "")
         assert isinstance(message, str) and message.strip(), family.__name__
         assert getattr(family, "RECOVERY_CLASS", "") in valid, family.__name__
+        # PROD-003: every refusal family says what KIND of thing blocks
+        # it, in the six kinds, and carries the next action the caller
+        # can take.  A family nobody classified cannot be raised at all.
+        try:
+            blocker = refusal_taxonomy.blocker_for(family)
+        except ValueError as unclassified:
+            raise AssertionError(
+                f"{family.__module__}.{family.__name__} declares no "
+                "blocker; classify it in "
+                "library/tools/refusal_taxonomy.py (FAMILY_BLOCKERS) or "
+                "declare BLOCKER on the family") from unclassified
+        assert blocker in refusal_taxonomy.BLOCKERS, family.__name__
+        assert refusal_taxonomy.next_action_for(blocker) in (
+            refusal_taxonomy.NEXT_ACTIONS)
 
     missing = set(inventoried) - runtime
     assert not missing, (

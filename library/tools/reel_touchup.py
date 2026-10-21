@@ -211,6 +211,15 @@ class TouchupRefused(RenRefusal):
                     "is unchanged. Check the issue below and ask again "
                     "with a touchup I can stage.")
 
+    SUPPLIES = "touchup_edit"
+    """A touchup's fix may name only what a touchup edit can carry.
+
+    This is the guard that keeps the defect PR 3076 fixed: a refusal
+    that recommends an argument the caller has no way to supply is
+    refused here, at the raise site, instead of reaching the caller as
+    advice they cannot act on.
+    """
+
 
 class TouchupError(RuntimeError):
     """A touchup that failed mid-flight. The staging still stands."""
@@ -2492,6 +2501,41 @@ _OP_HANDLERS = {
     "entry_motion": _op_entry_motion,
     "repair_hold_window": _op_repair_hold_window,
 }
+
+
+#: The fields a touchup EDIT carries.  The refusal that recommends an
+#: argument may name only these - the vocabulary the caller can supply
+#: on this surface - and `refusal_taxonomy` checks a fix against it.
+EDIT_FIELDS = frozenset({
+    "op", "row", "item", "item_index", "record_frame", "duration",
+    "media", "source", "name", "properties", "enabled", "exclude",
+    "left_offset", "to_record", "to_row", "record", "alignment",
+    "delta_frames", "fade_in_frames", "fade_out_frames",
+})
+"""Every field a touchup edit may carry, read off the handlers above."""
+
+
+#: The flags `ren touch-reel` accepts (manage_project.py's
+#: `touch-reel` parser).  A refusal's fix may name these and no other
+#: argument: a fix that recommends a flag the caller cannot pass is
+#: advice they cannot act on.
+TOUCHUP_FLAGS = frozenset({
+    "--edits", "--edits-file", "--allow-drop", "--supersede",
+    "--accept-editor-changes", "--all-reels", "--old-clip",
+    "--new-media", "--row", "--staged",
+})
+"""The CLI flags the touch-up surface accepts."""
+
+
+def supplyable_arguments() -> tuple[str, ...]:
+    """What the caller can supply on the touch-up edit surface.
+
+    The ops the gate knows, the fields an edit may carry, and the CLI
+    flags that carry it.  A refusal's fix is checked against this, so
+    it cannot recommend a field the caller has no way to set.
+    """
+    return tuple(sorted(set(_OP_HANDLERS) | set(EDIT_FIELDS)
+                        | set(TOUCHUP_FLAGS)))
 
 
 @dataclass

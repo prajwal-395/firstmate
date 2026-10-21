@@ -81,6 +81,7 @@ import json
 import os
 
 from library.tools import protocol_conformance
+from library.tools import refusal_taxonomy
 from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 
 #: The ONE project a test or qualification job may touch. Live-Resolve
@@ -224,11 +225,31 @@ class JobRefused(ValueError):
 
     `result` is what the receipt keeps beside the reason, where the
     refusal carries something the caller acts on (a stale patch's head
-    generation)."""
+    generation).
 
-    def __init__(self, message: str, result: dict | None = None):
+    PROD-003: it also carries the BLOCKER - which of the six kinds of
+    block this is - and the NEXT ACTION, so a broker refusal says what
+    kind of block it was and what the caller can do about it.  The
+    default blocker is `unsupported_operation`: the broker has no job
+    kind, or no route for this one.
+    """
+
+    def __init__(self, message: str, result: dict | None = None,
+                 blocker: str = "unsupported_operation",
+                 next_action: str = ""):
         super().__init__(message)
         self.result = result
+        self.blocker = blocker
+        self.next_action = (next_action
+                            or refusal_taxonomy.next_action_for(blocker))
+
+    def as_dict(self) -> dict:
+        """The refusal, with the kind of block and the next action."""
+        return {"error": str(self), "blocker": self.blocker,
+                "next_action": self.next_action,
+                "blocking_reason": refusal_taxonomy.plain_reason(
+                    self.blocker),
+                "result": self.result}
 
 
 def _jsonable(value):

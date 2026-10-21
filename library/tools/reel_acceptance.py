@@ -103,13 +103,13 @@ def read(project_folder) -> dict:
                  "reads exactly like no acceptance"),
             fix=("recover pipeline_output/review/reel_acceptances.json from "
                  "the project's version history - never hand-write an "
-                 "empty one"))
+                 "empty one"), blocker="insufficient_evidence")
     if not isinstance(document, dict) or not isinstance(
             document.get("acceptances"), dict):
         raise RenRefusal(
             what=f"{path} is not a {ACCEPTANCE_FORMAT} document.",
             why="an acceptance record that cannot be read is no record",
-            fix="recover it from the project's version history")
+            fix="recover it from the project's version history", blocker="insufficient_evidence")
     return document
 
 

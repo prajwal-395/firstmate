@@ -87,7 +87,7 @@ def pause(project: str, assignment_id: str, *, reason: str) -> dict:
                 "a cancelled task is over and holds nothing",
                 f"reopen it first: `ren assignment "
                 f"{shlex.quote(_root(project))} --id "
-                f"{shlex.quote(assignment_id)} --reopen`")
+                f"{shlex.quote(assignment_id)} --reopen`", blocker="unsafe_state")
         if record.get("pause"):
             return record
         record["pause"] = {"at": _now(), "reason": reason}
@@ -136,7 +136,7 @@ def replan(project: str, assignment_id: str, *, reason: str,
                 "a cancelled task is over and holds no plan",
                 f"reopen it first: `ren assignment "
                 f"{shlex.quote(_root(project))} --id "
-                f"{shlex.quote(assignment_id)} --reopen`")
+                f"{shlex.quote(assignment_id)} --reopen`", blocker="unsafe_state")
         planned = assignment_plan.plan(project, assignment_id)["operations"]
         kept = {name: node for name, node in planned.items()
                 if node.get("status") in assignment_plan.TERMINAL_STATUSES}

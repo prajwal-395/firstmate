@@ -61,7 +61,7 @@ def main(argv=None) -> int:
         raise RenRefusal(
             "Ren could not update to the released version",
             str(exc),
-            "check the network and retry `ren update`") from exc
+            "check the network and retry `ren update`", blocker="unsupported_operation") from exc
     print(f"Ren updated to {candidate.name}. "
           f"Run `ren rollback` to restore the previous version.")
     return 0

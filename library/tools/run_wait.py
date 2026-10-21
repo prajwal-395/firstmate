@@ -389,6 +389,8 @@ def main(argv=None) -> int:
             f"run `ren new {args.project}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
             f"instead of the slug",
+            blocker="missing_media",
+            next_action="supply_the_missing_media",
         )
         print(refused.render(), file=__import__("sys").stderr)
         emit_refusal_result(refused)

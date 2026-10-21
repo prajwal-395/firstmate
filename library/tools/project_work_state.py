@@ -505,7 +505,7 @@ def project_launch_pack(project_ref: str, *, captured_at: str | None = None) -> 
             fix=f"Check the project slug or path, then retry: ren projects",
             code="REN_LAUNCH_PACK_PROJECT_INVALID",
             recovery_class="needs_question",
-            ask_reason="insufficient_evidence") from exc
+            ask_reason="insufficient_evidence", blocker="missing_media") from exc
 
     identity = dict(state["project"])
     fingerprint_input = json.dumps(
@@ -529,7 +529,7 @@ def project_launch_pack(project_ref: str, *, captured_at: str | None = None) -> 
             what="The project's state snapshot is too large for a launch pack",
             why=f"The bounded payload limit is {LAUNCH_PACK_MAX_BYTES} bytes",
             fix=f"Reduce the project's recorded state, then retry `ren launch-pack {project_ref} --json`",
-            code="REN_LAUNCH_PACK_TOO_LARGE")
+            code="REN_LAUNCH_PACK_TOO_LARGE", blocker="unsupported_operation")
     return pack
 
 

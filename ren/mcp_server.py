@@ -449,10 +449,21 @@ def call_axi_transaction(arguments: dict) -> dict:
                 "isError": True}
 
 
-def refusal_payload(verb_name: str, what: str, why: str, fix: str) -> dict:
+def refusal_payload(verb_name: str, what: str, why: str, fix: str,
+                    blocker: str = "unsupported_operation",
+                    next_action: str = "") -> dict:
     """A `REN_RESULT`-shaped refusal for a call this server never
     executes. Same keys as `RenRefusal.to_dict()` plus the exit (pinned
-    by `test_mcp_server.py`), so a host parses one shape either way."""
+    by `test_mcp_server.py`), so a host parses one shape either way.
+
+    PROD-003: it carries the BLOCKER - which of the six kinds of block
+    this is - and the NEXT ACTION, so a host reads the kind of block
+    off one shape whichever door the refusal came through.
+    """
+    from library.tools import refusal_taxonomy
+
+    action = (next_action
+              or refusal_taxonomy.next_action_for(blocker))
     return {"ok": False, "exit": 4, "code": WRITE_REFUSED_CODE,
             "what": what, "why": why, "fix": fix,
             "user_message": ("I couldn't safely finish this step. "
@@ -460,6 +471,9 @@ def refusal_payload(verb_name: str, what: str, why: str, fix: str) -> dict:
                              "resolve the issue below before continuing."),
             "recovery_class": "blocked", "conflict_class": "",
             "ask_reason": "",
+            "blocker": blocker,
+            "next_action": action,
+            "blocking_reason": refusal_taxonomy.plain_reason(blocker),
             "verb": verb_name}
 
 

@@ -682,12 +682,12 @@ def cmd_new(args):
             f"{e}",
             "a project with this slug already exists",
             f"run `ren status {args.slug}` to see it, or create under "
-            f"another slug") from e
+            f"another slug", blocker="unsafe_state") from e
     except ValueError as e:
         raise RenRefusal(
             f"{e}",
             "one of the new-project values does not check out",
-            "fix the flagged value and re-run `ren new`") from e
+            "fix the flagged value and re-run `ren new`", blocker="ambiguous_intent") from e
 
 
 def cmd_status(args):
@@ -700,7 +700,7 @@ def cmd_status(args):
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren new {args.slug}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
-            f"instead of the slug") from e
+            f"instead of the slug", blocker="missing_media") from e
 
     if info.get("config_findings"):
         print(f"⚠ config: {'; '.join(info['config_findings'])}",
@@ -1195,7 +1195,7 @@ def cmd_discharge_uncarried(args):
                 f"{listing}",
                 f"re-run with --identity one of the listed ids, e.g. "
                 f"`ren discharge {args.slug} {reel} --identity "
-                f"{open_notes[0]['identity']} --note <what happened>`")
+                f"{open_notes[0]['identity']} --note <what happened>`", blocker="ambiguous_intent")
         args.identity = open_notes[0]["identity"]
     try:
         entry = owed.discharge(project_folder, reel, args.identity,
@@ -1271,7 +1271,7 @@ def cmd_variant(args):
             "a variant branches a reel the plan describes - it never "
             "invents one",
             f"run `ren propose {args.project}` first, or branch a reel "
-            f"the plan names") from None
+            f"the plan names", blocker="missing_media") from None
 
     if args.variant_command == "new":
         spec = {"suffix": args.suffix}
@@ -1354,7 +1354,7 @@ def cmd_variant(args):
                 + (f" with suffix {args.suffix}" if args.suffix else ""),
                 "a build needs a declared variant to build",
                 f"declare one first: `ren variant {args.project} new "
-                f"{args.reel} --suffix ' (NAME)'`") from None
+                f"{args.reel} --suffix ' (NAME)'`", blocker="missing_media") from None
         print(f"Building {len(specs)} variant(s) of {base!r} beside it.")
         try:
             result = reel_build.build_reel_variants(
@@ -1500,7 +1500,7 @@ def cmd_explore_variants(args):
                 "variant branches fork a base commit, and no touch has "
                 "recorded one on this timeline yet",
                 "run the pipeline or a touch-up on this timeline first, "
-                "then re-run with --base <commit>") from None
+                "then re-run with --base <commit>", blocker="missing_media") from None
         base = latest["id"]
 
     from library.tools.resolve_lock import default_owner
@@ -1569,7 +1569,7 @@ def cmd_plan_variants(args):
                 "variant branches fork a base commit, and no touch has "
                 "recorded one on this timeline yet",
                 "run the pipeline or a touch-up on this timeline first, "
-                "then re-run with --base <commit>") from None
+                "then re-run with --base <commit>", blocker="missing_media") from None
         base = latest["id"]
 
     try:
@@ -1782,7 +1782,7 @@ def cmd_resolve_organize(args):
                 raise RenRefusal(
                     "candidate bins exist and --timeline-only was passed",
                     f"{listing}",
-                    "pass them with --proof-bin, or drop --timeline-only") \
+                    "pass them with --proof-bin, or drop --timeline-only", blocker="ambiguous_intent") \
                     from None
             if not candidates:
                 print("  No proof/demo caption bins in this pool - "
@@ -2101,7 +2101,7 @@ def cmd_check(args):
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren new {args.slug}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
-            f"instead of the slug") from e
+            f"instead of the slug", blocker="missing_media") from e
 
     project_dir = str(config._project_root)
     print(f"Checking project: {config.name} ({project_dir})")
@@ -2118,7 +2118,7 @@ def cmd_check(args):
             f"brand template failed to resolve: {e}",
             "the check cannot verify a template it cannot read",
             "fix pipeline.brand_template in project.yaml (or clear it "
-            "for no template), then re-run `ren check`") from e
+            "for no template), then re-run `ren check`", blocker="missing_media") from e
 
     # 2. creative_brief path resolves IF declared
     print("Checking creative_brief...")
@@ -2129,7 +2129,7 @@ def cmd_check(args):
                 f"declared creative_brief path does not exist: {cb_path}",
                 "the check cannot verify a brief it cannot read",
                 "fix pipeline.creative_brief in project.yaml (or clear "
-                "it), then re-run `ren check`") from None
+                "it), then re-run `ren check`", blocker="missing_media") from None
 
     # 3. Environment variables exist
     print("Checking environment paths...")
@@ -2139,18 +2139,18 @@ def cmd_check(args):
             f"PIPELINE_SFX_LIBRARY does not exist: {SFX_LIBRARY}",
             "the check cannot verify a library that is not there",
             "set PIPELINE_SFX_LIBRARY (`ren config --init`, then edit "
-            "it), then re-run `ren check`") from None
+            "it), then re-run `ren check`", blocker="missing_media") from None
     if not MUSIC_LIBRARY.exists():
         raise RenRefusal(
             f"PIPELINE_MUSIC_LIBRARY does not exist: {MUSIC_LIBRARY}",
             "the check cannot verify a library that is not there",
             "set PIPELINE_MUSIC_LIBRARY (`ren config --init`, then edit "
-            "it), then re-run `ren check`") from None
+            "it), then re-run `ren check`", blocker="missing_media") from None
     if not PROJECTS_ROOT.exists():
         raise RenRefusal(
             f"PIPELINE_PROJECTS_ROOT does not exist: {PROJECTS_ROOT}",
             "the check cannot verify a projects root that is not there",
-            "create it (`ren init`), then re-run `ren check`") from None
+            "create it (`ren init`), then re-run `ren check`", blocker="missing_media") from None
 
     # 4. ffprobe reads every footage file
     print("Checking footage files with ffprobe...")
@@ -2162,14 +2162,14 @@ def cmd_check(args):
             f"{e}",
             "the check cannot verify footage that is not there",
             f"copy raw footage to the project's raw footage dir, then "
-            f"re-run `ren check {args.slug}`") from e
+            f"re-run `ren check {args.slug}`", blocker="missing_media") from e
 
     if not raw_footage_files:
         raise RenRefusal(
             "no footage files found in project",
             "the check cannot verify footage that is not there",
             f"copy raw footage to the project's raw footage dir, then "
-            f"re-run `ren check {args.slug}`") from None
+            f"re-run `ren check {args.slug}`", blocker="missing_media") from None
 
     from library.steps.step_1_02_catalog_footage.step import extract_metadata
 
@@ -2186,7 +2186,7 @@ def cmd_check(args):
                 f"ffprobe failed to read {filepath}: {err}",
                 "the check cannot verify a file ffprobe cannot read",
                 "fix or replace the file, then re-run "
-                f"`ren check {args.slug}`") from None
+                f"`ren check {args.slug}`", blocker="missing_media") from None
 
         for field in ["duration_seconds", "width", "height", "frame_rate"]:
             if metadata.get(field) is None:
@@ -2195,7 +2195,7 @@ def cmd_check(args):
                     f"'{file_info['filename']}'",
                     "the pipeline cannot cut a file it cannot measure",
                     "re-encode the file so ffprobe reports every field, "
-                    f"then re-run `ren check {args.slug}`") from None
+                    f"then re-run `ren check {args.slug}`", blocker="insufficient_evidence") from None
 
         fps = metadata.get("frame_rate")
         w = metadata.get("width")
@@ -2368,7 +2368,7 @@ def cmd_run(args):
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren new {args.slug}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
-            f"instead of the slug") from e
+            f"instead of the slug", blocker="missing_media") from e
 
     # Build the run_pipeline.py command
     runner = PILOT_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"
@@ -2435,7 +2435,7 @@ def cmd_run(args):
                 "a dry run prints the plan and exits; there is no "
                 "runner to leave behind",
                 "drop --detach to see the plan, or drop --dry-run to "
-                "start a detached run")
+                "start a detached run", blocker="ambiguous_intent")
         _cmd_run_detached(config, args, cmd)
         return
     # A real run is an act of the project's edit assignment
@@ -2483,7 +2483,7 @@ def cmd_reindex(args):
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren new {args.slug}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
-            f"instead of the slug") from e
+            f"instead of the slug", blocker="missing_media") from e
 
     from library.steps.step_1_04_temporal_index.step import (
         invalidate_legacy_indexes)
@@ -2529,7 +2529,7 @@ def cmd_archive(args):
             f"{e}",
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren projects` to list them, or pass the project's "
-            f"absolute path instead of the slug") from e
+            f"absolute path instead of the slug", blocker="missing_media") from e
 
 
 def cmd_info(args):
@@ -2542,7 +2542,7 @@ def cmd_info(args):
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren new {args.slug}` to create it, `ren projects` "
             f"to list them, or pass the project's absolute path "
-            f"instead of the slug") from e
+            f"instead of the slug", blocker="missing_media") from e
 
     from library.tools.project_registry import warn_config_findings
     warn_config_findings(config)
@@ -2561,7 +2561,7 @@ def cmd_relink(args):
             "relinking runs through Resolve scripting, which this "
             "interpreter cannot load",
             "run `ren relink ...`, which runs under the pipeline "
-            "interpreter") from None
+            "interpreter", blocker="unsupported_operation") from None
 
     result = relink_project(args.slug, dry_run=args.scan)
 
@@ -2570,7 +2570,7 @@ def cmd_relink(args):
             f"{result.get('error', 'Unknown error')}",
             "the relink did not succeed",
             "fix the cause above (usually media paths), then re-run "
-            "`ren relink`") from None
+            "`ren relink`", blocker="missing_media") from None
 
     offline = result.get("offline_count", 0)
     if offline == 0:
@@ -2623,7 +2623,7 @@ def cmd_propose_reels(args):
             f"{e}",
             "no project with this slug is under PIPELINE_PROJECTS_ROOT",
             f"run `ren projects` to list them, or pass the project's "
-            f"absolute path instead of the slug") from e
+            f"absolute path instead of the slug", blocker="missing_media") from e
     path = write_from_step_output(str(config._project_root), force=args.force)
     print(f"Wrote {path}")
     # The first proposal of a request opens its assignment
@@ -2649,7 +2649,7 @@ def cmd_approve_reels(args):
             "no reel was named and --all was not passed",
             "an approval rules on moments that exist",
             f"run `ren approve {args.project} 1 2` or "
-            f"`ren approve {args.project} --all`")
+            f"`ren approve {args.project} --all`", blocker="ambiguous_intent")
     ruled = set_approval(folder, numbers, Approval.APPROVED,
                          note=args.note, by=args.by)
     remaining = held_back(read_proposal(str(proposal_path(folder))))
@@ -2680,7 +2680,7 @@ def cmd_reject_reels(args):
             "no reel was named and --all was not passed",
             "a rejection rules on moments that exist",
             f"run `ren reject {args.project} 2 --note \"why\"` or "
-            f"`ren reject {args.project} --all --note \"why\"`")
+            f"`ren reject {args.project} --all --note \"why\"`", blocker="ambiguous_intent")
     ruled = set_approval(folder, numbers, Approval.REJECTED,
                          note=args.note, by=args.by)
     remaining = held_back(read_proposal(str(proposal_path(folder))))
@@ -2723,7 +2723,7 @@ def cmd_build_reels(args):
             "the build needs what `ren doctor` reports missing",
             "run `ren worker manifest` to see this worker's "
             "advertisement, and `ren doctor` to repair the missing "
-            "needs")
+            "needs", blocker="unsupported_operation")
     from library.processes.reels import run_reels
 
     project_folder = _reel_project_folder(args.project)
@@ -2750,7 +2750,7 @@ def cmd_build_reels(args):
             raise RenRefusal(
                 "the reel build does not have enough disk headroom",
                 str(refused),
-                "free disk space or reduce the render size, then retry") from refused
+                "free disk space or reduce the render size, then retry", blocker="resource_contention") from refused
         print(f"Storage preflight: estimated {required_bytes:,} bytes for "
               f"{len(render_estimates)} reel(s); {preflight['free_bytes']:,} "
               "bytes free")
@@ -3701,7 +3701,7 @@ def cmd_hear_reel(args):
                 "this project has no delivered reel to hear",
                 "a reel becomes a file when you run deliver-reel",
                 f"run `ren deliver {args.project} <reel>` first, then "
-                f"hear it") from None
+                f"hear it", blocker="missing_media") from None
         targets = [{"video": row["video_path"], "reel": None}
                    for row in rows]
     else:
@@ -3759,7 +3759,7 @@ def cmd_still_overlays(args):
             f"{hold.get('reason', '')})",
             "a still swap under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
-            "asked for it - check with them), then re-run") \
+            "asked for it - check with them), then re-run", blocker="unsafe_state") \
             from None
     moments = read_proposal(str(proposal_path(project_folder)))
     approved = [moment for moment in moments
@@ -3776,7 +3776,7 @@ def cmd_still_overlays(args):
                 "a run that quietly skipped them would report success "
                 "having completed nothing for this request",
                 f"run `ren propose {args.project}` first, or name reels "
-                f"the plan approves")
+                f"the plan approves", blocker="unsafe_state")
     failed = 0
     as_json = bool(getattr(args, "json", False))
     reel_reports: list = []
@@ -3822,7 +3822,7 @@ def cmd_still_overlays(args):
             "each refusal names its reason above; the reels are "
             "unchanged (refusals restore)",
             "fix what each refusal names and re-run those reels with "
-            "--only-reel") from None
+            "--only-reel", blocker="unsupported_operation") from None
 
 
 def cmd_dedupe_stills(args):
@@ -3852,7 +3852,7 @@ def cmd_dedupe_stills(args):
             f"{hold.get('reason', '')})",
             "a still dedupe under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
-            "asked for it - check with them), then re-run") \
+            "asked for it - check with them), then re-run", blocker="unsafe_state") \
             from None
     moments = read_proposal(str(proposal_path(project_folder)))
     approved = [moment for moment in moments
@@ -3869,7 +3869,7 @@ def cmd_dedupe_stills(args):
                 "a run that quietly skipped them would report success "
                 "having completed nothing for this request",
                 f"run `ren propose {args.project}` first, or name reels "
-                f"the plan approves")
+                f"the plan approves", blocker="unsafe_state")
     failed = 0
     scope = {}
     for moment in approved:
@@ -3885,7 +3885,7 @@ def cmd_dedupe_stills(args):
         raise RenRefusal(
             f"{failed} reel(s) refused the still census",
             "each refusal names its reason above; nothing was changed",
-            "fix what each refusal names and re-run") from None
+            "fix what each refusal names and re-run", blocker="unsupported_operation") from None
     try:
         project_plan = _dedupe.plan_project_repoints(
             [item for census in scope.values()
@@ -3895,7 +3895,7 @@ def cmd_dedupe_stills(args):
             f"the project dedupe plan refused: {exc}",
             "a merge the pixels do not support stops the whole run; "
             "nothing was changed",
-            "re-run --dry-run to see the measured distances") from None
+            "re-run --dry-run to see the measured distances", blocker="unsafe_state") from None
     as_json = bool(getattr(args, "json", False))
     if not as_json:
         for group in project_plan["graphic_groups"]:
@@ -3965,7 +3965,7 @@ def cmd_dedupe_stills(args):
             "each refusal names its reason above; the reels are "
             "unchanged (refusals restore)",
             "fix what each refusal names and re-run those reels with "
-            "--only-reel") from None
+            "--only-reel", blocker="unsupported_operation") from None
 
 
 @under_lease("collect Ren-generated orphans")
@@ -4080,7 +4080,7 @@ def cmd_touch_reel(args):
             "this worker cannot make the edit: " + "; ".join(blocking),
             "the edit needs what `ren doctor` reports missing",
             "run `ren doctor` to see this machine's verdict, and "
-            "`ren worker manifest` to see what it advertises")
+            "`ren worker manifest` to see what it advertises", blocker="unsupported_operation")
 
     project_folder = _reel_project_folder(args.project)
     hold = _hold.hold_requested(project_folder)
@@ -4091,7 +4091,7 @@ def cmd_touch_reel(args):
             f"{hold.get('reason', '')})",
             "a touch-up under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
-            "asked for it - check with them), then re-run `ren touch`") \
+            "asked for it - check with them), then re-run `ren touch`", blocker="unsafe_state") \
             from None
 
     if args.all_reels:
@@ -4254,7 +4254,7 @@ def cmd_touch_master(args):
             "a touch-up under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run "
-            "`ren touch-master`") from None
+            "`ren touch-master`", blocker="unsafe_state") from None
 
     if args.edits_file:
         try:
@@ -4331,7 +4331,7 @@ def cmd_replay_ledger(args):
             "a ledger replay under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
             "asked for it - check with them), then re-run "
-            "`ren replay-ledger`") from None
+            "`ren replay-ledger`", blocker="unsafe_state") from None
 
     reel_name = ""
     if getattr(args, "master", False):
@@ -4400,7 +4400,7 @@ def cmd_undo(args):
             f"{hold.get('reason', '')})",
             "an undo under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
-            "asked for it - check with them), then re-run `ren undo`") \
+            "asked for it - check with them), then re-run `ren undo`", blocker="unsafe_state") \
             from None
     accepted = args.accept_editor_changes or None
     if getattr(args, "restore_version", None) is not None:
@@ -4409,7 +4409,7 @@ def cmd_undo(args):
                 "a restore names ONE reel",
                 "the version to restore belongs to a reel, and the reel "
                 "was not named",
-                "run `ren undo <project> <reel> --restore-version N`") \
+                "run `ren undo <project> <reel> --restore-version N`", blocker="ambiguous_intent") \
                 from None
         try:
             receipt = _undo.restore_version(
@@ -4495,7 +4495,7 @@ def cmd_redo(args):
             f"{hold.get('reason', '')})",
             "a redo under a held project could fight the holder",
             f"run `ren resume {args.project}` (the hold records who "
-            "asked for it - check with them), then re-run `ren redo`") \
+            "asked for it - check with them), then re-run `ren redo`", blocker="unsafe_state") \
             from None
     try:
         print(_undo.render_redo_plan(_undo.explain_redo(
@@ -4585,13 +4585,13 @@ def _reel_project_folder(project: str) -> str:
                 f"{invalid.why}",
                 f"{invalid.fix}",
                 user_message=invalid.user_message,
-                recovery_class=invalid.recovery_class) from invalid
+                recovery_class=invalid.recovery_class, blocker="unsafe_state") from invalid
         except FileNotFoundError as unknown:
             raise RenRefusal(
                 f"{unknown}",
                 "no project with this slug is under PIPELINE_PROJECTS_ROOT",
                 "run `ren projects` to list them, or pass the project's "
-                "absolute path instead of the slug") from unknown
+                "absolute path instead of the slug", blocker="missing_media") from unknown
     try:
         from library.tools import timeline_shadow
         timeline_shadow.sync_project(folder)

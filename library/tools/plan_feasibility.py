@@ -52,6 +52,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from library.tools import refusal_taxonomy
+
 #: The three answers a check may give.
 FEASIBLE = "feasible"
 INFEASIBLE = "infeasible"
@@ -72,6 +74,38 @@ CHECK_MEDIA_PREREQUISITE = "media_prerequisite"
 CHECK_EFFECT_STATE = "effect_state"
 CHECK_RECONSTRUCTION_STRATEGY = "reconstruction_strategy"
 CHECK_PRESERVATION_COMPATIBILITY = "preservation_compatibility"
+
+
+#: PROD-003: what KIND of block each check reports when it refuses, and
+#: the next action the caller can take.  A check that refuses without an
+#: entry here is refused at the raise site: a refusal nobody can act on
+#: is the defect this removes.  A check whose answer is UNDETERMINED
+#: rather than INFEASIBLE usually wants a different blocker, and says
+#: so at the site.
+CHECK_BLOCKERS: Mapping[str, tuple[str, str]] = {
+    CHECK_REQUIRED_PARAMETERS: ("insufficient_evidence",
+                                "supply_the_missing_parameter"),
+    CHECK_OPERATION_KNOWN: ("unsupported_operation",
+                            "use_a_supported_operation"),
+    CHECK_EXECUTOR_EXISTS: ("unsupported_operation",
+                            "use_a_supported_operation"),
+    CHECK_ROUTE_ELIGIBLE: ("unsupported_operation",
+                           "use_a_supported_operation"),
+    CHECK_CAPABILITY_QUERY: ("unsupported_operation",
+                             "use_a_supported_operation"),
+    CHECK_QUALIFICATION_PREDICATES: ("unsafe_state",
+                                     "settle_the_state_first"),
+    CHECK_TARGET_IDENTITY: ("missing_media", "supply_the_missing_media"),
+    CHECK_TRACK_PRESENCE: ("missing_media", "supply_the_missing_media"),
+    CHECK_SOURCE_HANDLE: ("insufficient_evidence", "collect_the_evidence"),
+    CHECK_MEDIA_PREREQUISITE: ("insufficient_evidence",
+                               "collect_the_evidence"),
+    CHECK_EFFECT_STATE: ("insufficient_evidence", "collect_the_evidence"),
+    CHECK_RECONSTRUCTION_STRATEGY: ("unsupported_operation",
+                                    "use_a_supported_operation"),
+    CHECK_PRESERVATION_COMPATIBILITY: ("insufficient_evidence",
+                                       "collect_the_evidence"),
+}
 
 CHECKS: tuple[str, ...] = (
     CHECK_REQUIRED_PARAMETERS,
@@ -157,13 +191,21 @@ class FeasibilityState:
 
 @dataclass(frozen=True)
 class Finding:
-    """One check's answer, with the evidence it stands on."""
+    """One check's answer, with the evidence it stands on.
+
+    PROD-003: a finding that REFUSES carries the BLOCKER - which of the
+    six kinds of block it is - and the NEXT ACTION, the move the caller
+    can take.  A finding that passes carries neither: there is nothing
+    blocked.
+    """
 
     op: str
     check: str
     status: str
     reason: str
     evidence: Mapping[str, Any] = field(default_factory=dict)
+    blocker: str = ""
+    next_action: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -172,6 +214,8 @@ class Finding:
             "status": self.status,
             "reason": self.reason,
             "evidence": dict(self.evidence),
+            "blocker": self.blocker,
+            "next_action": self.next_action,
         }
 
 
@@ -271,9 +315,27 @@ def capability_query(op_id: str, *, conditions: Mapping[str, Any] | None = None,
 
 
 def _finding(op: str, check: str, status: str, reason: str,
+             blocker: str = "", next_action: str = "",
              **evidence: Any) -> Finding:
+    """One finding, with the kind of block it reports when it refuses.
+
+    A refusing finding without a blocker is a refusal nobody can act
+    on, so it is refused here: the guard is that no check may report a
+    refusal without saying what KIND of block it was and what the
+    caller does about it.
+    """
+    if not blocker and status in (INFEASIBLE, UNDETERMINED):
+        blocker, next_action = CHECK_BLOCKERS.get(check, ("", ""))
+    if status in (INFEASIBLE, UNDETERMINED) and not blocker:
+        raise ValueError(
+            f"the {check!r} check refused without a blocker; name the "
+            "kind of block and the next action the caller can take")
+    if blocker:
+        next_action = (next_action
+                       or refusal_taxonomy.next_action_for(blocker))
     return Finding(op=op, check=check, status=status, reason=reason,
-                   evidence=evidence)
+                   evidence=evidence, blocker=blocker,
+                   next_action=next_action)
 
 
 def _eligible_backends(facts: Mapping[str, Any], state: FeasibilityState
@@ -417,6 +479,7 @@ def _check_capability_query(op: str, operation: Mapping[str, Any],
         op, CHECK_CAPABILITY_QUERY, UNDETERMINED,
         "the capability query could not determine the answer: the "
         "timeline's state was not inspected",
+        blocker="insufficient_evidence", next_action="collect_the_evidence",
         operation=op, answer=verdict)
 
 
@@ -442,6 +505,7 @@ def _check_qualification(op: str, operation: Mapping[str, Any],
             op, CHECK_QUALIFICATION_PREDICATES, UNDETERMINED,
             "the runtime state was not read, so the recorded predicates "
             "could not be checked",
+            blocker="insufficient_evidence", next_action="collect_the_evidence",
             operation=op, predicates=predicates)
     mismatches = execution_router.qualification_mismatches(
         str(facts.get("op") or op), runtime)
@@ -477,12 +541,15 @@ def _check_target_identity(op: str, operation: Mapping[str, Any],
             op, CHECK_TARGET_IDENTITY, INFEASIBLE,
             f"{op} targets an existing timeline item but names no "
             "unique_id",
+            blocker="insufficient_evidence",
+            next_action="supply_the_missing_parameter",
             operation=op)
     if not state.items:
         return _finding(
             op, CHECK_TARGET_IDENTITY, UNDETERMINED,
             "the timeline's items were not read, so the target could not "
             "be confirmed",
+            blocker="insufficient_evidence", next_action="collect_the_evidence",
             operation=op, target=target)
     if target not in state.items:
         return _finding(
@@ -511,6 +578,7 @@ def _check_track_presence(op: str, operation: Mapping[str, Any],
             op, CHECK_TRACK_PRESENCE, UNDETERMINED,
             f"the target item {target!r} carries no row, so the row it "
             "lives on could not be confirmed",
+            blocker="insufficient_evidence", next_action="collect_the_evidence",
             operation=op, target=target)
     if state.tracks and track not in state.tracks:
         return _finding(
@@ -566,6 +634,7 @@ def _check_source_handle(op: str, operation: Mapping[str, Any],
             op, CHECK_SOURCE_HANDLE, INFEASIBLE,
             f"the target item {target!r} reads a source handle of "
             f"{low}-{high}, which carries no frames",
+            blocker="missing_media", next_action="supply_the_missing_media",
             operation=op, target=target, source_in=low, source_out=high)
     asked_in = operation.get("source_in")
     asked_out = operation.get("source_out")
@@ -633,6 +702,8 @@ def _check_media_prerequisite(op: str, operation: Mapping[str, Any],
             op, CHECK_MEDIA_PREREQUISITE, INFEASIBLE,
             f"{op} does not support media type {measured!r} "
             f"(supports: {', '.join(kinds)})",
+            blocker="unsupported_operation",
+            next_action="use_a_supported_operation",
             operation=op, target=target, media_type=measured,
             supported=list(kinds))
     return _finding(
@@ -968,6 +1039,12 @@ def refusal(verdict: FeasibilityVerdict) -> dict[str, Any]:
     The category is ``unsupported``: the request's semantics have no
     eligible route on this timeline, which is the one category a caller
     may not answer by rebuilding over the timeline instead.
+
+    PROD-003: it also carries the BLOCKER and the NEXT ACTION the
+    refusing findings name - the kind of block, in the six kinds, and
+    the move the caller can take.  A plan refused for several reasons
+    reports the blockers it found, so the caller sees whether this is
+    missing media, an unsupported operation or an unsafe state.
     """
     from library.tools.execution_router import (
         ROUTING_REFUSAL_CATEGORIES,
@@ -977,6 +1054,11 @@ def refusal(verdict: FeasibilityVerdict) -> dict[str, Any]:
 
     reasons = verdict.reasons()
     category = "unsupported"
+    blockers = [row.blocker for row in verdict.findings
+                if row.blocker and row.status in (INFEASIBLE, UNDETERMINED)]
+    next_actions = [row.next_action for row in verdict.findings
+                    if row.next_action
+                    and row.status in (INFEASIBLE, UNDETERMINED)]
     return {
         "category": category,
         "recovery_class": ROUTING_REFUSAL_RECOVERY_CLASSES[category],
@@ -986,6 +1068,11 @@ def refusal(verdict: FeasibilityVerdict) -> dict[str, Any]:
         "fix": ROUTING_REFUSAL_FIXES[category],
         "reasons": list(reasons),
         "categories": list(ROUTING_REFUSAL_CATEGORIES),
+        "blockers": sorted(set(blockers)),
+        "next_actions": sorted(set(next_actions)),
+        "blocker": (sorted(set(blockers))[0] if blockers else ""),
+        "next_action": (sorted(set(next_actions))[0] if next_actions
+                        else ""),
         "revision": (dict(verdict.revision)
                      if verdict.revision is not None else None),
     }

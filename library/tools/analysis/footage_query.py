@@ -692,12 +692,12 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
         raise RenRefusal(
             "ffmpeg is not on PATH",
             "chunk stills are cut with ffmpeg",
-            "install ffmpeg and rebuild the index with --video-chunks")
+            "install ffmpeg and rebuild the index with --video-chunks", blocker="unsupported_operation")
     if not source_file or not Path(source_file).is_file():
         raise RenRefusal(
             f"no media file at {source_file!r}",
             "a chunk's frames come from its clip's media file",
-            "build the video chunks on a machine holding the media")
+            "build the video chunks on a machine holding the media", blocker="missing_media")
     length = float(end) - float(start)
     count = max(1, int(round(length * fps)))
     import tempfile
@@ -712,7 +712,7 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
             raise RenRefusal(
                 f"ffmpeg cut no frames for {source_file}@{start}-{end}",
                 "the chunk cannot be embedded without its frames",
-                (proc.stderr or b"").decode("utf-8", "replace")[-300:])
+                (proc.stderr or b"").decode("utf-8", "replace")[-300:], blocker="missing_media")
         frames = []
         for path in sorted(Path(tmpdir).glob("f*.png")):
             try:
@@ -723,7 +723,7 @@ def extract_chunk_frames(source_file, start, end, fps=VIDEO_CHUNK_FPS,
             raise RenRefusal(
                 f"ffmpeg cut no frames for {source_file}@{start}-{end}",
                 "the chunk cannot be embedded without its frames",
-                "the media file may be shorter than the recorded window")
+                "the media file may be shorter than the recorded window", blocker="missing_media")
         return frames
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
@@ -964,7 +964,7 @@ def build_index(project_folder, index_dir=None, kinds=SEGMENT_KINDS, verbose=Fal
         raise RenRefusal(
             f"unknown text embedder {embedder!r}",
             "the footage index is built with a named text encoder",
-            f"use one of {', '.join(TEXT_EMBEDDERS)}")
+            f"use one of {', '.join(TEXT_EMBEDDERS)}", blocker="unsupported_operation")
     started = time.perf_counter()
     target = Path(index_dir) if index_dir else index_dir_for(project_folder)
     target.mkdir(parents=True, exist_ok=True)
@@ -1337,7 +1337,7 @@ def merge_external_evidence(report: dict, hits: list,
         raise RenRefusal(
             "external evidence must be a list of hit rows",
             f"{type(hits).__name__} cannot be merged with a search report",
-            "hand over the JSON list the Resolve-side collector wrote")
+            "hand over the JSON list the Resolve-side collector wrote", blocker="unsupported_operation")
     accepted = []
     rejected = []
     for position, hit in enumerate(hits):
@@ -1403,7 +1403,7 @@ def parse_fps(value) -> float:
     raise RenRefusal(
         f"frame rate {value!r} parses as neither a number nor num/den",
         "every converted frame scales by this rate",
-        "hand over ffprobe's r_frame_rate (e.g. 24000/1001)")
+        "hand over ffprobe's r_frame_rate (e.g. 24000/1001)", blocker="unsupported_operation")
 
 
 def resolve_time_to_seconds(value, fps=None, start_tc=None) -> float:
@@ -1436,13 +1436,13 @@ def resolve_time_to_seconds(value, fps=None, start_tc=None) -> float:
             f"HH:MM:SS:FF",
             "it cannot be placed on the clip",
             "hand over seconds, or timecodes with --resolve-fps and "
-            "--resolve-start-tc")
+            "--resolve-start-tc", blocker="unsupported_operation")
     if fps is None or start_tc is None:
         raise RenRefusal(
             f"Resolve time {value!r} is a timecode with no rate or "
             f"opening to convert it by",
             "frames do not mean seconds without both",
-            "hand over --resolve-fps and --resolve-start-tc")
+            "hand over --resolve-fps and --resolve-start-tc", blocker="unsupported_operation")
     rate = parse_fps(fps)
     hours, minutes, seconds, frames = (int(part) for part in match.groups())
     absolute = hours * 3600 + minutes * 60 + seconds + frames / rate
@@ -1465,21 +1465,21 @@ def normalize_resolve_segments(segments: list, fps=None,
             "transcript evidence must be a list of Resolve segments",
             f"{type(segments).__name__} cannot be merged with a "
             f"transcript",
-            "hand over the JSON list Resolve's transcription wrote")
+            "hand over the JSON list Resolve's transcription wrote", blocker="unsupported_operation")
     normalized = []
     for position, segment in enumerate(segments):
         if not isinstance(segment, dict):
             raise RenRefusal(
                 f"Resolve segment {position} is not an object",
                 "it carries no time to place",
-                "hand over the JSON list Resolve's transcription wrote")
+                "hand over the JSON list Resolve's transcription wrote", blocker="unsupported_operation")
         row = dict(segment)
         for key in ("start", "end"):
             if row.get(key) is None:
                 raise RenRefusal(
                     f"Resolve segment {position} names no {key}",
                     "a span without an edge cannot overlap",
-                    "hand over segments with start and end")
+                    "hand over segments with start and end", blocker="unsupported_operation")
             try:
                 row[key] = resolve_time_to_seconds(
                     row[key], fps=fps, start_tc=start_tc)
@@ -1488,7 +1488,7 @@ def normalize_resolve_segments(segments: list, fps=None,
                     f"Resolve segment {position}: {exc}",
                     "it cannot be placed on the clip",
                     "hand over seconds, or timecodes with --resolve-fps "
-                    "and --resolve-start-tc") from exc
+                    "and --resolve-start-tc", blocker="unsupported_operation") from exc
         normalized.append(row)
     return normalized
 
@@ -1661,7 +1661,7 @@ class FootageIndex:
                     f"no footage index at {path}",
                     "search reads the built index; nothing has built one "
                     "for this project yet",
-                    f"build it first: ren search-index '{self.project_folder}'")
+                    f"build it first: ren search-index '{self.project_folder}'", blocker="missing_media")
             with open(path, encoding="utf-8") as f:
                 self._payload = json.load(f)
         return self._payload
@@ -2154,7 +2154,7 @@ class FootageIndex:
             raise RenRefusal(
                 f"unknown search mode {mode!r}",
                 "the scorer only runs hybrid, dense or lexical",
-                "use --mode hybrid, --mode dense or --mode lexical")
+                "use --mode hybrid, --mode dense or --mode lexical", blocker="unsupported_operation")
 
         lexical = self.bm25.scores(query)
         if candidate_mask is None:
@@ -3320,7 +3320,7 @@ class FootageIndex:
                 "name resolving to this query",
                 "build it first: python3 -m library.tools.person_entity "
                 f"build '{self.project_folder}', or check the spelling "
-                "against `person_entity roster`")
+                "against `person_entity roster`", blocker="missing_media")
         windows = [(span["clip_id"], span["start"], span["end"])
                   for span in match["face_spans"]]
         windows += [(span["clip_id"], span["start"], span["end"])
@@ -3452,14 +3452,14 @@ class FootageIndex:
             raise RenRefusal(
                 f"unknown kind {kind!r}",
                 f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
-                f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}")
+                f"use --kind {' / --kind '.join(sorted(SEGMENT_KINDS))}", blocker="unsupported_operation")
         if kinds is not None:
             unknown = set(kinds) - set(SEGMENT_KINDS)
             if unknown:
                 raise RenRefusal(
                     f"unknown kinds {sorted(unknown)!r}",
                     f"the index only holds these kinds: {sorted(SEGMENT_KINDS)}",
-                    f"use kinds from {sorted(SEGMENT_KINDS)}")
+                    f"use kinds from {sorted(SEGMENT_KINDS)}", blocker="unsupported_operation")
 
         person_windows = self._person_windows(person) if person else None
 
@@ -4936,7 +4936,7 @@ def search_json(project_folder, query, *, mode="hybrid", top_k=5, floor=None,
             raise RenRefusal(
                 f"frame search refused {report['query']!r}",
                 report["refused"]["reason"],
-                report["refused"]["hint"])
+                report["refused"]["hint"], blocker="unsupported_operation")
         return json_answer(
             query=query, mode="visual",
             abstained=not report["ranges"],
@@ -5017,7 +5017,7 @@ def where_answer(project_folder, person, at=None, memory_root=None) -> dict:
             "name resolving to this query",
             "build it first: python3 -m library.tools.person_entity "
             f"build '{project_folder}', or check the spelling "
-            "against `person_entity roster`")
+            "against `person_entity roster`", blocker="missing_media")
     person_id = match["person_id"]
     catalog = load_catalog(project_folder)
     try:
@@ -5071,7 +5071,7 @@ def where_answer(project_folder, person, at=None, memory_root=None) -> dict:
         raise RenRefusal(
             f"--at {at!r} is not a time",
             "a moment is source seconds, e.g. --at 12.5",
-            f"ren where {project_folder} {person} --at 12.5")
+            f"ren where {project_folder} {person} --at 12.5", blocker="unsupported_operation")
     places = []
     for digest in sorted(person_digests):
         row: dict = {"content_digest": digest,
@@ -5106,7 +5106,7 @@ def _load_external_hits(path):
         raise RenRefusal(
             f"cannot read external hits from {path}",
             f"{type(exc).__name__}: {exc}",
-            "hand over the JSON list the Resolve-side collector wrote")
+            "hand over the JSON list the Resolve-side collector wrote", blocker="missing_media")
 
 
 def _print_where(answer: dict) -> None:
@@ -5519,7 +5519,7 @@ def main(argv=None):
                 "a temporal query is one question; a bare query and a "
                 "--temporal question would be two",
                 f'ren search {args.project} --temporal "the second time '
-                f'she opens the box"')
+                f'she opens the box"', blocker="ambiguous_intent")
         from library.tools import temporal_events, temporal_query
         started = time.perf_counter()
         index = temporal_events.build_temporal_events(args.project)
@@ -5540,7 +5540,7 @@ def main(argv=None):
                 "a structured query asks what one person is doing; it has "
                 "no text to rank",
                 f"ren search {args.project} --person <name> --predicate "
-                f"{args.predicate}")
+                f"{args.predicate}", blocker="ambiguous_intent")
         from library.tools import event_spans
         started = time.perf_counter()
         if args.verify is not None:
@@ -5563,7 +5563,7 @@ def main(argv=None):
                 "--sound needs a label to look for",
                 "a sound query asks what was HEARD; it has no text to rank",
                 f"ren search {args.project} --sound \"<label>\" "
-                f"(e.g. --sound laughter)")
+                f"(e.g. --sound laughter)", blocker="ambiguous_intent")
         idx = FootageIndex(args.project, index_dir=args.index_dir)
         started = time.perf_counter()
         if args.json:
@@ -5612,7 +5612,7 @@ def main(argv=None):
                 "--ocr needs a string to look for",
                 "an OCR query asks what was ON SCREEN; it has no text to rank",
                 f"ren search {args.project} --ocr \"<on-screen text>\" "
-                f"(e.g. --ocr \"SCUFFLEWA BREWING CO\")")
+                f"(e.g. --ocr \"SCUFFLEWA BREWING CO\")", blocker="ambiguous_intent")
         idx = FootageIndex(args.project, index_dir=args.index_dir)
         started = time.perf_counter()
         if args.json:
@@ -5633,13 +5633,13 @@ def main(argv=None):
                          "the VLM judges a person's candidate spans, never "
                          "a whole episode",
                          f"ren search {args.project} --person <name> "
-                         f"--predicate hand_near_mouth --verify \"<statement>\"")
+                         f"--predicate hand_near_mouth --verify \"<statement>\"", blocker="ambiguous_intent")
 
     if args.command == "search" and not args.query:
         raise RenRefusal("search needs a query",
                          "nothing to look for was given",
                          f"ren search {args.project} \"<what>\", or "
-                         f"--person <name> --predicate <what they do>")
+                         f"--person <name> --predicate <what they do>", blocker="ambiguous_intent")
 
     if args.command == "search" and args.visual:
         started = time.perf_counter()
@@ -5670,7 +5670,7 @@ def main(argv=None):
             raise RenRefusal(
                 f"frame search refused {report['query']!r}",
                 report["refused"]["reason"],
-                report["refused"]["hint"])
+                report["refused"]["hint"], blocker="unsupported_operation")
         _print_frame_report(report)
         print(f"\n{elapsed * 1000:.1f} ms")
         return 0

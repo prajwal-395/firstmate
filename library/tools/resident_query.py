@@ -318,13 +318,13 @@ class WorkerServer:
                 "Unix socket paths longer than ~104 characters cannot bind",
                 f"pass a shorter --socket-dir (under "
                 f"{MAX_SOCKET_PATH_LEN - len(SOCKET_NAME) - 1} characters)",
-            )
+            blocker="unsupported_operation")
         if embedder not in ("fake", *REAL_EMBEDDERS):
             raise RenRefusal(
                 f"unknown embedder {embedder!r}",
                 "the worker serves one named encoder",
                 "use --embedder fake, minilm or eg2",
-            )
+            blocker="unsupported_operation")
         self.embedder_kind = embedder
         self.index_file = Path(index_file) if index_file else None
         self.project = project
@@ -364,7 +364,7 @@ class WorkerServer:
                     "no text embedder is available",
                     f"the MiniLM loader answered: {backend}",
                     "install sentence-transformers or run with --embedder fake",
-                )
+                blocker="unsupported_operation")
             self._embedder = ("minilm", encode, backend)
         else:
             from library.tools.analysis import footage_query
@@ -375,7 +375,7 @@ class WorkerServer:
                     "no EmbeddingGemma text embedder is available",
                     f"the EG2 loader answered: {backend}",
                     "install sentence-transformers>=6.1 or run with --embedder fake",
-                )
+                blocker="unsupported_operation")
             self._embedder = ("eg2", encode, backend)
         self._model_loads += 1
 
@@ -410,7 +410,7 @@ class WorkerServer:
                     f"no readable query index at {self.index_file}",
                     f"the worker keeps no index of its own: {exc}",
                     "write the JSON index first, or point --index-file at one",
-                ) from exc
+                blocker="missing_media") from exc
             self._index = payload
             fingerprint = payload.get("fingerprint")
             if not fingerprint:
@@ -430,7 +430,7 @@ class WorkerServer:
                     f"no readable query index for {self.project}",
                     f"the worker keeps no index of its own: {exc}",
                     f"build it first: ren search-index '{self.project}'",
-                ) from exc
+                blocker="missing_media") from exc
         self._index_loads += 1
         self._index_generation += 1
 
@@ -579,7 +579,7 @@ class WorkerServer:
                 f"a resident query worker already owns {self.socket_path}",
                 f"its generation is {existing.get('generation')}",
                 f"query it, or run `stop --socket-dir {self.socket_dir}` first",
-            )
+            blocker="resource_contention")
         except StaleSocket:
             pass
         try:
@@ -594,7 +594,7 @@ class WorkerServer:
                 f"cannot bind the query socket at {self.socket_path}",
                 f"the bind failed: {exc}",
                 "pass a writable --socket-dir with a short path",
-            ) from exc
+            blocker="resource_contention") from exc
         server.listen(16)
         server.settimeout(ACCEPT_TIMEOUT_S)
         (self.socket_dir / PID_NAME).write_text(str(os.getpid()), encoding="utf-8")

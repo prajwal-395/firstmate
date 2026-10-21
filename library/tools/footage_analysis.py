@@ -382,7 +382,7 @@ def resolve_target(ref: str, into: str | None = None,
         raise RenRefusal(
             f"nothing to analyse at {ref!r}",
             "it is neither a project nor a folder on disk",
-            "ren analyze <folder of footage>  or  ren analyze <project>")
+            "ren analyze <folder of footage>  or  ren analyze <project>", blocker="missing_media")
     return ensure_collection(str(folder.resolve()), into, slug)
 
 
@@ -418,7 +418,7 @@ def ensure_collection(footage_dir: str, into: str | None = None,
                 f"{folder} already exists over different footage",
                 f"it declares source.footage_root {shown!r}, "
                 f"not {footage_dir!r}",
-                "pass --slug <another-name> or --into <another-folder>")
+                "pass --slug <another-name> or --into <another-folder>", blocker="unsafe_state")
         return str(folder), False
     create_project(name, f"Footage: {Path(footage_dir).name}", root=parent,
                    description=("Analysis-only collection made by `ren "
@@ -766,7 +766,7 @@ def main(argv=None) -> int:
             "`ren analyze` no longer passes flags to the step runner",
             "analysis runs its own capabilities, not a partial edit run",
             "select with --with <capability> / --skip <capability>, "
-            "e.g. --with ocr.extract")
+            "e.g. --with ocr.extract", blocker="unsupported_operation")
     parser = argparse.ArgumentParser(
         prog="ren analyze",
         description=("Analyse a folder of footage (or a project) without "
@@ -812,7 +812,7 @@ def main(argv=None) -> int:
         if found is None:
             raise RenRefusal(f"{args.target!r} is not a project",
                              "status reads a project or collection",
-                             "ren analyze <project> --status")
+                             "ren analyze <project> --status", blocker="missing_media")
         print(json.dumps(status(str(found.parent), root), indent=2))
         return 0
 

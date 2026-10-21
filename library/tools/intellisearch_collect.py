@@ -209,20 +209,20 @@ def collect(project_folder: str, query: str, box: tuple,
         raise RenRefusal(
             "an IntelliSearch collection needs a query",
             "nothing to look for was given",
-            "hand over the text IntelliSearch should be asked")
+            "hand over the text IntelliSearch should be asked", blocker="ambiguous_intent")
     names = _catalog_names(project_folder)
     if not names:
         raise RenRefusal(
             f"no catalog clip names in {project_folder}",
             "names are intersected with the project catalog, and it "
             "holds nothing to intersect with",
-            f"build it first: ren search-index '{project_folder}'")
+            f"build it first: ren search-index '{project_folder}'", blocker="missing_media")
     if not client.serving():
         raise RenRefusal(
             "no ren-resolved broker is serving",
             "the collection runs as a qualification-session broker job, and "
             "Ren never starts a broker itself",
-            "start one with `ren resolved serve`")
+            "start one with `ren resolved serve`", blocker="resource_contention")
     spec = build_collection_spec(str(query).strip(), box,
                                  budget_seconds=budget_seconds,
                                  timeline=timeline)
@@ -241,27 +241,27 @@ def collect(project_folder: str, query: str, box: tuple,
         raise RenRefusal(
             f"the collection job ended {job['state']}",
             f"{job.get('error') or 'no error recorded'}",
-            "read the receipt in the job result and re-run")
+            "read the receipt in the job result and re-run", blocker="unsafe_state")
     session = job["result"]
     transaction = session["steps"][0]["receipt"]
     if transaction["observed_before"]["project"] != QUALIFICATION_PROJECT:
         raise RenRefusal(
             "the transaction did not read back the qualification project",
             f"the transaction opened {transaction['observed_before']['project']!r}",
-            "re-run only through the qualification session broker job")
+            "re-run only through the qualification session broker job", blocker="insufficient_evidence")
     verification = transaction["verification"]
     if verification["kind"] != "read_text":
         raise RenRefusal(
             "the transaction returned no in-lease screen observation",
             f"verification kind was {verification['kind']!r}",
-            "re-run with the read_text transaction verification")
+            "re-run with the read_text transaction verification", blocker="insufficient_evidence")
     screen_text = verification["text"]
     text = str(query).strip()
     if text.casefold() not in screen_text.casefold():
         raise RenRefusal(
             f"IntelliSearch did not render {text!r} on screen",
             f"the in-lease read_text receipt said: {screen_text!r}",
-            "inspect the receipt before making another foreground take")
+            "inspect the receipt before making another foreground take", blocker="insufficient_evidence")
     elements = verification["elements"]
     report = extract_rows(elements, names, text)
     out_path = Path(out) if out else default_hits_path(project_folder)

@@ -79,12 +79,12 @@ def _install_encoders(monkeypatch, audio_ok=True):
 
     def extract(source, start, end):
         if "GONE" in str(source):
-            raise RenRefusal("no media", "fixture", "stay unembedded")
+            raise RenRefusal("no media", "fixture", "stay unembedded", blocker="missing_media")
         return [np.zeros((8, 8, 3), dtype="uint8")] * 8
 
     def audio(source, start, end):
         if not audio_ok or "GONE" in str(source):
-            raise RenRefusal("no audio", "fixture", "stay unembedded")
+            raise RenRefusal("no audio", "fixture", "stay unembedded", blocker="missing_media")
         return {"array": np.zeros(160, dtype="float32"),
                 "sampling_rate": UNIFIED_AUDIO_RATE}
 
@@ -346,7 +346,7 @@ def test_video_chunk_build_drops_non_finite_rows(media_project, monkeypatch):
 
     def extract(source, start, end):
         if "GONE" in str(source):
-            raise RenRefusal("no media", "fixture", "stay unembedded")
+            raise RenRefusal("no media", "fixture", "stay unembedded", blocker="missing_media")
         return [np.zeros((8, 8, 3), dtype="uint8")] * 8
 
     calls = []

@@ -606,7 +606,9 @@ class _Handler(socketserver.StreamRequestHandler):
                     request = json.loads(line)
                     reply = self._dispatch(broker, request, grant)
                 except job_kinds.JobRefused as exc:
-                    reply = {"error": str(exc), "refused": True}
+                    reply = {"error": str(exc), "refused": True,
+                             "blocker": exc.blocker,
+                             "next_action": exc.next_action}
                 except Exception as exc:                      # noqa: BLE001
                     reply = {"error": f"{type(exc).__name__}: {exc}"}
                 if "granted" in reply:

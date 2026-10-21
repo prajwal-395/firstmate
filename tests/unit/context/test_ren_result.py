@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[3]
 def _refusal():
     return RenRefusal("no footage index at <tmp>",
                       "search reads the built index first",
-                      "build it first: ren search-index '<tmp>'")
+                      "build it first: ren search-index '<tmp>'", blocker="missing_media")
 
 
 def test_refusal_payload_carries_exit_code_class_and_fix():

@@ -54,7 +54,7 @@ def _solving_handler(name, artifact=None, provenance=None):
 def _refusing_handler(name, why):
     def handler(need, context):
         raise RenRefusal(why, "no asset answers this need",
-                         "configure a provider, or drop the need")
+                         "configure a provider, or drop the need", blocker="unsupported_operation")
     return handler
 
 

@@ -39,7 +39,7 @@ _FORMAT_TIMEOUT_SECONDS = 120
 
 
 def _refused(what: str, why: str, fix: str) -> RenRefusal:
-    return RenRefusal(what, why, fix)
+    return RenRefusal(what, why, fix, blocker="unsafe_state")
 
 
 @contextmanager
@@ -127,7 +127,7 @@ def _verify_doctor(engine_root: Path, home: Path) -> None:
             "candidate doctor found required failures: "
             + ", ".join(sorted(failed_names)),
             "the candidate did not pass Ren's required environment checks",
-            fixes or "run `ren doctor` and fix every required failure before retrying")
+            fixes or "run `ren doctor` and fix every required failure before retrying", blocker="unsafe_state")
     if result.returncode != 0:
         raise RuntimeError(
             f"candidate doctor exited {result.returncode} without reporting "
@@ -210,7 +210,7 @@ def _verify_project_formats(engine_root: Path, home: Path) -> None:
             f"Ren cannot upgrade while these projects are outside the "
             f"candidate format range: {projects}",
             reasons,
-            fixes)
+            fixes, blocker="unsupported_operation")
 
 
 def _rebuild_ren_native(engine_root: Path, home: Path) -> None:
@@ -292,7 +292,7 @@ def upgrade(source: str | Path, home: Path | None = None,
                     "Ren's active version changed during the upgrade",
                     f"it was {old_version} before candidate checks and is "
                     f"now {active_now}",
-                    "retry `ren upgrade <engine-source>` against the current version")
+                    "retry `ren upgrade <engine-source>` against the current version", blocker="unsafe_state")
             switch_previous(home, old_version)
             try:
                 switch_current(home, candidate.name)

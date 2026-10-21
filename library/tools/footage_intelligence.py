@@ -96,7 +96,7 @@ def resolve_name(name: str) -> str:
     raise RenRefusal(
         f"{name!r} is not an analysis capability",
         "an analysis run selects from the footage-intelligence roster only",
-        f"name one of: {', '.join(ROSTER)}")
+        f"name one of: {', '.join(ROSTER)}", blocker="unsupported_operation")
 
 
 def select(memory_only: bool = False, with_: Sequence[str] = (),
@@ -145,7 +145,7 @@ def compose(capability_ids: Sequence[str]) -> tuple:
                 "the analysis selection has a requirement cycle",
                 f"left unordered: {sorted(set(specs) - set(ordered))}",
                 "report it: the derived requirements disagree with the "
-                "roster")
+                "roster", blocker="unsafe_state")
         ordered.append(ready[0])
     return tuple(ordered)
 

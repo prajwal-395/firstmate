@@ -90,7 +90,7 @@ def test_a_refusal_that_already_decided_its_class_keeps_that_class():
     # here would be a second opinion.
     from library.tools.ren_refusal import RenRefusal
 
-    refused = RenRefusal("what", "why", "fix", recovery_class="blocked")
+    refused = RenRefusal("what", "why", "fix", recovery_class="blocked", blocker="unsafe_state")
     typed = ri.refusal_instruction(refused, category="stale")
     assert typed["recovery_class"] == "blocked"
     assert typed["action"] == "rebase_if_provably_safe_else_replan"

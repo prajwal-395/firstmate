@@ -878,7 +878,7 @@ def _refuse_uncovered(blocks: list, assignments: list) -> None:
             why=("each puts nothing on V1, so without a cutaway those "
                  "ranges render black"),
             fix=("select a clip covering each block, or declare the "
-                 "hole an intentional black beat on the spine block"))
+                 "hole an intentional black beat on the spine block"), blocker="missing_media")
 
 
 # ── Region-scoped re-plan, and putting it back ──────────────────────

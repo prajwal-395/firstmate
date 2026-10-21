@@ -176,7 +176,7 @@ def test_a_refusal_may_carry_its_class():
     """The refusal shape every `ren` verb prints carries the class, so a
     host can act on it without parsing prose - and a refusal that is not
     about a conflict says so with an empty class."""
-    refusal = RenRefusal(what="what", why="why", fix="fix")
+    refusal = RenRefusal(what="what", why="why", fix="fix", blocker="unsafe_state")
 
     payload = refusal.to_dict()
 
@@ -184,7 +184,7 @@ def test_a_refusal_may_carry_its_class():
         "a refusal that is not about a conflict carries an empty class, "
         "not a guessed one")
     classified = RenRefusal(what="what", why="why", fix="fix",
-                            conflict_class=edit_conflict.STALE_PLAN)
+                            conflict_class=edit_conflict.STALE_PLAN, blocker="unsafe_state")
 
     assert classified.to_dict()["conflict_class"] == edit_conflict.STALE_PLAN, (
         "a refusal must carry the class of the badness it is about")
