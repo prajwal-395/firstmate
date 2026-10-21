@@ -10297,3 +10297,54 @@ check; `library/tools/edit_execution_adapters.py::_caption_fix` runs
 them and proves the styling survived;
 `tests/live/caption_fix_qualification.py` is the live qualification on
 a real reel.
+
+## collateral-nobody-modelled
+
+The engine judged preservation on the READ-BACK: it compared the state a
+write was authorized against with the state it left behind, and called
+every change it could not account for collateral. Before the write, the
+only question asked was whether the request WROTE to the work the
+requester required unchanged. Everything the request REACHED was invisible
+until after it had written.
+
+**What it cost.** Three defects, all measured on scratch copies
+(`scripts/preservation_collateral_proof.py`; 13 requests, 5 unauthorized
+changes, 13 collateral changes, 3 stranded caption cards):
+
+- a request that names TWO items was read as naming one - `clip.link`
+  names the partner it links to, and the authorization scope read
+  `unique_id` alone, so the partner's link state was a change on an item
+  the request had named;
+- Resolve's native ripple moves EVERY row's tail, and the engine refused
+  the primitive outright rather than naming the rows it would have moved -
+  the blast radius existed in one sentence of a refusal and nowhere else;
+- a caption card left covering a picture that is gone changed no item, so
+  no diff row recorded it, and the caption was simply wrong afterwards.
+
+**Measured, before and after, with the denominators:**
+
+- unauthorized changes detected BEFORE execution: 0/5 before, 5/5 after;
+- collateral changes named before execution: 0/13 before, 13/13 after;
+- stranded caption cards named before execution: 0/3 before, 3/3 after;
+- approved-work requests refused: 3/4 before, 4/4 after;
+- unauthorized reported where the scratch copy made none: 0 before, 0
+  after - the detection was not bought with false refusals.
+
+**The rule.** The collateral a request may cause is MODELLED before the
+first write, per request, and each movement says whether it is the
+request's own doing: REQUESTED (the request named it), NECESSARY (a
+declared rule implies it - a linked partner, a caption card, an effect
+that rides along) or UNAUTHORIZED (nothing in the request implies it).
+A NECESSARY movement the request does not CARRY is a conflict as well:
+the caption card left covering a picture that is gone is not an
+unauthorized modification, it is an unfinished one. The approved work is
+an INVARIANT that refuses before the first write - a request whose own
+CONSEQUENCES reach work it requires unchanged is refused, which the
+feasibility check could not see because it asked what the request WROTE.
+And the engine PREFERS the variant that touches only the authorized media
+or interval.
+
+One enumeration, `library/tools/collateral_scope.py`; the ONE pre-write
+gate is `library/tools/compound_transaction.py`, which reports the scope
+and refuses on the approved work. The measurement and the corpus are in
+`docs/PRESERVATION_AWARE_PLANNING.md`.

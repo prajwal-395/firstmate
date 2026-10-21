@@ -46,6 +46,14 @@ Five rules, and the reason each exists:
    journal, so the same call is REFUSED (``axi_transaction``'s prior
    outcome) instead of being repeated. A retry is answered with the
    prior outcome, never with a second write.
+
+6. **The collateral the request may cause is MODELLED before the first
+   write, and the approved work is an INVARIANT.** A request that names
+   work to be preserved is refused here when the request's own
+   CONSEQUENCES would reach that work - not only when the request writes
+   to it directly (``collateral_scope``). The rest of the collateral is
+   reported, so the agent sees what the request may move before it
+   moves it (PLAN-006).
 """
 
 from __future__ import annotations
@@ -54,6 +62,8 @@ import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from library.tools import collateral_scope
 
 
 class CompoundRefused(RuntimeError):
@@ -650,6 +660,14 @@ def preflight(*, project_folder: str, transaction_id: str,
     Returns ``{"status": "ok", ...}`` when the request may proceed, or
     a refusal descriptor naming the category, the reason and the
     evidence. Nothing here writes, and nothing here contacts Resolve.
+
+    The result carries the request's COLLATERAL SCOPE (PLAN-006): the
+    items the request may move, each with the aspect it moves in and
+    whether that movement is the request's own doing.  A request whose
+    consequences reach the work the requester required unchanged is
+    REFUSED here, before the first write; the rest of the collateral is
+    reported, so the agent sees what the request may move before it
+    moves it.
     """
     plan: WritePlan | None = None
     try:
@@ -658,6 +676,9 @@ def preflight(*, project_folder: str, transaction_id: str,
         return {"status": "refused", **refused.as_dict(),
                 "mutation_state": "none", "mutated": False}
 
+    collateral = collateral_scope.allowed_collateral(
+        operations=operations, before=before, requirements=requirements,
+        affected_spans=affected_spans)
     feasibility = preservation_feasibility(
         operations=operations, before=before, requirements=requirements,
         affected_spans=affected_spans)
@@ -671,7 +692,24 @@ def preflight(*, project_folder: str, transaction_id: str,
             "reason": (f"the request's preservation requirements cannot be "
                        f"satisfied by the writes it asks for ({names}): "
                        f"{detail}; nothing was written"),
-            "detail": {"preservation": feasibility},
+            "detail": {"preservation": feasibility,
+                       "collateral": collateral.as_dict()},
+            "mutation_state": "none", "mutated": False,
+        }
+
+    contradictions = collateral_scope.requirement_conflicts(
+        collateral, before=before)
+    if contradictions:
+        names = ", ".join(str(row["requirement"]) for row in contradictions)
+        detail = "; ".join(str(row["detail"]) for row in contradictions)
+        return {
+            "status": "refused", "category": "conflict",
+            "reason": (f"the request's own consequences reach the work it "
+                       f"requires unchanged ({names}): {detail}; nothing was "
+                       f"written"),
+            "detail": {"preservation": feasibility,
+                       "collateral": collateral.as_dict(),
+                       "requirement_conflicts": contradictions},
             "mutation_state": "none", "mutated": False,
         }
 
@@ -682,4 +720,5 @@ def preflight(*, project_folder: str, transaction_id: str,
 
     return {"status": "ok",
             "write_order": plan.as_dict(),
-            "preservation": feasibility}
+            "preservation": feasibility,
+            "collateral": collateral.as_dict()}
