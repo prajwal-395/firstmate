@@ -2633,6 +2633,22 @@ def cmd_propose_reels(args):
     print(f"Assignment {record['assignment_id']}: {record['state']}")
 
 
+def _record_ruling_on_task(folder: str, source: str) -> None:
+    """Record a ruling on the task that proposed the reel.
+
+    The approval is the proposal file's (`reel_proposal`); this is the
+    task's own account of it. A failure to record it never undoes the
+    ruling the person gave, so it is reported and the act carries on.
+    """
+    from library.tools import assignment_spine
+
+    try:
+        assignment_spine.on_approve(str(folder), source=source)
+    except Exception as exc:  # noqa: BLE001 - the ruling already happened
+        print(f"  The ruling was recorded in the proposal, but not on the "
+              f"task: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
 def cmd_approve_reels(args):
     """Approve proposed reels for building, keeping every other ruling."""
     from library.tools.reel_proposal import (
@@ -2652,6 +2668,12 @@ def cmd_approve_reels(args):
             f"`ren approve {args.project} --all`", blocker="ambiguous_intent")
     ruled = set_approval(folder, numbers, Approval.APPROVED,
                          note=args.note, by=args.by)
+    # The ruling belongs to the task that proposed the reel, so record it
+    # there: the approval itself is the proposal file's, but the task
+    # carried the reel as PROPOSED until a build observed the file. A
+    # task that still says "waiting for a ruling" after the person ruled
+    # asks for the same yes twice, and its next act is the build.
+    _record_ruling_on_task(folder, "ren approve")
     remaining = held_back(read_proposal(str(proposal_path(folder))))
     print(f"Approved reel(s) {', '.join(str(n) for n in ruled)}.")
     if remaining["proposed"]:
@@ -2683,6 +2705,7 @@ def cmd_reject_reels(args):
             f"`ren reject {args.project} --all --note \"why\"`", blocker="ambiguous_intent")
     ruled = set_approval(folder, numbers, Approval.REJECTED,
                          note=args.note, by=args.by)
+    _record_ruling_on_task(folder, "ren reject")
     remaining = held_back(read_proposal(str(proposal_path(folder))))
     print(f"Rejected reel(s) {', '.join(str(n) for n in ruled)}"
           + (f": {args.note}" if args.note else "."))

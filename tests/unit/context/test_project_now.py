@@ -68,6 +68,17 @@ def _write_state(project, **fields):
         json.dumps(state), encoding="utf-8")
 
 
+def _slug_project(tmp_path, monkeypatch, name="Show", slug="show"):
+    """A project the registry finds by its SLUG, not by its path."""
+    from library.tools import paths, project_registry
+
+    root = tmp_path / "projects"
+    project = _write_project(root / slug, name=name, slug=slug)
+    for module in (paths, project_registry):
+        monkeypatch.setattr(module, "PROJECTS_ROOT", root)
+    return project
+
+
 def test_now_returns_ask_reel_and_failed_step_with_commands(tmp_path):
     project = _write_project(tmp_path / "show")
     _write_request(project, "plan_sfx")
@@ -178,6 +189,38 @@ def test_now_held_run_offers_resume_first(tmp_path):
     assert state["run"]["hold"]["reason"] == "looking at it"
     assert state["next_actions"][0]["id"] == "resume-run"
     assert state["next_actions"][0]["command"] == f"ren resume {project}"
+
+
+def test_now_ranks_the_approved_build_above_a_task_that_is_waiting(
+        tmp_path, monkeypatch):
+    """The defect: the TASK's own next act outranked the reels the
+    person had just approved, so `ren now` pointed at the pipeline
+    instead of at the build the approval meant - and the chat scenario
+    (tests/scenarios/test_carefree_transcript.py) went red for it.
+
+    The ruling is the person's own yes and the build is what it means:
+    a reel nobody has built cannot be signed off, and a reel task's own
+    next act IS the build."""
+    project = _slug_project(tmp_path, monkeypatch)
+    _write_proposal(project, approval="approved")
+    _write_state(project, preflight_completed={"scan": {}})
+    from library.tools import assignment_lifecycle as lifecycle
+
+    record = lifecycle.create(
+        str(project), "assignment-1", kind="reels",
+        reels={"moment-1": {"number": 1, "name": "Reel 01 - pricing",
+                            "status": "approved"}})
+    lifecycle.save(str(project), record)
+
+    state = project_now_state("show")
+
+    ids = [action["id"] for action in state["next_actions"]]
+    assert ids[0] == "build-reels", ids
+    assert "Next: ren build show" in state["summary"]
+    # One act, one command: the task's own next act is the build, so it
+    # is named once - and in the reader's own spelling of the project.
+    assert [action["command"] for action in state["next_actions"]
+            if action["command"].startswith("ren build")] == ["ren build show"]
 
 
 def test_now_offers_building_approved_reels_before_the_next_stage(tmp_path):

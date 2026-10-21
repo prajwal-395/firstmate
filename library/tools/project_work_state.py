@@ -11,6 +11,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -381,10 +382,34 @@ def _notes_section(root: Path) -> dict:
 
 
 # Next-action ranks, lowest first: a blocking ask outranks a refusal's
-# fix, which outranks an approval, then the TASK's own next act, then a
-# resumable run, then whatever pipeline stage is next.
-(_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_TASK, _RANK_RESUME, _RANK_BUILD,
- _RANK_NEXT) = range(7)
+# fix, which outranks an approval, then a resumable run, then the reels
+# the person has APPROVED and not built, then the TASK's own next act,
+# then whatever pipeline stage is next.
+#
+# The approved build outranks the task's act because the ruling is the
+# person's own yes and the build is what it means: a reel nobody has
+# built cannot be signed off, and the task's act for a reel task IS the
+# build. A task's act still outranks the pipeline's next stage, so a
+# fresh session reads what the work waits on before it reads what the
+# pipeline would run next.
+(_RANK_ASK, _RANK_FIX, _RANK_APPROVAL, _RANK_RESUME, _RANK_BUILD,
+ _RANK_TASK, _RANK_NEXT) = range(7)
+
+
+def _named_by_ref(command: str, root: Path, ref: str) -> str:
+    """Name the project in a command the way the reader named it.
+
+    A task's resume point is built from the project's absolute path;
+    every other action names the project by the ref the caller used.
+    Two spellings of one project turn one act into two - the reader is
+    shown the same act twice and cannot tell which one to run.
+    """
+    for spelling in (shlex.quote(str(root)), str(root),
+                     shlex.quote(str(Path(root).resolve())),
+                     str(Path(root).resolve())):
+        if spelling and spelling in command:
+            return command.replace(spelling, shlex.quote(ref))
+    return command
 
 
 def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
@@ -463,6 +488,7 @@ def _next_actions(*, ref: str, root: Path, base: dict, pipeline: dict,
         command = resume_point.get("command")
         if not command:
             continue
+        command = _named_by_ref(command, root, ref)
         actions.append({
             "id": f"resume-task-{task['assignment_id']}",
             "rank": "task waiting",
