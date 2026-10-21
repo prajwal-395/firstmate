@@ -302,9 +302,9 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "pair, a window outside every range, or a beat no segment "
             "covers refuses by name (which is what stops invented "
             "round-number ranges reaching the timeline). A declared "
-            "`allow_gaps` leaves beats uncovered on purpose, and the "
-            "hole stays a hole in reel positions for the placer and the "
-            "verifier to grade.",
+            "`allow_gaps` leaves beats without COPY on purpose: the "
+            "span's own ground still covers them, because a span IS the "
+            "picture for the whole body.",
             "Never artwork the engine supplies: the ground, the typeface "
             "and every word are the declaration's (AGENTS.md 14), the "
             "same as a card's.",
@@ -1343,9 +1343,11 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
     one keep range, so the boundaries sit on the reel's own speech beats
     the way that build's sat on its edit points.
 
-    ``allow_gaps`` is the one explicit way to leave beats uncovered: a
-    window the plan lays as a hole in reel positions, for the placer and
-    the verifier to grade rather than a stretch the engine invents.
+    ``allow_gaps`` is the one explicit way to leave beats without COPY:
+    the span's own ground still covers them, because a span IS the
+    picture for the whole body - a beat no segment covers is a hole in
+    the PICTURE and stays one, for the placer and the verifier to
+    grade.
     """
     label = f"full_frame_elements[{index}]"
     if raw.get("duration_seconds") is not None:
@@ -2070,7 +2072,8 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
 def _word_cues(label: str, position: int, window: tuple[float, float],
                owner: int, ranges: Sequence[tuple[float, float]],
                transcript: dict, fps: float, duration_frames: int,
-               resolved: tuple[dict, ...]) -> list[dict]:
+               resolved: tuple[dict, ...],
+               origin: Optional[float] = None) -> list[dict]:
     """One segment's word clock: what the reveal lands on, and when.
 
     Each cue carries the word's segment-local seconds (``start``/``end``,
@@ -2085,7 +2088,10 @@ def _word_cues(label: str, position: int, window: tuple[float, float],
     or its whole keep range when it names none - so a subdivided beat's
     first word reads frame 0 rather than the range offset it plays at.
     Membership is in master seconds, ordering in reel time, the same
-    split ``range_line`` makes.
+    split ``range_line`` makes.  The clock is measured from the
+    segment's PICTURE start (``origin``), which is the window's start
+    unless the segment carries ground in front of its words - the copy
+    still lands on the words either way.
 
     Two refusals, both by name.  A window with no timed words has no
     clock (the same rule that refuses an empty ``range_line``).  And the
@@ -2102,8 +2108,14 @@ def _word_cues(label: str, position: int, window: tuple[float, float],
     seg_label = f"{label}.segments[{position}]"
     ws, we = window
     rs, _ = ranges[owner]
+    # The clock runs from the segment's own PICTURE start, which is not
+    # always its window's start: a segment whose range opens before its
+    # first word still draws its ground from the range's first frame, and
+    # the words still land where they are spoken.  `origin` is that
+    # picture start in master seconds; absent, the window's own start.
+    at_origin = ws if origin is None else origin
     lo = (_reel_clock.total_played_seconds(ranges[:owner])
-          + _reel_clock.reel_offset(ranges[owner], ws))
+          + _reel_clock.reel_offset(ranges[owner], at_origin))
     spoken: list[tuple[str, float, float]] = []
     for segment in ((transcript or {}).get("segments") or []):
         for word in (segment.get("words") or []):
@@ -2276,6 +2288,42 @@ def _span_windows(label: str, segments: Sequence[dict],
     return windows, owners
 
 
+def _span_picture_spans(windows: Sequence[tuple[float, float]],
+                        owners: Sequence[int],
+                        ranges: Sequence[tuple[float, float]],
+                        ) -> list[tuple[float, float]]:
+    """The PICTURE each segment lays, in master seconds, in play order.
+
+    A segment's WINDOW is the beat its copy speaks in.  The PICTURE it
+    lays is its own window plus the beats that follow it, up to the next
+    segment's window - and the first segment of a keep range carries the
+    range's own head, so the picture starts where the range starts.
+
+    This is what makes the span the picture for the WHOLE body, which is
+    what `reel_build` says when it suppresses the footage video: a
+    declared gap is a gap in the COPY, never a hole in the picture.  The
+    spans tile every keep range edge to edge, so the picture is
+    continuous and the conformance gate has no black hole to refuse.
+
+    A keep range no segment covers at all is NOT covered here: it stays
+    a hole, because nothing was declared to draw it.  That is the hole
+    the gate still refuses.
+    """
+    spans: list[tuple[float, float]] = []
+    for position, (owner, (ws, _)) in enumerate(zip(owners, windows)):
+        rs, re = ranges[owner]
+        first_in_range = not any(o == owner for o in owners[:position])
+        start = rs if first_in_range else ws
+        end = re
+        # The next segment IN THE SAME RANGE ends this one's picture.
+        for later in range(position + 1, len(windows)):
+            if owners[later] == owner:
+                end = windows[later][0]
+                break
+        spans.append((start, end))
+    return spans
+
+
 def _plan_span(declaration: dict, index: int, facts: ReelFacts,
                ranges: Optional[Sequence[tuple[float, float]]],
                transcript: Optional[dict],
@@ -2284,16 +2332,18 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
                resolve_asset=None) -> list[PlannedCard]:
     """One span declaration into one segment per declared window.
 
-    Each segment covers its window and nothing else: its frames are the
-    window's own per-edge rounding - ``int(round(end * fps)) -
-    int(round(start * fps))``, the same arithmetic
-    ``reel_build.placements`` lays footage down in - laid at the
-    window's own offset inside the body, so tiling windows abut exactly
-    and together cover the body's own seconds, the way the seven
-    back-to-back cards of docs/ANIMATED_REEL_CEILING.md did by hand. A
-    declared gap lays as a hole in reel positions: the plan lays what
-    was declared, and the placer and the verifier grade the hole rather
-    than a stretch the engine invented.
+    Each segment covers its own window and the beats that FOLLOW it, up
+    to the next segment's window: the declared windows are the beats the
+    COPY speaks in, and the beats between them are still the span's
+    picture - a span IS the picture for the whole body, so a declared gap
+    is a gap in the copy and never a hole in the reel.  The picture is
+    laid on the window's own per-edge rounding - ``int(round(end *
+    fps)) - int(round(start * fps))``, the same arithmetic
+    ``reel_build.placements`` lays footage down in - so the segments abut
+    exactly and together cover the body's own seconds, the way the seven
+    back-to-back cards of docs/ANIMATED_REEL_CEILING.md did by hand.  A
+    keep range no segment covers at all is NOT covered: it stays a hole,
+    and the conformance gate refuses it by name.
 
     Each segment renders through the FullFrameCard composition, opaque,
     like a card: the span is a word the planner can choose, not a second
@@ -2319,6 +2369,11 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
     ranges = list(ranges)
     windows, owners = _span_windows(
         label, segments, ranges, bool(declaration.get("allow_gaps", False)))
+    # The PICTURE each segment lays, as opposed to the beat its copy
+    # speaks in.  The declared windows are the copy's beats; the beats
+    # between them are still the span's picture, and a span IS the
+    # picture for the whole body.
+    picture_spans = _span_picture_spans(windows, owners, ranges)
     if transcript is None:
         transcript = {}
 
@@ -2337,12 +2392,13 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
     placed_assets: dict[str, int] = {}
     for position, (segment, (ws, we), owner) in enumerate(
             zip(segments, windows, owners), start=1):
+        picture_start, picture_end = picture_spans[position - 1]
         reel_start_frame = (body_offsets[owner]
                             + _reel_clock.reel_frame_offset(
-                                ranges[owner], ws, fps))
+                                ranges[owner], picture_start, fps))
         duration_frames = (
-            _reel_clock.reel_frame_offset(ranges[owner], we, fps)
-            - _reel_clock.reel_frame_offset(ranges[owner], ws, fps))
+            _reel_clock.reel_frame_offset(ranges[owner], picture_end, fps)
+            - _reel_clock.reel_frame_offset(ranges[owner], picture_start, fps))
         if duration_frames <= 0:
             raise FullFrameDeclarationError(
                 f"{label}.segments[{position}] declares window "
@@ -2386,11 +2442,12 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             if measured.frame_count < duration_frames:
                 raise FullFrameDeclarationError(
                     f"{seg_label} names {path!r}, which measures "
-                    f"{measured.frame_count} frame(s), and its window "
-                    f"[{ws:.3f}, {we:.3f}] is {duration_frames} frame(s) "
-                    f"long. The file ends before the words do, so the "
+                    f"{measured.frame_count} frame(s), and its own picture "
+                    f"[{picture_start:.3f}, {picture_end:.3f}] is "
+                    f"{duration_frames} frame(s) "
+                    f"long. The file ends before the segment does, so the "
                     f"tail of the segment would be a hole - render the "
-                    f"file long enough to cover the window.")
+                    f"file long enough to cover it.")
             planned.append(PlannedCard(
                 index=position,
                 element="full_frame_span",
@@ -2472,7 +2529,7 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
         if declaration.get("word_sync"):
             props["wordCues"] = _word_cues(
                 label, position, (ws, we), owner, ranges, transcript,
-                fps, duration_frames, resolved)
+                fps, duration_frames, resolved, origin=picture_start)
         # The stroke behind the current word, and the move of the frame -
         # both declared per segment, both absent unless declared, so a
         # segment that names neither draws exactly as it did before these

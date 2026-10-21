@@ -28,12 +28,15 @@ declaration, one abutting opaque segment per keep range, placed on V1.
 
 Each item below is a verified capability, not a plan.
 
-- **Opaque full-frame segments, abutting exactly.** Segment `i` covers
-  keep range `i` in `int(round(end*fps)) - int(round(start*fps))` frames,
-  the same arithmetic footage placement uses, so segments abut with no
-  holes (`full_frame_element.py:1451-1458`). Rendered ProRes 4444, one
-  file per segment, through the `FullFrameCard` composition
-  (`full_frame_element.py:1578-1619`).
+- **Opaque full-frame segments, abutting exactly.** A segment covers its
+  own window AND the beats that follow it, up to the next segment's
+  window, in `int(round(end*fps)) - int(round(start*fps))` frames, the
+  same arithmetic footage placement uses, so the segments tile every keep
+  range with no holes (`library/tools/full_frame_element.py`). The
+  declared windows are the beats the COPY speaks in; the beats between
+  them are still the span's picture, and the ground covers them. A keep
+  range no segment covers at all is still a hole. Rendered ProRes 4444,
+  one file per segment, through the `FullFrameCard` composition.
 - **A flat declared ground.** One `background` colour for the whole span
   (a shared field). No default exists; the component throws without one
   (`FullFrameCard/index.tsx:370-377`).

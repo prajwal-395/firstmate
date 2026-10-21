@@ -308,6 +308,19 @@ whole span, because each segment is the unit that renders. Where a
 span plays the footage video is suppressed and the spine audio stays, so
 the reel is an animated cut over its own speech.
 
+**A declared gap is a gap in the COPY, not a hole in the PICTURE.** A
+span's windows are the beats its copy speaks in - one segment per
+spoken phrase, say - so the silences BETWEEN two phrases are beats no
+segment covers. A span IS the picture for the whole body (the footage
+video is suppressed for it), so those beats are the span's own ground:
+each segment lays its own window and the beats that follow it, up to the
+next segment's window, and the picture tiles every keep range edge to
+edge. Laid as a hole instead - the way the plan used to lay it - the
+reel carried black frames where the ground should be, and the
+conformance gate (F1) refused to promote a reel that the plan itself
+had accepted. A keep range that NO segment covers is still a hole, and
+F1 still refuses it by name.
+
 **A span may pace its reveal off the spoken words.** `word_sync: true`
 on the span declaration measures each segment's word clock out of the
 transcript at plan time - the same timings the caption path already

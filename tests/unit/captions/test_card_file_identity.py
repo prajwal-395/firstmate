@@ -134,6 +134,36 @@ def test_a_re_planned_card_is_a_new_file():
         "the card that drew the old ones")
 
 
+def _three_segment_span(text: str, second_window=(10.6, 11.0)) -> dict:
+    """A span declaration with three segments in one keep range.
+
+    The SECOND segment's window decides how much of the range the FIRST
+    segment's picture covers - the ground between two phrases belongs to
+    the phrase before it - so moving that window changes the first
+    segment's length.
+    """
+    return {"full_frame_elements": [{
+        "element": "full_frame_span",
+        "placement": "span",
+        "background": "#101014",
+        "entrance": "blur",
+        "exit": "fade",
+        "font_family": "Montserrat",
+        "allow_gaps": True,
+        "segments": [
+            {"window": [10.0, 10.4],
+             "runs": [{"text": text, "type_role": "display",
+                       "colour": "#FFFFFF"}]},
+            {"window": list(second_window),
+             "runs": [{"text": "and the middle", "type_role": "display",
+                       "colour": "#FFFFFF"}]},
+            {"window": [11.0, 16.0],
+             "runs": [{"text": "and the rest", "type_role": "display",
+                       "colour": "#FFFFFF"}]},
+        ],
+    }]}
+
+
 def test_a_card_that_changes_length_is_a_new_file():
     """The length is a drawing input, and it is the one that broke it.
 
@@ -141,8 +171,10 @@ def test_a_card_that_changes_length_is_a_new_file():
     item played 48.  A card whose duration changed must not keep the
     name of the card that was a different length.
     """
-    short = _plan(_span("the same words", window=(10.0, 10.5)))
-    long = _plan(_span("the same words", window=(10.0, 16.0)))
+    short = _plan(_three_segment_span("the same words",
+                                      second_window=(10.6, 11.0)))
+    long = _plan(_three_segment_span("the same words",
+                                     second_window=(10.8, 11.0)))
     assert short[0].duration_frames != long[0].duration_frames
     assert short[0].render_name != long[0].render_name
 

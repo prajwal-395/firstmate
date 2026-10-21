@@ -292,10 +292,10 @@ def test_a_file_at_another_rate_is_refused(tmp_path):
 
 
 @ffmpeg_available
-def test_a_file_that_ends_before_the_words_do_is_refused(tmp_path):
+def test_a_file_that_ends_before_the_segment_does_is_refused(tmp_path):
     """The tail of the segment would be a hole."""
     asset = _asset_file(tmp_path, "short", seconds=0.4)
-    with pytest.raises(ffe.FullFrameDeclarationError, match="before the words"):
+    with pytest.raises(ffe.FullFrameDeclarationError, match="before the segment"):
         _plan(_span({"asset": asset, "runs": None}), tmp_path)
 
 
