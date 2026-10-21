@@ -356,3 +356,132 @@ def test_the_scene_covers_the_whole_reel_unless_the_declaration_narrows_it():
     assert ex.beat_window(anchored.beats, 30.0, 1.0) == (0.0, 30.0)
     assert ex.beat_window(anchored.beats, 30.0, 1.0, [4.0, 12.0]) == (
         4.0, 12.0)
+
+
+# ── A beat that BUILDS and MOVES ─────────────────────────────────────
+
+def test_a_beat_may_be_a_composed_scene_not_one_icon():
+    """A beat carries LAYERS: a picture and what builds beside it.
+
+    "7 beats over ~35 s means one static icon roughly every 5 s with
+    most of the canvas empty - a Vox-style explainer has continuous
+    motion and denser composition (elements that build, move and
+    transform between beats, not a picture appearing)" (the captain,
+    2026-10-21).  A beat of one layer cannot be denser.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "label": "your customer asks",
+        "label_box": [60, 1330, 1020, 1450],
+        "layers": [
+            {"asset": "brand_assets/customer.svg",
+             "box": [40, 210, 1040, 1210],
+             "entrance": "scale", "motion": {"scale_from": 0.86}},
+            {"asset": "brand_assets/chip.svg",
+             "box": [30, 140, 350, 460],
+             "entrance": "slide", "motion": {"from": [-0.16, 0.0]}},
+        ],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    assert len(anchored.beats) == 1
+    assert len(anchored.beats[0].layers) == 2
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    images = [l for l in props["layers"] if l["kind"] == "image"]
+    assert len(images) == 2
+
+
+def test_a_picture_that_grows_carries_its_own_scale():
+    """`scale` is a BUILD, and the magnitude is the declaration's.
+
+    The engine holds no number of its own (AGENTS.md 10.5), so `scale`
+    without `motion.scale_from` is REFUSED rather than completed from a
+    constant.
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "layers": [{"asset": "brand_assets/customer.svg",
+                    "box": [40, 210, 1040, 1210],
+                    "entrance": "scale"}],
+    }]
+    with pytest.raises(ex.ExplainerError) as no_magnitude:
+        ex.normalise_beats_declaration(declaration)
+    assert "scale_from" in str(no_magnitude.value)
+
+    declaration["beats"][0]["layers"][0]["motion"] = {"scale_from": 0.86}
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    image = [l for l in props["layers"] if l["kind"] == "image"][0]
+    width = image["placement"]["width"]
+    assert isinstance(width, list), width
+    assert width[-1]["value"] > width[0]["value"], width
+
+
+def test_a_slide_without_a_direction_is_refused():
+    """Where a picture comes from is the declaration's."""
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "customer",
+        "layers": [{"asset": "brand_assets/customer.svg",
+                    "box": [40, 210, 1040, 1210],
+                    "entrance": "slide"}],
+    }]
+    with pytest.raises(ex.ExplainerError) as no_direction:
+        ex.normalise_beats_declaration(declaration)
+    assert "motion.from" in str(no_direction.value)
+
+
+def test_a_layer_whose_picture_is_not_on_disk_is_refused():
+    """A layer that is not there is a hole in the frame."""
+    anchored = ex.plan_beats(
+        [{"quote": "customer",
+          "layers": [{"asset": "brand_assets/missing.svg",
+                      "box": [0, 0, 10, 10]}]}],
+        _lines(), 10.0, resolve_asset=lambda name: "", fps=23.976)
+    assert anchored.beats == []
+    assert [r["reason"] for r in anchored.refused] == [ex.ASSET_NOT_FOUND]
+
+
+def test_a_picture_leaves_the_way_it_came():
+    """The EXIT is the reverse of the arrival, over the exit's own ramp.
+
+    A frame that CUTS from one idea to the next is not a
+    transformation, and the reference's transitions are hard cuts only
+    because its pieces are single objects
+    (`docs/ANIMATION_FIRST_REFERENCE.md` §2).
+    """
+    declaration = _declaration()
+    declaration["beats"] = [{
+        "quote": "answers specific questions",
+        "layers": [{"asset": "brand_assets/grid.svg",
+                    "box": [40, 210, 1040, 1210],
+                    "entrance": "scale",
+                    "motion": {"scale_from": 0.86}}],
+        "exit": "scale",
+    }, {
+        "quote": "customer",
+        "layers": [{"asset": "brand_assets/customer.svg",
+                    "box": [40, 210, 1040, 1210],
+                    "entrance": "fade"}],
+    }]
+    declared = ex.normalise_beats_declaration(declaration)
+    anchored = ex.plan_beats(declared[ex.BEATS_KEY], _lines(), 10.0,
+                              resolve_asset=_resolve, fps=23.976)
+    props = ex.beat_scene_props(
+        anchored.beats, declared, width=1080, height=1920, fps=23.976,
+        duration_frames=240, start_seconds=0.0)
+    image = [l for l in props["layers"] if l["kind"] == "image"][0]
+    width = image["placement"]["width"]
+    assert isinstance(width, list), width
+    # It grows into place and shrinks back out of it.
+    assert width[1]["value"] > width[0]["value"], width
+    assert width[-1]["value"] < width[1]["value"], width
