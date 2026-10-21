@@ -32,8 +32,8 @@ stop_test_servers() {
 trap 'stop_test_servers; fm_test_cleanup' EXIT
 
 wait_dead() {
-  local i
-  for i in $(seq 1 40); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.25; done
+  local _
+  for _ in $(seq 1 40); do kill -0 "$1" 2>/dev/null || return 0; sleep 0.25; done
   return 1
 }
 
@@ -48,7 +48,8 @@ test_healthy_server_is_reused_and_dead_one_restarted() {
   wait_dead "$pid1" || fail "the fake server did not stop"
   "$SERVER" ensure "$STATE" default task-c >/dev/null || fail "a dead server was not restarted"
   pid2=$(server_pid default)
-  [ "$pid2" != "$pid1" ] && kill -0 "$pid2" 2>/dev/null || fail "the restarted server is not a live new process"
+  [ "$pid2" != "$pid1" ] || fail "the restarted server reused the dead process"
+  kill -0 "$pid2" 2>/dev/null || fail "the restarted server is not a live new process"
   pass "a healthy server is reused and a dead one is restarted on the next launch"
 }
 

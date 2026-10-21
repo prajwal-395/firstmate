@@ -135,7 +135,6 @@ pass "the request-time refresh also refreshes the home's pinned workspace databa
 
 # The shared provider command must resolve the token helper from each worker's
 # own Pi agent directory, without depending on a Firstmate code-root variable.
-API_KEY_COMMAND=$(jq -r '.providers["opencode-go"].apiKey | ltrimstr("!")' "$AGENT/models.json")
 HOME_A="$TMP_ROOT/home-a"
 HOME_B="$TMP_ROOT/home-b"
 CONFIG_A="$HOME_A/config"

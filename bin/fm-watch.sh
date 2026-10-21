@@ -1027,7 +1027,7 @@ secondmate_stall_rewake() {  # <task> <meta> <seq> <idle> <row-key> <now>
 secondmate_wake_stall_tick() {
   local now=$(( $(date +%s) )) threshold=$SECONDMATE_WAKE_STALL_SECS
     local meta task kind remote_host home queue row epoch seq row_key marker progress_marker rewake_marker progress observed_at observed_key
-  local receipt receipt_dir notify_key queued idle reason episode_alerted already_rung w
+  local receipt receipt_dir notify_key queued idle reason episode_alerted w
   # Endpoint metadata admits this queue-loop check; secondmate-liveness owns registered mates whose endpoint is missing or dead.
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
