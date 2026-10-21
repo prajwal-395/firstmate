@@ -521,8 +521,17 @@ class _UnreopenableManager:
         self._project = project
         self.loaded = []
 
+    def GetProjectManager(self):
+        # `borrowed` asks the Resolve object for its Project Manager;
+        # this double plays both roles, as the other doubles in this
+        # file do.
+        return self
+
     def GetCurrentProject(self):
         return self._project
+
+    def GetCurrentPage(self):
+        return "edit"
 
     def GetCurrentFolder(self):
         return None

@@ -18,6 +18,44 @@ def _project(tmp_path):
     return project
 
 
+def _record_reel(project, reel, unique_ids, tmp_path, monkeypatch,
+                 project_name="Podcast (field test)"):
+    """Record the reel's items, as a live read of it would.
+
+    An executable operation may only name a target the reel's recorded
+    generation carries: a target nobody recorded is a missing referent
+    and the translation asks about it instead of guessing
+    (`edit_spec._clarify_unlisted_program_targets`). A test that wants
+    the operation REACHED therefore has to give the reel a recorded
+    generation - the same evidence a live read leaves behind.
+    """
+    monkeypatch.setenv("REN_SHADOW_DB", str(tmp_path / "shadow.sqlite3"))
+    (project / "project.yaml").write_text(
+        f'resolve:\n  project_name: "{project_name}"\n', encoding="utf-8")
+    from library.tools import timeline_shadow
+    snapshot = {
+        "fps": 24,
+        "start_frame": 0,
+        "tracks": [{
+            "type": "video", "index": 1, "name": "V1",
+            "clips": [{
+                "unique_id": unique_id,
+                "name": f"{unique_id}.mp4",
+                "source_file": f"/media/{unique_id}.mp4",
+                "source_in_frame": 0, "source_out_frame": 96,
+                "record_in": 0, "record_out": 96,
+                "track_type": "video", "track_index": 1,
+                "speed": 1.0, "enabled": True,
+            } for unique_id in unique_ids],
+        }],
+    }
+    store = timeline_shadow.ShadowStore()
+    store.record(project=project_name, timeline_id="tl-recorded",
+                 timeline_name=reel, snapshot=snapshot,
+                 source=timeline_shadow.OBSERVED, expected_head=0)
+    return snapshot
+
+
 def _spec():
     return {
         "format": edit_spec.FORMAT,
@@ -1180,7 +1218,7 @@ def test_a_note_the_current_edit_answers_is_released_only_while_it_holds(
 
 
 def test_a_recorded_timeline_program_does_not_break_the_project(
-        tmp_path, capsys):
+        tmp_path, capsys, monkeypatch):
     """A program spec records through `ren spec resolve`, and every later
     routing of the project survives it.
 
@@ -1192,6 +1230,7 @@ def test_a_recorded_timeline_program_does_not_break_the_project(
     from library.tools import llm_handshake, marker_routing
 
     project = _project(tmp_path)
+    _record_reel(project, "Reel 01 - a", ["lt-1"], tmp_path, monkeypatch)
     request_id, _path, note_id = edit_spec.prepare_request(
         str(project), "switch the lower third off", reel="Reel 01 - a")
     Path(llm_handshake.response_path(str(project), request_id)).write_text(

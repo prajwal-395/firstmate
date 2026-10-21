@@ -1,9 +1,107 @@
 {
   "actual_state": {
-    "detail": {
-      "key": "Pan",
-      "record_kept": true,
-      "value": 40.0
+    "product_format_live": {
+      "preservation": {
+        "changes": [
+          {
+            "after": 1.0,
+            "authorized": true,
+            "before": 0.0,
+            "domain": "picture_transform",
+            "field": "transform.Pan",
+            "target": "clip:79cc964b-65d3-4c99-997b-37a0f236a4f4"
+          }
+        ],
+        "expected": [
+          {
+            "domain": "picture_transform",
+            "fields": [
+              "transform.Pan"
+            ],
+            "operation": "clip.set_property",
+            "target": "clip:79cc964b-65d3-4c99-997b-37a0f236a4f4"
+          }
+        ],
+        "expected_not_observed": [],
+        "status": "preserved",
+        "unobservable_domains": [],
+        "unprovable_reason": "",
+        "unrelated_changes": []
+      },
+      "project": "Ren Scratch - axc-product-qualification",
+      "qualification_state": {
+        "inspected": true,
+        "missing_targets": [],
+        "state": {
+          "clip_composition": "linked_video_clip",
+          "existing_effects": "transforms+retiming",
+          "frame_rate": "23.976",
+          "linked_audio_configuration": "linked_audio_present",
+          "media_type": "video",
+          "project_settings": "portrait_1080x1920",
+          "resolve_version": "21.1.0.14",
+          "timeline_density": "dense",
+          "timeline_structure": "multi_item_timeline",
+          "track_layout": "video+audio",
+          "track_occupancy": "all_populated"
+        },
+        "targets": [
+          "79cc964b-65d3-4c99-997b-37a0f236a4f4"
+        ]
+      },
+      "readback_generation": 2,
+      "receipt_status": "committed",
+      "resolve_version": "21.1.0.14",
+      "routed_recheck": {
+        "backend": "edit_patch.property",
+        "base_generation": 3,
+        "generation": 4,
+        "readback_verified": true,
+        "record_span_unchanged": true,
+        "report": "tests/live/reports/product-format-qualification/clip.set_property-routed-recheck.json",
+        "status": "committed",
+        "target_pan_after": 2.5,
+        "target_pan_before": 1.0,
+        "target_tilt_after": -1732.0,
+        "transaction_id": "ren-e5672fdde27a3f6fe7cae6208b0dd3a56028842f21a66b530b04086056b76c95",
+        "unrelated_items_unchanged": true
+      },
+      "settings": {
+        "timelineFrameRate": 23.976,
+        "timelineResolutionHeight": "1920",
+        "timelineResolutionWidth": "1080"
+      },
+      "snapshot_verdict": {
+        "requested_changes": [
+          {
+            "change": "changed",
+            "fields": [
+              "transform"
+            ],
+            "op": "clip.set_property",
+            "unique_id": "79cc964b-65d3-4c99-997b-37a0f236a4f4"
+          }
+        ],
+        "summary": {
+          "added": 0,
+          "changed": 1,
+          "removed": 0,
+          "requested": 1,
+          "unintended": 0
+        },
+        "unintended_modifications": []
+      },
+      "target": {
+        "name": "sub_craig_341446bc-389b-468c-9add_1853686-1856806_7cdb0519.mov",
+        "pan_after": 1.0,
+        "pan_before": 0.0,
+        "record_in": 0,
+        "record_out": 23,
+        "track_index": 4,
+        "track_type": "video",
+        "unique_id": "79cc964b-65d3-4c99-997b-37a0f236a4f4"
+      },
+      "timeline": "reel13"
     }
   },
   "audio_verification": [
@@ -13,50 +111,55 @@
   "coverage": {
     "configurations": [
       "populated_1080p24",
-      "linked_av_1080p24"
+      "linked_av_1080p24",
+      "real_reel13_ren_scratch_product_format"
     ],
     "dimensions": {
       "clip_composition": [
-        "single_video_clip",
-        "linked_video_clip"
+        "linked_video_clip",
+        "single_video_clip"
       ],
       "existing_effects": [
         "none",
-        "transforms"
+        "transforms",
+        "transforms+retiming"
       ],
       "frame_rate": [
+        "23.976",
         "24"
       ],
       "linked_audio_configuration": [
-        "no_linked_audio",
-        "linked_audio_present"
+        "linked_audio_present",
+        "no_linked_audio"
       ],
       "media_type": [
         "video"
       ],
       "project_settings": [
-        "landscape_1920x1080"
+        "landscape_1920x1080",
+        "portrait_1080x1920"
       ],
       "resolve_version": [
         "21.1.0.14"
       ],
       "timeline_density": [
+        "dense",
         "light"
       ],
       "timeline_structure": [
-        "single_item_timeline",
-        "multi_item_timeline"
+        "multi_item_timeline",
+        "single_item_timeline"
       ],
       "track_layout": [
         "video",
         "video+audio"
       ],
       "track_occupancy": [
-        "mixed",
-        "all_populated"
+        "all_populated",
+        "mixed"
       ]
     },
-    "source": "derived_from_v1_evidence",
+    "source": "measured",
     "uncovered": {
       "clip_composition": [
         "still_clip",
@@ -79,7 +182,6 @@
         "transforms+grades+fusion",
         "transforms+grades+retiming",
         "transforms+grades+retiming+fusion",
-        "transforms+retiming",
         "transforms+retiming+fusion",
         "transitions",
         "transitions+fusion",
@@ -100,7 +202,6 @@
       ],
       "frame_rate": [
         "other",
-        "23.976",
         "25",
         "29.97",
         "30",
@@ -122,13 +223,11 @@
         "landscape_1280x720",
         "landscape_2560x1440",
         "landscape_3840x2160",
-        "portrait_1080x1920",
         "portrait_2160x3840"
       ],
       "timeline_density": [
         "empty",
-        "moderate",
-        "dense"
+        "moderate"
       ],
       "timeline_structure": [
         "empty_timeline"
@@ -150,33 +249,55 @@
     "platform": "darwin",
     "resolve_version": "21.1.0.14"
   },
-  "evidence": "clip-set-property-evidence.json#payload; direct EditPatch clip.set_property committed; Scaling/Zoom read back; record span and tracks unchanged; tests/live/reports/predicate-widening-016.json#W4; direct EditPatch clip.set_property Pan 40.0 committed on linked clip; transform read back, record span kept",
+  "evidence": "tests/live/reports/product-format-qualification/clip.set_property-live.json#qualification_state; live Ren Scratch copy imported from real Reel 13; EditPatch Pan read-back and full timeline snapshot compare passed; routed production recheck: tests/live/reports/product-format-qualification/clip.set_property-routed-recheck.json",
   "expected_state": {
-    "Pan": 40.0,
-    "record_span_kept": true
+    "key": "Pan",
+    "operation": "clip.set_property",
+    "record_span_unchanged": true,
+    "unrelated_changes": [],
+    "value_after": 1.0,
+    "value_before": 0.0
   },
   "operation_id": "clip.set_property",
   "preservation_checks": [
     {
-      "check": "requested_property_read_back",
+      "check": "Pan property read-back equals requested 1.0",
       "result": "passed"
     },
     {
-      "check": "record_span_unchanged",
+      "check": "record span unchanged",
       "result": "passed"
     },
     {
-      "check": "receipt_committed",
+      "check": "all other snapshot fields and items preserved",
+      "result": "passed"
+    },
+    {
+      "check": "EditPatch unrelated changes empty",
+      "result": "passed"
+    },
+    {
+      "check": "routed Pan/Tilt properties match the command receipt and fresh AXI read-back",
+      "result": "passed"
+    },
+    {
+      "check": "routed edit leaves unrelated items unchanged",
+      "result": "passed"
+    },
+    {
+      "check": "routed edit preserves the target record span",
       "result": "passed"
     }
   ],
   "preservation_limits": [
-    "one property on one item; spans and siblings unchanged"
+    "one property on one item; spans and siblings unchanged",
+    "The product-format evidence is one real Reel 13 scratch copy and one transformed, retimed linked video clip; it does not qualify other effect combinations or Resolve versions."
   ],
   "project_conditions": [
     "Ren Qualification / fm-scratch qualify",
     "private target timeline only",
-    "linked A/V seed; Pan set on the video item by unique_id"
+    "linked A/V seed; Pan set on the video item by unique_id",
+    "Ren Scratch copy of real Reel 13; portrait 1080x1920, 23.976 fps, dense timeline, target carries transforms+retiming"
   ],
   "recovery_status": "not_required",
   "resolve_version": "21.1.0.14",
@@ -197,6 +318,8 @@
     "video + audio"
   ],
   "visual_verification": [
-    "Pan 40.0 read back from the live item transform; record span kept"
+    "Pan 40.0 read back from the live item transform; record span kept",
+    "AXI fresh read-back confirmed Pan=1.0 and the full before/after timeline snapshot confirmed no unintended changes.",
+    "After broker reload, the production-routed resolve-axi edit transform committed and fresh AXI read-back confirmed Pan=2.5, Tilt=-1732.0, record span [0,23], and both operation acceptance contracts passed."
   ]
 }

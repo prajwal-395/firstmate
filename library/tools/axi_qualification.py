@@ -524,9 +524,15 @@ def audit(path: Path = REGISTRY_PATH) -> dict:
     semantic boundary and a coverage. This reports the rows that are not,
     so a record that reads as qualified while naming a state nobody can
     reach is visible instead of silent.
+
+    A row whose evidence FAILED is not such a record: it is not
+    qualified, and it does not read as qualified either. It is reported
+    under `failed`, so the audit still shows it and the eligibility count
+    still means "a claim that cannot be taken".
     """
     payload = _read_registry(path)
     rows = []
+    failed = []
     for key, record in sorted(payload["records"].items()):
         entry = {"key": key, "production_eligible": False, "problems": [],
                  "needs_live_remeasurement": False}
@@ -535,8 +541,9 @@ def audit(path: Path = REGISTRY_PATH) -> dict:
             rows.append(entry)
             continue
         if record.get("result") != "passed":
-            entry["problems"].append("the evidence did not pass")
-            rows.append(entry)
+            failed.append({"key": key,
+                           "evidence": record.get("evidence") or "",
+                           "reason": "the evidence did not pass"})
             continue
         for name in ("environment", "semantic_boundary", "coverage"):
             if not _nonempty(record.get(name)):
@@ -565,6 +572,7 @@ def audit(path: Path = REGISTRY_PATH) -> dict:
         entry["production_eligible"] = not entry["problems"]
         rows.append(entry)
     return {"schema": "ren-axi-qualification-audit/v1", "rows": rows,
+            "failed": failed,
             "eligible": sum(row["production_eligible"] for row in rows),
             "ineligible": sum(not row["production_eligible"] for row in rows),
             "needs_live_remeasurement": sum(

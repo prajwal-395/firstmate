@@ -150,11 +150,48 @@ def test_the_predicates_are_written_from_what_was_measured():
         "timeline_density": "empty", "timeline_structure": "empty_timeline",
         "project_settings": "landscape_1920x1080", "frame_rate": "24",
         "existing_effects": "none"}}
-    predicates = qual._predicates(measured)
+    # The predicates are written from EVERY scenario that earned the
+    # pair, so a field the scenarios agree on is an `equals` and a
+    # field they differ on is a `one_of` over the values they were
+    # measured in.
+    predicates = qual._predicates([measured])
     assert {row["field"] for row in predicates} == set(qual._PREDICATE_FIELDS)
     assert all(row["operator"] == "equals" for row in predicates)
-    unmeasured = qual._predicates({"inspected": False})
+    unmeasured = qual._predicates([{"inspected": False}])
     assert unmeasured == []
+
+
+def test_the_predicates_widen_over_the_states_they_were_measured_in():
+    """Two scenarios measured in different states give a `one_of`.
+
+    One scenario's measurement alone would narrow a row to that one
+    composition and refuse the others, which is the W1-W4 widening the
+    union of the measured conditions exists for.
+    """
+    first = {"inspected": True, "state": {
+        "resolve_version": "DaVinci Resolve 21.1.0.14",
+        "media_type": "video", "clip_composition": "single_video_clip",
+        "linked_audio_configuration": "no_linked_audio",
+        "track_layout": "video", "track_occupancy": "all_empty",
+        "timeline_density": "empty", "timeline_structure": "empty_timeline",
+        "project_settings": "landscape_1920x1080", "frame_rate": "24",
+        "existing_effects": "none"}}
+    second = {"inspected": True, "state": {
+        "resolve_version": "DaVinci Resolve 21.1.0.14",
+        "media_type": "video", "clip_composition": "linked_video_clip",
+        "linked_audio_configuration": "linked_audio_present",
+        "track_layout": "video", "track_occupancy": "all_empty",
+        "timeline_density": "empty", "timeline_structure": "empty_timeline",
+        "project_settings": "landscape_1920x1080", "frame_rate": "24",
+        "existing_effects": "none"}}
+
+    predicates = qual._predicates([first, second])
+    by_field = {row["field"]: row for row in predicates}
+
+    assert by_field["clip_composition"]["operator"] == "one_of"
+    assert by_field["clip_composition"]["value"] == [
+        "single_video_clip", "linked_video_clip"]
+    assert by_field["resolve_version"]["operator"] == "equals"
 
 
 def test_both_resolve_source_endpoint_forms_read_as_the_same_range():

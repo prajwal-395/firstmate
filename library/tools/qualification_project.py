@@ -1272,11 +1272,24 @@ def _restore_cursor(project, timeline) -> None:
 
     Creating a fixture moves Resolve's cursor; the lane that runs next
     must find the timeline it left, not the one this command made.
+
+    The switch goes through `resolve_lock.assert_current_timeline`, the
+    ONE guarded site: it refuses without the exclusive instance lease,
+    and it reads the cursor back. A caller that set the cursor itself
+    moved state every other writer reads, under no guard at all.
     """
+    from library.tools.resolve_lock import (
+        UnguardedPlacementError,
+        assert_current_timeline,
+    )
     if timeline is None:
         return
     try:
-        project.SetCurrentTimeline(timeline)
+        assert_current_timeline(project, timeline)
+    except UnguardedPlacementError:
+        # A refusal is not a read-back failure: it is the guard saying the
+        # switch was never allowed. It is not swallowed.
+        raise
     except Exception:  # noqa: BLE001 - a read-back failure is not a write
         return
     current = project.GetCurrentTimeline()

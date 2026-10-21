@@ -44,10 +44,16 @@ def _project(tmp_path) -> Path:
 def _program_spec(request: str, source_note_id: str) -> dict:
     """A translated program the shared execution planner refuses.
 
-    `clip.trim` is not a production-qualified executor and is not in the
-    protected experimental set `ren revise` is granted, so the router
-    refuses it - the break test's first request, refused with the
-    planner's own reason.
+    A lone `clip.insert` is not a production-qualified executor, and the
+    protected experimental set `ren revise` is granted covers it only in
+    the PAIR `clip.trim` + `clip.insert` - alone it has no route, so the
+    router refuses it, with the planner's own reason. (`clip.trim` alone
+    used to be the refused one; the protected route now covers it.)
+
+    `clip.insert` addresses a pool item, not a timeline item, so the
+    translation does not ask which item on the reel the editor meant:
+    this fixture is about the REFUSAL and the settlement, not about the
+    missing-target question.
     """
     return {
         "format": edit_spec.FORMAT,
@@ -57,12 +63,14 @@ def _program_spec(request: str, source_note_id: str) -> dict:
             "kind": "edit_program",
             "reel": REEL,
             "base_generation": "1",
-            "idempotency_key": "trim-opening",
+            "idempotency_key": "insert-opening",
             "ops": [{
-                "op": "clip.trim",
+                "op": "clip.insert",
                 "text": "cut the first two seconds off the opening",
-                "params": {"unique_id": "clip-1", "in_frame": 48,
-                           "out_frame": 240},
+                "params": {"unique_id": "clip-1", "track_type": "video",
+                           "track_index": 1, "record_in": 48,
+                           "record_out": 240,
+                           "media_pool_item": "qual_a.mp4"},
             }],
         },
     }
@@ -215,7 +223,7 @@ def test_the_refusal_is_recorded_with_its_reason(tmp_path):
     record = _refused_revision(project)
     refusal = edit_spec.read_refusal(str(project), record["spec_id"])
     assert refusal is not None
-    assert "clip.trim" in refusal["reason"]
+    assert "clip.insert" in refusal["reason"]
     assert refusal["detail"]["note_id"] == record["note_id"]
 
 

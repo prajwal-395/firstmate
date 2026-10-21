@@ -9662,11 +9662,23 @@ def cmd_edit_request(args) -> int:
 # ── Argument wiring ──────────────────────────────────────────────────
 
 
-def _add_scope(parser, what: str) -> None:
-    parser.add_argument("--project", default="",
+def _add_scope(parser, what: str, inherit: bool = False) -> None:
+    """Add the project/timeline scope to one command.
+
+    `inherit=True` is for a SUBPARSER. argparse parses the subcommand
+    into a namespace of its own and then hands it over the parent's, so
+    a subparser's own default ("") overwrites the scope the caller gave
+    the parent command: `markers --project X --timeline Y snapshot`
+    reached `snapshot` with an EMPTY scope, and the snapshot was taken
+    against whichever project Resolve had open. With SUPPRESS the
+    subparser only speaks when it is given the flag itself, and the
+    scope the caller named survives the dispatch.
+    """
+    default = argparse.SUPPRESS if inherit else ""
+    parser.add_argument("--project", default=default,
                         help=f"select this recorded project for reads or "
                              f"expect it open for live operations ({what})")
-    parser.add_argument("--timeline", default="",
+    parser.add_argument("--timeline", default=default,
                         help="which timeline: the exact name, a UNIQUE "
                              "prefix, or a bare positional "
                              "(markers \"Reel 29\"); omit only for an "
@@ -10160,14 +10172,14 @@ def build_parser() -> Parser:
 
     p = msubs.add_parser("snapshot", help="write a reel's marker "
                                           "CONTENT to a file")
-    _add_scope(p, "snapshot")
+    _add_scope(p, "snapshot", inherit=True)
     p.add_argument("--out", required=True, help="snapshot file to write")
     p.set_defaults(func=cmd_markers_snapshot)
 
     p = msubs.add_parser("restore", help="dry-run a snapshot "
                                          "against live markers; "
                                          "--apply writes")
-    _add_scope(p, "restore")
+    _add_scope(p, "restore", inherit=True)
     p.add_argument("--in", dest="in_file", required=True,
                    help="snapshot file to restore from")
     p.add_argument("--apply", action="store_true",
@@ -10183,7 +10195,7 @@ def build_parser() -> Parser:
     p = msubs.add_parser("reply", help="record our answer as a marker, "
                                        "linked to the note it answers; "
                                        "--apply writes")
-    _add_scope(p, "reply")
+    _add_scope(p, "reply", inherit=True)
     p.add_argument("--frame", required=True, type=int,
                    help="ABSOLUTE frame where the reply lands (the space "
                         "`markers` reports)")
@@ -10215,7 +10227,7 @@ def build_parser() -> Parser:
                                                "still sit beside the "
                                                "notes they answer; "
                                                "read-only, writes nothing")
-    _add_scope(p, "audit-replies")
+    _add_scope(p, "audit-replies", inherit=True)
     p.add_argument("--full", action="store_true",
                    help="show complete names and identities instead of "
                         "the preview")

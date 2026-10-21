@@ -1549,14 +1549,26 @@
   ],
   [
     "library/tools/qualification_project.py",
-    "rebuild",
+    "_place_declared_clips",
     "AppendToTimeline",
     1
   ],
   [
     "library/tools/qualification_project.py",
-    "rebuild",
+    "_place_declared_clips",
     "AddMarker",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_ensure_pool_items",
+    "ImportMedia",
+    1
+  ],
+  [
+    "library/tools/qualification_project.py",
+    "_ensure_timeline",
+    "CreateEmptyTimeline",
     1
   ],
   [
