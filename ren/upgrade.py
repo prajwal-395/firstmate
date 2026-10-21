@@ -223,8 +223,8 @@ def _rebuild_ren_native(engine_root: Path, home: Path) -> None:
     """
     from ren.setup import VENV_DIRNAME, build_ren_native
 
-    code = build_ren_native(engine_root, home / VENV_DIRNAME / "bin",
-                            _candidate_env(engine_root, home))
+    code, why = build_ren_native(engine_root, home / VENV_DIRNAME / "bin",
+                                  _candidate_env(engine_root, home))
     if code == 0:
         print("ren_native: rebuilt from the new engine's Rust sources.")
         try:
@@ -234,7 +234,11 @@ def _rebuild_ren_native(engine_root: Path, home: Path) -> None:
             native_refresh.record(engine_root, "ren_native")
         except Exception:  # noqa: BLE001 - recording never fails upgrade
             pass
-    elif code is not None and code != 4:
+        return
+    if why:
+        for line in why.splitlines():
+            print(f"ren_native: {line}")
+    if code is not None and code != 4:
         print(f"ren_native: rebuild failed (exit {code}); the Python "
               "edit backend runs.")
 

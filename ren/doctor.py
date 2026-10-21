@@ -754,7 +754,8 @@ def ren_native_check() -> Check:
         return Check(
             "ren_native Rust backend", False,
             "not built - the Python edit backend runs",
-            "run ren setup to build it from the engine's Rust sources",
+            "run ren setup to build it from the engine's Rust sources "
+            "(needs cargo on PATH)",
             need="ren_native")
     baked = getattr(ren_native, "source_fingerprint", lambda: None)()
     current = ren_native_source.source_fingerprint(root) if root else None
@@ -770,8 +771,39 @@ def ren_native_check() -> Check:
                   f"{(baked or 'none')[:12]} vs this tree {current[:12]}); "
                   f"the Python edit backend runs")
     return Check("ren_native Rust backend", False, detail,
-                 "run ren setup to rebuild it from this engine's Rust sources",
+                 "run ren setup to rebuild it from this engine's Rust sources "
+                 "(needs cargo on PATH)",
                  need="ren_native")
+
+
+def _foreign_broker_note(serving_command: str, own_binary) -> str:
+    """The sentence that says the broker serving is NOT this engine's.
+
+    The broker in service and the broker THIS engine would run are two
+    binaries. On a machine with one engine they are the same file; where
+    they are not, the machine is serving another engine's broker, and
+    saying "Rust broker is built from this tree" about it is a false
+    claim about the binary that is actually running (measured
+    2026-10-21: the broker in service was another tree's build, while
+    the doctor called it this tree's).
+
+    Empty when the two are the same file, or when either is unknown.
+    """
+    if not serving_command or own_binary is None:
+        return ""
+    serving_path = serving_command.split()[0] if serving_command.split() else ""
+    if not serving_path:
+        return ""
+    try:
+        same = (os.path.realpath(serving_path)
+                == os.path.realpath(str(own_binary)))
+    except OSError:
+        same = False
+    if same:
+        return ""
+    return (
+        "the broker serving this machine was built from ANOTHER tree - "
+        f"this engine's own broker is {own_binary}")
 
 
 def native_freshness_checks() -> list:
@@ -798,14 +830,19 @@ def native_freshness_checks() -> list:
         from library.tools.resolved.client import ping
         serving = ping()
         serving_binary = "no broker serving"
+        serving_command = ""
         if serving is not None:
             command = subprocess.run(
                 ["ps", "-p", str(serving["pid"]), "-o", "command="],
                 capture_output=True, encoding="utf-8", timeout=3,
                 check=False).stdout.strip()
             serving_binary = command or "broker process no longer listed"
+            serving_command = command
         if broker_state == "fresh":
             detail = f"{serving_binary}; Rust broker is built from this tree"
+            foreign = _foreign_broker_note(serving_command, broker_binary)
+            if foreign:
+                detail = f"{serving_binary}; {foreign}"
         elif (broker_binary is not None and broker_binary.is_file()) or serving_fallback:
             detail = (f"{serving_binary}; rebuild pending ({broker_state}: "
                       f"{broker_detail}); current binary remains in service")
@@ -837,7 +874,7 @@ def native_freshness_checks() -> list:
             checks.append(Check(
                 f"native {part}", False,
                 f"missing - {detail}",
-                f"build it with scripts/build_{part.replace('-', '_')}.sh",
+                f"build it with {root}/scripts/build_{part.replace('-', '_')}.sh",
                 need=need))
     return checks
 

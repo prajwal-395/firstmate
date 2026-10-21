@@ -330,13 +330,25 @@ VENV_INTERPRETER = os.path.join("bin", "python3")
 
 INTERPRETER_CANDIDATES = (
     ("env", "PIPELINE_PYTHON"),
+    ("engine_home", DURABLE_VENV_DIRNAME + "/bin/python3"),
     ("vep_home", DURABLE_VENV_DIRNAME + "/bin/python3"),
     ("repo", ".venv/bin/python3"),
 )
 """The resolution ladder, DECLARED as data rather than as code.
 
 `(kind, spec)` in order of preference. `kind` says what `spec` is
-relative to: an environment variable, `vep_home()`, or the checkout.
+relative to: an environment variable, the install home that owns THIS
+engine tree, `vep_home()`, or the checkout.
+
+The `engine_home` rung exists because an installed engine keeps its
+runtime venv beside its own install prefix (`<home>/versions/<version>`
+beside `<home>/venv-py312`), and the machine's default `vep_home()`
+knows nothing about a prefix of its own. Measured 2026-10-21: an
+engine installed into a throwaway prefix could not run its own
+`current/bin/ren` - the ladder found nothing and the front door
+refused. The native front door carries the same rung
+(`native/ren-cli/src/main.rs`), because the two must name one
+interpreter.
 
 It is data because the ladder has a caller that cannot import this
 module and must still obey it - `scripts/full_suite_gate.sh`
@@ -354,6 +366,26 @@ about a package nobody mentioned.
 """
 
 
+def engine_home(repo_root: Optional[str | Path] = None) -> Optional[Path]:
+    """The install home that owns this engine tree, when there is one.
+
+    An installed engine lives at `<home>/versions/<version>`, and its
+    runtime venv is `<home>/venv-py312`. A checkout has no such home,
+    and a flat `package_engine --dest` tree is not an install at all -
+    both answer `None`, so the ladder moves on to the machine's own venv.
+
+    The rule is the native front door's too
+    (`native/ren-cli/src/main.rs`): one rule, two implementations.
+    """
+    if repo_root is None:
+        return None
+    root = Path(repo_root).expanduser()
+    parent = root.parent
+    if parent.name != "versions":
+        return None
+    return parent.parent
+
+
 def interpreter_candidates(repo_root: Optional[str | Path] = None):
     """`INTERPRETER_CANDIDATES` resolved to real paths, in order.
 
@@ -365,6 +397,10 @@ def interpreter_candidates(repo_root: Optional[str | Path] = None):
             value = os.environ.get(spec)
             if value:
                 yield Path(value).expanduser()
+        elif kind == "engine_home":
+            home = engine_home(repo_root)
+            if home is not None:
+                yield home / spec
         elif kind == "vep_home":
             yield vep_home() / spec
         elif kind == "repo":
@@ -697,12 +733,22 @@ def mfa_available() -> tuple:
 
 
 def mfa_missing_message() -> str:
-    """Why MFA is not reachable, and the command that fixes it."""
+    """Why MFA is not reachable, and the command that fixes it.
+
+    The fix is a COMMAND a person can run, not a path inside a
+    checkout: `ren setup --with mfa` works from an installed engine and
+    from a checkout alike. The install script is named second, because
+    it is what that command runs - and the message reached a customer
+    naming `scripts/install_mfa.sh`, a path that exists only beside a
+    checkout (measured 2026-10-21, on a clean install into a throwaway
+    prefix).
+    """
     lines = [
         f"The MFA forced aligner is not reachable "
         f"(binary {mfa_binary()}, models {mfa_models_dir()}).",
         f"Install once per machine:\n"
-        f"    {MFA_INSTALL_SCRIPT}\n"
+        f"    ren setup --with mfa\n"
+        f"(that runs {MFA_INSTALL_SCRIPT} beside the engine)\n"
         f"Voz transcription cannot continue without MFA; there is no "
         f"wav2vec2 fallback (see `library/tools/mfa_align.py`).",
     ]

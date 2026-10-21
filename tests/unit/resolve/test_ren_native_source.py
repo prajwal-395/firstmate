@@ -100,5 +100,5 @@ def test_release_build_flags_invalidate_previously_cached_debug_extension(tmp_pa
     assert ren_native_source.source_fingerprint(tmp_path) != debug
     shipped = Path(__file__).resolve().parents[3] / 'scripts/build_ren_native.sh'
     command = next(line for line in shipped.read_text(encoding='utf-8').splitlines()
-                   if '"$VENV_BIN_DIR/maturin" build ' in line)
+                   if 'build --release --locked' in line)
     assert '--release' in command.split()

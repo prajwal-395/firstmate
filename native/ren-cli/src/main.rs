@@ -108,7 +108,7 @@ fn run(argv: &[OsString]) -> i32 {
         };
         return match outcome {
             Outcome::Exited(code) => code,
-            Outcome::Fallback => exec_python(&engine_root, argv).unwrap_or(REFUSAL_EXIT_CODE),
+            Outcome::Fallback => exec_or_refuse(&engine_root, argv),
         };
     }
 
@@ -117,7 +117,24 @@ fn run(argv: &[OsString]) -> i32 {
         return 2;
     }
 
-    exec_python(&engine_root, argv).unwrap_or(REFUSAL_EXIT_CODE)
+    exec_or_refuse(&engine_root, argv)
+}
+
+/// Exec the Python implementation, or SAY why it could not be exec'd.
+///
+/// A refusal that never reaches the person is a defect, not a style:
+/// `unwrap_or(REFUSAL_EXIT_CODE)` discarded the message this function
+/// built, so a machine that could not find an interpreter exited 3 with
+/// NO output at all (measured 2026-10-21 on a clean install into a
+/// throwaway prefix: `ren doctor` printed nothing and exited 3).
+fn exec_or_refuse(root: &Path, argv: &[OsString]) -> i32 {
+    match exec_python(root, argv) {
+        Ok(code) => code,
+        Err(message) => {
+            eprintln!("{message}");
+            REFUSAL_EXIT_CODE
+        }
+    }
 }
 
 /// The engine root, or the refusal naming what was tried and the fix.
@@ -140,13 +157,18 @@ fn exec_python(root: &Path, argv: &[OsString]) -> Result<i32, String> {
     let interpreter = resolve_interpreter(root)?;
     let pythonpath = engine::engine_pythonpath(root)
         .ok_or_else(|| "ren: cannot build PYTHONPATH for the engine.".to_string())?;
-    let exec_error = Command::new(interpreter)
+    let exec_error = Command::new(&interpreter)
         .arg("-m")
         .arg("ren.cli")
         .args(argv)
         .env("REN_ENGINE_ROOT", root)
         .env("PYTHONPATH", pythonpath)
         .env("PYTHONSAFEPATH", "1")
+        // The interpreter this front door resolved, handed to the child.
+        // `bin/vep` resolves one itself, and without this it could pick a
+        // DIFFERENT interpreter than the one that is running - two
+        // engines answering one command.
+        .env("PIPELINE_PYTHON", &interpreter)
         .exec();
     Err(format!(
         "ren: cannot run the interpreter - {exec_error}.\n\
@@ -176,6 +198,15 @@ fn interpreter_candidates(root: &Path) -> Vec<PathBuf> {
             candidates.push(engine::expanduser(&PathBuf::from(value)));
         }
     }
+    // The engine's OWN install home, before the machine's default one: an
+    // engine installed into a prefix of its own (`install_ren.sh --home`)
+    // keeps its runtime venv beside that prefix, and the default
+    // `~/.local/share/vep` knows nothing about it (measured 2026-10-21:
+    // an engine installed into a throwaway prefix could not run its own
+    // `current/bin/ren` at all).
+    if let Some(home) = engine_home(root) {
+        candidates.push(home.join("venv-py312").join("bin").join("python3"));
+    }
     candidates.push(
         engine::vep_home()
             .join("venv-py312")
@@ -184,6 +215,20 @@ fn interpreter_candidates(root: &Path) -> Vec<PathBuf> {
     );
     candidates.push(root.join(".venv").join("bin").join("python3"));
     candidates
+}
+
+/// The install home that owns this engine tree, when there is one.
+///
+/// An installed engine lives at `<home>/versions/<version>`; its runtime
+/// venv is `<home>/venv-py312`. A checkout has no such home, and a flat
+/// `package_engine --dest` tree is not an install at all - both answer
+/// `None`, so the ladder moves on to the machine's own venv.
+fn engine_home(root: &Path) -> Option<PathBuf> {
+    let parent = root.parent()?;
+    if parent.file_name().map(|name| name == "versions") != Some(true) {
+        return None;
+    }
+    parent.parent().map(Path::to_path_buf)
 }
 
 /// The refusal, in `bin/vep`'s shape: one line saying what this is, then

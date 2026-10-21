@@ -152,3 +152,100 @@ fn an_unknown_verb_is_refused_with_the_usage() {
         "stderr: {stderr}"
     );
 }
+
+/// A tree that satisfies the engine-root sentinels, so the front door
+/// resolves an engine and reaches the interpreter ladder.
+fn engine_tree(root: &Path) {
+    fs::create_dir_all(root.join("library")).unwrap();
+    fs::create_dir_all(root.join("ren")).unwrap();
+    fs::create_dir_all(root.join("bin")).unwrap();
+    fs::write(root.join("manage_project.py"), "").unwrap();
+    fs::write(root.join("ren").join("cli.py"), "").unwrap();
+    fs::write(root.join("bin").join("ren"), "").unwrap();
+    fs::write(root.join("bin").join("vep"), "").unwrap();
+}
+
+#[test]
+fn a_missing_interpreter_is_refused_WITH_THE_REASON() {
+    // A refusal nobody reads is a defect: the front door built the
+    // ladder's message and threw it away, so `ren doctor` on a machine
+    // with no interpreter exited 3 and printed NOTHING
+    // (measured 2026-10-21 on a clean install into a throwaway prefix).
+    let base = env::temp_dir().join(format!("ren-no-interpreter-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let engine = base.join("versions").join("v1");
+    engine_tree(&engine);
+    let empty = base.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let output = run_ren(
+        &["doctor"],
+        &[
+            (
+                "REN_ENGINE_ROOT".to_string(),
+                engine.to_string_lossy().to_string(),
+            ),
+            ("PIPELINE_VEP_HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("XDG_DATA_HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+        ],
+    );
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("no interpreter carrying the ML stack"),
+        "stderr: {stderr}"
+    );
+    assert!(!stderr.is_empty(), "the refusal said nothing");
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn the_engines_own_install_home_is_on_the_interpreter_ladder() {
+    // An engine installed into a prefix of its own keeps its runtime
+    // venv beside that prefix (`<home>/venv-py312`), and the machine's
+    // default `vep_home()` knows nothing about it. Without this rung the
+    // installed `current/bin/ren` could not run at all (measured
+    // 2026-10-21: a clean install into a throwaway prefix exited 3 with
+    // no output).
+    let base = env::temp_dir().join(format!("ren-own-home-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    let engine = base.join("versions").join("v1");
+    engine_tree(&engine);
+    let venv_python = base.join("venv-py312").join("bin").join("python3");
+    fs::create_dir_all(venv_python.parent().unwrap()).unwrap();
+    fs::write(
+        &venv_python,
+        "#!/bin/sh\necho ENGINE-OWN-VENV\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&venv_python).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&venv_python, permissions).unwrap();
+    }
+    let empty = base.join("empty");
+    fs::create_dir_all(&empty).unwrap();
+    let output = run_ren(
+        &["doctor"],
+        &[
+            (
+                "REN_ENGINE_ROOT".to_string(),
+                engine.to_string_lossy().to_string(),
+            ),
+            ("PIPELINE_VEP_HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("XDG_DATA_HOME".to_string(), empty.to_string_lossy().to_string()),
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+        ],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ENGINE-OWN-VENV"),
+        "the engine's own venv was not on the ladder; stdout: {stdout}; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = fs::remove_dir_all(&base);
+}

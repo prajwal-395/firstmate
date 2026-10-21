@@ -46,18 +46,47 @@ VENV_BIN_DIR="$1"
 CACHE_DIR="$2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 
+# The build tool, and where it comes from.
+#
+# The runtime venv carries the RUNTIME's dependencies, and maturin is a
+# BUILD tool, not one of them: the locked set has no maturin, so an
+# installed engine's venv never had one. The build therefore refused on
+# every install ("no maturin in <venv>"), while `ren doctor` told the
+# reader to "run ren setup to build it from the engine's Rust sources"
+# - a fix that could not work (measured 2026-10-21 on a clean install
+# into a throwaway prefix: the Rust backend stayed unbuilt and the
+# Python fallback ran).
+#
+# `uv` is on the machine - the installer requires it - so maturin is
+# fetched EPHEMERALLY through it, never installed into the runtime
+# venv, at a PINNED version. The pin lives here, beside the build.
+MATURIN_VERSION="1.15.0"
+
 export PATH="$HOME/.cargo/bin:$PATH"
 if ! command -v cargo >/dev/null 2>&1; then
     echo "build_ren_native: no cargo on PATH; keeping the Python backend." >&2
     exit 4
 fi
-if [ ! -x "$VENV_BIN_DIR/maturin" ]; then
-    echo "build_ren_native: no maturin in $VENV_BIN_DIR; keeping the Python backend." >&2
+if [ -x "$VENV_BIN_DIR/maturin" ]; then
+    MATURIN=("$VENV_BIN_DIR/maturin")
+elif command -v uv >/dev/null 2>&1; then
+    MATURIN=(uvx --from "maturin==$MATURIN_VERSION" maturin)
+else
+    echo "build_ren_native: no maturin in $VENV_BIN_DIR and no uv to fetch one with; keeping the Python backend." >&2
     exit 4
 fi
 if [ ! -d "$REPO_ROOT/native/ren-core/src" ]; then
     echo "build_ren_native: no native/ren-core sources under $REPO_ROOT; keeping the Python backend." >&2
     exit 4
+fi
+
+# A PACKAGED engine tree is immutable: its version directory must not
+# gain a cargo target directory. The build's scratch goes to the
+# machine's cache instead, where a later build reuses it. A checkout
+# keeps cargo's default (native/target), so the development loop keeps
+# its warm build cache.
+if [ -f "$REPO_ROOT/ren/_build.py" ]; then
+    export CARGO_TARGET_DIR="$CACHE_DIR/cargo-target"
 fi
 
 # The fingerprint of the native/ sources, computed by the one Python
@@ -79,7 +108,7 @@ rm -rf "$WHEEL_DIR"
 mkdir -p "$WHEEL_DIR"
 cd "$REPO_ROOT/native/ren-core"
 export REN_NATIVE_SOURCE_FINGERPRINT="$FINGERPRINT"
-"$VENV_BIN_DIR/maturin" build --release --locked -i "$VENV_BIN_DIR/python3" --out "$WHEEL_DIR"
+"${MATURIN[@]}" build --release --locked -i "$VENV_BIN_DIR/python3" --out "$WHEEL_DIR"
 
 # Exactly one wheel, exactly one extension inside it.
 set -- "$WHEEL_DIR"/*.whl

@@ -266,9 +266,10 @@ def _setup_runtime(
     return venv_python
 
 
-def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> int | None:
-    """Run the ren_native build script; return its exit code, or None
-    when it could not be started.
+def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> tuple:
+    """Run the ren_native build script; return `(exit code, why)`.
+
+    The exit code is None when the script could not be started at all.
 
     The build lands in the machine's per-tree cache
     (`library/tools/ren_native_cache.py`), keyed by this engine's
@@ -276,15 +277,20 @@ def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> int | 
     trees keep their own entries.
 
     Exit 4 is the script's "keep the Python backend" (no cargo, no
-    maturin, no Rust sources); any other non-zero is a build that ran
+    build tool, no Rust sources); any other non-zero is a build that ran
     and failed. Both are the caller's to report, never to raise: the
     Rust backend is an optimisation and the Python implementation is
     the fallback, so a build that cannot run degrades the machine, it
     does not break the install.
+
+    The script's own message is returned WITH the code: it says WHY the
+    build did not happen, and a setup that swallowed it left the reader
+    with "not built" and no reason (measured 2026-10-21: a clean
+    install reported an unbuilt Rust backend and named no cause).
     """
     script = engine_root / "scripts" / "build_ren_native.sh"
     if not script.is_file():
-        return None
+        return None, f"the engine has no build script at {script}"
     try:
         sys.path.insert(0, str(engine_root))
         from library.tools import ren_native_cache
@@ -297,16 +303,16 @@ def build_ren_native(engine_root: Path, venv_bin_dir: Path, env: dict) -> int | 
             env=env, capture_output=True, encoding="utf-8",
             timeout=1800, check=False,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return done.returncode
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, f"the build could not be started: {exc}"
+    return done.returncode, (done.stderr or "").strip()
 
 
 def _build_ren_native(engine: Path, venv_python: Path, env: dict) -> None:
     """Rebuild the ren_native extension from the engine's Rust sources,
     reporting the outcome. Never fails the setup: the Python edit
     backend is the fallback, and `ren doctor` names a missing build."""
-    code = build_ren_native(engine, venv_python.parent, env)
+    code, why = build_ren_native(engine, venv_python.parent, env)
     if code == 0:
         print("ren_native: built from the engine's Rust sources.")
         try:
@@ -316,9 +322,12 @@ def _build_ren_native(engine: Path, venv_python: Path, env: dict) -> None:
             native_refresh.record(engine, "ren_native")
         except Exception:  # noqa: BLE001 - recording never fails setup
             pass
-    elif code == 4:
-        print("ren_native: not built - no Rust toolchain or no Rust "
-              "sources; the Python edit backend runs.")
+        return
+    if why:
+        for line in why.splitlines():
+            print(f"ren_native: {line}")
+    if code == 4:
+        print("ren_native: not built - the Python edit backend runs.")
     elif code is None:
         print("ren_native: could not run the build; the Python edit "
               "backend runs.")
@@ -368,8 +377,17 @@ def _make_user_folders(engine: Path) -> None:
 
 
 def _install_record(
-    home: Path, prefix: str, profile: Path, runtime_python: Path
+    home: Path, prefix: str, profile: Path, runtime_python: Path,
+    engine: Path | None = None
 ) -> None:
+    """The record of what this machine installed.
+
+    It names the ENGINE VERSION it installed, not only where things
+    live: a machine with two engines under one home cannot say which
+    one its `ren` runs without that (measured 2026-10-21, while
+    validating a clean install: the record named the prefix and the
+    runtime, and nothing named the build).
+    """
     record = {
         "schema_version": 1,
         "home": str(home),
@@ -378,7 +396,13 @@ def _install_record(
         "python_runtime": str(runtime_python),
         "models": str(home / "models"),
     }
+    if engine is not None:
+        from ren.version import version_string
+
+        record["engine_root"] = str(engine)
+        record["engine_version"] = version_string()
     path = home / INSTALL_RECORD
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
@@ -514,7 +538,7 @@ def main(argv=None) -> int:
             )
         runtime_python = _runtime_python(home, uv, env)
         _install_launcher(home, runtime_python, prefix)
-        _install_record(home, prefix, _profile_path(), runtime_python)
+        _install_record(home, prefix, _profile_path(), runtime_python, engine)
         venv_python = _setup_runtime(home, engine, uv, runtime_python, env)
         env["PIPELINE_PYTHON"] = str(venv_python)
         _build_ren_native(engine, venv_python, env)

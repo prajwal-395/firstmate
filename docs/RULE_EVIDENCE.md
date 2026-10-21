@@ -9965,6 +9965,83 @@ machine's own capacity, so capturing it on another machine writes different
 rows. Those are the receipt, capability and resource mirrors, not the
 refusal's, and they are not fixed here.
 
+## the-clean-install-that-could-not-run-its-own-engine
+
+**The rule:** An installed engine finds its own runtime, a refusal
+reaches the person who has to act on it, and every fix the doctor names
+is a command or a path that exists in the engine's own tree.
+
+**What happened.** PROD-001 asked whether a clean installation works on a
+supported Mac. The measurement is
+`scripts/ren_clean_install_check.py`: it packages the checkout the way a
+release does (a ZIP plus `SHA256SUMS.txt`), installs it with
+`scripts/install_ren.sh` into a THROWAWAY prefix and a THROWAWAY HOME,
+and then runs `ren doctor --json` and `ren capabilities --check` from
+that install, from a working directory outside the checkout. Measured
+2026-10-21 on this Mac, the install itself succeeded and the engine ran
+- and four things around it did not:
+
+1. **The installed binary could not find its own runtime.** The
+   interpreter ladder knew `$PIPELINE_PYTHON`, the machine's default
+   `~/.local/share/vep` and a checkout's `.venv`. An engine installed
+   into a prefix of its own keeps its runtime venv BESIDE that prefix
+   (`<home>/versions/<version>` beside `<home>/venv-py312`), and the
+   machine's default home knows nothing about it. So
+   `<prefix>/current/bin/ren doctor` found no interpreter.
+2. **The refusal never reached the person.** The native front door
+   built the ladder's own message and then threw it away
+   (`exec_python(...).unwrap_or(REFUSAL_EXIT_CODE)`), so the command
+   exited 3 and printed NOTHING. A refusal nobody reads is a defect, not
+   a style.
+3. **The fixes named paths inside a checkout.** The doctor's build
+   instructions said `build it with scripts/build_<part>.sh` and its MFA
+   refusal said `scripts/install_mfa.sh` - files that exist beside a
+   checkout and nowhere else. The engine's own tree is where they live,
+   and `ren setup --with mfa` is the command a customer can run.
+4. **The Rust edit backend could not be built at all.** The build needs
+   `maturin`, the locked runtime carries no build tool, and the doctor's
+   fix ("run ren setup to build it from the engine's Rust sources")
+   could not work on an installed machine.
+
+Two more were reported but not the engine's fault: the doctor called
+the broker in service "built from this tree" while the binary serving
+the machine was another tree's build, and the install record named the
+prefix, the runtime and the models but NOT the engine version, so a
+machine with two engines could not say which one its `ren` runs.
+
+**The count, with the denominator.**
+
+| measurement | before | after |
+|---|---|---|
+| clean-install checks the harness runs | 11 passed, 2 failed (of 13) | 13 passed, 0 failed (of 13) |
+| defect-naming tests that fail on the old code | 9 / 9 fail | 9 / 9 pass |
+| native front-door tests | 6 pass | 8 pass (2 new) |
+| the install record's fields | 6 / 7 name the install (no version) | 7 / 7 |
+
+The two failing checks before the fix were the install record's missing
+version and `current/bin/ren doctor` exiting 3 with no output.
+
+**The guard.** `scripts/ren_clean_install_check.py` is the measurement
+and it is rerunnable: it refuses a sandbox inside the live install or
+with the real HOME, and it points the machine-wide per-tree build cache
+inside the sandbox so a simulation adds nothing to the live machine's.
+Its fix-path scan is its teeth - a fix the doctor names that points at a
+file the customer does not have is a failure, not a note.
+`tests/unit/context/test_clean_install_contract.py` pins each defect by
+name (nine tests, all failing on the old code), and
+`native/ren-cli/tests/front_door.rs` pins the two front-door ones.
+
+**What it does not fix.** Seven `native/ren-cli` parity tests were
+already failing on `main` before this work (the native `ren check`
+answers PASS where the Python one refuses a project with no footage) -
+a native-mirror defect, not a clean-install one, and untouched here.
+The capability verdicts move with the machine: when the fleet's broker
+holds the Resolve lease, `resolve.scripting` is undetermined and eight
+capabilities read `unknown` instead of `degraded`. And the Rust backend
+still needs a Rust toolchain on the machine: the build now fetches its
+build tool through `uv` at a pinned version, but with no `cargo` there
+is nothing to build, and the Python backend runs.
+
 ## the-final-acceptance-is-a-state
 
 **The punch list, QA-008, 2026-10-20.** "Make final acceptance an
