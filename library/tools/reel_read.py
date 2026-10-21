@@ -626,6 +626,52 @@ def _item_fades(item) -> dict | None:
     return {str(key): value for key, value in fades.items()}
 
 
+def _linked_unique_ids(item) -> list:
+    """The ids of the item's LINK PARTNERS, in one reading.
+
+    The same reading `clip_detail` publishes: the partners, not the
+    item itself.  The light read is compared against the stored
+    snapshot's projection of itself, and two readings of the same thing
+    would make every read look like a change.
+
+    A group that cannot be read reads as ABSENT (`None`), never as an
+    empty group: an empty group would claim the item is not linked.
+    """
+    linked = _call(item, "GetLinkedItems", None)
+    if linked is None:
+        return None
+    partners = sorted({
+        str(partner_id) for partner in linked or ()
+        if partner is not None
+        for partner_id in [_call(partner, "GetUniqueId", "")]
+        if partner_id
+    })
+    return partners
+
+
+def _item_volume(item) -> Optional[float]:
+    """The item's own level, or None where Resolve does not say.
+
+    Read through `GetProperty()` with no argument (AGENTS.md 5): the
+    whole-dict form is the only reading that says what the item really
+    carries.  An AUDIO item carries its level as `AudioVolume` on the
+    measured Resolve 21.1; a picture item's own level reads as
+    `Volume`.  Both are read, and a missing level is UNAVAILABLE, never
+    zero.
+    """
+    properties = _call(item, "GetProperty", None)
+    if not isinstance(properties, Mapping):
+        return None
+    for key in ("AudioVolume", "Volume"):
+        if key not in properties:
+            continue
+        try:
+            return float(properties[key])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _linked_clip_details(linked, native_id) -> list[dict]:
     """The linked partners' own state, as plain data.
 
@@ -658,6 +704,9 @@ def _linked_clip_details(linked, native_id) -> list[dict]:
             "source_out_frame": _call(partner, "GetSourceEndFrame", None),
             "enabled": _call(partner, "GetClipEnabled", None),
             "fades": _item_fades(partner),
+            # The partner's own LEVEL: the third thing a split must not
+            # move on the audio beside a picture.
+            "volume": _item_volume(partner),
         })
     return details
 
@@ -744,6 +793,10 @@ def clip_detail(item, track_type: str, track_index: int,
         # the state a rebuild would silently restore.
         "enabled": _call(item, "GetClipEnabled", None),
         "speed": _speed_percent(item),
+        # The item's own LEVEL.  An audio item's gain is state a
+        # replacement of the picture would lose silently, so the
+        # read-back carries it.
+        "volume": _item_volume(item),
         "keyframes": _item_keyframes(item),
         # The native fades, or None where Resolve does not expose
         # `GetFades`. None is UNAVAILABLE, never "no fades".
@@ -988,7 +1041,8 @@ def read_light_state(timeline) -> dict:
 
     The watcher uses this slice on each cadence. It reads track names,
     item identity and spans, source trims, media identity, speed, enabled
-    state, clip color, flags, transform properties, and timeline/clip markers.
+    state, clip color, flags, transform properties, the LINK STATE (the
+    group each item belongs to) and timeline/clip markers.
     It does not read Fusion, color grading, or other full-snapshot detail. The
     cursor is never moved.
     """
@@ -1036,6 +1090,12 @@ def read_light_state(timeline) -> dict:
                         "flags": list(_call(item, "GetFlagList", []) or []),
                         "speed": _speed_percent(item),
                         "transform": _item_transform(item),
+                        # The LINK STATE, so the fingerprint a change is
+                        # judged by carries it: a picture whose audio
+                        # partner moved is a different arrangement, and a
+                        # fingerprint without it would call that
+                        # unchanged.
+                        "linked_unique_ids": _linked_unique_ids(item),
                         "markers": marker_rows(
                             _call(item, "GetMarkers", {}) or {}),
                     })

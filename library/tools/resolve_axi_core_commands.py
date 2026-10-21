@@ -6710,6 +6710,147 @@ def cmd_edit_trim(args) -> int:
         return 0
 
 
+def cmd_edit_split(args) -> int:
+    """Cut ONE picture item at an exact source frame; the audio is not cut.
+
+    The cut is addressed in SOURCE frames, because a source frame is
+    what an event boundary is measured in; the record frame it lands on
+    is computed and reported.  The linked audio beside the picture is
+    read before and after the write and must come back unchanged: same
+    item, same in/out, same gain, same fades.
+
+    The route is COMPOSED: the installed Resolve 21.1 exposes no split
+    method (measured on the live Resolve), so the picture is replaced by
+    two picture-only spans.  The audio item is never touched; its LINK
+    to the picture is reported as measured, because the picture's
+    identity is what changed.
+    """
+    from library.tools import picture_split
+
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, uid = _edit_item_by_identity(
+                timeline, args)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if track_type != "video":
+            return fail(
+                f"split addresses a PICTURE item, and {track_type}"
+                f"{track_index} is not a video track.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        at_source_frame = int(args.at_source_frame)
+        try:
+            record_frame = picture_split.record_frame_for_source_frame(
+                item, at_source_frame)
+        except picture_split.PictureSplitRefused as exc:
+            return fail(str(exc), f"{TOOL} items --timeline "
+                               f"\"{timeline.GetName()}\"")
+        span = _item_span(item)
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("split_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "track": f"{track_type}{track_index}",
+                      "index": args.index,
+                      "name": span["name"],
+                      "at_source_frame": at_source_frame,
+                      "at_record_frame": record_frame,
+                      "record_in": span["record_in"],
+                      "record_out": span["record_out"],
+                      "audio": "the linked audio is not cut",
+                  }),
+                  note,
+                  f"dry run - pass --apply to split under the Resolve lease",
+                  help_block([
+                      f"{TOOL} edit split --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--at-source-frame {at_source_frame} --apply"])])
+            return 0
+        audio_before = picture_split.audio_track_states(timeline)
+        with _journal_write(
+                args, timeline=timeline, project=project,
+                spec={"verb": "edit_split", "timeline": timeline.GetName(),
+                      "name": span["name"], "unique_id": uid,
+                      "at_source_frame": at_source_frame,
+                      "at_record_frame": record_frame},
+                gate_class="edit_split") as (journal, journal_state):
+            try:
+                receipt = picture_split.composed_picture_split(
+                    item, at_source_frame, timeline=timeline,
+                    pool=project.GetMediaPool())
+            except picture_split.PictureSplitRefused as exc:
+                return fail(str(exc), f"{TOOL} items --timeline "
+                                   f"\"{timeline.GetName()}\"")
+            after_items = picture_split.track_item_states(
+                timeline, track_type, track_index)
+            picture_in = int(receipt["before"]["record_in"])
+            picture_out = int(receipt["before"]["record_out"])
+            halves = [state for state in after_items
+                      if _overlaps_span(state, picture_in, picture_out)]
+            verdict = picture_split.verify_split(
+                {"before": receipt["before"],
+                 "record_frame": receipt["record_frame"],
+                 "audio": audio_before},
+                {"halves": halves,
+                 "audio": picture_split.audio_track_states(timeline)},
+                at_source_frame)
+            if verdict["result"] != "passed":
+                failed = [row["check"] for row in verdict["checks"]
+                          if row["result"] != "passed"]
+                return fail(
+                    f"the split did not verify ({', '.join(failed)}): "
+                    f"the cut must land on the exact frame and the linked "
+                    f"audio must read back unchanged.",
+                    f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+            journal_state["success"] = True
+        emit([kv_block("split", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "at_source_frame": at_source_frame,
+                  "at_record_frame": record_frame,
+                  "halves": len(halves),
+                  "route": receipt["split_called_with"],
+                  "audio_unchanged": "yes (the linked audio item reads back "
+                  "unchanged)",
+                  "audio_link": "preserved" if verdict["link_preserved"]
+                  else "the picture was replaced, so the audio's partner "
+                  "changed with it (measured)",
+                  "verified": "yes (exact frame placement and an unchanged "
+                  "linked audio item)",
+              }),
+              note,
+              _journal_block(journal),
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def _overlaps_span(state, record_in: int, record_out: int) -> bool:
+    """Whether a read-back item's record span overlaps a picture's."""
+    try:
+        start = int(state["record_in"])
+        end = int(state["record_out"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return start < int(record_out) and end > int(record_in)
+
+
 def cmd_edit_switch_camera(args) -> int:
     """Replace one speaker turn with an assigned camera's synced range.
 
@@ -10565,6 +10706,15 @@ def build_parser() -> Parser:
                    help="new source end frame (within the handles)")
     q.set_defaults(func=cmd_edit_trim)
 
+    q = esubs.add_parser(
+        "split", help="split ONE picture item at an exact source frame; "
+                      "the linked audio is not cut; --apply writes")
+    _edit_scope(q, "picture-only split")
+    q.add_argument("--at-source-frame", required=True, type=int,
+                   help="the SOURCE frame the cut lands on (the record "
+                        "frame is computed and reported)")
+    q.set_defaults(func=cmd_edit_split)
+
     q = esubs.add_parser("switch-camera", help="replace a speaker turn with an assigned, synced camera range; --apply writes")
     _edit_scope(q, "switch-camera")
     q.add_argument("--camera-source-file", required=True,
@@ -11549,6 +11699,7 @@ def _through_broker(client, argv: list) -> int:
     flight from another agent is joined rather than repeated.
     """
     from library.tools.resolve_lock import default_owner
+    submitted = None
     try:
         submitted = client.submit(
             "resolve_axi", {"argv": list(argv), "cwd": os.getcwd(),
@@ -11558,8 +11709,15 @@ def _through_broker(client, argv: list) -> int:
         while job["state"] in ("queued", "running"):
             job = client.result(submitted["id"], wait=60.0)
     except (ConnectionError, client.BrokerError) as exc:
-        return fail(f"ren-resolved refused this command: {exc}",
-                    "ren resolved status")
+        # The refusal names the JOB and the broker's last error: a lane
+        # cannot tell a transient refusal from a broker that died, and
+        # one line that says only "closed the connection" told it
+        # neither.
+        job_id = str((submitted or {}).get("id") or "")
+        named = f" (job {job_id})" if job_id else ""
+        return fail(f"ren-resolved refused this command{named}: {exc}",
+                    "ren resolved list, then the broker's log beside its "
+                    "socket")
     if job["state"] != "done":
         return fail(f"ren-resolved {job['state']} job {job['id']}: "
                     f"{job['error']}", f"ren resolved result {job['id']}")

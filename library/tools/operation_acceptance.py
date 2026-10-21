@@ -49,6 +49,13 @@ def contract_for(op_id: str, operation: dict | None = None) -> dict:
                   "requested_record_span", "approved_edits_preserved",
                   "linked_audio_preserved",
                   "unrelated_items_unchanged"]
+    elif op_id == "clip.split":
+        # A split promises an EXACT cut and an untouched audio: the
+        # picture is in two halves that share the requested frame on
+        # both axes, and every audio row reads back as it did.
+        checks = ["target_identity", "exact_cut_frame",
+                  "linked_audio_preserved",
+                  "unrelated_items_unchanged"]
     elif op_id in {"clip.move", "clip.slide", "clip.roll", "clip.slip"}:
         checks = ["target_identity", "requested_record_or_source_position",
                   "duration_preserved", "unrelated_items_unchanged"]

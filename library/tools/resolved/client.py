@@ -144,9 +144,13 @@ def _exchange(sock: socket.socket, stream, request: dict,
     sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
     line = stream.readline()
     if not line:
+        detail = _closed_connection_detail(request)
+        message = ("ren-resolved closed the connection before it "
+                   "answered - the broker is not serving this request")
+        if detail:
+            message += f" ({detail})"
         raise BrokerError({
-            "error": ("ren-resolved closed the connection before it "
-                      "answered - the broker is not serving this request"),
+            "error": message,
             "next_action": ("wait_for_the_resource",)})
     reply = json.loads(line)
     if "error" in reply:
@@ -236,6 +240,30 @@ def _queued_job_count(target) -> int:
         return 0
     return sum(1 for job in jobs
                if isinstance(job, dict) and job.get("state") == "queued")
+
+
+def _closed_connection_detail(request: dict) -> str:
+    """Which job the closed connection was carrying, and what the
+    broker last said.
+
+    A broker that dies mid-request used to say one thing - "closed the
+    connection" - which cannot be told apart from a transient refusal.
+    The broker's own job table and log are read (READ-ONLY) so the
+    refusal names the job and the error the broker last recorded.
+    """
+    job_id = str(request.get("id") or "")
+    detail = ""
+    try:
+        from library.tools.resolved import failure_reader
+        detail = failure_reader.describe(job_id=job_id)
+    except Exception:  # noqa: BLE001 - the detail never breaks the refusal
+        detail = ""
+    parts = []
+    if job_id:
+        parts.append(f"job {job_id}")
+    if detail:
+        parts.append(detail)
+    return "; ".join(parts)
 
 
 def call(request: dict, path=None, timeout: Optional[float] = 30.0) -> dict:

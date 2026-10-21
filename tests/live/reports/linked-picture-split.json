@@ -1,0 +1,580 @@
+{
+ "actual_state": {
+  "audio_sample_windows_bit_identical": "24/24",
+  "cuts": 24,
+  "cuts_detail": [
+   {
+    "at_record_frame": 1,
+    "at_source_frame": 1,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     0,
+     1,
+     0,
+     1
+    ],
+    "second": [
+     1,
+     287,
+     1,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 292,
+    "at_source_frame": 5,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     287,
+     292,
+     0,
+     5
+    ],
+    "second": [
+     292,
+     574,
+     5,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 585,
+    "at_source_frame": 11,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     574,
+     585,
+     0,
+     11
+    ],
+    "second": [
+     585,
+     861,
+     11,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 884,
+    "at_source_frame": 23,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     861,
+     884,
+     0,
+     23
+    ],
+    "second": [
+     884,
+     1148,
+     23,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 1185,
+    "at_source_frame": 37,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     1148,
+     1185,
+     0,
+     37
+    ],
+    "second": [
+     1185,
+     1435,
+     37,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 1488,
+    "at_source_frame": 53,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     1435,
+     1488,
+     0,
+     53
+    ],
+    "second": [
+     1488,
+     1722,
+     53,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 1793,
+    "at_source_frame": 71,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     1722,
+     1793,
+     0,
+     71
+    ],
+    "second": [
+     1793,
+     2009,
+     71,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 2100,
+    "at_source_frame": 91,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     2009,
+     2100,
+     0,
+     91
+    ],
+    "second": [
+     2100,
+     2296,
+     91,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 2409,
+    "at_source_frame": 113,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     2296,
+     2409,
+     0,
+     113
+    ],
+    "second": [
+     2409,
+     2583,
+     113,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 2720,
+    "at_source_frame": 137,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     2583,
+     2720,
+     0,
+     137
+    ],
+    "second": [
+     2720,
+     2870,
+     137,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 3033,
+    "at_source_frame": 163,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     2870,
+     3033,
+     0,
+     163
+    ],
+    "second": [
+     3033,
+     3157,
+     163,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 3348,
+    "at_source_frame": 191,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     3157,
+     3348,
+     0,
+     191
+    ],
+    "second": [
+     3348,
+     3444,
+     191,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 3665,
+    "at_source_frame": 221,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     3444,
+     3665,
+     0,
+     221
+    ],
+    "second": [
+     3665,
+     3731,
+     221,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 3982,
+    "at_source_frame": 251,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     3731,
+     3982,
+     0,
+     251
+    ],
+    "second": [
+     3982,
+     4018,
+     251,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 4299,
+    "at_source_frame": 281,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     4018,
+     4299,
+     0,
+     281
+    ],
+    "second": [
+     4299,
+     4305,
+     281,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 4308,
+    "at_source_frame": 3,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     4305,
+     4308,
+     0,
+     3
+    ],
+    "second": [
+     4308,
+     4592,
+     3,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 4599,
+    "at_source_frame": 7,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     4592,
+     4599,
+     0,
+     7
+    ],
+    "second": [
+     4599,
+     4879,
+     7,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 4892,
+    "at_source_frame": 13,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     4879,
+     4892,
+     0,
+     13
+    ],
+    "second": [
+     4892,
+     5166,
+     13,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 5183,
+    "at_source_frame": 17,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     5166,
+     5183,
+     0,
+     17
+    ],
+    "second": [
+     5183,
+     5453,
+     17,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 5472,
+    "at_source_frame": 19,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     5453,
+     5472,
+     0,
+     19
+    ],
+    "second": [
+     5472,
+     5740,
+     19,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 5769,
+    "at_source_frame": 29,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     5740,
+     5769,
+     0,
+     29
+    ],
+    "second": [
+     5769,
+     6027,
+     29,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 6070,
+    "at_source_frame": 43,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     6027,
+     6070,
+     0,
+     43
+    ],
+    "second": [
+     6070,
+     6314,
+     43,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 6373,
+    "at_source_frame": 59,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     6314,
+     6373,
+     0,
+     59
+    ],
+    "second": [
+     6373,
+     6601,
+     59,
+     287
+    ]
+   },
+   {
+    "at_record_frame": 6674,
+    "at_source_frame": 73,
+    "audio_item_unchanged": true,
+    "audio_link_preserved": false,
+    "exact_placement": true,
+    "first": [
+     6601,
+     6674,
+     0,
+     73
+    ],
+    "second": [
+     6674,
+     6888,
+     73,
+     287
+    ]
+   }
+  ],
+  "exact_frame_placement": "24/24",
+  "link_measurement": "the installed Resolve 21.1 exposes NEITHER 'Split' NOR 'SplitAtFrame' on a TimelineItem (measured on the live Resolve through the broker), so the cut is COMPOSED: the picture is deleted and two picture-only spans are placed in its place. The audio item is never touched - same unique id, same record and source spans, same AudioVolume, same fades, same enablement - but the picture's identity changes, so the audio's link group reads back with the picture gone.",
+  "linked_audio_item_unchanged": "24/24",
+  "linked_audio_link_state_unchanged": "0/24",
+  "whole_media_file_bit_identical": true
+ },
+ "audio_verification": [
+  "every audio item on the timeline is read back item by item before and after each cut, and the linked audio item is unchanged",
+  "the decoded PCM around every cut frame is byte-identical before and after the cut"
+ ],
+ "backend": "resolve_axi",
+ "coverage": {
+  "configurations": [
+   "linked_av_1080p24"
+  ],
+  "dimensions": {
+   "clip_composition": [
+    "linked_video_clip"
+   ],
+   "existing_effects": [
+    "none"
+   ],
+   "frame_rate": [
+    "24"
+   ],
+   "linked_audio_configuration": [
+    "linked_audio_present"
+   ],
+   "media_type": [
+    "video"
+   ],
+   "project_settings": [
+    "landscape_1920x1080"
+   ],
+   "resolve_version": [
+    "21.1.0.14"
+   ],
+   "timeline_density": [
+    "dense"
+   ],
+   "timeline_structure": [
+    "multi_item_timeline"
+   ],
+   "track_layout": [
+    "video+audio"
+   ],
+   "track_occupancy": [
+    "all_populated"
+   ]
+  },
+  "source": "measured",
+  "uncovered": {}
+ },
+ "environment": {
+  "platform": "darwin",
+  "resolve_version": "21.1.0.14"
+ },
+ "evidence": "tests/live/reports/linked-picture-split.json#cuts; 24 picture-only cuts on linked video+audio items, placed on a Ren-owned scratch timeline in the 'Ren Qualification' project through the SERVING broker (ren-resolved), read back item by item after every cut",
+ "expected_state": {
+  "audio_samples_across_the_cut_point_bit_identical": true,
+  "cut_lands_on_the_exact_frame": true,
+  "linked_audio_item_unchanged": true,
+  "linked_audio_link_state_unchanged": true
+ },
+ "operation_id": "clip.split",
+ "preservation_checks": [
+  {
+   "check": "exact_frame_placement",
+   "detail": "24/24 cuts landed on the requested source frame on both the record and the source axis",
+   "result": "passed"
+  },
+  {
+   "check": "linked_audio_item_unchanged",
+   "detail": "24/24 cuts left the audio item's unique id, record span, source span, AudioVolume, fades and enablement exactly as they were",
+   "result": "passed"
+  },
+  {
+   "check": "linked_audio_link_state_unchanged",
+   "detail": "0/24 cuts kept the link: the composed cut replaces the picture, so the audio's partner changes with it",
+   "result": "failed"
+  },
+  {
+   "check": "audio_samples_across_the_cut_point_bit_identical",
+   "detail": "the decoded PCM of a one-second window around every cut frame is byte-identical before and after the cut, and the media file itself hashes identically",
+   "result": "passed"
+  }
+ ],
+ "preservation_limits": [
+  "one picture item with linked audio, normal speed, no grade, no Fusion composition, no transition and no retime",
+  "the audio item is preserved; its LINK to the picture is not, because the picture is replaced",
+  "the cut is placed on a Ren-owned scratch timeline"
+ ],
+ "project_conditions": [
+  "Ren-owned scratch timeline in the Ren Qualification project",
+  "the serving broker (ren-resolved) placed every cut",
+  "one fresh linked video+audio pair per cut"
+ ],
+ "recovery_status": "the composed cut is inverted by the recorded timeline snapshot: the picture's whole record span is captured before the cut and the audio item is never touched, so a restore re-places the picture and leaves the audio as it was",
+ "resolve_version": "21.1.0.14",
+ "result": "failed",
+ "schema": "ren-axi-qualification-result/v2",
+ "semantic_boundary": {
+  "applies_to": [
+   "one picture item carrying LINKED audio, cut at an exact source frame on a Ren-owned scratch timeline, with the audio item left in place"
+  ],
+  "does_not_apply_to": [
+   "a picture that carries a grade, a Fusion composition, a transition or a retime",
+   "an unlinked picture (the touch-up route already covers it)",
+   "the audio's LINK to the picture: the cut replaces the picture, so the audio's partner changes with it"
+  ]
+ },
+ "supported_media_types": [
+  "video"
+ ],
+ "visual_verification": [
+  "the two picture spans are read back with the exact record and source frames that were requested"
+ ]
+}

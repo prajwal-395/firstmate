@@ -513,6 +513,10 @@ _LIGHT_CLIP_KEYS = (
     "source_in_frame", "source_out_frame", "left_offset", "right_offset",
     "source_file", "media_pool_item_id", "enabled", "clip_color", "flags",
     "speed", "transform", "markers",
+    # The link state.  A picture whose audio partner moved is a
+    # different arrangement, and a fingerprint without it called that
+    # unchanged.
+    "linked_unique_ids",
 )
 
 

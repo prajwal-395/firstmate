@@ -274,6 +274,35 @@ def _verified_command(context, command: list[str], operation: dict,
     elif operation_id == "clip.delete":
         evidence["target_absent"] = after_clip is None
         operation_matches = after_clip is None
+    elif operation_id == "clip.split" and before_clip is not None:
+        # The split's own read-back postconditions: the picture is in
+        # two halves that share the requested frame on BOTH axes, and
+        # every audio row reads back as it did.
+        at = int(operation["at_frame"])
+        start = int(before_clip["record_in"])
+        end = int(before_clip["record_out"])
+        source_at = int(before_clip["source_in_frame"]) + (at - start)
+        halves = sorted(
+            (clip for track in after["tracks"]
+             if str(track.get("type", "")).lower() == "video"
+             for clip in track["clips"]
+             if start <= int(clip["record_in"])
+             and int(clip["record_out"]) <= end
+             and int(clip["record_in"]) < int(clip["record_out"])),
+            key=lambda clip: int(clip["record_in"]))
+        evidence.update({
+            "target_identity": True,
+            "exact_cut_frame": (
+                len(halves) == 2
+                and int(halves[0]["record_out"]) == at
+                and int(halves[1]["record_in"]) == at
+                and int(halves[0]["source_out_frame"]) == source_at
+                and int(halves[1]["source_in_frame"]) == source_at),
+            "linked_audio_preserved": (
+                _audio_rows_signature(before, exclude_id=target_id)
+                == _audio_rows_signature(after, exclude_id=target_id)),
+        })
+        operation_matches = all(evidence.values())
     elif operation_id == "clip.remove" and before_clip is not None:
         evidence.update(_remove_readback_evidence(
             before, after, target_id, before_clip, after_clip))
@@ -285,6 +314,14 @@ def _verified_command(context, command: list[str], operation: dict,
         # exact removed duration.
         evidence["unrelated_items_unchanged"] = (
             evidence.get("downstream_continuity_preserved") is True)
+    elif operation_id == "clip.split" and before_clip is not None:
+        # The split's second half is a NEW item inside the target's own
+        # record span: the span the operation authorized, so it is not
+        # collateral.
+        evidence["unrelated_items_unchanged"] = not _unrelated_changes(
+            before, after, target_id,
+            affected_spans=[(int(before_clip["record_in"]),
+                             int(before_clip["record_out"]))])
     else:
         evidence["unrelated_items_unchanged"] = not _unrelated_changes(
             before, after, target_id, id_map=id_map)
@@ -552,6 +589,36 @@ def _trim(context) -> dict:
         "--timeline", context.request.timeline,
     ], {**operation, "op": "clip.trim"},
        "AXI undo journal; failed replacement restores the timeline snapshot")
+
+
+def _split(context) -> dict:
+    """Cut ONE picture item at an exact frame; the linked audio is not cut.
+
+    The operation addresses a RECORD frame (`at_frame`); the AXI verb
+    addresses a SOURCE frame, because a source frame is what an event
+    boundary is measured in.  The adapter converts the one into the
+    other, and the verb reports both.
+    """
+    operation = context.operation
+    unique_id = str(operation["unique_id"])
+    row, index = _target_position_for_context(context, unique_id)
+    clip = next(
+        clip for track in context.snapshot["tracks"]
+        for clip in track["clips"]
+        if clip["unique_id"] == unique_id)
+    at_frame = int(operation["at_frame"])
+    at_source = int(clip["source_in_frame"]) + (
+        at_frame - int(clip["record_in"]))
+    return _verified_command(context, [
+        "edit", "split", "--track", row, "--index", str(index),
+        "--at-source-frame", str(at_source),
+        *_target_identity_args(context, unique_id),
+        "--project-folder", _project_folder(context), "--require-recovery",
+        "--apply", "--project", context.request.project,
+        "--timeline", context.request.timeline,
+    ], {**operation, "op": "clip.split"},
+       "AXI undo journal; the cut is verified by exact frame placement "
+       "and by the linked audio reading back unchanged")
 
 
 def _delete(context) -> dict:
@@ -2333,6 +2400,7 @@ def register_builtin_edit_executors() -> None:
 
     desired = {
         ("clip.trim", "resolve_axi"): _trim,
+        ("clip.split", "resolve_axi"): _split,
         ("clip.delete", "resolve_axi"): _delete,
         ("clip.remove", "resolve_axi"): _remove,
         ("clip.insert", "resolve_axi"): _place,

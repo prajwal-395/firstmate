@@ -3580,6 +3580,11 @@ _IMPLEMENTATION_EVIDENCE = {
         "library/tools/edit_execution_adapters.py:_trim",
         "library/tools/resolve_axi_core_commands.py:cmd_edit_trim",
     ),
+    ("clip.split", "resolve_axi"): (
+        "library/tools/edit_execution_adapters.py:_split",
+        "library/tools/resolve_axi_core_commands.py:cmd_edit_split",
+        "library/tools/picture_split.py:composed_picture_split",
+    ),
     ("clip.replace", "edit_patch"): (
         "library/tools/edit_algebra.py:_apply_replace",
         "library/tools/edit_patch.py:execute_physical_patch",
@@ -3688,6 +3693,15 @@ _BACKEND_OPERATION_LIMITATIONS = {
           "from a fresh live snapshot and every unrelated item must read "
           "unchanged; production remains disabled until live qualification "
           "lands"),),
+    ("clip.split", "resolve_axi"):
+        (("one picture item is cut at an exact source frame by COMPOSING the "
+          "cut: the installed Resolve 21.1 exposes no split method (measured "
+          "on the live Resolve), so the picture is replaced by two "
+          "picture-only spans; the linked audio item is never touched and "
+          "must read back unchanged, but the audio's LINK to the picture "
+          "does not survive the replacement - the measured evidence is "
+          "tests/live/reports/linked-picture-split.json and the operation "
+          "stays unqualified until the link question is settled"),),
     ("clip.ripple", "reel_touchup"):
         ("one target clip changes played length; every affected later item must be readable and recoverable on the staged copy",),
     ("clip.slip", "reel_touchup"):
@@ -3773,6 +3787,11 @@ def _executor_coverage() -> dict[str, set[str]]:
         "resolve_axi": {
             "marker.add", "clip.delete", "clip.remove",
             "clip.smart_reframe",
+            # A PICTURE-ONLY split: one picture item into two at an
+            # exact frame, with the linked audio left untouched and read
+            # back to prove it.  It stays UNQUALIFIED until live
+            # evidence records it.
+            "clip.split",
             # Existing AXI commands now have semantic EditRequest adapters.
             # They remain implemented/unqualified until operation-specific
             # live qualification records are added.
