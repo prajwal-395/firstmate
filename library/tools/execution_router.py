@@ -34,7 +34,13 @@ from dataclasses import asdict, dataclass, field
 
 from library.tools.ren_refusal import RenRefusal
 
-#: VC-06: staging stays the production default. No router path promotes a
+#: AXI-002: the routes a CALLER may ask for.  A caller may ask for a
+#: strategy - the two below - and never for a physical execution
+#: backend: naming a backend is asking for the implementation that could
+#: reach an operation, which is the evidence's choice, not the caller's.
+REQUESTABLE_ROUTES = frozenset({"full_rebuild", "no_op"})
+
+#: AXI-03/VC-06: staging stays the production default. No router path promotes a
 #: direct-write default; gates may only observe candidates beside it.
 STAGING_IS_PRODUCTION_DEFAULT = True
 QUALIFICATION_POLICIES = frozenset({"production", "protected_experimental"})
@@ -185,6 +191,79 @@ ROUTE_TRANSACTION_OWNERSHIP: Mapping[str, Mapping[str, object]] = {
     "full_rebuild": _ownership("", lease="exclusive", writes=True),
 }
 
+#: AXI-002: the ONE transport table.  A route names the broker JOB that
+#: carries it.  The dispatcher, the broker's own submission gate and the
+#: front door read THIS table, so a route cannot be queued one way and
+#: executed another: the three used to carry their own hardcoded backend
+#: sets, and a set that drifts from the router is a route the router
+#: never chose.
+#:
+#: The empty string means the route is never queued: the recorded state
+#: already satisfies the request.
+ROUTE_TRANSPORT: Mapping[str, str] = {
+    "no_op": "",
+    "edit_patch": "timeline.apply_patch",
+    "edit_patch.property": "timeline.apply_patch",
+    "resolve_axi": "timeline.semantic_edit",
+    "reel_touchup": "timeline.semantic_edit",
+    "composed_edit.structural": "timeline.semantic_edit",
+    "incremental": "timeline.semantic_edit",
+    "full_rebuild": "timeline.semantic_edit",
+}
+
+#: AXI-002: how a route ADMITS an operation.  The dispatcher used to
+#: answer this with its own two frozensets beside the router's matrix;
+#: now the router answers it, from the same matrix it routes from.
+#:
+#: `no_write` - the route writes nothing, so it admits anything.
+#: `per_op_production` - every operation must be production-enabled ON
+#:   this route.
+#: `production_or_protected` - an operation that is not production-enabled
+#:   on this route may run only under the protected experimental policy,
+#:   and only when the router recorded its qualification gap.
+#: `strategy` - a build strategy; its qualification basis is its own, not
+#:   a per-operation matrix row.
+ROUTE_ADMISSION: Mapping[str, str] = {
+    "no_op": "no_write",
+    "edit_patch": "per_op_production",
+    "edit_patch.property": "per_op_production",
+    "resolve_axi": "production_or_protected",
+    "reel_touchup": "production_or_protected",
+    "composed_edit.structural": "production_or_protected",
+    "incremental": "strategy",
+    "full_rebuild": "strategy",
+}
+
+#: AXI-002: the algebra BACKEND ids whose qualification basis is not a
+#: per-operation matrix row.  An executor may be registered for them
+#: even where the algebra lists no compilable row, because they carry a
+#: strategy rather than an operation.
+BACKENDS_WITHOUT_PER_OP_ROWS = frozenset({
+    "incremental", "resolve_native_invocation"})
+
+#: AXI-002: the physical adapter a route runs.  The dispatcher used to
+#: re-derive the adapter from the operation set - a second selection
+#: site beside the router - and the two could name different paths for
+#: one request.  The router names the adapter in the decision, and the
+#: dispatcher runs the named one.
+ROUTE_ADAPTER: Mapping[str, str] = {
+    "no_op": "no_write",
+    "edit_patch": "edit_patch",
+    "edit_patch.property": "edit_patch",
+    "resolve_axi": "per_operation",
+    "reel_touchup": "per_operation",
+    "composed_edit.structural": "per_operation",
+    "incremental": "incremental_diff",
+    "full_rebuild": "full_rebuild",
+}
+
+#: AXI-002: the adapters that are NOT the per-operation one.
+ADAPTER_COMPOUND_TOUCHUP = "protected_compound_touchup"
+ADAPTER_DELETE_BATCH = "delete_batch"
+ADAPTER_PER_OPERATION = "per_operation"
+ADAPTER_EDIT_PATCH = "edit_patch"
+ADAPTER_NO_WRITE = "no_write"
+
 _PROPERTY_OPS = frozenset({"clip.set_property", "clip.set_enabled"})
 
 
@@ -290,6 +369,11 @@ class ExecutionDecision:
             # decision says so, not only the code path that runs it.
             "transaction_ownership": dict(
                 self.selection.get("transaction_ownership", {})),
+            # AXI-002: the physical adapter the route runs. The
+            # dispatcher reads this instead of choosing a path of its
+            # own from the operation set.
+            "adapter": self.selection.get(
+                "adapter", ROUTE_ADAPTER.get(self.backend, "")),
         }
         return value
 
@@ -308,6 +392,137 @@ def _ownership_for(backend: str) -> dict:
         return _ownership("", lease="unknown", writes=False) | {
             "writes": None}
     return dict(entry)
+
+
+def transport_for(route: str) -> str:
+    """The broker job that carries this route.
+
+    AXI-002: the ONE answer to "which job carries this route".  The
+    dispatcher, the broker's submission gate and the front door all ask
+    here, so a route cannot be queued as one kind of job and executed as
+    another.  A route the router does not know has no transport: it is
+    refused by name rather than guessed.  The empty string is the route
+    that is never queued at all - the recorded state already satisfies
+    the request.
+    """
+    name = str(route or "")
+    if name not in ROUTE_TRANSPORT:
+        raise RoutingRefused(
+            f"unknown execution route {name!r}",
+            what=f"the route {name!r} is not one the router selects",
+            fix=("Use a route the router declares; `execution_router."
+                 "ROUTE_TRANSPORT` lists them."),
+            category="unsupported")
+    return ROUTE_TRANSPORT[name]
+
+
+def is_semantic_job_route(route: str) -> bool:
+    """Whether this route is carried by the broker's semantic-edit job."""
+    return transport_for(route) == "timeline.semantic_edit"
+
+
+def is_edit_patch_route(route: str) -> bool:
+    """Whether this route is carried by the broker's EditPatch job."""
+    return transport_for(route) == "timeline.apply_patch"
+
+
+def route_declaration(route: str) -> dict:
+    """What the engine knows about a route, without routing a request.
+
+    AXI-002: a route that is FIXED rather than chosen - the legacy typed
+    EditPatch transaction - still has to say what it is, so its plan is
+    auditable in the same vocabulary as a routed one.
+    """
+    name = str(route or "")
+    ownership = ROUTE_TRANSACTION_OWNERSHIP.get(name) or {}
+    return {
+        "backend": name,
+        "broker_kind": str(ownership.get("broker_kind") or ""),
+        "transport": ROUTE_TRANSPORT.get(name, ""),
+        "adapter": ROUTE_ADAPTER.get(name, ""),
+        "mutation_scope": ROUTE_MUTATION_SCOPE.get(name, "unknown"),
+        "transaction_ownership": dict(ownership),
+    }
+
+
+def adapter_for(route: str) -> str:
+    """The physical adapter this route runs.
+
+    AXI-002: named by the router, read by the dispatcher.  The dispatcher
+    used to re-derive the adapter from the operation set, which is a
+    second selection site: two places could name different physical
+    paths for one request.
+    """
+    return ROUTE_ADAPTER.get(str(route or ""), ADAPTER_PER_OPERATION)
+
+
+def _axi_adapter_for(operation_ids: Sequence[str]) -> str:
+    """The adapter the Resolve AXI route runs for these operations.
+
+    AXI-002: a batch of deletes has its own adapter; every other AXI
+    request runs operation by operation.  The router names it once, so
+    the dispatcher runs the named adapter instead of re-deriving one
+    from the operation set.
+    """
+    ids = tuple(str(op_id) for op_id in operation_ids)
+    if len(ids) > 1 and all(op_id == "clip.delete" for op_id in ids):
+        return ADAPTER_DELETE_BATCH
+    return ADAPTER_PER_OPERATION
+
+
+def route_admission_reasons(route: str, operation_ids: Sequence[str],
+                            decision: Mapping | None = None) -> tuple[str, ...]:
+    """Whether the recorded decision authorizes these operations here.
+
+    AXI-002: the ONE eligibility judgment.  The dispatcher used to ask
+    the matrix a second time, with its own two backend sets, and the two
+    answers could differ - a request the router had authorized was
+    refused at dispatch, or (worse) admitted by a set the router did not
+    name.  This reads the SAME matrix the router routes from, and the
+    router's OWN recorded decision for the policy and the gaps, so a
+    guard can never disagree with the decision it guards.
+
+    The reasons are returned rather than raised, so the caller keeps the
+    refusal shape it already had.
+    """
+    name = str(route or "")
+    base = name.removesuffix(".structural")
+    admission = ROUTE_ADMISSION.get(name) or ROUTE_ADMISSION.get(base)
+    if admission is None:
+        return (f"the route {name!r} is not one the router selects, so it "
+                + "admits no operation",)
+    if admission in {"no_write", "strategy"}:
+        return ()
+    from library.tools import edit_algebra
+
+    decision = dict(decision or {})
+    selection = decision.get("selection") or {}
+    policy = str(selection.get("qualification_policy") or "production")
+    recorded_gaps = {str(gap[0]) for gap in
+                     (decision.get("qualification_gaps") or ())
+                     if gap}
+    unqualified: list[str] = []
+    for op_id in operation_ids:
+        entry = edit_algebra.status(str(op_id))
+        row = entry.for_backend(base) if entry is not None else None
+        if row is not None and row.production_enabled:
+            continue
+        unqualified.append(str(op_id))
+    if not unqualified:
+        return ()
+    if admission == "per_op_production":
+        return (f"{base} is not production enabled for: "
+                + ", ".join(unqualified),)
+    if policy != "protected_experimental":
+        return (f"the router selected unqualified {', '.join(unqualified)} "
+                + f"on {base} without protected experimental policy",)
+    missing = [op_id for op_id in unqualified if op_id not in recorded_gaps]
+    if missing:
+        return ("the router omitted the qualification gap for "
+                + f"{', '.join(missing)} on {base}",)
+    return ()
+
+
 def _preservation_constraints(operations: Sequence[Mapping],
                               context: Mapping) -> tuple:
     """What this edit writes, and therefore what must survive it.
@@ -350,7 +565,8 @@ def _cost_basis(context: Mapping):
 
 
 def _selection_basis(operations: Sequence[Mapping], context: Mapping,
-                     backend: str, *, limitations: Sequence[str] = ()) -> dict:
+                     backend: str, *, limitations: Sequence[str] = (),
+                     adapter: str = "") -> dict:
     """Capture the evidence dimensions used by a backend choice.
 
     Context fields are observations supplied by preparation/callers. The
@@ -383,6 +599,10 @@ def _selection_basis(operations: Sequence[Mapping], context: Mapping,
         "mutation_scope": ROUTE_MUTATION_SCOPE.get(backend, "unknown"),
         # AXI-41: who owns the write it performs.
         "transaction_ownership": _ownership_for(backend),
+        # AXI-002: the physical adapter the route runs, named by the
+        # router so the dispatcher executes the named one instead of
+        # re-deriving a path of its own from the operation set.
+        "adapter": adapter or adapter_for(backend),
     }
 
 
@@ -1122,6 +1342,23 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
     from library.tools import edit_algebra
 
     context = dict(context or {})
+    # AXI-002: a caller may ask for a STRATEGY, never for a physical
+    # execution backend.  A request that named a backend was asking for
+    # the implementation that could reach the operation it wanted, and
+    # that is a choice the evidence makes.  Naming one is refused by
+    # name rather than ignored: an ignored request leaves the caller
+    # believing it chose the backend.
+    requested = str(context.get("requested_backend") or "")
+    if requested and requested not in REQUESTABLE_ROUTES:
+        raise RoutingRefused(
+            f"the requested backend {requested!r} is not a route a caller "
+            "may ask for",
+            what=(f"the request asked for the physical backend "
+                  f"{requested!r}; the router selects the implementation"),
+            fix=("Ask for the STRATEGY you mean - 'full_rebuild' or "
+                 "'no_op' - and let the router choose the backend from the "
+                 "recorded evidence."),
+            category="unsupported")
     for flag in DIRECT_BYPASS_FLAGS:
         if context.get(flag):
             raise RoutingRefused(
@@ -1267,6 +1504,10 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
     # transaction receipt and operation-specific read-back.
     axi_rows = [edit_algebra.status(op_id).for_backend("resolve_axi")
                 for op_id in ids]
+    # AXI-002: the ROUTER names the physical adapter, so the dispatcher
+    # never re-derives one from the operation set.  A batch of deletes
+    # has its own adapter; everything else runs operation by operation.
+    axi_adapter = _axi_adapter_for(ids)
     if (axi_rows and all(row is not None and row.compilable
                          and row.production_enabled
                          for row in axi_rows)
@@ -1277,6 +1518,7 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
             backend="resolve_axi",
             reasons=("every operation has a production-enabled Resolve AXI adapter",
                      "live qualification predicates match the inspected project state",
+                     f"the {axi_adapter} adapter runs this request",
                      *checked, *gap_reasons,
                      *_proof_reasons(request_class, blockers)),
             rejected_alternatives=(
@@ -1289,13 +1531,20 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
             algebra_status=statuses,
             mode=_mode_for("resolve_axi", blockers=blockers, context=context),
             qualification_gaps=gaps,
-            selection=_selection_basis(operations, context, "resolve_axi"),
+            selection=_selection_basis(operations, context, "resolve_axi",
+                                       adapter=axi_adapter),
         )
+
+    # AXI-002: the protected compound SHAPES are the policy's, not this
+    # module's.  The router used to carry its own copy of the two pairs,
+    # and the dispatcher carried a third; three copies of one list is
+    # three answers to "which compound may run".
+    from library.tools import edit_qualification_policy
 
     protected_compound = (
         len(ids) == 2
-        and set(ids) in ({"clip.trim", "clip.insert"},
-                         {"clip.replace", "caption.style"}))
+        and frozenset(ids) in set(
+            edit_qualification_policy.PROTECTED_EXPERIMENTAL_COMPOUNDS))
     if (protected_compound
             and context.get("qualification_policy")
             == "protected_experimental"):
@@ -1304,6 +1553,7 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
             reasons=("the exact compound has a shared staged transaction adapter",
                      "one candidate is verified against the complete request",
                      "production routing remains closed pending live evidence",
+                     f"the {ADAPTER_COMPOUND_TOUCHUP} adapter runs this request",
                      *checked, *gap_reasons),
             rejected_alternatives=(
                 RejectedBackend("edit_patch", "the approved timeline is not the protected staging target"),
@@ -1316,6 +1566,7 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
             qualification_gaps=gaps,
             selection=_selection_basis(
                 operations, context, "reel_touchup",
+                adapter=ADAPTER_COMPOUND_TOUCHUP,
                 limitations=("protected experimental compound; live qualification deferred",)),
         )
 
@@ -1333,11 +1584,14 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
     # adapter is qualified in the state the qualification measured; it
     # does not withdraw the executor, and the protected guarantees
     # (staging, preservation, verification) still hold on this route.
+    # AXI-002: the protected SINGLE operations are the policy's, not this
+    # module's.  The router used to carry its own copy of the list; the
+    # policy already names them, and a second copy is a second answer to
+    # "which operation may run alone on the staged route".  The policy
+    # names the operations the protected route COVERS; the matrix says
+    # which of them a staged touch-up adapter actually runs.
     if (len(ids) == 1
-            and ids[0] in {"audio.gain", "audio.fade", "transition",
-                           "overlay.resize", "overlay.position",
-                           "clip.split", "clip.slide",
-                           "clip.roll"}
+            and ids[0] in edit_qualification_policy.PROTECTED_EXPERIMENTAL_SINGLE_OPS
             and context.get("qualification_policy") == "protected_experimental"):
         status = edit_algebra.status(ids[0])
         row = status.for_backend("reel_touchup") if status else None
@@ -1392,6 +1646,7 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                 backend="resolve_axi",
                 reasons=("every operation has an implemented Resolve AXI adapter",
                          "protected experimental execution keeps production qualification closed",
+                         f"the {_axi_adapter_for(ids)} adapter runs this request",
                          *checked, *gap_reasons),
                 rejected_alternatives=(
                     RejectedBackend("edit_patch", "the AXI adapter is the implemented path for this operation"),
@@ -1407,6 +1662,7 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                 qualification_gaps=gaps,
                 selection=_selection_basis(
                     operations, context, "resolve_axi",
+                    adapter=_axi_adapter_for(ids),
                     limitations=("protected experimental route; live operation qualification deferred",)),
             )
 
@@ -1440,46 +1696,20 @@ def _route_compiled_edit(compiled_edit, *, context: Mapping | None = None) -> Ex
                                   for reason in (f"{op_id} is not production-qualified",))),
         )
 
-    # A compilable EditPatch row is not an authorization to use that
-    # writer. Prefer the operation's production-enabled semantic AXI
+    # AXI-002: a compilable EditPatch row is not an authorization to use
+    # that writer. Prefer the operation's production-enabled semantic AXI
     # adapter when its recorded runtime predicates match. Otherwise an
     # operation qualified only on Resolve AXI could be misrouted to the
     # lower-level EditPatch implementation simply because it is present.
-    resolve_axi_rows = []
-    for op_id in ids:
-        entry = edit_algebra.status(op_id)
-        row = entry.for_backend("resolve_axi") if entry is not None else None
-        if row is None or not row.production_enabled:
-            resolve_axi_rows = []
-            break
-        resolve_axi_rows.append(row)
-    from library.tools import axi_transaction
-    axi_batch_supported = (len(operations) == 1
-                           or axi_transaction.batch_supported(
-                               "resolve_axi", operations))
-    if (resolve_axi_rows and axi_batch_supported
-            and all(_qualification_matches(row, context.get(
-                "qualification_state")) for row in resolve_axi_rows)):
-        blockers = edit_algebra.direct_blockers(ids, "resolve_axi")
-        return ExecutionDecision(
-            backend="resolve_axi",
-            reasons=("every operation has a production-enabled Resolve AXI adapter",
-                     "the inspected runtime satisfies each adapter's recorded qualification predicates",
-                     *checked, *gap_reasons,
-                     *_proof_reasons(request_class, blockers)),
-            rejected_alternatives=(
-                RejectedBackend("edit_patch", "the semantic AXI adapter is the qualified production writer"),
-                RejectedBackend("full_rebuild", "a targeted semantic AXI transaction is available"),
-            ),
-            verification=("verify every requested operation on fresh live read-back",
-                          "verify unrelated timeline state remains unchanged",
-                          *_proof_verification(blockers)),
-            algebra_status=statuses,
-            mode=_mode_for("resolve_axi", blockers=blockers,
-                           context=context),
-            qualification_gaps=gaps,
-            selection=_selection_basis(operations, context, "resolve_axi"),
-        )
+    #
+    # There used to be a SECOND Resolve AXI arm here, one that repeated
+    # the same eligibility judgment and added the compound-shape check
+    # on top.  It was unreachable: every backend row of a declared
+    # operation is compilable, so the arm above had already taken every
+    # request this one could have taken.  Two answers to one question,
+    # one of them dead, is exactly what AXI-002 asks to delete - and the
+    # shape of a request is the transaction planner's question, not the
+    # router's.
 
     # EditPatch schedules exactly the ops its matrix row lists as
     # compilable - read off OP_STATUS, never off a function existing.

@@ -80,8 +80,7 @@ import io
 import json
 import os
 
-from library.tools import protocol_conformance
-from library.tools import refusal_taxonomy
+from library.tools import protocol_conformance, refusal_taxonomy
 from library.tools.resolved.scheduler import EXCLUSIVE, PRIORITIES, SHARED
 
 #: The ONE project a test or qualification job may touch. Live-Resolve
@@ -520,7 +519,17 @@ def prepare(kind: str, params: dict, qualification: bool = False) -> dict:
         except (EditRequestError, TypeError, ValueError) as exc:
             raise JobRefused(f"invalid semantic edit request: {exc}") from exc
         backend = _required(params, "backend", kind)
-        if backend in {"edit_patch", "edit_patch.property", "no_op"}:
+        # AXI-002: the transport table is the router's.  The broker used
+        # to carry its own set of route names, beside the dispatcher's
+        # set and the router's table; a route that one of them did not
+        # know was queued as a job that could not run.
+        from library.tools import execution_router
+
+        try:
+            transport = execution_router.transport_for(backend)
+        except Exception as exc:
+            raise JobRefused(str(exc)) from exc
+        if transport != "timeline.semantic_edit":
             raise JobRefused(
                 f"{backend!r} uses a different semantic execution path")
         base_generation = params.get("base_generation")

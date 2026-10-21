@@ -10605,6 +10605,78 @@ BEFORE the source is read.
 and the one classification; `reel_adoption` records it when the
 captain's hand edit becomes a version.
 
+## one-routing-decision-per-request
+
+**The punch list, AXI-002, 2026-10-20.** "Eliminate conflicting backend
+selection logic. Keep `execution_router.py` authoritative. Audit the
+secondary backend guards in `resolve_axi_core.py`. Remove or consolidate
+duplicate backend eligibility judgments without removing their safety
+checks. Ensure the agent never chooses a physical execution backend to
+obtain broader capabilities. Ensure router decisions state why one
+implementation is preferred." Acceptance: "One semantic request has one
+auditable routing decision."
+
+**What was wrong.** Eight places answered "which execution backend runs
+this request". Seven answered it with a set of route names of their own
+- two in `resolve_axi_core._execute_registered_backend` (which also
+re-derived which physical adapter ran the request), one in
+`submit_edit_request_async`, one in `register_edit_executor`, one in
+`resolved/jobs.prepare`, one in `feedback_patch_apply`, and one inside
+the router itself: a SECOND Resolve AXI arm that was unreachable
+because every backend row of a declared operation is `compilable`, so
+the first arm had already taken every request the second could have
+taken. It still answered with a different rule, and it would have
+chosen differently for 35 multi-operation shapes.
+
+The copies happened to agree on the recorded requests. They were copies,
+not a designed agreement - and the router carried the protected
+operation list and the protected compound pairs as literals of its own,
+while `edit_qualification_policy` carried them a third time.
+
+**Measured, on the engine's own recorded receipts** (the machine
+broker's job database, read read-only, plus the `ren revise` receipts
+in the Ren-owned scratch projects; 167 recorded requests,
+`scripts/measure_backend_selection.py`):
+
+- selection sites that DECIDE: before 8, after 1;
+- recorded requests where two sites would have chosen differently:
+  before 1/167, after 0/167;
+- the one such request (`53ed6ee53eb3caab`, a `clip.delete` planned
+  against `resolve_axi` and executed against `edit_patch`) died with an
+  EMPTY result column: the broker held a bare error string and no
+  receipt, so the receipt trail showed nothing at all;
+- the two Resolve AXI arms inside the router disagreed on 35 request
+  shapes.
+
+**Fidelity.** The old and the new router side by side over the whole
+operation vocabulary: 144 single-operation decisions and 6972
+two-operation decisions, 0 differences. Every safety check the
+dispatcher used to make survived the move - the operation must still be
+production-enabled on its route, an unqualified operation on a
+protected route still needs the protected policy, and it still needs the
+router's own recorded qualification gap.
+
+**The rule.** One semantic request carries ONE routing decision, and
+the decision is auditable: it names the route, the broker job kind that
+carries it, the physical adapter that runs it, the evidence behind the
+choice, and why the alternatives were rejected. The route a request is
+queued against is CONFIRMED by the executor against the measured
+runtime; it is never silently re-routed, and a route the runtime no
+longer authorizes is refused WITH a receipt rather than a bare error
+string. A caller may ask for a STRATEGY - `full_rebuild`, `no_op` - and
+never for a physical backend: naming a backend is asking for the
+implementation that could reach an operation, and that is the
+evidence's choice. A request that names one is refused by name, not
+ignored.
+
+`library/tools/execution_router.py` is the one selector and publishes
+the three tables the other sites read (`ROUTE_TRANSPORT`,
+`ROUTE_ADMISSION`, `ROUTE_ADAPTER`).
+`library/tools/backend_selection.py` is the one enumeration of the
+sites, and it says which of them decides.
+The measurement and what was left undone are in
+`docs/AXI_002_BACKEND_SELECTION.md`.
+
 ## the-task-that-dropped-half-the-request
 
 **What happened.** A captain instruction reaches Ren as a sentence, and the

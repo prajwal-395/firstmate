@@ -130,10 +130,6 @@ class EditExecutionContext:
 EditExecutor = Callable[[EditExecutionContext], Mapping[str, Any]]
 _EDIT_EXECUTORS: dict[tuple[str, str], EditExecutor] = {}
 _EDIT_EXECUTOR_LOCK = threading.RLock()
-_ROUTER_QUALIFIED_BACKENDS = frozenset({
-    "incremental", "resolve_native_invocation",
-})
-_ROUTER_PROTECTED_BACKENDS = frozenset({"reel_touchup", "resolve_axi"})
 
 
 class RegisteredBatchPreflightRefused(ValueError):
@@ -231,14 +227,14 @@ def register_edit_executor(operation_id: str, backend_id: str,
         raise ValueError("executor registration needs a backend id")
     if not callable(executor):
         raise TypeError("executor registration must be callable")
-    from library.tools import edit_algebra
+    from library.tools import edit_algebra, execution_router
 
     status = edit_algebra.status(operation_id)
     if status is None:
         raise ValueError(f"executor registration names unknown operation {operation_id!r}")
     row = status.for_backend(backend_id) if status is not None else None
     if ((row is None or not row.compilable)
-            and backend_id not in _ROUTER_QUALIFIED_BACKENDS):
+            and backend_id not in execution_router.BACKENDS_WITHOUT_PER_OP_ROWS):
         raise ValueError(
             f"{operation_id} is not registered as compilable on {backend_id}")
     key = (operation_id, backend_id)
@@ -972,7 +968,11 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                 compiled: Any, generation: Any,
                                 snapshot: Mapping, owner: str) -> dict:
     """Run the router-selected adapters and preserve sequential semantics."""
-    from library.tools import axi_transaction, compound_transaction, edit_algebra
+    from library.tools import (
+        axi_transaction,
+        compound_transaction,
+        execution_router,
+    )
     from library.tools.edit_execution_adapters import (
         register_builtin_edit_executors,
     )
@@ -985,12 +985,13 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
     backend_id = backend.removesuffix(".structural")
     operations = [dict(row) for row in compiled.operations]
     decision = plan.get("routing") or {}
-    compound_touchup = (
-        backend_id == "reel_touchup"
-        and len(operations) == 2
-        and {str(operation["op"]) for operation in operations}
-        in ({"clip.trim", "clip.insert"},
-            {"clip.replace", "caption.style"}))
+    # AXI-002: the ADAPTER is the router's, not this module's.  The
+    # dispatcher used to re-derive it from the operation set - a second
+    # selection site beside the router - and the two could name
+    # different physical paths for one request.
+    selection = decision.get("selection") or {}
+    adapter = str(selection.get("adapter")
+                  or execution_router.adapter_for(backend))
     routed_backend = str(decision.get("backend") or "")
     if routed_backend != backend:
         raise ValueError(
@@ -998,29 +999,22 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
             f"{routed_backend or 'no backend'!r}")
     executors: list[tuple[int, EditExecutor]] = []
     for index, operation in enumerate(operations):
-        if compound_touchup:
+        if adapter == execution_router.ADAPTER_COMPOUND_TOUCHUP:
             break
         operation_id = str(operation["op"])
-        status = edit_algebra.status(operation_id)
-        row = status.for_backend(backend_id) if status is not None else None
-        if ((row is None or not row.production_enabled)
-                and backend_id not in _ROUTER_QUALIFIED_BACKENDS
-                and backend_id not in _ROUTER_PROTECTED_BACKENDS):
+        # AXI-002: the ONE eligibility judgment.  The dispatcher used to
+        # ask the matrix a second time, with two backend sets of its own
+        # beside the router's answer; now it asks the router, which
+        # reads the same matrix and the decision it recorded.  The safety
+        # checks are unchanged: an operation that is not production
+        # enabled on this route still needs the protected policy and a
+        # recorded qualification gap.
+        reasons = execution_router.route_admission_reasons(
+            backend, [operation_id], decision)
+        if reasons:
             raise ValueError(
-                f"router selected {backend!r}, but {operation_id} is not "
-                f"production enabled on {backend_id}")
-        if (backend_id in _ROUTER_PROTECTED_BACKENDS
-                and (row is None or not row.production_enabled)):
-            selection = decision.get("selection") or {}
-            if selection.get("qualification_policy") != "protected_experimental":
-                raise ValueError(
-                    f"router selected unqualified {operation_id} on "
-                    f"{backend_id} without protected experimental policy")
-            if not any(gap[0] == operation_id
-                       for gap in decision.get("qualification_gaps", ())):
-                raise ValueError(
-                    f"router omitted the qualification gap for "
-                    f"{operation_id} on {backend_id}")
+                f"router selected {backend!r}, but {operation_id}: "
+                + "; ".join(reasons))
         with _EDIT_EXECUTOR_LOCK:
             executor = _EDIT_EXECUTORS.get((operation_id, backend_id))
         if executor is None:
@@ -1029,7 +1023,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                 f"registered for {operation_id} on {backend_id}")
         executors.append((index, executor))
 
-    if not executors and not compound_touchup:
+    if not executors and adapter != execution_router.ADAPTER_COMPOUND_TOUCHUP:
         raise ValueError("routed semantic request contains no executable operations")
     # The compound registry is the one place a multi-operation shape is
     # declared, so the preflight and the receipt read the same answer.
@@ -1241,7 +1235,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                           scenario=transaction_plan.scenario,
                           intent_digest=axi_transaction.intent_digest(
                               operations))
-        if refusal is None and compound_touchup:
+        if refusal is None and adapter == execution_router.ADAPTER_COMPOUND_TOUCHUP:
             try:
                 batch_receipt = _execute_protected_compound_touchup(
                     request=request, preparation=preparation,
@@ -1258,8 +1252,7 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                     evidence={"mutation_state": "unknown", "mutated": True,
                               "operation_index": 0, "error": repr(exc)})
         elif (refusal is None and len(operations) > 1
-              and all(str(operation["op"]) == "clip.delete"
-                      for operation in operations)):
+              and adapter == execution_router.ADAPTER_DELETE_BATCH):
             try:
                 batch_receipt = _execute_registered_delete_batch(
                     request=request, compiled=compiled,
@@ -1278,7 +1271,9 @@ def _execute_registered_backend(*, backend: str, plan: Mapping,
                                                  else "unknown"),
                               "mutated": not preflight_refused,
                               "operation_index": 0, "error": repr(exc)})
-        elif refusal is None and len(operations) > 1 and backend_id == "resolve_axi":
+        elif (refusal is None and len(operations) > 1
+              and adapter == execution_router.ADAPTER_PER_OPERATION
+              and backend_id == "resolve_axi"):
             try:
                 _revalidate_registered_targets(
                     request=request, operations=operations, snapshot=snapshot)
@@ -1939,6 +1934,14 @@ def execute_semantic_edit_job(job: Mapping[str, Any], *,
     one: the qualification inspection reads the live runtime through it
     rather than opening a second scripting client (the 2026-10-06
     crash).
+
+    AXI-002: the request that reaches the broker carries ONE routing
+    decision - the route it was queued against.  The executor CONFIRMS
+    that route against the measured runtime; it does not choose a second
+    one.  A route the runtime no longer authorizes is REFUSED, with a
+    receipt that records the route the request carried and why it was
+    refused - not silently re-routed, and not left with a bare error
+    string that names a route nobody recorded.
     """
     request = _request_from_any(job["params"]["request"])
     plan, request, preparation, compiled, generation, snapshot = (
@@ -1949,10 +1952,20 @@ def execute_semantic_edit_job(job: Mapping[str, Any], *,
             f"semantic edit base generation {expected_generation} is stale; "
             f"recorded head is {generation.generation}")
     backend = str(plan["backend"])
-    if backend != job["params"]["backend"]:
-        raise ValueError(
-            f"semantic edit route changed while queued: "
-            f"{job['params']['backend']} to {backend}")
+    queued = str(job["params"]["backend"])
+    if backend != queued:
+        # The route the request was queued against is not the route the
+        # measured runtime authorizes.  The request is refused rather
+        # than re-routed: one request, one decision, and the receipt
+        # says which route it carried and what the runtime says now.
+        return _failure_receipt(
+            request=request, backend=queued, generation=generation,
+            operations=[dict(op) for op in compiled.operations], receipts=[],
+            decision=plan.get("routing") or {}, category="stale",
+            reason=(f"the route recorded for this request ({queued}) is not "
+                    f"the route the measured runtime authorizes ({backend}); "
+                    "the request is refused rather than re-routed"),
+            failed_index=0)
     return _execute_registered_backend(
         backend=backend, plan=plan, request=request,
         preparation=preparation, compiled=compiled, generation=generation,
@@ -2044,10 +2057,18 @@ def submit_edit_request_async(request, *, authorized: bool = False,
                 "status": "already_satisfied", "plan": plan,
                 "receipt": receipt}
     backend = str(plan["backend"])
-    if backend not in {"edit_patch", "edit_patch.property"}:
+    # AXI-002: the transport is the ROUTER's.  This module used to carry
+    # its own set of route names and decide the broker job kind from it,
+    # while the broker's own submission gate carried a third copy of the
+    # same set.  One table now answers it, so a route cannot be queued as
+    # one kind of job and executed as another.
+    from library.tools import execution_router
+
+    transport = execution_router.transport_for(backend)
+    if transport != "timeline.apply_patch":
         from library.tools.resolved import client
         job = client.submit(
-            "timeline.semantic_edit",
+            transport,
             {"request": request.to_dict(), "backend": backend,
              "base_generation": generation.generation},
             owner=owner, idempotency_key=request.idempotency_key)
@@ -2074,8 +2095,8 @@ def submit_edit_request_async(request, *, authorized: bool = False,
     # durable key for this kind is the patch - passing a second key
     # alongside it is refused by `jobs.idempotency_request`, which is
     # what a submission that can never run looks like.
-    job = client.submit("timeline.apply_patch", {"patch": patch},
-                        owner=owner)
+    job = client.submit(execution_router.transport_for(backend),
+                        {"patch": patch}, owner=owner)
     return {**job, "request_id": request.id, "backend": backend,
             "plan": plan, "status": "queued"}
 
@@ -2174,9 +2195,17 @@ def _plan_transaction_patch(transaction: AxiTransaction) -> dict[str, Any]:
     ``EditRequest`` and compiled, so the write order is the order the
     operations' declared dependencies require.
     """
-    from library.tools import legacy_transaction
+    from library.tools import execution_router, legacy_transaction
 
-    return legacy_transaction.plan_for(transaction)
+    plan = legacy_transaction.plan_for(transaction)
+    # AXI-002: this path is a FIXED route, not a choice - a typed
+    # EditPatch transaction has one executor, so there is nothing to
+    # compare.  It still records the router's declaration for that
+    # route, so its plan is auditable in the same vocabulary as a
+    # routed one.
+    plan["route_declaration"] = execution_router.route_declaration(
+        "edit_patch")
+    return plan
 
 
 def submit_transaction_async(

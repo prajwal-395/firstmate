@@ -418,7 +418,12 @@ def guarded_apply(*, project, timeline, operations, scope: dict,
     except RoutingRefused as exc:
         raise PatchRefused(
             f"the shared execution planner refused the edit: {exc}") from exc
-    if routing["backend"] not in {"edit_patch", "edit_patch.property"}:
+    # AXI-002: the guarded path's transport is the router's.  This module
+    # used to carry its own set of route names, beside the dispatcher's
+    # set and the broker's gate.
+    from library.tools import execution_router
+
+    if not execution_router.is_edit_patch_route(routing["backend"]):
         raise PatchRefused(
             "the shared execution planner selected unsupported backend "
             f"{routing['backend']!r} for this guarded path")
