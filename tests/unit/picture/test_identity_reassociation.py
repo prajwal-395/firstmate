@@ -69,6 +69,28 @@ def test_reassociation_refuses_verified_claim_without_evidence():
         raise AssertionError("unsupported re-identification was verified")
 
 
+def test_a_candidate_may_carry_no_support_at_all():
+    """A proposal with no evidence behind it yet is expressible.
+
+    The candidate path could not record "no support yet": the endpoint
+    observations were always added as support, so the case was
+    unreachable. Only a VERIFIED link must carry support.
+    """
+    result = reassociate_tracks(_model(), max_gap_ticks=500,
+                                supporting_observation_ids=[])
+    assert len(result["links"]) == 1
+    link = result["links"][0]
+    assert link["status"] == "candidate"
+    assert link["supporting_observation_ids"] == []
+
+
+def test_a_candidate_with_support_keeps_the_endpoint_observations():
+    result = reassociate_tracks(_model(), max_gap_ticks=500,
+                                supporting_observation_ids=["obs-a"])
+    link = result["links"][0]
+    assert link["supporting_observation_ids"] == ["obs-a", "obs-b"]
+
+
 def test_scope_promotion_requires_verified_link_and_known_evidence():
     model = _model()
     entity = model["entities"][0]

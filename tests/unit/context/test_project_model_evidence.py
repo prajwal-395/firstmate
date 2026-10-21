@@ -1813,3 +1813,77 @@ def test_a_migrated_model_row_is_an_inference_with_its_uncertainty(
     # asserted nothing rather than inventing a confidence.
     assert voice["uncertainty"] == (
         evidence_contract.UNCERTAINTY_UNSTATED)
+def test_every_provenance_row_carries_a_producer_version(fixture_project):
+    """B-06: a provenance row names the version of the producer.
+
+    The field was null on every migrated row, so a reader could not
+    tell "not recorded" from "not asked", and a staleness check could
+    not compare a version with a version.
+    """
+    model, _report = _migrate(fixture_project)
+    assert model["provenance"]
+    for row in model["provenance"]:
+        assert isinstance(row["producer_version"], str), row
+        assert row["producer_version"], row
+
+
+def test_a_lane_that_recorded_its_version_carries_that_version(
+        fixture_project):
+    """The version the lane's own slot records is the version the row
+    carries; a lane that recorded none is stamped ``unknown``."""
+    path = fixture_project["memory"] / D1 / "transcript.words.json"
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["producer_version"] = "fixture-transcriber-v3"
+    _write(path, doc)
+
+    model, _report = _migrate(fixture_project)
+
+    row = next(item for item in model["provenance"]
+               if item["id"] == f"prov-{D1}-m1")
+    assert row["producer_version"] == "fixture-transcriber-v3"
+    other = next(item for item in model["provenance"]
+                 if item["id"] == f"prov-{D1}-m3b")
+    assert other["producer_version"] == "unknown"
+
+
+def test_a_model_derived_scene_carries_its_licence_verdict(
+        fixture_project):
+    """B-06: the row a reader holds names the model, the checkpoint
+    and the licence the registry ruled on."""
+    from library.tools import source_memory
+
+    scenes_path = fixture_project["memory"] / D1 / "scenes.json"
+    scenes = json.loads(scenes_path.read_text(encoding="utf-8"))
+    model_record = {
+        "format": "model_evidence_provenance/1",
+        "evidence_ids": [f"m4-window:{D1}:0:5000"],
+        "implementation_id": "fixture.scene_model",
+        "checkpoint_revision": "fixture-rev",
+        "license_context": {"approval_status": "approved"},
+        "workload_purpose": "commercial_client",
+        "output_reuse": {"class": "commercial"},
+        "generated_at": "2026-10-17T00:00:00Z",
+    }
+    scenes["instrument"].update({
+        "scene_pass": source_memory.M4_SCENE_PASS_METHOD,
+        "boundary_method": source_memory.M4_BOUNDARY_METHOD,
+    })
+    scenes["window_coverage"] = [{
+        "start_s": 0.0, "end_s": 5.0, "status": "complete",
+        "producer_version": "fixture-scene-v1", "source_digest": D1,
+        "model_provenance": model_record,
+        "producer_project_id": "fixture-project",
+        "producer_project_root": str(fixture_project["project"]),
+    }]
+    _write(scenes_path, scenes)
+
+    model, _report = _migrate(fixture_project)
+
+    scene = next(row for row in model["observations"]
+                 if row["provenance_id"] == f"prov-{D1}-m4"
+                 and row["modality"] == "scene")
+    context = scene["payload"]["license_context"]
+    assert context["implementation_id"] == "fixture.scene_model"
+    assert context["approval_status"] == "approved"
+    assert context["checkpoint_revision"] == "fixture-rev"
+    assert scene["payload"]["checkpoint_revision"] == "fixture-rev"

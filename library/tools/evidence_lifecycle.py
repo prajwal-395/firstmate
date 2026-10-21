@@ -73,6 +73,13 @@ KNOWN_DERIVED = (
     {"kind": "graph_cache", "name": "footage_graph_cache",
      "description": "cached project-graph build over catalog inputs",
      "sources": ["assets", "streams"]},
+    {"kind": "search_index", "name": "footage_index",
+     "description": "the footage search index over the project's media",
+     "sources": ["assets", "streams"]},
+    {"kind": "materialized_view", "name": "temporal_event_index",
+     "description": "typed temporal events over the model's events and the "
+                    "project's step outputs",
+     "sources": ["events", "observations"]},
 )
 """Derived artifacts the engine is known to keep. Owners register the
 rebuild entrypoint; until then each reads ``unowned``, never current."""

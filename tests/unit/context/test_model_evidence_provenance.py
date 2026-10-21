@@ -1,6 +1,8 @@
 """Model rights attach to individual evidence and gate every reuse."""
 import json
 
+import pytest
+
 from library.tools import model_evidence_provenance as provenance
 
 APPROVED = "fixture.approved_detector"
@@ -80,6 +82,35 @@ def test_record_binds_model_checkpoint_license_and_purpose_without_certainty():
     assert record["output_reuse"]["license_evidence_ref"].startswith(
         "implementations.")
     assert "certainty" not in record and "confidence" not in record
+
+
+def test_the_licence_verdict_travels_onto_the_observation(tmp_path):
+    """The row a reader holds names the model, the checkpoint and the
+    licence the registry ruled on (B-06)."""
+    record = provenance.record_for_generation(
+        ["obs-1"], APPROVED, "commercial_client",
+        registry=_registry(), generated_at="2026-10-16T12:00:00Z")
+    payload = provenance.stamp_observation_license(
+        {"claim": "a cup is on the table"}, record)
+    context = payload[provenance.LICENSE_CONTEXT_KEY]
+    assert context["implementation_id"] == APPROVED
+    assert context["approval_status"] == "approved"
+    assert context["checkpoint_revision"] == "revision-1"
+    assert context["workload_purpose"] == "commercial_client"
+    assert payload["checkpoint_revision"] == "revision-1"
+    assert payload["claim"] == "a cup is on the table"
+
+
+def test_an_unreadable_record_leaves_the_row_alone():
+    with pytest.raises(ValueError):
+        provenance.stamp_observation_license({"claim": "x"}, {"format": "nope"})
+    with pytest.raises(ValueError):
+        provenance.stamp_observation_license({"claim": "x"}, {
+            "format": provenance.FORMAT, "evidence_ids": ["obs-1"]})
+    with pytest.raises(ValueError):
+        provenance.stamp_observation_license("not-a-payload", {
+            "format": provenance.FORMAT, "evidence_ids": ["obs-1"],
+            "license_context": {}})
 
 
 def test_generation_records_are_persisted_append_only_beside_project_model(tmp_path):

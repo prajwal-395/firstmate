@@ -363,6 +363,32 @@ def index_dir_for(project_folder) -> Path:
     return Path(project_folder) / INDEX_SUBDIR
 
 
+def register_index_artifact(project_folder, embedder_name: str) -> dict | None:
+    """Declare the footage index this project just built (BL-06).
+
+    The index is DERIVED: it is built from the project's media and the
+    text encoder named beside it, so the project's derived-artifact
+    registry says what it was built from and which encoder built it.
+    A registry that cannot be written is not a failed build - the index
+    is on disk, and the index is the answer - so this reports nothing
+    rather than raising.
+    """
+    from library.tools import evidence_lifecycle
+    try:
+        recorded = source_memory.load_recorded_fingerprints(project_folder)
+        digests = sorted({str(row.get("content_digest"))
+                          for row in (recorded or {}).values()
+                          if isinstance(row, dict) and row.get("content_digest")})
+        return evidence_lifecycle.register_artifact(
+            Path(project_folder), name="footage_index", kind="search_index",
+            source_digests=digests, model_revision=None,
+            producer_versions={"text_embedder": embedder_name},
+            rebuild="library.tools.analysis.footage_query:build_index",
+            owner="footage_query")
+    except (OSError, ValueError, TypeError):
+        return None
+
+
 # ─── Embedding ────────────────────────────────────────────────────
 
 
@@ -5227,6 +5253,12 @@ def main(argv=None):
                             video_chunks=args.video_chunks,
                             unified_anchors=args.unified_anchors)
         print(json.dumps(stats, indent=2))
+        # The index is DERIVED, so the project declares what it built and
+        # what it was built from. The declaration is the explicit
+        # command's work: building the index itself must not touch the
+        # project.
+        register_index_artifact(
+            args.project, TEXT_EMBEDDER_MODELS[args.embedder])
         if args.frames:
             from library.tools.analysis import footage_frames
             frame_stats = footage_frames.build_frame_index(

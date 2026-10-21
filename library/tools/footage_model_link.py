@@ -142,10 +142,37 @@ def _link(project_folder: str, catalog: list | None) -> dict[str, Any]:
         revision = store.commit_evidence_import(
             store_at, base, expected_revision=expected_revision,
             author=AUTHOR, reason=reason)
+        _declare_temporal_index(store_at, revision, base)
         return {"status": "committed", "revision": revision,
                 "asset_ids": asset_ids}
     except Exception as exc:  # noqa: BLE001 - fail-soft by contract
         return {"status": "refused", "reason": f"store commit refused: {exc!r}"}
+
+
+def _declare_temporal_index(project_folder: Path, revision: int,
+                            model: dict[str, Any]) -> None:
+    """Declare the temporal-event index this project derives (BL-06).
+
+    The index is built from the Project Model's typed events and the
+    project's own step outputs, so it is stale when the model moves.
+    The registry says so, with the revision it was built against.
+
+    A registry that cannot be written is not a failed link: the model
+    was committed, and the model is the answer.
+    """
+    from library.tools import evidence_lifecycle
+    try:
+        digests = sorted({str(row.get("content_digest"))
+                          for row in model.get("assets") or []
+                          if isinstance(row, dict) and row.get("content_digest")})
+        evidence_lifecycle.register_artifact(
+            project_folder, name="temporal_event_index",
+            kind="materialized_view", source_digests=digests,
+            model_revision=int(revision),
+            rebuild="library.tools.temporal_events:build_temporal_events",
+            owner="temporal_events")
+    except (OSError, ValueError, TypeError):
+        return
 
 
 def mask_sidecar_entries(clip_id: str, seg_doc: dict) -> list[dict[str, str]]:

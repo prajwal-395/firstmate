@@ -112,10 +112,19 @@ def reassociate_tracks(model: dict[str, Any], *,
     verification. Cross-clock and cross-class pairs are never linked
     here - without a measured transform (lane 2) or a shared class
     there is no basis.
+
+    **A candidate may carry no support at all.** Passing an explicit
+    empty ``supporting_observation_ids`` says "this is a proposal with
+    no evidence behind it yet", and the link records exactly that. The
+    default (no argument) keeps the endpoint observations as the
+    candidate's support, which is what a proximity-based proposal has.
+    Only a VERIFIED link must carry support, and the Project Model
+    validator refuses a verified re-identification without it.
     """
     if max_gap_ticks <= 0 or max_center_distance <= 0:
         raise ValueError("re-identification thresholds must be positive")
     support = list(supporting_observation_ids or [])
+    no_support_yet = supporting_observation_ids is not None and not support
     if verify and not support:
         raise ValueError("verified re-identification requires supporting observations")
     observation_ids = {row["id"] for row in model.get("observations") or []
@@ -214,8 +223,9 @@ def reassociate_tracks(model: dict[str, Any], *,
                 "status": "verified" if verify else "candidate",
                 "provenance_id": (provenance_id
                                   or anchor.get("provenance_id")),
-                "supporting_observation_ids": sorted({
-                    *support, earlier_anchor["id"], anchor["id"]}),
+                "supporting_observation_ids": ([] if no_support_yet else
+                                              sorted({*support, earlier_anchor["id"],
+                                                      anchor["id"]})),
                 "track_id": later.get("id"),
                 "scope": {"clock_id": earlier_clock,
                           "start": earlier_start, "end": later_end},

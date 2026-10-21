@@ -30,6 +30,9 @@ try:
 except ImportError:  # imported as `tools.*` from inside library/
     from tools import evidence_license, model_registry, project_model_store
 
+LICENSE_CONTEXT_KEY = evidence_license.LICENSE_CONTEXT_KEY
+"""The additive key the licence verdict travels under."""
+
 FORMAT = "model_evidence_provenance/1"
 PROVENANCE_FILE = "model_evidence_provenance.jsonl"
 AUDIT_FILE = "model_evidence_reuse.jsonl"
@@ -89,6 +92,41 @@ def record_for_generation(
         "output_reuse": terms,
         "generated_at": generated_at or _utc_now(),
     }
+
+
+def stamp_observation_license(payload: dict[str, Any],
+                              record: dict[str, Any]) -> dict[str, Any]:
+    """Carry a generation record's licence verdict onto an observation.
+
+    The generation record already names the implementation, the
+    checkpoint it ran and the licence the registry ruled on. A reader
+    that holds only the observation could not see any of it, and the
+    cross-project share path had nothing on the row to check. The
+    stamped copy is the record's own verdict, read off the record: the
+    registry stays the authority and this copies what it said.
+
+    The payload is copied, never mutated in place.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("an observation payload is needed")
+    if not isinstance(record, dict) or record.get("format") != FORMAT:
+        raise ValueError("a model evidence provenance record is needed")
+    context = record.get("license_context")
+    if not isinstance(context, dict):
+        raise ValueError("the generation record carries no licence context")
+    checkpoint_revision = record.get("checkpoint_revision")
+    stamped = dict(payload)
+    stamped[LICENSE_CONTEXT_KEY] = {
+        "implementation_id": record.get("implementation_id"),
+        "approval_status": context.get("approval_status"),
+        "obligations": context.get("obligations"),
+        "checkpoint": record.get("checkpoint"),
+        "checkpoint_revision": checkpoint_revision,
+        "workload_purpose": record.get("workload_purpose"),
+        "license": context,
+    }
+    stamped["checkpoint_revision"] = checkpoint_revision
+    return stamped
 
 
 def output_reuse_terms(implementation_id: str,

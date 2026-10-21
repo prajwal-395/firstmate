@@ -203,6 +203,26 @@ SLOT_BY_LANE = {
     "m11": SLOT_AUDIO_QUALITY, "vi-03": SLOT_IMAGE_DEFECTS,
 }
 
+LANE_ALIASES = {
+    "vi03": "vi-03", "vi09": "vi-09",
+}
+"""The Project Model's lane names for the two vision-intelligence lanes.
+
+The model names them ``vi03`` and ``vi09``; the slots were reserved
+under ``vi-03`` and ``vi-09``. One lane, two spellings, and a reader
+that looks the slot up by the model's spelling finds nothing - so the
+lane's own recorded basis (its envelope, its producer version) reads as
+absent when the file is on disk. The alias is the resolution, not a
+second lane.
+"""
+
+
+def lane_slot(lane: str) -> str | None:
+    """The slot a lane writes into, or None when the lane has none."""
+    if not lane or not isinstance(lane, str):
+        return None
+    return SLOT_BY_LANE.get(lane) or SLOT_BY_LANE.get(LANE_ALIASES.get(lane, ""))
+
 # No slot is reserved now. SLOT_CLOCK (M6) was the first to gain a writer
 # (`library/tools/conversation_clock.py`); SLOT_FRAMES_DIR/SLOT_FRAMES_INDEX
 # (M2) followed (`extract_iframes`/`build_frames` below), then SLOT_IDENTITY
@@ -1420,12 +1440,43 @@ def validate_evidence_envelope(envelope: dict) -> None:
 def read_evidence_envelope(content_digest: str, lane: str,
                            root: Optional[Path] = None) -> Optional[dict]:
     """Read a slot's envelope; absent envelopes remain legacy/unknown."""
-    slot = SLOT_BY_LANE.get(lane)
+    slot = lane_slot(lane)
     if slot is None:
         return None
     doc = _load_json(source_dir(content_digest, root) / slot)
     envelope = doc.get("evidence_envelope") if isinstance(doc, dict) else None
     return envelope if isinstance(envelope, dict) else None
+
+
+def read_lane_producer_version(content_digest: str, lane: str,
+                               root: Optional[Path] = None) -> Optional[str]:
+    """The producer version a lane's own record carries, if it carries one.
+
+    The envelope is the place a slot records the version of the
+    implementation that wrote it. A slot written before the envelope
+    existed carries none, and this answers ``None`` for it: the
+    producer's version is unknown, not ``"1"`` and not a guess.
+    """
+    slot = lane_slot(lane)
+    if slot is None:
+        return None
+    doc = _load_json(source_dir(content_digest, root) / slot)
+    if not isinstance(doc, dict):
+        return None
+    envelope = doc.get("evidence_envelope")
+    if isinstance(envelope, dict):
+        version = envelope.get("producer_version")
+        if isinstance(version, str) and version:
+            return version
+    version = doc.get("producer_version")
+    if isinstance(version, str) and version:
+        return version
+    instrument = doc.get("instrument")
+    if isinstance(instrument, dict):
+        version = instrument.get("version") or instrument.get("producer_version")
+        if isinstance(version, str) and version:
+            return version
+    return None
 
 
 def read_m0(content_digest: str,

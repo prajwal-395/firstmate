@@ -141,6 +141,15 @@ except ImportError:  # imported as `tools.*` from inside library/
     )
     from tools import source_clocks
 
+UNKNOWN_PRODUCER_VERSION = "unknown"
+"""The producer version of a lane whose own record carries none.
+
+The engine's own convention for a version nobody recorded. It is a
+word, not a null: a reader can see that the basis was not versioned,
+and a staleness check can say so instead of comparing a null to a
+version and finding them equal.
+"""
+
 TICKS_PER_SECOND = 1000
 """Millisecond source clocks: lanes measure float seconds, so integer
 millisecond ticks preserve every measured span without a frame-rate
@@ -262,6 +271,29 @@ def _prov_id(digest: str, lane: str) -> str:
     return f"prov-{digest}-{lane}"
 
 
+def _stamp_licence(payload: dict[str, Any], record: dict[str, Any],
+                   notes: list[str] | None = None) -> dict[str, Any]:
+    """Carry a generation record's licence verdict onto a row (B-06).
+
+    The record names the implementation, the checkpoint and the licence
+    the registry ruled on; the row the reader holds did not. The stamp
+    copies the record's own verdict, so the row can be read without the
+    record beside it.
+
+    A record the stamper refuses leaves the row as it was, and says so
+    in the migration's notes: the row is not wrong without the licence,
+    and the migration does not stop for one unreadable record.
+    """
+    from library.tools import model_evidence_provenance
+    try:
+        return model_evidence_provenance.stamp_observation_license(
+            payload, record)
+    except ValueError as exc:
+        if notes is not None:
+            notes.append(f"licence context not stamped: {exc}")
+        return payload
+
+
 class _Builder:
     """Accumulates one Project Model document plus its migration report."""
 
@@ -313,19 +345,45 @@ class _Builder:
         return self._memory_envelopes[key]
 
     def provenance(self, digest: str, lane: str, producer: str,
-                   source_file: str | None = None) -> str:
+                   source_file: str | None = None,
+                   producer_version: str | None = None) -> str:
+        """The provenance row for one lane's work on one source.
+
+        ``producer_version`` is the version of the implementation that
+        produced the rows, and it is never null (B-06). The lane's own
+        record carries it when the producer wrote one; a lane that
+        recorded none is stamped ``"unknown"``, which says the version
+        was not recorded. A null said nothing at all, and a reader
+        could not tell "not recorded" from "not asked".
+        """
         prov_id = _prov_id(digest, lane)
         if prov_id not in self._seen_prov:
             self._seen_prov.add(prov_id)
             self.model["provenance"].append({
                 "id": prov_id,
                 "producer": producer,
-                "producer_version": None,
+                "producer_version": (producer_version
+                                     or self.lane_producer_version(digest, lane)),
                 "source_digest": digest,
                 "recorded_at": None,
             })
         _ = source_file
         return prov_id
+
+    def lane_producer_version(self, digest: str, lane: str) -> str:
+        """The producer version the lane's own record carries.
+
+        The Source Memory envelope is where a lane records the version
+        of the implementation that wrote it. A lane whose slot predates
+        the envelope recorded none, and this says ``"unknown"`` rather
+        than inventing one.
+        """
+        try:
+            version = source_memory.read_lane_producer_version(
+                digest, lane, self.memory_root)
+        except (OSError, ValueError, TypeError):
+            version = None
+        return version or UNKNOWN_PRODUCER_VERSION
 
     def observation(self, digest: str, lane: str, asset_id: str,
                      clock_id: str, start: float, end: float, modality: str,
@@ -1740,6 +1798,9 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                 "project_id": window["producer_project_id"],
                 "project_root": window["producer_project_root"],
             }
+            empty_payload = _stamp_licence(empty_payload,
+                                           window["model_provenance"],
+                                           builder.notes)
         builder.observation(
             digest, "m4", asset_id, clock_id, start, end, "scene",
             empty_payload, None,
@@ -1831,6 +1892,8 @@ def _migrate_scenes(builder: _Builder, digest: str, asset_id: str,
                     "project_id": model_window["producer_project_id"],
                     "project_root": model_window["producer_project_root"],
             }
+            scene_payload = _stamp_licence(scene_payload, model_record,
+                                           builder.notes)
         builder.observation(
             digest, "m4", asset_id, clock_id,
             start, end, "scene",
